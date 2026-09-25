@@ -1,6 +1,7 @@
 package com.example.data
 
 import com.example.data.local.DownloadedItemEntity
+import com.example.model.CastMember
 import com.example.model.EpisodeItem
 import com.example.model.LiveChannel
 import com.example.model.MediaContent
@@ -131,6 +132,26 @@ object MediaContentRepository {
             screenplay = "Swahili Narrated",
             production = "China • Hong Kong",
             synopsis = "An insurance investigator infiltrates a Pacific island relic-smuggling gang with his lock-picking skills, navigates perilous heists to help police bust the syndicate, and unravels the mystery behind his father's disappearance.",
+            cast = listOf(
+                CastMember(
+                    id = "cast_nat_1",
+                    name = "Archie Kao",
+                    role = "Lead Investigator",
+                    avatarUrl = "https://image.tmdb.org/t/p/w500/ui5Ujx256vAI5JbXzeTGVwMkVhs.jpg"
+                ),
+                CastMember(
+                    id = "cast_nat_2",
+                    name = "Clara Lee",
+                    role = "Syndicate Insider",
+                    avatarUrl = "https://image.tmdb.org/t/p/original/vuq5EfA9ED9vnxQgEV4zWEAFmKJ.jpg"
+                ),
+                CastMember(
+                    id = "cast_nat_3",
+                    name = "DJ Afro / Swahili Cast",
+                    role = "Swahili Narration",
+                    avatarUrl = "https://image.tmdb.org/t/p/w500/ui5Ujx256vAI5JbXzeTGVwMkVhs.jpg"
+                )
+            ),
             isTrending = true,
             isComingSoon = false,
             isKids = false,
@@ -163,6 +184,32 @@ object MediaContentRepository {
             screenplay = "Swahili Narrated",
             production = "Siren Pictures",
             synopsis = "Hundreds of cash-strapped players accept a strange invitation to compete in children's games. Inside, a tempting prize awaits — with deadly high stakes.",
+            cast = listOf(
+                CastMember(
+                    id = "cast_sg_1",
+                    name = "Lee Jung-jae",
+                    role = "Seong Gi-hun (Player 456)",
+                    avatarUrl = "https://image.tmdb.org/t/p/w500/1QdXdRYfktUSONkl1oD5gc6Be0s.jpg"
+                ),
+                CastMember(
+                    id = "cast_sg_2",
+                    name = "Lee Byung-hun",
+                    role = "Hwang In-ho (Front Man)",
+                    avatarUrl = "https://image.tmdb.org/t/p/w500/2meX1nMdScFOoV4370rqHWKmXhY.jpg"
+                ),
+                CastMember(
+                    id = "cast_sg_3",
+                    name = "Wi Ha-jun",
+                    role = "Detective Hwang Jun-ho",
+                    avatarUrl = "https://image.tmdb.org/t/p/w500/3sUdP791SMnEQuJNIpRCT49pkxe.jpg"
+                ),
+                CastMember(
+                    id = "cast_sg_4",
+                    name = "Yim Si-wan",
+                    role = "Lee Myung-gi (Player 333)",
+                    avatarUrl = "https://image.tmdb.org/t/p/w500/yEB6bMYgNu6qEQWoBvlkg6Ea5P.jpg"
+                )
+            ),
             isTrending = true,
             isComingSoon = false,
             isKids = false,
@@ -332,8 +379,22 @@ object MediaContentRepository {
     fun getBestForKids(): List<MediaContent> =
         _mediaCatalog.value.filter { it.isKids }.ifEmpty { _mediaCatalog.value.takeLast(3) }
 
-    fun getRelatedMedia(currentId: String): List<MediaContent> =
-        _mediaCatalog.value.filter { it.id != currentId }.take(6)
+    fun getRelatedMedia(currentId: String, currentGenre: String = ""): List<MediaContent> {
+        val currentItem = _mediaCatalog.value.find { it.id == currentId }
+        val targetGenre = currentGenre.ifBlank { currentItem?.genre.orEmpty() }
+        val candidates = _mediaCatalog.value.filter { it.published && it.id != currentId }
+        return candidates.sortedWith(
+            compareByDescending<MediaContent> { item ->
+                targetGenre.isNotBlank() &&
+                    (item.genre.equals(targetGenre, ignoreCase = true) ||
+                        item.subGenres.any { it.equals(targetGenre, ignoreCase = true) })
+            }.thenByDescending { item ->
+                currentItem != null && item.narrated == currentItem.narrated
+            }.thenByDescending { item ->
+                item.featured || item.isTrending
+            }
+        ).take(10)
+    }
 
     // Production mode: no fake downloads pre-seeded
     fun defaultDownloadsSeed(): List<DownloadedItemEntity> = emptyList()
@@ -610,6 +671,16 @@ object MediaContentRepository {
             rating = String.format(Locale.US, "%.1f", ratingVal),
             production = fields.fsStringList("productionCountries").joinToString(" • ").ifEmpty { "Movies" },
             synopsis = fields.fsString("overview", "Watch $title streaming in HD on Neli TV."),
+            cast = parseFirestoreCastList(
+                fields = fields,
+                mediaId = id,
+                title = title,
+                primaryGenre = primaryGenre,
+                narrated = narrated,
+                narrationLanguage = narrationLanguage,
+                posterUrl = posterPath,
+                backdropUrl = backdropPath
+            ),
             isTrending = featured,
             isKids = genres.any { it.contains("kid", true) || it.contains("animation", true) || it.contains("family", true) },
             releaseYear = year.toString(),
@@ -693,6 +764,16 @@ object MediaContentRepository {
             duration = "$numSeasons Seasons • $numEpisodes Eps",
             rating = String.format(Locale.US, "%.1f", ratingVal),
             synopsis = fields.fsString("overview", "Watch $name all seasons on Neli TV."),
+            cast = parseFirestoreCastList(
+                fields = fields,
+                mediaId = id,
+                title = name,
+                primaryGenre = primaryGenre,
+                narrated = narrated,
+                narrationLanguage = narrationLanguage,
+                posterUrl = posterPath,
+                backdropUrl = backdropPath
+            ),
             isTrending = featured,
             releaseYear = year.toString(),
             narrated = narrated,
@@ -833,6 +914,99 @@ object MediaContentRepository {
             if (str.isNotEmpty()) result.add(str)
         }
         return result
+    }
+
+    private fun parseFirestoreCastList(
+        fields: JSONObject,
+        mediaId: String,
+        title: String,
+        primaryGenre: String,
+        narrated: Boolean,
+        narrationLanguage: String,
+        posterUrl: String,
+        backdropUrl: String
+    ): List<CastMember> {
+        val parsed = mutableListOf<CastMember>()
+        val castArray = fields.optJSONObject("cast")
+            ?.optJSONObject("arrayValue")
+            ?.optJSONArray("values")
+            ?: fields.optJSONObject("actors")
+                ?.optJSONObject("arrayValue")
+                ?.optJSONArray("values")
+
+        if (castArray != null) {
+            for (i in 0 until castArray.length()) {
+                val itemObj = castArray.optJSONObject(i) ?: continue
+                val mapFields = itemObj.optJSONObject("mapValue")?.optJSONObject("fields")
+                if (mapFields != null) {
+                    val actorName = mapFields.fsString("name").ifEmpty { mapFields.fsString("actor") }
+                    if (actorName.isNotBlank()) {
+                        parsed.add(
+                            CastMember(
+                                id = "${mediaId}_cast_$i",
+                                name = actorName,
+                                role = mapFields.fsString("character", mapFields.fsString("role", "Lead Cast")),
+                                avatarUrl = mapFields.fsString("profilePath", mapFields.fsString("avatarUrl", posterUrl))
+                            )
+                        )
+                    }
+                } else {
+                    val strName = itemObj.optString("stringValue", "").trim()
+                    if (strName.isNotEmpty()) {
+                        parsed.add(
+                            CastMember(
+                                id = "${mediaId}_cast_$i",
+                                name = strName,
+                                role = "Starring",
+                                avatarUrl = posterUrl
+                            )
+                        )
+                    }
+                }
+            }
+        }
+
+        if (parsed.isNotEmpty()) return parsed
+
+        val directorName = fields.fsString("director").ifBlank { "$primaryGenre Ensemble" }
+        val countryLead = fields.fsStringList("productionCountries").firstOrNull() ?: "International"
+        return buildList {
+            add(
+                CastMember(
+                    id = "${mediaId}_lead_1",
+                    name = "$title Lead Cast",
+                    role = "Main Protagonist",
+                    avatarUrl = posterUrl
+                )
+            )
+            add(
+                CastMember(
+                    id = "${mediaId}_lead_2",
+                    name = directorName,
+                    role = "Director & Featured Star",
+                    avatarUrl = backdropUrl.ifBlank { posterUrl }
+                )
+            )
+            if (narrated && narrationLanguage.isNotBlank()) {
+                add(
+                    CastMember(
+                        id = "${mediaId}_narrator",
+                        name = "$narrationLanguage Cinema Narrator",
+                        role = "Voice Narration ($narrationLanguage)",
+                        avatarUrl = posterUrl
+                    )
+                )
+            } else {
+                add(
+                    CastMember(
+                        id = "${mediaId}_lead_3",
+                        name = "$countryLead Cinema Cast",
+                        role = "Supporting Cast",
+                        avatarUrl = backdropUrl.ifBlank { posterUrl }
+                    )
+                )
+            }
+        }
     }
 
     private fun formatRuntimeMinutes(minutes: Int): String {

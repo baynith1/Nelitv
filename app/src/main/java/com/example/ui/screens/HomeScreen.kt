@@ -35,6 +35,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -69,7 +70,6 @@ import com.example.ui.components.NeliBottomBar
 import com.example.ui.components.TopNavBar
 import com.example.ui.theme.NeliBackground
 import com.example.ui.theme.NeliCardPurple
-import com.example.ui.theme.NeliDurationViolet
 import com.example.ui.theme.NeliGenreCyan
 import com.example.ui.theme.NeliLiveRed
 import com.example.ui.theme.NeliMagenta
@@ -84,7 +84,12 @@ fun HomeScreen(
     modifier: Modifier = Modifier,
     neliViewModel: NeliViewModel = viewModel()
 ) {
-    var selectedTab by rememberSaveable { mutableStateOf(BottomNavTab.HOME) }
+    val context = LocalContext.current
+    val isOfflineMode by neliViewModel.isOfflineMode.collectAsState()
+
+    var selectedTab by rememberSaveable {
+        mutableStateOf(if (isOfflineMode) BottomNavTab.DOWNLOAD else BottomNavTab.HOME)
+    }
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var selectedCategory by rememberSaveable { mutableStateOf("All") }
     var selectedGenreTab by rememberSaveable { mutableStateOf("Popular") }
@@ -97,12 +102,27 @@ fun HomeScreen(
     val downloads by neliViewModel.downloads.collectAsState()
     val downloadedIds by neliViewModel.downloadedIds.collectAsState()
     val downloadProgress by neliViewModel.downloadProgress.collectAsState()
+    val downloadBannerMessage by neliViewModel.downloadBannerMessage.collectAsState()
     val watchlist by neliViewModel.watchlistItems.collectAsState()
     val watchlistIds by neliViewModel.watchlistIds.collectAsState()
     val firebaseConfig by neliViewModel.firebaseConfig.collectAsState()
     val currentUser by neliViewModel.currentUser.collectAsState()
     val authError by neliViewModel.authError.collectAsState()
+    val googleFallbackMessage by neliViewModel.googleFallbackMessage.collectAsState()
     val isAuthLoading by neliViewModel.isAuthLoading.collectAsState()
+
+    // Automatically direct user to the Downloads page when entering the app without internet
+    LaunchedEffect(isOfflineMode) {
+        if (isOfflineMode) {
+            selectedMediaId = null
+            selectedTab = BottomNavTab.DOWNLOAD
+        }
+    }
+
+    // YouTube-style automatic Google Sign-In on first launch using the Activity context
+    LaunchedEffect(Unit) {
+        neliViewModel.attemptAutoGoogleSignInIfNeeded(context)
+    }
 
     val activeDetailMedia = remember(selectedMediaId, mediaCatalog) {
         selectedMediaId?.let { id -> mediaCatalog.find { it.id == id } }
@@ -113,7 +133,11 @@ fun HomeScreen(
         val cleanId = playable.id.removePrefix("vod_").removePrefix("ep_").removePrefix("dl_")
         val localEntry = downloads.find { it.id == cleanId || it.id == playable.id }
         if (localEntry != null && localEntry.localFilePath.isNotBlank()) {
-            val resolvedUrl = OfflineDownloadManager.resolvePlayableUrl(playable.streamUrl, localEntry.localFilePath)
+            val resolvedUrl = OfflineDownloadManager.resolvePlayableUrl(
+                streamUrl = playable.streamUrl,
+                localFilePath = localEntry.localFilePath,
+                context = context
+            )
             onChannelSelected(playable.copy(streamUrl = resolvedUrl))
         } else {
             onChannelSelected(playable)
@@ -124,19 +148,42 @@ fun HomeScreen(
         val seriesEpisodes = remember(activeDetailMedia.id, episodesCatalog) {
             MediaContentRepository.getEpisodesForSeries(activeDetailMedia.id)
         }
+        val recommendedMedia = remember(activeDetailMedia.id, activeDetailMedia.genre, mediaCatalog) {
+            MediaContentRepository.getRelatedMedia(activeDetailMedia.id, activeDetailMedia.genre)
+        }
         MediaDetailScreen(
             media = activeDetailMedia,
             episodes = seriesEpisodes,
+            recommendedMedia = recommendedMedia,
             isInWatchlist = watchlistIds.contains(activeDetailMedia.id),
             isDownloaded = downloadedIds.contains(activeDetailMedia.id),
             downloadedIds = downloadedIds,
             downloadProgress = downloadProgress,
+            downloadBannerMessage = downloadBannerMessage,
             onBack = { selectedMediaId = null },
             onPlayChannel = playWithOfflineResolution,
             onToggleWatchlist = { neliViewModel.toggleWatchlist(it) },
-            onDownloadMedia = { neliViewModel.addDownload(it) },
-            onDownloadEpisode = { ep ->
-                neliViewModel.addEpisodeDownload(ep, activeDetailMedia.title, activeDetailMedia.posterUrl)
+            onDownloadMedia = { media, quality ->
+                neliViewModel.addDownload(media, quality)
+            },
+            onDownloadEpisode = { ep, quality ->
+                neliViewModel.addEpisodeDownload(
+                    episode = ep,
+                    seriesTitle = activeDetailMedia.title,
+                    seriesPoster = activeDetailMedia.posterUrl,
+                    quality = quality
+                )
+            },
+            onSelectRecommendedMedia = { recommended ->
+                selectedMediaId = recommended.id
+            },
+            onOpenDownloadsTab = {
+                neliViewModel.dismissDownloadBanner()
+                selectedMediaId = null
+                selectedTab = BottomNavTab.DOWNLOAD
+            },
+            onDismissDownloadBanner = {
+                neliViewModel.dismissDownloadBanner()
             },
             modifier = modifier.fillMaxSize()
         )
@@ -217,8 +264,13 @@ fun HomeScreen(
                     DownloadTabContent(
                         downloads = downloads,
                         downloadProgress = downloadProgress,
+                        isOfflineMode = isOfflineMode,
                         onPlayDownloaded = { dl ->
-                            val resolvedUrl = OfflineDownloadManager.resolvePlayableUrl(dl.streamUrl, dl.localFilePath)
+                            val resolvedUrl = OfflineDownloadManager.resolvePlayableUrl(
+                                streamUrl = dl.streamUrl,
+                                localFilePath = dl.localFilePath,
+                                context = context
+                            )
                             val format = when {
                                 resolvedUrl.startsWith("file:", true) ||
                                         dl.streamUrl.substringBefore("?").endsWith(".mp4", true) -> "mp4"
@@ -229,7 +281,7 @@ fun HomeScreen(
                                 LiveChannel(
                                     id = "dl_${dl.id}",
                                     name = dl.title.replace("\n", " "),
-                                    description = "${dl.genre} • ${dl.duration} • Offline Ready",
+                                    description = "${dl.genre} • ${dl.duration} • ${dl.fileSizeLabel}",
                                     streamUrl = resolvedUrl,
                                     streamFormat = format,
                                     thumbnailUrl = dl.backdropUrl.ifBlank { dl.posterUrl },
@@ -246,10 +298,14 @@ fun HomeScreen(
                     AccountTabContent(
                         currentUser = currentUser,
                         authError = authError,
+                        googleFallbackMessage = googleFallbackMessage,
                         isAuthLoading = isAuthLoading,
                         firebaseConfig = firebaseConfig,
                         watchlist = watchlist,
                         downloadsCount = downloads.size,
+                        onSignInWithGoogle = {
+                            neliViewModel.signInWithGoogle(context)
+                        },
                         onSignUp = { realName, email, password ->
                             neliViewModel.signUpUser(realName, email, password)
                         },
@@ -517,7 +573,7 @@ private fun HomeTabBody(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Popular Series & Seasons",
+                            text = "Popular Series & Seasons (Video on Demand)",
                             color = NeliTextPrimary,
                             fontSize = 16.sp,
                             fontWeight = FontWeight.ExtraBold

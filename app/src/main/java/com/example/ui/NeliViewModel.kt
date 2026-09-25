@@ -1,17 +1,25 @@
 package com.example.ui
 
 import android.app.Application
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.AuthRepository
 import com.example.data.ChannelRepository
+import com.example.data.GoogleAutoSignInResult
 import com.example.data.MediaContentRepository
 import com.example.data.OfflineDownloadManager
+import com.example.data.UserManager
 import com.example.data.local.DownloadedItemEntity
 import com.example.data.local.FirebaseConfigEntity
 import com.example.data.local.NeliDatabase
 import com.example.data.local.UserAccountEntity
 import com.example.data.local.WatchlistItemEntity
+import com.example.model.DownloadQualityOption
 import com.example.model.EpisodeItem
 import com.example.model.LiveChannel
 import com.example.model.MediaContent
@@ -27,12 +35,17 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
 
     private val appContext = application.applicationContext
     private val dao = NeliDatabase.getInstance(application).mediaDao()
+    val userManager = UserManager(appContext, dao)
 
     val mediaCatalog: StateFlow<List<MediaContent>> = MediaContentRepository.mediaCatalog
     val episodesCatalog: StateFlow<List<EpisodeItem>> = MediaContentRepository.episodesCatalog
     val liveChannels: StateFlow<List<LiveChannel>> = ChannelRepository.liveChannelsFlow
     val firebaseSyncStatus: StateFlow<String> = MediaContentRepository.firebaseSyncStatus
     val downloadProgress: StateFlow<Map<String, Int>> = OfflineDownloadManager.downloadProgress
+    val downloadBannerMessage: StateFlow<String?> = OfflineDownloadManager.downloadBannerMessage
+
+    private val _isOfflineMode = MutableStateFlow(!OfflineDownloadManager.isDeviceOnline(appContext))
+    val isOfflineMode: StateFlow<Boolean> = _isOfflineMode.asStateFlow()
 
     val downloads: StateFlow<List<DownloadedItemEntity>> = dao.getAllDownloads()
         .stateIn(
@@ -82,10 +95,42 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
     private val _authError = MutableStateFlow<String?>(null)
     val authError: StateFlow<String?> = _authError.asStateFlow()
 
+    private val _googleFallbackMessage = MutableStateFlow<String?>(null)
+    val googleFallbackMessage: StateFlow<String?> = _googleFallbackMessage.asStateFlow()
+
     private val _isAuthLoading = MutableStateFlow(false)
     val isAuthLoading: StateFlow<Boolean> = _isAuthLoading.asStateFlow()
 
+    private val connectivityManager =
+        appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+
+    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) {
+            _isOfflineMode.value = false
+        }
+
+        override fun onLost(network: Network) {
+            _isOfflineMode.value = !OfflineDownloadManager.isDeviceOnline(appContext)
+        }
+
+        override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
+            val hasInternet = networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            _isOfflineMode.value = !hasInternet
+        }
+    }
+
     init {
+        registerConnectivityMonitor()
+
+        // 1. YouTube-style automatic Google Sign-In on first launch if no account is signed in yet
+        viewModelScope.launch {
+            userManager.signInWithGoogleAutoOrPrimaryAccount(
+                uiContext = appContext,
+                forceInteractive = false
+            )
+        }
+
+        // 2. Sync live catalog if online
         viewModelScope.launch {
             val apiKey = AuthRepository.resolveApiKey(appContext)
             MediaContentRepository.syncFromFirebaseEndpoint(
@@ -96,11 +141,38 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private fun registerConnectivityMonitor() {
+        try {
+            val request = NetworkRequest.Builder()
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .build()
+            connectivityManager?.registerNetworkCallback(request, networkCallback)
+        } catch (_: Exception) {}
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        try {
+            connectivityManager?.unregisterNetworkCallback(networkCallback)
+        } catch (_: Exception) {}
+    }
+
+    fun refreshConnectivityState() {
+        _isOfflineMode.value = !OfflineDownloadManager.isDeviceOnline(appContext)
+    }
+
+    fun dismissDownloadBanner() {
+        OfflineDownloadManager.dismissBannerMessage()
+    }
+
     /**
-     * Downloads a movie or series to the phone's internal storage (`offline_media`).
+     * Downloads a movie or series to the phone's internal storage (`offline_media`) at the selected quality.
      * Strictly prevents downloading the same movie twice.
      */
-    fun addDownload(media: MediaContent) {
+    fun addDownload(
+        media: MediaContent,
+        quality: DownloadQualityOption = DownloadQualityOption.HIGH_720P
+    ) {
         if (!media.downloadEnabled) return
         viewModelScope.launch {
             if (dao.isDownloaded(media.id) || OfflineDownloadManager.isCurrentlyDownloading(media.id)) {
@@ -119,18 +191,28 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
                 streamUrl = media.streamUrl,
                 genre = media.genre,
                 duration = media.duration,
-                rating = media.rating,
-                fileSizeLabel = if (media.isSeries) "850 MB" else "680 MB"
+                rating = quality.resolutionBadge,
+                fileSizeLabel = "${quality.resolutionBadge} • ${if (media.isSeries) quality.estimatedEpisodeSize else quality.estimatedMovieSize}"
             )
-            OfflineDownloadManager.downloadMediaOffline(appContext, dao, item)
+            OfflineDownloadManager.downloadMediaOffline(
+                context = appContext,
+                dao = dao,
+                item = item,
+                quality = quality
+            )
         }
     }
 
     /**
-     * Downloads an episode to the phone's internal storage (`offline_media`).
+     * Downloads an episode to the phone's internal storage (`offline_media`) at the selected quality.
      * Strictly prevents downloading the same episode twice.
      */
-    fun addEpisodeDownload(episode: EpisodeItem, seriesTitle: String, seriesPoster: String) {
+    fun addEpisodeDownload(
+        episode: EpisodeItem,
+        seriesTitle: String,
+        seriesPoster: String,
+        quality: DownloadQualityOption = DownloadQualityOption.HIGH_720P
+    ) {
         if (!episode.downloadEnabled) return
         viewModelScope.launch {
             if (dao.isDownloaded(episode.id) || OfflineDownloadManager.isCurrentlyDownloading(episode.id)) {
@@ -145,10 +227,15 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
                 streamUrl = episode.streamUrl,
                 genre = if (episode.narrated) "Series • ${episode.narrationLanguage}" else "Series",
                 duration = episode.durationLabel,
-                rating = "HD",
-                fileSizeLabel = "420 MB"
+                rating = quality.resolutionBadge,
+                fileSizeLabel = "${quality.resolutionBadge} • ${quality.estimatedEpisodeSize}"
             )
-            OfflineDownloadManager.downloadMediaOffline(appContext, dao, item)
+            OfflineDownloadManager.downloadMediaOffline(
+                context = appContext,
+                dao = dao,
+                item = item,
+                quality = quality
+            )
         }
     }
 
@@ -200,13 +287,53 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private var hasAttemptedActivityAutoSignIn = false
+
+    fun attemptAutoGoogleSignInIfNeeded(uiContext: Context) {
+        if (hasAttemptedActivityAutoSignIn) return
+        hasAttemptedActivityAutoSignIn = true
+        viewModelScope.launch {
+            userManager.signInWithGoogleAutoOrPrimaryAccount(
+                uiContext = uiContext,
+                forceInteractive = false
+            )
+        }
+    }
+
+    /**
+     * Triggers Google Sign-In (selecting the primary/first Google account on the device).
+     * If Google Sign-In fails or no Google account is configured on the device, sets a helpful
+     * "Use email instead" fallback message so the user can sign in or register with Email & Password.
+     */
+    fun signInWithGoogle(uiContext: Context = appContext) {
+        viewModelScope.launch {
+            _isAuthLoading.value = true
+            _authError.value = null
+            _googleFallbackMessage.value = null
+
+            val result = userManager.signInWithGoogleAutoOrPrimaryAccount(
+                uiContext = uiContext,
+                forceInteractive = true
+            )
+            _isAuthLoading.value = false
+            when (result) {
+                is GoogleAutoSignInResult.Success -> {
+                    _googleFallbackMessage.value = null
+                    _authError.value = null
+                }
+                is GoogleAutoSignInResult.UseEmailFallback -> {
+                    _googleFallbackMessage.value = result.reasonMessage
+                }
+            }
+        }
+    }
+
     fun signUpUser(realName: String, email: String, password: String) {
         viewModelScope.launch {
             _isAuthLoading.value = true
             _authError.value = null
-            val result = AuthRepository.signUpWithEmailAndPassword(
-                context = appContext,
-                dao = dao,
+            _googleFallbackMessage.value = null
+            val result = userManager.registerWithEmailAndPassword(
                 realName = realName,
                 email = email,
                 password = password
@@ -222,9 +349,8 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _isAuthLoading.value = true
             _authError.value = null
-            val result = AuthRepository.signInWithEmailAndPassword(
-                context = appContext,
-                dao = dao,
+            _googleFallbackMessage.value = null
+            val result = userManager.loginWithEmailAndPassword(
                 email = email,
                 password = password
             )
@@ -238,12 +364,14 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
     fun signOutUser() {
         viewModelScope.launch {
             _authError.value = null
-            dao.logoutAllUsers()
+            _googleFallbackMessage.value = null
+            userManager.signOut()
         }
     }
 
     fun clearAuthError() {
         _authError.value = null
+        _googleFallbackMessage.value = null
     }
 
     fun updateNetworkPreferences(networkMode: String, allowMobileData: Boolean) {

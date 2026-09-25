@@ -114,6 +114,9 @@ interface NeliMediaDao {
     @Query("SELECT * FROM user_accounts WHERE isLoggedIn = 1 ORDER BY lastLoginAt DESC LIMIT 1")
     fun getActiveUser(): Flow<UserAccountEntity?>
 
+    @Query("SELECT * FROM user_accounts WHERE isLoggedIn = 1 ORDER BY lastLoginAt DESC LIMIT 1")
+    suspend fun getActiveUserOnce(): UserAccountEntity?
+
     @Query("SELECT * FROM user_accounts WHERE LOWER(email) = LOWER(:email) LIMIT 1")
     suspend fun getAccountByEmail(email: String): UserAccountEntity?
 

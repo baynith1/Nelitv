@@ -1,5 +1,63 @@
 package com.example.model
 
+enum class DownloadQualityOption(
+    val qualityKey: String,
+    val label: String,
+    val resolutionBadge: String,
+    val description: String,
+    val estimatedMovieSize: String,
+    val estimatedEpisodeSize: String
+) {
+    LOW_360P(
+        qualityKey = "360p",
+        label = "Data Saver (360p)",
+        resolutionBadge = "360p SD",
+        description = "Fastest download • Uses minimal mobile data & storage",
+        estimatedMovieSize = "280 MB",
+        estimatedEpisodeSize = "160 MB"
+    ),
+    STANDARD_480P(
+        qualityKey = "480p",
+        label = "Standard Quality (480p)",
+        resolutionBadge = "480p SD",
+        description = "Balanced clarity & file size for mobile screens",
+        estimatedMovieSize = "480 MB",
+        estimatedEpisodeSize = "290 MB"
+    ),
+    HIGH_720P(
+        qualityKey = "720p",
+        label = "High Definition (720p HD)",
+        resolutionBadge = "720p HD",
+        description = "Sharp HD picture quality for offline cinema viewing",
+        estimatedMovieSize = "780 MB",
+        estimatedEpisodeSize = "450 MB"
+    ),
+    FULL_HD_1080P(
+        qualityKey = "1080p",
+        label = "Full HD (1080p)",
+        resolutionBadge = "1080p FHD",
+        description = "Maximum cinema resolution & audio fidelity",
+        estimatedMovieSize = "1.3 GB",
+        estimatedEpisodeSize = "720 MB"
+    );
+
+    fun resolveQualityStreamUrl(originalUrl: String): String {
+        val clean = originalUrl.trim()
+        if (clean.contains("b-cdn.net", ignoreCase = true)) {
+            val baseDir = clean.substringBeforeLast("/")
+            if (baseDir.startsWith("http")) {
+                return "$baseDir/play_${qualityKey}.mp4"
+            }
+        }
+        if (clean.contains("play_360p.mp4") || clean.contains("play_480p.mp4") ||
+            clean.contains("play_720p.mp4") || clean.contains("play_1080p.mp4")
+        ) {
+            return clean.replace(Regex("play_\\d+p\\.mp4"), "play_${qualityKey}.mp4")
+        }
+        return clean
+    }
+}
+
 data class CastMember(
     val id: String,
     val name: String,
@@ -68,7 +126,11 @@ data class EpisodeItem(
             categories = listOf("Series", if (narrated) narrationLanguage else "Drama"),
             language = if (narrated) "sw" else "en",
             encryptionType = "none",
-            isLiveBroadcast = false
+            isLiveBroadcast = false,
+            seriesId = seriesId,
+            episodeId = id,
+            seasonNumber = seasonNumber,
+            episodeNumber = episodeNumber
         )
     }
 }
@@ -158,7 +220,8 @@ data class MediaContent(
             categories = subGenres,
             language = if (narrated) "sw" else originalLanguage,
             encryptionType = "none",
-            isLiveBroadcast = false
+            isLiveBroadcast = false,
+            seriesId = if (isSeries) id else ""
         )
     }
 }

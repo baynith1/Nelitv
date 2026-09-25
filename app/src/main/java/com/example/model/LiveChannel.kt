@@ -26,7 +26,11 @@ data class LiveChannel(
     val country: String = "",
     val featured: Boolean = false,
     val enabled: Boolean = true,
-    val published: Boolean = true
+    val published: Boolean = true,
+    val seriesId: String = "",
+    val episodeId: String = "",
+    val seasonNumber: Int = 0,
+    val episodeNumber: Int = 0
 ) {
     val category: String
         get() = categories.firstOrNull()?.replaceFirstChar { it.uppercase() } ?: "Live TV"

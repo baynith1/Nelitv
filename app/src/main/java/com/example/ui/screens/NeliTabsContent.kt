@@ -575,6 +575,7 @@ fun LiveTvTabContent(
 fun DownloadTabContent(
     downloads: List<DownloadedItemEntity>,
     downloadProgress: Map<String, Int> = emptyMap(),
+    isOfflineMode: Boolean = false,
     onPlayDownloaded: (DownloadedItemEntity) -> Unit,
     onDeleteDownload: (String) -> Unit,
     modifier: Modifier = Modifier
@@ -586,6 +587,42 @@ fun DownloadTabContent(
             .testTag("download_tab_screen")
     ) {
         Spacer(modifier = Modifier.height(12.dp))
+
+        if (isOfflineMode) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 10.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(NeliCardPurple)
+                    .border(1.dp, Color(0xFF10B981), RoundedCornerShape(14.dp))
+                    .padding(12.dp)
+                    .testTag("offline_mode_auto_redirect_banner"),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.DownloadDone,
+                    contentDescription = null,
+                    tint = Color(0xFF10B981),
+                    modifier = Modifier.size(22.dp)
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Offline Mode Active • Ready to Watch Without Internet",
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                    Text(
+                        text = "No internet connection detected. You have been directed to your downloaded movies & series for offline viewing.",
+                        color = NeliGenreCyan,
+                        fontSize = 11.sp
+                    )
+                }
+            }
+        }
+
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -599,7 +636,7 @@ fun DownloadTabContent(
                     fontWeight = FontWeight.ExtraBold
                 )
                 Text(
-                    text = "Saved to phone internal storage for offline playback",
+                    text = "Saved in chosen quality to phone internal storage for offline viewing",
                     color = NeliTextSecondary,
                     fontSize = 12.sp
                 )
@@ -781,10 +818,12 @@ fun DownloadTabContent(
 fun AccountTabContent(
     currentUser: UserAccountEntity?,
     authError: String?,
+    googleFallbackMessage: String? = null,
     isAuthLoading: Boolean,
     firebaseConfig: FirebaseConfigEntity,
     watchlist: List<WatchlistItemEntity>,
     downloadsCount: Int,
+    onSignInWithGoogle: () -> Unit = {},
     onSignUp: (realName: String, email: String, password: String) -> Unit,
     onSignIn: (email: String, password: String) -> Unit,
     onSignOut: () -> Unit,
@@ -944,14 +983,106 @@ fun AccountTabContent(
                                 fontWeight = FontWeight.ExtraBold
                             )
                             Text(
-                                text = if (isRegisterMode) {
-                                    "Register with your real name, email & password for instant automatic login"
-                                } else {
-                                    "Sign in with your email & password to access your saved profile"
-                                },
+                                text = "Automatic sign-in with your phone's primary Google account, or use Email & Password below",
                                 color = NeliTextSecondary,
                                 fontSize = 12.sp
                             )
+                        }
+                    }
+
+                    // YouTube-style Automatic / One-Tap Google Account Sign-In Button
+                    Button(
+                        onClick = onSignInWithGoogle,
+                        enabled = !isAuthLoading,
+                        colors = ButtonDefaults.buttonColors(containerColor = NeliCardPurple),
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(50.dp)
+                            .border(1.dp, NeliGenreCyan.copy(alpha = 0.7f), RoundedCornerShape(14.dp))
+                            .testTag("google_sign_in_button")
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(24.dp)
+                                .clip(CircleShape)
+                                .background(Color.White),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "G",
+                                color = NeliMagenta,
+                                fontWeight = FontWeight.Black,
+                                fontSize = 14.sp
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = "Continue with Google (Device Account)",
+                            color = Color.White,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 14.sp
+                        )
+                    }
+
+                    // Fallback notice when Google Sign-In fails or is unavailable: "Use email instead" / Register
+                    if (!googleFallbackMessage.isNullOrBlank()) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color(0x33F59E0B))
+                                .border(1.dp, Color(0xFFF59E0B), RoundedCornerShape(12.dp))
+                                .padding(12.dp)
+                                .testTag("google_fallback_email_notice"),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = googleFallbackMessage,
+                                color = Color(0xFFFDE68A),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedButton(
+                                    onClick = {
+                                        isRegisterMode = false
+                                        onClearAuthError()
+                                    },
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .testTag("use_email_instead_button")
+                                ) {
+                                    Text(
+                                        text = "Use Email Instead",
+                                        color = Color.White,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                Button(
+                                    onClick = {
+                                        isRegisterMode = true
+                                        onClearAuthError()
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta),
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .testTag("fallback_register_button")
+                                ) {
+                                    Text(
+                                        text = "Register Account",
+                                        color = Color.White,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
                         }
                     }
 

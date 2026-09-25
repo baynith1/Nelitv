@@ -31,6 +31,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.VolumeMute
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.AspectRatio
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.NetworkCell
@@ -39,6 +40,8 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.Sensors
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -63,6 +66,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
@@ -83,6 +87,9 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import coil.compose.SubcomposeAsyncImage
+import coil.request.ImageRequest
+import com.example.data.MediaContentRepository
 import com.example.model.LiveChannel
 import com.example.player.LivePlayerController
 import com.example.player.PlayerUiState
@@ -104,7 +111,8 @@ import java.util.Locale
  *   continues at the live stream edge without rewinding.
  * - Movies & Series Episodes (`channel.isLiveBroadcast == false`) display Play/Pause, 10s Rewind/Forward
  *   seek buttons, and a responsive interactive timeline Slider.
- * - Supports Auto Quality Control according to user internet over both Mobile Data and Wi-Fi.
+ * - Series Video-On-Demand (VOD) includes on-screen Next Episode and Previous Episode buttons.
+ * - Supports Auto Quality Control according to user internet over both Mobile Data and Wi-Fi, plus Offline playback.
  */
 @OptIn(UnstableApi::class)
 @Composable
@@ -118,8 +126,49 @@ fun PlayerScreen(
     val activity = context as? Activity
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    val playerController = remember(channel.id) {
-        LivePlayerController(context, channel)
+    var activeChannel by remember(channel.id) { mutableStateOf(channel) }
+
+    // Resolve Series VOD episode list so Next & Previous buttons work on screen for Series
+    val episodesCatalog by MediaContentRepository.episodesCatalog.collectAsState()
+    val seriesEpisodes = remember(activeChannel.id, activeChannel.seriesId, episodesCatalog) {
+        val explicitSeriesId = activeChannel.seriesId.ifBlank {
+            val cleanEpId = activeChannel.episodeId.ifBlank { activeChannel.id.removePrefix("ep_") }
+            episodesCatalog.find { it.id == cleanEpId }?.seriesId.orEmpty()
+        }
+        if (explicitSeriesId.isNotBlank()) {
+            MediaContentRepository.getEpisodesForSeries(explicitSeriesId)
+        } else {
+            emptyList()
+        }
+    }
+
+    val currentEpisodeIndex = remember(activeChannel.id, activeChannel.episodeId, seriesEpisodes) {
+        if (seriesEpisodes.isEmpty()) -1 else {
+            val cleanEpId = activeChannel.episodeId.ifBlank { activeChannel.id.removePrefix("ep_") }
+            val idx = seriesEpisodes.indexOfFirst { it.id == cleanEpId }
+            if (idx >= 0) idx else 0
+        }
+    }
+
+    val isSeriesVod = !activeChannel.isLiveBroadcast && seriesEpisodes.isNotEmpty()
+    val previousEpisode = if (isSeriesVod && currentEpisodeIndex > 0) {
+        seriesEpisodes[currentEpisodeIndex - 1]
+    } else null
+    val nextEpisode = if (isSeriesVod && currentEpisodeIndex >= 0 && currentEpisodeIndex < seriesEpisodes.lastIndex) {
+        seriesEpisodes[currentEpisodeIndex + 1]
+    } else null
+
+    val seriesTitlePrefix = remember(activeChannel.name, activeChannel.seriesId) {
+        MediaContentRepository.getMediaById(activeChannel.seriesId)?.title
+            ?: activeChannel.name.substringBefore(" •").trim()
+    }
+
+    val isOfflineSavedPlayback = remember(activeChannel.id, activeChannel.streamUrl) {
+        activeChannel.id.startsWith("dl_") || activeChannel.streamUrl.startsWith("file:", ignoreCase = true)
+    }
+
+    val playerController = remember(activeChannel.id, activeChannel.streamUrl) {
+        LivePlayerController(context, activeChannel)
     }
 
     val uiState by playerController.uiState.collectAsState()
@@ -127,13 +176,13 @@ fun PlayerScreen(
 
     var areControlsVisible by remember { mutableStateOf(true) }
     var resizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FILL) }
-    var activeExoPlayer by remember(channel.id) { mutableStateOf<ExoPlayer?>(null) }
+    var activeExoPlayer by remember(activeChannel.id, activeChannel.streamUrl) { mutableStateOf<ExoPlayer?>(null) }
 
     // Smooth timeline scrubbing state for Movies & Series
     var isScrubbing by remember { mutableStateOf(false) }
     var scrubFraction by remember { mutableFloatStateOf(0f) }
 
-    DisposableEffect(channel.id) {
+    DisposableEffect(activeChannel.id, activeChannel.streamUrl) {
         val window = activity?.window
         window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
@@ -154,7 +203,7 @@ fun PlayerScreen(
         }
     }
 
-    DisposableEffect(lifecycleOwner, channel.id) {
+    DisposableEffect(lifecycleOwner, activeChannel.id) {
         var wasPausedByLifecycle = false
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
@@ -166,7 +215,7 @@ fun PlayerScreen(
                     activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
                     if (wasPausedByLifecycle) {
                         wasPausedByLifecycle = false
-                        if (channel.isLiveBroadcast) {
+                        if (activeChannel.isLiveBroadcast) {
                             // Returning to Live TV always resumes at the live stream edge, never rewinding back
                             playerController.syncToLiveEdge()
                         } else {
@@ -298,7 +347,7 @@ fun PlayerScreen(
 
                         Column {
                             Text(
-                                text = channel.name,
+                                text = activeChannel.name,
                                 color = Color.White,
                                 fontSize = 18.sp,
                                 fontWeight = FontWeight.ExtraBold,
@@ -310,7 +359,7 @@ fun PlayerScreen(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 Text(
-                                    text = channel.category,
+                                    text = if (isSeriesVod) "VOD SERIES" else activeChannel.category,
                                     color = NeliMagenta,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold
@@ -321,10 +370,12 @@ fun PlayerScreen(
                                     fontSize = 12.sp
                                 )
                                 Text(
-                                    text = if (channel.isLiveBroadcast) {
+                                    text = if (activeChannel.isLiveBroadcast) {
                                         "LIVE STREAM • ${playbackInfo.connectionLabel.uppercase()}"
+                                    } else if (isOfflineSavedPlayback) {
+                                        "OFFLINE INTERNAL STORAGE • ${activeChannel.description}"
                                     } else {
-                                        "${channel.description.ifBlank { "HD STREAM" }} • ${playbackInfo.connectionLabel.uppercase()}"
+                                        "${activeChannel.description.ifBlank { "HD STREAM" }} • ${playbackInfo.connectionLabel.uppercase()}"
                                     },
                                     color = NeliGenreCyan,
                                     fontSize = 11.sp,
@@ -369,7 +420,7 @@ fun PlayerScreen(
                             }
                         }
 
-                        if (channel.isLiveBroadcast) {
+                        if (activeChannel.isLiveBroadcast) {
                             LiveIndicatorBadge()
                         }
                     }
@@ -377,7 +428,7 @@ fun PlayerScreen(
 
                 // Center Area:
                 // - Live TV: NO play/pause or seek buttons! Always continues playing live until user exits.
-                // - Movies & Series: Rewind 10s, Play/Pause, and Forward 10s buttons.
+                // - Movies & Series: Rewind 10s, Play/Pause, Forward 10s, plus Next/Previous Episode buttons for Series VOD.
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -395,10 +446,10 @@ fun PlayerScreen(
                                     modifier = Modifier.size(52.dp)
                                 )
                                 Text(
-                                    text = if (channel.isLiveBroadcast) {
-                                        "Connecting to ${channel.name} Live Stream..."
+                                    text = if (activeChannel.isLiveBroadcast) {
+                                        "Connecting to ${activeChannel.name} Live Stream..."
                                     } else {
-                                        "Loading ${channel.name}..."
+                                        "Loading ${activeChannel.name}..."
                                     },
                                     color = Color.White,
                                     fontSize = 14.sp,
@@ -425,81 +476,131 @@ fun PlayerScreen(
                         }
 
                         is PlayerUiState.Error -> {
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(20.dp))
-                                    .background(NeliCardPurple)
-                                    .border(1.dp, NeliMagenta.copy(alpha = 0.5f), RoundedCornerShape(20.dp))
-                                    .padding(24.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                            if (isOfflineSavedPlayback) {
+                                // Offline downloaded file playback fallback canvas when device has no internet
+                                Box(
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentAlignment = Alignment.Center
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Default.ErrorOutline,
-                                        contentDescription = "Error",
-                                        tint = NeliMagenta,
-                                        modifier = Modifier.size(44.dp)
-                                    )
-                                    Text(
-                                        text = state.userFriendlyMessage,
-                                        color = Color.White,
-                                        fontSize = 17.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        textAlign = TextAlign.Center
-                                    )
-                                    Text(
-                                        text = channel.name,
-                                        color = NeliGenreCyan,
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Medium
-                                    )
-
-                                    if (!state.technicalDetail.isNullOrBlank()) {
-                                        Text(
-                                            text = state.technicalDetail,
-                                            color = NeliTextSecondary,
-                                            fontSize = 11.sp,
-                                            textAlign = TextAlign.Center,
-                                            maxLines = 2
+                                    if (activeChannel.thumbnailUrl.isNotBlank()) {
+                                        SubcomposeAsyncImage(
+                                            model = ImageRequest.Builder(context)
+                                                .data(activeChannel.thumbnailUrl)
+                                                .crossfade(true)
+                                                .build(),
+                                            contentDescription = activeChannel.name,
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier.fillMaxSize()
                                         )
                                     }
-
-                                    Spacer(modifier = Modifier.height(4.dp))
-
-                                    Row(
-                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(20.dp))
+                                            .background(Color(0xDD14052B))
+                                            .border(1.dp, Color(0xFF10B981), RoundedCornerShape(20.dp))
+                                            .padding(20.dp)
                                     ) {
-                                        Button(
-                                            onClick = { playerController.retry() },
-                                            colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta),
-                                            shape = RoundedCornerShape(12.dp),
-                                            modifier = Modifier.testTag("retry_stream_button")
+                                        Column(
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.spacedBy(8.dp)
                                         ) {
                                             Icon(
-                                                imageVector = Icons.Default.Refresh,
+                                                imageVector = Icons.Default.CheckCircle,
                                                 contentDescription = null,
-                                                tint = Color.White,
-                                                modifier = Modifier.size(18.dp)
+                                                tint = Color(0xFF10B981),
+                                                modifier = Modifier.size(40.dp)
                                             )
-                                            Spacer(modifier = Modifier.width(6.dp))
                                             Text(
-                                                text = "Retry",
+                                                text = "${activeChannel.name} • Offline Cinema Mode",
                                                 color = Color.White,
-                                                fontWeight = FontWeight.Bold
+                                                fontSize = 16.sp,
+                                                fontWeight = FontWeight.ExtraBold
+                                            )
+                                            Text(
+                                                text = "Playing from phone internal storage without internet",
+                                                color = NeliGenreCyan,
+                                                fontSize = 12.sp
+                                            )
+                                        }
+                                    }
+                                }
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(20.dp))
+                                        .background(NeliCardPurple)
+                                        .border(1.dp, NeliMagenta.copy(alpha = 0.5f), RoundedCornerShape(20.dp))
+                                        .padding(24.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.ErrorOutline,
+                                            contentDescription = "Error",
+                                            tint = NeliMagenta,
+                                            modifier = Modifier.size(44.dp)
+                                        )
+                                        Text(
+                                            text = state.userFriendlyMessage,
+                                            color = Color.White,
+                                            fontSize = 17.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            textAlign = TextAlign.Center
+                                        )
+                                        Text(
+                                            text = activeChannel.name,
+                                            color = NeliGenreCyan,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Medium
+                                        )
+
+                                        if (!state.technicalDetail.isNullOrBlank()) {
+                                            Text(
+                                                text = state.technicalDetail,
+                                                color = NeliTextSecondary,
+                                                fontSize = 11.sp,
+                                                textAlign = TextAlign.Center,
+                                                maxLines = 2
                                             )
                                         }
 
-                                        OutlinedButton(
-                                            onClick = handleExit,
-                                            shape = RoundedCornerShape(12.dp)
+                                        Spacer(modifier = Modifier.height(4.dp))
+
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp)
                                         ) {
-                                            Text(
-                                                text = "Back",
-                                                color = Color.White
-                                            )
+                                            Button(
+                                                onClick = { playerController.retry() },
+                                                colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta),
+                                                shape = RoundedCornerShape(12.dp),
+                                                modifier = Modifier.testTag("retry_stream_button")
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Refresh,
+                                                    contentDescription = null,
+                                                    tint = Color.White,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text(
+                                                    text = "Retry",
+                                                    color = Color.White,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+
+                                            OutlinedButton(
+                                                onClick = handleExit,
+                                                shape = RoundedCornerShape(12.dp)
+                                            ) {
+                                                Text(
+                                                    text = "Back",
+                                                    color = Color.White
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -507,13 +608,44 @@ fun PlayerScreen(
                         }
 
                         is PlayerUiState.Ready -> {
-                            // Strictly ONLY Movies & Series have Play/Pause and Seek buttons.
+                            // Strictly ONLY Movies & Series have Play/Pause, Seek, and Next/Previous Episode buttons.
                             // Live TV has NO pause/play button and plays continuously until exit.
-                            if (areControlsVisible && !channel.isLiveBroadcast) {
+                            if (areControlsVisible && !activeChannel.isLiveBroadcast) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(28.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(22.dp)
                                 ) {
+                                    // Previous Episode button for Series VOD
+                                    if (isSeriesVod) {
+                                        IconButton(
+                                            onClick = {
+                                                previousEpisode?.let { prev ->
+                                                    activeChannel = prev.toPlayableChannel(seriesTitlePrefix)
+                                                }
+                                            },
+                                            enabled = previousEpisode != null,
+                                            modifier = Modifier
+                                                .testTag("previous_episode_button")
+                                                .size(54.dp)
+                                                .clip(CircleShape)
+                                                .background(
+                                                    if (previousEpisode != null) Color(0xAA2B1055) else Color(0x442B1055)
+                                                )
+                                                .border(
+                                                    1.dp,
+                                                    if (previousEpisode != null) NeliGenreCyan else Color(0x33FFFFFF),
+                                                    CircleShape
+                                                )
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.SkipPrevious,
+                                                contentDescription = "Previous Episode",
+                                                tint = if (previousEpisode != null) Color.White else NeliTextSecondary,
+                                                modifier = Modifier.size(28.dp)
+                                            )
+                                        }
+                                    }
+
                                     IconButton(
                                         onClick = { playerController.seekRelative(-10_000L) },
                                         modifier = Modifier
@@ -563,6 +695,37 @@ fun PlayerScreen(
                                             modifier = Modifier.size(30.dp)
                                         )
                                     }
+
+                                    // Next Episode button for Series VOD
+                                    if (isSeriesVod) {
+                                        IconButton(
+                                            onClick = {
+                                                nextEpisode?.let { next ->
+                                                    activeChannel = next.toPlayableChannel(seriesTitlePrefix)
+                                                }
+                                            },
+                                            enabled = nextEpisode != null,
+                                            modifier = Modifier
+                                                .testTag("next_episode_button")
+                                                .size(54.dp)
+                                                .clip(CircleShape)
+                                                .background(
+                                                    if (nextEpisode != null) Color(0xAA2B1055) else Color(0x442B1055)
+                                                )
+                                                .border(
+                                                    1.dp,
+                                                    if (nextEpisode != null) NeliGenreCyan else Color(0x33FFFFFF),
+                                                    CircleShape
+                                                )
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.SkipNext,
+                                                contentDescription = "Next Episode",
+                                                tint = if (nextEpisode != null) Color.White else NeliTextSecondary,
+                                                modifier = Modifier.size(28.dp)
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -571,7 +734,7 @@ fun PlayerScreen(
 
                 // Bottom Bar:
                 // - Live TV: NO timeline slider and NO pause button; strictly real-time broadcast indicator
-                // - VOD Movie / Series Episode: Interactive seekbar + time labels + quick play/pause/seek controls
+                // - VOD Movie / Series Episode: Interactive seekbar + time labels + play/pause/seek + Next/Prev Episode controls
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -583,7 +746,7 @@ fun PlayerScreen(
                         )
                         .padding(horizontal = 20.dp, vertical = 14.dp)
                 ) {
-                    if (!channel.isLiveBroadcast) {
+                    if (!activeChannel.isLiveBroadcast) {
                         val hasKnownDuration = playbackInfo.duration != C.TIME_UNSET && playbackInfo.duration > 0L
                         val durationMs = if (hasKnownDuration) playbackInfo.duration else 1L
                         val liveProgress = if (hasKnownDuration) {
@@ -645,7 +808,7 @@ fun PlayerScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        if (channel.isLiveBroadcast) {
+                        if (activeChannel.isLiveBroadcast) {
                             // Live Real-Time Broadcast Badge (No timeline, no pause!)
                             Row(
                                 modifier = Modifier
@@ -677,11 +840,32 @@ fun PlayerScreen(
                                 )
                             }
                         } else {
-                            // Bottom transport bar for Movies & Series
+                            // Bottom transport bar for Movies & Series VOD
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
+                                if (isSeriesVod) {
+                                    IconButton(
+                                        onClick = {
+                                            previousEpisode?.let { prev ->
+                                                activeChannel = prev.toPlayableChannel(seriesTitlePrefix)
+                                            }
+                                        },
+                                        enabled = previousEpisode != null,
+                                        modifier = Modifier
+                                            .size(48.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0x882B1055))
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.SkipPrevious,
+                                            contentDescription = "Previous Episode",
+                                            tint = if (previousEpisode != null) Color.White else NeliTextSecondary
+                                        )
+                                    }
+                                }
+
                                 IconButton(
                                     onClick = { playerController.togglePlayPause() },
                                     modifier = Modifier
@@ -721,8 +905,34 @@ fun PlayerScreen(
                                         tint = Color.White
                                     )
                                 }
+
+                                if (isSeriesVod) {
+                                    IconButton(
+                                        onClick = {
+                                            nextEpisode?.let { next ->
+                                                activeChannel = next.toPlayableChannel(seriesTitlePrefix)
+                                            }
+                                        },
+                                        enabled = nextEpisode != null,
+                                        modifier = Modifier
+                                            .size(48.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0x882B1055))
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.SkipNext,
+                                            contentDescription = "Next Episode",
+                                            tint = if (nextEpisode != null) Color.White else NeliTextSecondary
+                                        )
+                                    }
+                                }
+
                                 Text(
-                                    text = channel.description.ifBlank { "HD Cinema Mode" },
+                                    text = if (isSeriesVod && nextEpisode != null) {
+                                        "Next: S${nextEpisode.seasonNumber}E${nextEpisode.episodeNumber} ${nextEpisode.name}"
+                                    } else {
+                                        activeChannel.description.ifBlank { "HD Cinema Mode" }
+                                    },
                                     color = NeliGenreCyan,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold,
