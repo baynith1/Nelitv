@@ -164,15 +164,14 @@ fun HomeScreen(
             onBack = { selectedMediaId = null },
             onPlayChannel = playWithOfflineResolution,
             onToggleWatchlist = { neliViewModel.toggleWatchlist(it) },
-            onDownloadMedia = { media, quality ->
-                neliViewModel.addDownload(media, quality)
+            onDownloadMedia = { media ->
+                neliViewModel.addDownload(media)
             },
-            onDownloadEpisode = { ep, quality ->
+            onDownloadEpisode = { ep ->
                 neliViewModel.addEpisodeDownload(
                     episode = ep,
                     seriesTitle = activeDetailMedia.title,
-                    seriesPoster = activeDetailMedia.posterUrl,
-                    quality = quality
+                    seriesPoster = activeDetailMedia.posterUrl
                 )
             },
             onSelectRecommendedMedia = { recommended ->

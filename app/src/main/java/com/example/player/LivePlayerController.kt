@@ -533,7 +533,13 @@ class LivePlayerController(
     }
 
     private fun createMediaSource(channel: LiveChannel): MediaSource {
-        val effectiveStreamUrl = com.example.data.ChannelRepository.normalizeDashStreamUrl(channel.streamUrl)
+        val lookupId = channel.episodeId.ifBlank { channel.id }
+        val resolvedOfflineOrOnlineUrl = com.example.data.OfflineDownloadManager.resolveLocalOfflineUriIfPresent(
+            context = context,
+            rawId = lookupId,
+            fallbackStreamUrl = channel.streamUrl
+        )
+        val effectiveStreamUrl = com.example.data.ChannelRepository.normalizeDashStreamUrl(resolvedOfflineOrOnlineUrl)
         val manifestUri = Uri.parse(effectiveStreamUrl)
         val encodedManifestQuery = manifestUri.encodedQuery
 
@@ -591,11 +597,14 @@ class LivePlayerController(
             .setMaxPlaybackSpeed(1.04f)
             .build()
 
-        val isLocalOfflineFile = effectiveStreamUrl.startsWith("file:", ignoreCase = true)
+        val isLocalOfflineFile = effectiveStreamUrl.startsWith("file:", ignoreCase = true) ||
+                effectiveStreamUrl.startsWith("/")
+        val isLocalHlsPlaylist = isLocalOfflineFile &&
+                effectiveStreamUrl.substringBefore("?").endsWith(".m3u8", ignoreCase = true)
         val useProgressive = when (forcedContainerMode) {
             ForcedContainerMode.FORCE_PROGRESSIVE_MP4 -> true
             ForcedContainerMode.FORCE_HLS_M3U8 -> false
-            ForcedContainerMode.NONE -> isLocalOfflineFile || channel.isMp4
+            ForcedContainerMode.NONE -> (isLocalOfflineFile && !isLocalHlsPlaylist) || (!isLocalHlsPlaylist && channel.isMp4)
         }
         val useDash = forcedContainerMode == ForcedContainerMode.NONE &&
                 !isLocalOfflineFile &&

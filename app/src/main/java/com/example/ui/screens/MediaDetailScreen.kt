@@ -87,11 +87,6 @@ import com.example.ui.theme.NeliSurfaceVariant
 import com.example.ui.theme.NeliTextPrimary
 import com.example.ui.theme.NeliTextSecondary
 
-private sealed interface PendingQualityTarget {
-    data class MovieTarget(val media: MediaContent) : PendingQualityTarget
-    data class EpisodeTarget(val episode: EpisodeItem) : PendingQualityTarget
-}
-
 @Composable
 fun MediaDetailScreen(
     media: MediaContent,
@@ -105,8 +100,8 @@ fun MediaDetailScreen(
     onBack: () -> Unit,
     onPlayChannel: (LiveChannel) -> Unit,
     onToggleWatchlist: (MediaContent) -> Unit,
-    onDownloadMedia: (MediaContent, DownloadQualityOption) -> Unit,
-    onDownloadEpisode: (EpisodeItem, DownloadQualityOption) -> Unit,
+    onDownloadMedia: (MediaContent) -> Unit,
+    onDownloadEpisode: (EpisodeItem) -> Unit,
     onSelectRecommendedMedia: (MediaContent) -> Unit = {},
     onOpenDownloadsTab: () -> Unit = {},
     onDismissDownloadBanner: () -> Unit = {},
@@ -139,45 +134,15 @@ fun MediaDetailScreen(
         activeEpisodeIndex.coerceIn(0, (filteredEpisodes.size - 1).coerceAtLeast(0))
     )
 
-    // Quality picker modal state
-    var pendingQualityTarget by remember { mutableStateOf<PendingQualityTarget?>(null) }
-    var selectedQualityOption by remember { mutableStateOf(DownloadQualityOption.HIGH_720P) }
-
-    val mediaDownloadingPct = downloadProgress[media.id]
-        ?: currentVodEpisode?.let { downloadProgress[it.id] }
-        ?: downloadProgress.values.firstOrNull()
+    val mediaDownloadingPct = if (media.isSeries && currentVodEpisode != null) {
+        downloadProgress[currentVodEpisode.id] ?: downloadProgress[media.id]
+    } else {
+        downloadProgress[media.id]
+    }
     val isMediaAlreadyDownloaded = if (media.isSeries && currentVodEpisode != null) {
         downloadedIds.contains(currentVodEpisode.id)
     } else {
         isDownloaded || downloadedIds.contains(media.id)
-    }
-
-    // Quality Selection Dialog when user taps Download
-    val currentPendingTarget = pendingQualityTarget
-    if (currentPendingTarget != null) {
-        val targetTitle = when (currentPendingTarget) {
-            is PendingQualityTarget.MovieTarget -> currentPendingTarget.media.title
-            is PendingQualityTarget.EpisodeTarget ->
-                "${media.title} • S${currentPendingTarget.episode.seasonNumber}E${currentPendingTarget.episode.episodeNumber}: ${currentPendingTarget.episode.name}"
-        }
-        val isEpisodeTarget = currentPendingTarget is PendingQualityTarget.EpisodeTarget
-
-        DownloadQualityDialog(
-            title = targetTitle,
-            isEpisode = isEpisodeTarget,
-            selectedQuality = selectedQualityOption,
-            onSelectQuality = { selectedQualityOption = it },
-            onConfirmDownload = { chosenQuality ->
-                when (currentPendingTarget) {
-                    is PendingQualityTarget.MovieTarget ->
-                        onDownloadMedia(currentPendingTarget.media, chosenQuality)
-                    is PendingQualityTarget.EpisodeTarget ->
-                        onDownloadEpisode(currentPendingTarget.episode, chosenQuality)
-                }
-                pendingQualityTarget = null
-            },
-            onDismiss = { pendingQualityTarget = null }
-        )
     }
 
     LazyColumn(
@@ -543,11 +508,11 @@ fun MediaDetailScreen(
                                 if (isMediaAlreadyDownloaded) {
                                     onOpenDownloadsTab()
                                 } else if (mediaDownloadingPct == null) {
-                                    // Show Quality Picker Dialog so user chooses download quality!
+                                    // Immediately start downloading using the streaming link's quality
                                     if (media.isSeries && currentVodEpisode != null) {
-                                        pendingQualityTarget = PendingQualityTarget.EpisodeTarget(currentVodEpisode)
+                                        onDownloadEpisode(currentVodEpisode)
                                     } else {
-                                        pendingQualityTarget = PendingQualityTarget.MovieTarget(media)
+                                        onDownloadMedia(media)
                                     }
                                 }
                             },
@@ -661,7 +626,7 @@ fun MediaDetailScreen(
                         .padding(top = 20.dp)
                 ) {
                     Text(
-                        text = "Seasons & Episodes (Video on Demand)",
+                        text = "Seasons & Episodes",
                         color = NeliTextPrimary,
                         fontSize = 18.sp,
                         fontWeight = FontWeight.ExtraBold,
@@ -808,7 +773,7 @@ fun MediaDetailScreen(
                                 if (isEpDownloaded) {
                                     onOpenDownloadsTab()
                                 } else if (epProgress == null) {
-                                    pendingQualityTarget = PendingQualityTarget.EpisodeTarget(ep)
+                                    onDownloadEpisode(ep)
                                 }
                             },
                             enabled = epProgress == null,

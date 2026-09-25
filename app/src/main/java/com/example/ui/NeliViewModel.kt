@@ -49,6 +49,21 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
     val isOfflineMode: StateFlow<Boolean> = _isOfflineMode.asStateFlow()
 
     val downloads: StateFlow<List<DownloadedItemEntity>> = dao.getAllDownloads()
+        .map { list ->
+            val invalidItems = list.filter {
+                (it.downloadStatus == "COMPLETED" && !OfflineDownloadManager.isDownloadFileValidOnDisk(it)) ||
+                    (it.downloadStatus == "DOWNLOADING" && !OfflineDownloadManager.isCurrentlyDownloading(it.id))
+            }
+            if (invalidItems.isNotEmpty()) {
+                viewModelScope.launch {
+                    OfflineDownloadManager.purgeInvalidDownloads(dao, invalidItems)
+                }
+            }
+            list.filter {
+                OfflineDownloadManager.isDownloadFileValidOnDisk(it) ||
+                    OfflineDownloadManager.isCurrentlyDownloading(it.id)
+            }
+        }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
@@ -57,7 +72,7 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
 
     val downloadedIds: StateFlow<Set<String>> = downloads
         .map { list ->
-            list.filter { it.downloadStatus == "COMPLETED" }
+            list.filter { OfflineDownloadManager.isDownloadFileValidOnDisk(it) }
                 .map { it.id }
                 .toSet()
         }
@@ -69,7 +84,7 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
 
     val downloadingIds: StateFlow<Set<String>> = downloads
         .map { list ->
-            list.filter { it.downloadStatus == "DOWNLOADING" }
+            list.filter { it.downloadStatus == "DOWNLOADING" && OfflineDownloadManager.isCurrentlyDownloading(it.id) }
                 .map { it.id }
                 .toSet()
         }
@@ -183,13 +198,10 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Downloads a movie or series to the phone's internal storage (`offline_media`) at the selected quality.
+     * Downloads a movie or series to the phone's internal storage (`offline_media`) using its streaming link directly.
      * Runs in a persistent background scope so it continues even when the user exits the app.
      */
-    fun addDownload(
-        media: MediaContent,
-        quality: DownloadQualityOption = DownloadQualityOption.HIGH_720P
-    ) {
+    fun addDownload(media: MediaContent) {
         if (!media.downloadEnabled) return
         val item = DownloadedItemEntity(
             id = media.id,
@@ -204,28 +216,26 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
             streamUrl = media.streamUrl,
             genre = media.genre,
             duration = media.duration,
-            rating = quality.resolutionBadge,
-            fileSizeLabel = "${quality.resolutionBadge} • ${if (media.isSeries) quality.estimatedEpisodeSize else quality.estimatedMovieSize}",
+            rating = media.rating,
+            fileSizeLabel = "Starting download • 1%",
             downloadStatus = "DOWNLOADING",
             progressPercent = 1
         )
         OfflineDownloadManager.enqueueBackgroundDownload(
             context = appContext,
             dao = dao,
-            item = item,
-            quality = quality
+            item = item
         )
     }
 
     /**
-     * Downloads an episode to the phone's internal storage (`offline_media`) at the selected quality.
+     * Downloads an episode to the phone's internal storage (`offline_media`) using its streaming link directly.
      * Runs in a persistent background scope so it continues even when the user exits the app.
      */
     fun addEpisodeDownload(
         episode: EpisodeItem,
         seriesTitle: String,
-        seriesPoster: String,
-        quality: DownloadQualityOption = DownloadQualityOption.HIGH_720P
+        seriesPoster: String
     ) {
         if (!episode.downloadEnabled) return
         val item = DownloadedItemEntity(
@@ -237,16 +247,15 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
             streamUrl = episode.streamUrl,
             genre = if (episode.narrated) "Series • ${episode.narrationLanguage}" else "Series",
             duration = episode.durationLabel,
-            rating = quality.resolutionBadge,
-            fileSizeLabel = "${quality.resolutionBadge} • ${quality.estimatedEpisodeSize}",
+            rating = "HD",
+            fileSizeLabel = "Starting download • 1%",
             downloadStatus = "DOWNLOADING",
             progressPercent = 1
         )
         OfflineDownloadManager.enqueueBackgroundDownload(
             context = appContext,
             dao = dao,
-            item = item,
-            quality = quality
+            item = item
         )
     }
 

@@ -148,9 +148,11 @@ fun ChannelCard(
                         .border(0.5.dp, Color(0xFF334155), RoundedCornerShape(6.dp))
                         .padding(horizontal = 6.dp, vertical = 3.dp)
                 ) {
-                    val formatLabel = if (channel.isDash) {
-                        if (channel.isClearKey) "DASH • DRM" else "DASH"
-                    } else "HLS"
+                    val formatLabel = when {
+                        channel.isMp4 -> "CDN • MP4"
+                        channel.isDash -> if (channel.isClearKey) "DASH • DRM" else "DASH"
+                        else -> "HLS"
+                    }
 
                     Text(
                         text = formatLabel,

@@ -636,7 +636,7 @@ fun DownloadTabContent(
                     fontWeight = FontWeight.ExtraBold
                 )
                 Text(
-                    text = "Saved in chosen quality to phone internal storage for offline viewing",
+                    text = "Saved directly from streaming link to phone internal storage for offline viewing",
                     color = NeliTextSecondary,
                     fontSize = 12.sp
                 )
@@ -765,18 +765,22 @@ fun DownloadTabContent(
                                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Default.CheckCircle,
+                                        imageVector = if (isDownloading) Icons.Default.Download else Icons.Default.CheckCircle,
                                         contentDescription = null,
-                                        tint = Color(0xFF10B981),
+                                        tint = if (isDownloading) NeliGenreCyan else Color(0xFF10B981),
                                         modifier = Modifier.size(13.dp)
                                     )
                                     Text(
                                         text = if (isDownloading) {
-                                            "Saving to internal storage (${activePct ?: item.progressPercent}%)..."
+                                            if (item.fileSizeLabel.startsWith("Downloading", ignoreCase = true)) {
+                                                item.fileSizeLabel
+                                            } else {
+                                                "Downloading to internal storage (${activePct ?: item.progressPercent}%)..."
+                                            }
                                         } else {
                                             item.fileSizeLabel
                                         },
-                                        color = Color(0xFF10B981),
+                                        color = if (isDownloading) NeliGenreCyan else Color(0xFF10B981),
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Bold
                                     )

@@ -41,19 +41,21 @@ data class LiveChannel(
         get() = streamUrl.substringBefore("?").lowercase()
 
     val isDash: Boolean
-        get() = cleanUrlPath.endsWith(".mpd") ||
-                cleanUrlPath.contains(".mpd/") ||
-                (!cleanUrlPath.endsWith(".mp4") &&
-                        !cleanUrlPath.endsWith(".m3u8") &&
-                        !cleanUrlPath.endsWith(".ts") &&
-                        !streamUrl.startsWith("file:", ignoreCase = true) &&
+        get() = !cleanUrlPath.endsWith(".m3u8") &&
+                !cleanUrlPath.endsWith(".mp4") &&
+                !cleanUrlPath.endsWith(".ts") &&
+                !streamUrl.startsWith("file:", ignoreCase = true) &&
+                (cleanUrlPath.endsWith(".mpd") ||
+                        cleanUrlPath.contains(".mpd/") ||
+                        cleanUrlPath.contains("/dash/") ||
+                        isClearKey ||
                         streamFormat.equals("dash", ignoreCase = true))
 
     val isHls: Boolean
         get() = cleanUrlPath.endsWith(".m3u8") ||
                 cleanUrlPath.contains(".m3u8/") ||
-                (!cleanUrlPath.endsWith(".mp4") &&
-                        !cleanUrlPath.endsWith(".mpd") &&
+                (!isDash &&
+                        !cleanUrlPath.endsWith(".mp4") &&
                         !cleanUrlPath.endsWith(".ts") &&
                         !streamUrl.startsWith("file:", ignoreCase = true) &&
                         (streamFormat.equals("hls", ignoreCase = true) ||
@@ -65,8 +67,7 @@ data class LiveChannel(
                 cleanUrlPath.endsWith(".mkv") ||
                 cleanUrlPath.endsWith(".webm") ||
                 streamUrl.startsWith("file:", ignoreCase = true) ||
-                streamFormat.equals("mp4", ignoreCase = true) ||
-                (!isDash && !isHls)
+                (!isDash && !isHls && streamFormat.equals("mp4", ignoreCase = true))
 
     /**
      * Strictly true ONLY for Movies narrated in Swahili/Kiswahili.
@@ -85,13 +86,16 @@ data class LiveChannel(
         get() = encryptionType.equals("clearkey", ignoreCase = true) && clearKeys.isNotEmpty()
 
     val isAzamPriority: Boolean
-        get() = streamUrl.contains("azamtvltd.co.tz", ignoreCase = true) ||
+        get() = id.startsWith("azam_", ignoreCase = true) ||
+                streamUrl.contains("azamtvltd.co.tz", ignoreCase = true) ||
                 name.contains("Azam", ignoreCase = true) ||
                 name.contains("Sinema Zetu", ignoreCase = true) ||
                 name.contains("UTV", ignoreCase = true) ||
                 name.contains("ZBC", ignoreCase = true) ||
                 name.contains("Crown", ignoreCase = true) ||
                 name.contains("Wasafi", ignoreCase = true) ||
+                name.contains("Clouds", ignoreCase = true) ||
+                name.contains("ITV", ignoreCase = true) ||
                 name.contains("KIX", ignoreCase = true)
 
     val isTanzaniaChannel: Boolean
