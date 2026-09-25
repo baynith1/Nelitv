@@ -130,7 +130,9 @@ data class EpisodeItem(
             seriesId = seriesId,
             episodeId = id,
             seasonNumber = seasonNumber,
-            episodeNumber = episodeNumber
+            episodeNumber = episodeNumber,
+            isSwahiliNarratedMovie = false,
+            isAdultContent = false
         )
     }
 }
@@ -182,8 +184,38 @@ data class MediaContent(
     val isSeries: Boolean
         get() = type.equals("series", ignoreCase = true) || type.equals("tv_show", ignoreCase = true)
 
+    val isAdult: Boolean
+        get() = type.equals("adult", ignoreCase = true) ||
+                genre.contains("adult", ignoreCase = true) ||
+                genre.contains("18+", ignoreCase = true) ||
+                genre.contains("erotic", ignoreCase = true) ||
+                subGenres.any {
+                    it.contains("adult", ignoreCase = true) ||
+                            it.contains("18+", ignoreCase = true) ||
+                            it.contains("erotic", ignoreCase = true)
+                }
+
     val isMovie: Boolean
-        get() = !isSeries
+        get() = !isSeries && !isAdult
+
+    /**
+     * Strictly true ONLY for Movies narrated in Swahili/Kiswahili (DJ narrated movies with 5m30s intro ads).
+     * Never true for Adult, Live TV, Series, or Episodes.
+     */
+    val isSwahiliNarratedMovie: Boolean
+        get() = isMovie &&
+                !isSeries &&
+                !isAdult &&
+                narrated &&
+                (narrationLanguage.contains("swahili", ignoreCase = true) ||
+                        narrationLanguage.equals("sw", ignoreCase = true) ||
+                        screenplay.contains("swahili", ignoreCase = true))
+
+    val shouldAutoSkipSwahiliMovieIntro: Boolean
+        get() = isSwahiliNarratedMovie
+
+    val isAdultContent: Boolean
+        get() = isAdult
 
     val posterPath: String
         get() = posterUrl
@@ -195,11 +227,11 @@ data class MediaContent(
         get() = synopsis
 
     fun toPlayableChannel(): LiveChannel {
+        val cleanPath = streamUrl.substringBefore("?").lowercase()
         val detectedFormat = when {
-            streamFormat.equals("mp4", ignoreCase = true) ||
-                    streamUrl.substringBefore("?").endsWith(".mp4", ignoreCase = true) -> "mp4"
-            streamFormat.equals("dash", ignoreCase = true) ||
-                    streamUrl.contains(".mpd", ignoreCase = true) -> "dash"
+            cleanPath.endsWith(".mp4") || cleanPath.endsWith(".ts") ||
+                    streamFormat.equals("mp4", ignoreCase = true) -> "mp4"
+            cleanPath.endsWith(".mpd") || streamFormat.equals("dash", ignoreCase = true) -> "dash"
             else -> "hls"
         }
         return LiveChannel(
@@ -221,7 +253,9 @@ data class MediaContent(
             language = if (narrated) "sw" else originalLanguage,
             encryptionType = "none",
             isLiveBroadcast = false,
-            seriesId = if (isSeries) id else ""
+            seriesId = if (isSeries) id else "",
+            isSwahiliNarratedMovie = isSwahiliNarratedMovie,
+            isAdultContent = isAdult
         )
     }
 }

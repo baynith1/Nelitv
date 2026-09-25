@@ -30,22 +30,56 @@ data class LiveChannel(
     val seriesId: String = "",
     val episodeId: String = "",
     val seasonNumber: Int = 0,
-    val episodeNumber: Int = 0
+    val episodeNumber: Int = 0,
+    val isSwahiliNarratedMovie: Boolean = false,
+    val isAdultContent: Boolean = false
 ) {
     val category: String
         get() = categories.firstOrNull()?.replaceFirstChar { it.uppercase() } ?: "Live TV"
 
+    private val cleanUrlPath: String
+        get() = streamUrl.substringBefore("?").lowercase()
+
     val isDash: Boolean
-        get() = streamFormat.equals("dash", ignoreCase = true) || streamUrl.contains(".mpd", ignoreCase = true)
+        get() = cleanUrlPath.endsWith(".mpd") ||
+                cleanUrlPath.contains(".mpd/") ||
+                (!cleanUrlPath.endsWith(".mp4") &&
+                        !cleanUrlPath.endsWith(".m3u8") &&
+                        !cleanUrlPath.endsWith(".ts") &&
+                        !streamUrl.startsWith("file:", ignoreCase = true) &&
+                        streamFormat.equals("dash", ignoreCase = true))
 
     val isHls: Boolean
-        get() = streamFormat.equals("hls", ignoreCase = true) ||
-                streamFormat.equals("m3u8", ignoreCase = true) ||
-                streamUrl.contains(".m3u8", ignoreCase = true)
+        get() = cleanUrlPath.endsWith(".m3u8") ||
+                cleanUrlPath.contains(".m3u8/") ||
+                (!cleanUrlPath.endsWith(".mp4") &&
+                        !cleanUrlPath.endsWith(".mpd") &&
+                        !cleanUrlPath.endsWith(".ts") &&
+                        !streamUrl.startsWith("file:", ignoreCase = true) &&
+                        (streamFormat.equals("hls", ignoreCase = true) ||
+                                streamFormat.equals("m3u8", ignoreCase = true)))
 
     val isMp4: Boolean
-        get() = streamFormat.equals("mp4", ignoreCase = true) ||
-                (!isDash && !isHls && streamUrl.substringBefore("?").endsWith(".mp4", ignoreCase = true))
+        get() = cleanUrlPath.endsWith(".mp4") ||
+                cleanUrlPath.endsWith(".ts") ||
+                cleanUrlPath.endsWith(".mkv") ||
+                cleanUrlPath.endsWith(".webm") ||
+                streamUrl.startsWith("file:", ignoreCase = true) ||
+                streamFormat.equals("mp4", ignoreCase = true) ||
+                (!isDash && !isHls)
+
+    /**
+     * Strictly true ONLY for Movies narrated in Swahili/Kiswahili.
+     * Never true for Live TV, Adult content, Series, or Episodes.
+     */
+    val shouldAutoSkipSwahiliMovieIntro: Boolean
+        get() = isSwahiliNarratedMovie &&
+                !isLiveBroadcast &&
+                !isAdultContent &&
+                seriesId.isBlank() &&
+                episodeId.isBlank() &&
+                !id.startsWith("ep_", ignoreCase = true) &&
+                !id.startsWith("ser_", ignoreCase = true)
 
     val isClearKey: Boolean
         get() = encryptionType.equals("clearkey", ignoreCase = true) && clearKeys.isNotEmpty()

@@ -102,6 +102,7 @@ fun HomeScreen(
     val downloads by neliViewModel.downloads.collectAsState()
     val downloadedIds by neliViewModel.downloadedIds.collectAsState()
     val downloadProgress by neliViewModel.downloadProgress.collectAsState()
+    val activeDownloadTitles by neliViewModel.activeDownloadTitles.collectAsState()
     val downloadBannerMessage by neliViewModel.downloadBannerMessage.collectAsState()
     val watchlist by neliViewModel.watchlistItems.collectAsState()
     val watchlistIds by neliViewModel.watchlistIds.collectAsState()
@@ -221,11 +222,63 @@ fun HomeScreen(
             )
         }
     ) { innerPadding ->
-        Box(
+        val activeBgDownloadEntry = downloadProgress.entries.firstOrNull()
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
+            if (activeBgDownloadEntry != null) {
+                val activeId = activeBgDownloadEntry.key
+                val activePct = activeBgDownloadEntry.value
+                val activeTitle = activeDownloadTitles[activeId] ?: "Movie / Episode"
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF1E0B3B))
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .clickable { selectedTab = BottomNavTab.DOWNLOAD }
+                        .testTag("global_background_download_bar")
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Background Download: $activeTitle",
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            text = "$activePct%",
+                            color = NeliGenreCyan,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    androidx.compose.material3.LinearProgressIndicator(
+                        progress = { (activePct.coerceIn(0, 100)) / 100f },
+                        color = NeliMagenta,
+                        trackColor = NeliSurfaceVariant,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(4.dp)
+                            .clip(RoundedCornerShape(2.dp))
+                    )
+                }
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+            ) {
             when (selectedTab) {
                 BottomNavTab.HOME -> {
                     HomeTabBody(
@@ -273,10 +326,16 @@ fun HomeScreen(
                             )
                             val format = when {
                                 resolvedUrl.startsWith("file:", true) ||
-                                        dl.streamUrl.substringBefore("?").endsWith(".mp4", true) -> "mp4"
+                                    resolvedUrl.startsWith("/") -> {
+                                    if (resolvedUrl.endsWith(".m3u8", true)) "hls" else "mp4"
+                                }
+                                dl.streamUrl.substringBefore("?").endsWith(".mp4", true) -> "mp4"
                                 dl.streamUrl.contains(".mpd", true) -> "dash"
                                 else -> "hls"
                             }
+                            val matchedEpisode = episodesCatalog.find { it.id == dl.id }
+                            val matchedMedia = mediaCatalog.find { it.id == dl.id }
+                            val isSwahiliMovie = matchedMedia?.shouldAutoSkipSwahiliMovieIntro == true
                             onChannelSelected(
                                 LiveChannel(
                                     id = "dl_${dl.id}",
@@ -285,8 +344,14 @@ fun HomeScreen(
                                     streamUrl = resolvedUrl,
                                     streamFormat = format,
                                     thumbnailUrl = dl.backdropUrl.ifBlank { dl.posterUrl },
-                                    categories = listOf(dl.genre),
-                                    isLiveBroadcast = false
+                                    categories = listOf(dl.genre, "Offline"),
+                                    isLiveBroadcast = false,
+                                    seriesId = matchedEpisode?.seriesId ?: (if (matchedMedia?.isSeries == true) matchedMedia.id else ""),
+                                    episodeId = matchedEpisode?.id ?: "",
+                                    seasonNumber = matchedEpisode?.seasonNumber ?: 0,
+                                    episodeNumber = matchedEpisode?.episodeNumber ?: 0,
+                                    isSwahiliNarratedMovie = isSwahiliMovie,
+                                    isAdultContent = matchedMedia?.isAdultContent == true
                                 )
                             )
                         },
@@ -347,6 +412,7 @@ fun HomeScreen(
                         }
                     )
                 }
+            }
             }
         }
     }
@@ -573,7 +639,7 @@ private fun HomeTabBody(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Popular Series & Seasons (Video on Demand)",
+                            text = "Series",
                             color = NeliTextPrimary,
                             fontSize = 16.sp,
                             fontWeight = FontWeight.ExtraBold

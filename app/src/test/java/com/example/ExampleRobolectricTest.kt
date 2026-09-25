@@ -61,6 +61,52 @@ class ExampleRobolectricTest {
         assertEquals("Never a Thief", movie!!.title)
         assertTrue(movie.narrated)
         assertEquals("Swahili", movie.narrationLanguage)
+        assertTrue(movie.shouldAutoSkipSwahiliMovieIntro)
+        assertTrue(movie.toPlayableChannel().isSwahiliNarratedMovie)
+    }
+
+    @Test
+    fun `swahili 5m30s auto skip applies only to swahili narrated movies and never to series episodes adult or live tv`() {
+        val swahiliMovie = com.example.model.MediaContent(
+            id = "mov_1",
+            title = "Kiswahili Action Movie",
+            type = "movie",
+            posterUrl = "",
+            backdropUrl = "",
+            streamUrl = "https://example.com/movie.mp4",
+            genre = "Action",
+            duration = "2h 00m",
+            rating = "8.5",
+            synopsis = "Narrated by DJ",
+            releaseYear = "2025",
+            narrated = true,
+            narrationLanguage = "Kiswahili"
+        )
+        assertTrue(swahiliMovie.shouldAutoSkipSwahiliMovieIntro)
+        assertTrue(swahiliMovie.toPlayableChannel().isSwahiliNarratedMovie)
+
+        val swahiliSeries = swahiliMovie.copy(id = "ser_1", type = "series")
+        org.junit.Assert.assertFalse(swahiliSeries.shouldAutoSkipSwahiliMovieIntro)
+        org.junit.Assert.assertFalse(swahiliSeries.toPlayableChannel().isSwahiliNarratedMovie)
+
+        val adultMovie = swahiliMovie.copy(id = "adult_1", genre = "Adult 18+")
+        org.junit.Assert.assertFalse(adultMovie.shouldAutoSkipSwahiliMovieIntro)
+        org.junit.Assert.assertFalse(adultMovie.toPlayableChannel().isSwahiliNarratedMovie)
+
+        val episode = com.example.model.EpisodeItem(
+            id = "ep_1",
+            seriesId = "ser_1",
+            seasonNumber = 1,
+            episodeNumber = 1,
+            name = "Pilot",
+            overview = "",
+            stillPath = "",
+            streamUrl = "https://example.com/ep1.m3u8",
+            runtime = 45,
+            narrated = true,
+            narrationLanguage = "Swahili"
+        )
+        org.junit.Assert.assertFalse(episode.toPlayableChannel("Series").isSwahiliNarratedMovie)
     }
 
     @Test

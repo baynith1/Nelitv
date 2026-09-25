@@ -16,14 +16,20 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -32,16 +38,19 @@ import androidx.compose.material.icons.automirrored.filled.VolumeMute
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.AspectRatio
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.NetworkCell
 import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.Sensors
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -84,12 +93,12 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
 import com.example.data.MediaContentRepository
+import com.example.model.EpisodeItem
 import com.example.model.LiveChannel
 import com.example.player.LivePlayerController
 import com.example.player.PlayerUiState
@@ -97,38 +106,51 @@ import com.example.ui.components.LiveIndicatorBadge
 import com.example.ui.theme.NeliCardPurple
 import com.example.ui.theme.NeliGenreCyan
 import com.example.ui.theme.NeliMagenta
+import com.example.ui.theme.NeliSurface
+import com.example.ui.theme.NeliSurfaceVariant
+import com.example.ui.theme.NeliTextPrimary
 import com.example.ui.theme.NeliTextSecondary
 import kotlinx.coroutines.delay
 import java.util.Locale
 
 /**
- * Full-Screen Landscape Player Screen.
+ * Full-Screen Landscape ExoPlayer Screen:
  *
  * - Automatically locks screen orientation to FULL LANDSCAPE (`SCREEN_ORIENTATION_SENSOR_LANDSCAPE`)
- *   and hides system bars for true full-mode playback.
+ *   and hides system bars for cinema playback.
  * - Live TV (`channel.isLiveBroadcast == true`) has NO play/pause button and NO timeline/seekbar;
- *   it plays continuously in real time until the user exits the watch page, and returning always
- *   continues at the live stream edge without rewinding.
- * - Movies & Series Episodes (`channel.isLiveBroadcast == false`) display Play/Pause, 10s Rewind/Forward
- *   seek buttons, and a responsive interactive timeline Slider.
- * - Series Video-On-Demand (VOD) includes on-screen Next Episode and Previous Episode buttons.
- * - Supports Auto Quality Control according to user internet over both Mobile Data and Wi-Fi, plus Offline playback.
+ *   it plays continuously in real time until the user exits the watch page.
+ * - Movies, Adult & Series (`channel.isLiveBroadcast == false`) display Play/Pause, 10s Rewind/Forward
+ *   seek buttons, and an interactive timeline Slider powered by ExoPlayer.
+ * - Swahili-Narrated Movies (`channel.shouldAutoSkipSwahiliMovieIntro == true`) automatically skip
+ *   the first 5m 30s (`05:30`) of DJ intro ads on initial start.
+ * - Series includes on-screen Next & Previous Episode buttons, Auto-Next Episode when an episode finishes,
+ *   and an In-Player VOD Episode Switcher Drawer so the user can change episodes without leaving the player.
  */
 @OptIn(UnstableApi::class)
 @Composable
 fun PlayerScreen(
     channel: LiveChannel,
     onBack: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    sharedController: LivePlayerController? = null,
+    onEnterPipMode: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val view = LocalView.current
     val activity = context as? Activity
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    var activeChannel by remember(channel.id) { mutableStateOf(channel) }
+    val ownsController = sharedController == null
+    val playerController = remember(sharedController, channel.id) {
+        sharedController ?: LivePlayerController(context, channel)
+    }
 
-    // Resolve Series VOD episode list so Next & Previous buttons work on screen for Series
+    val activeChannel by playerController.currentChannel.collectAsState()
+    val uiState by playerController.uiState.collectAsState()
+    val playbackInfo by playerController.playbackInfo.collectAsState()
+
+    // Resolve Series VOD episode list for In-Player Episode Switcher, Next/Prev buttons, and Auto-Next
     val episodesCatalog by MediaContentRepository.episodesCatalog.collectAsState()
     val seriesEpisodes = remember(activeChannel.id, activeChannel.seriesId, episodesCatalog) {
         val explicitSeriesId = activeChannel.seriesId.ifBlank {
@@ -151,6 +173,9 @@ fun PlayerScreen(
     }
 
     val isSeriesVod = !activeChannel.isLiveBroadcast && seriesEpisodes.isNotEmpty()
+    val currentEpisodeItem = if (isSeriesVod && currentEpisodeIndex in seriesEpisodes.indices) {
+        seriesEpisodes[currentEpisodeIndex]
+    } else null
     val previousEpisode = if (isSeriesVod && currentEpisodeIndex > 0) {
         seriesEpisodes[currentEpisodeIndex - 1]
     } else null
@@ -163,26 +188,40 @@ fun PlayerScreen(
             ?: activeChannel.name.substringBefore(" •").trim()
     }
 
+    // Wire Auto-Next Episode when current Series episode finishes
+    LaunchedEffect(isSeriesVod, nextEpisode, seriesTitlePrefix) {
+        playerController.onEpisodeEndedAutoNext = {
+            if (isSeriesVod && nextEpisode != null) {
+                nextEpisode.toPlayableChannel(seriesTitlePrefix)
+            } else null
+        }
+    }
+
     val isOfflineSavedPlayback = remember(activeChannel.id, activeChannel.streamUrl) {
         activeChannel.id.startsWith("dl_") || activeChannel.streamUrl.startsWith("file:", ignoreCase = true)
     }
 
-    val playerController = remember(activeChannel.id, activeChannel.streamUrl) {
-        LivePlayerController(context, activeChannel)
-    }
-
-    val uiState by playerController.uiState.collectAsState()
-    val playbackInfo by playerController.playbackInfo.collectAsState()
-
     var areControlsVisible by remember { mutableStateOf(true) }
+    var isEpisodeDrawerOpen by remember { mutableStateOf(false) }
     var resizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FILL) }
-    var activeExoPlayer by remember(activeChannel.id, activeChannel.streamUrl) { mutableStateOf<ExoPlayer?>(null) }
+    val activeExoPlayer = remember(playerController) { playerController.initializePlayer() }
 
-    // Smooth timeline scrubbing state for Movies & Series
+    // Smooth timeline scrubbing state for Movies, Adult & Series
     var isScrubbing by remember { mutableStateOf(false) }
     var scrubFraction by remember { mutableFloatStateOf(0f) }
 
-    DisposableEffect(activeChannel.id, activeChannel.streamUrl) {
+    // Show temporary badge when 5m 30s Swahili Movie intro skip is applied
+    var showSwahiliSkipBadge by remember(activeChannel.id) {
+        mutableStateOf(activeChannel.shouldAutoSkipSwahiliMovieIntro)
+    }
+    LaunchedEffect(activeChannel.id, showSwahiliSkipBadge) {
+        if (showSwahiliSkipBadge) {
+            delay(5500)
+            showSwahiliSkipBadge = false
+        }
+    }
+
+    DisposableEffect(playerController) {
         val window = activity?.window
         window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
@@ -192,31 +231,36 @@ fun PlayerScreen(
             WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         insetsController?.hide(WindowInsetsCompat.Type.systemBars())
 
-        activeExoPlayer = playerController.initializePlayer()
+        playerController.initializePlayer()
 
         onDispose {
-            activeExoPlayer = null
-            playerController.release()
+            if (ownsController) {
+                playerController.release()
+            }
             window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             insetsController?.show(WindowInsetsCompat.Type.systemBars())
             activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         }
     }
 
-    DisposableEffect(lifecycleOwner, activeChannel.id) {
+    DisposableEffect(lifecycleOwner, playerController) {
         var wasPausedByLifecycle = false
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> {
-                    wasPausedByLifecycle = true
-                    playerController.pause()
+                Lifecycle.Event.ON_STOP -> {
+                    // Only pause on STOP if Activity is NOT in Picture-in-Picture mode
+                    if (activity?.isInPictureInPictureMode != true) {
+                        wasPausedByLifecycle = true
+                        playerController.pause()
+                    }
                 }
                 Lifecycle.Event.ON_RESUME -> {
-                    activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                    if (activity?.isInPictureInPictureMode != true) {
+                        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                    }
                     if (wasPausedByLifecycle) {
                         wasPausedByLifecycle = false
                         if (activeChannel.isLiveBroadcast) {
-                            // Returning to Live TV always resumes at the live stream edge, never rewinding back
                             playerController.syncToLiveEdge()
                         } else {
                             playerController.play()
@@ -224,7 +268,9 @@ fun PlayerScreen(
                     }
                 }
                 Lifecycle.Event.ON_DESTROY -> {
-                    playerController.release()
+                    if (ownsController) {
+                        playerController.release()
+                    }
                 }
                 else -> {}
             }
@@ -236,19 +282,24 @@ fun PlayerScreen(
     }
 
     val handleExit: () -> Unit = {
-        activeExoPlayer = null
-        playerController.release()
-        activity?.window?.let { win ->
-            WindowCompat.getInsetsController(win, view).show(WindowInsetsCompat.Type.systemBars())
+        if (isEpisodeDrawerOpen) {
+            isEpisodeDrawerOpen = false
+        } else {
+            if (ownsController) {
+                playerController.release()
+            }
+            activity?.window?.let { win ->
+                WindowCompat.getInsetsController(win, view).show(WindowInsetsCompat.Type.systemBars())
+            }
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            onBack()
         }
-        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-        onBack()
     }
 
     BackHandler(onBack = handleExit)
 
-    LaunchedEffect(areControlsVisible, playbackInfo.isPlaying, uiState, isScrubbing) {
-        if (areControlsVisible && !isScrubbing && playbackInfo.isPlaying && uiState is PlayerUiState.Ready) {
+    LaunchedEffect(areControlsVisible, playbackInfo.isPlaying, uiState, isScrubbing, isEpisodeDrawerOpen) {
+        if (areControlsVisible && !isScrubbing && !isEpisodeDrawerOpen && playbackInfo.isPlaying && uiState is PlayerUiState.Ready) {
             delay(4000)
             areControlsVisible = false
         }
@@ -296,9 +347,46 @@ fun PlayerScreen(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null
                 ) {
-                    areControlsVisible = !areControlsVisible
+                    if (isEpisodeDrawerOpen) {
+                        isEpisodeDrawerOpen = false
+                    } else {
+                        areControlsVisible = !areControlsVisible
+                    }
                 }
         )
+
+        // Swahili Narrated Movie 5:30 Auto-Skip Notification Pill
+        AnimatedVisibility(
+            visible = showSwahiliSkipBadge && activeChannel.shouldAutoSkipSwahiliMovieIntro,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(start = 24.dp, top = 78.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color(0xEE10B981))
+                    .padding(horizontal = 14.dp, vertical = 7.dp)
+                    .testTag("swahili_movie_autoskip_badge"),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.SkipNext,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(16.dp)
+                )
+                Text(
+                    text = "Auto-Skipped to 05:30 • Swahili Movie Intro Ads Skipped",
+                    color = Color.White,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.ExtraBold
+                )
+            }
+        }
 
         // Overlay Controls
         AnimatedVisibility(
@@ -359,7 +447,7 @@ fun PlayerScreen(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 Text(
-                                    text = if (isSeriesVod) "VOD SERIES" else activeChannel.category,
+                                    text = if (isSeriesVod) "SERIES" else activeChannel.category,
                                     color = NeliMagenta,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold
@@ -391,6 +479,80 @@ fun PlayerScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
+                        // In-Player VOD Episode Switcher Button (for Series)
+                        if (isSeriesVod) {
+                            Box(
+                                modifier = Modifier
+                                    .testTag("player_episodes_drawer_button")
+                                    .clip(RoundedCornerShape(20.dp))
+                                    .background(NeliMagenta)
+                                    .clickable {
+                                        isEpisodeDrawerOpen = !isEpisodeDrawerOpen
+                                    }
+                                    .padding(horizontal = 14.dp, vertical = 8.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.VideoLibrary,
+                                        contentDescription = "Episodes VOD",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Text(
+                                        text = if (currentEpisodeItem != null) {
+                                            "Episodes (S${currentEpisodeItem.seasonNumber}:E${currentEpisodeItem.episodeNumber})"
+                                        } else {
+                                            "Episodes (${seriesEpisodes.size})"
+                                        },
+                                        color = Color.White,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.ExtraBold
+                                    )
+                                }
+                            }
+                        }
+
+                        // Floating PiP Mode Button
+                        if (onEnterPipMode != null) {
+                            Box(
+                                modifier = Modifier
+                                    .testTag("player_pip_button")
+                                    .clip(RoundedCornerShape(20.dp))
+                                    .background(Color(0xAA2B1055))
+                                    .border(1.dp, NeliGenreCyan.copy(alpha = 0.7f), RoundedCornerShape(20.dp))
+                                    .clickable {
+                                        activity?.window?.let { win ->
+                                            WindowCompat.getInsetsController(win, view)
+                                                .show(WindowInsetsCompat.Type.systemBars())
+                                        }
+                                        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                                        onEnterPipMode()
+                                    }
+                                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.PictureInPictureAlt,
+                                        contentDescription = "PiP Mode",
+                                        tint = NeliGenreCyan,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Text(
+                                        text = "PiP",
+                                        color = Color.White,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.ExtraBold
+                                    )
+                                }
+                            }
+                        }
+
                         // Auto Quality Control according to user internet (Mobile Data & Wi-Fi)
                         Box(
                             modifier = Modifier
@@ -428,7 +590,7 @@ fun PlayerScreen(
 
                 // Center Area:
                 // - Live TV: NO play/pause or seek buttons! Always continues playing live until user exits.
-                // - Movies & Series: Rewind 10s, Play/Pause, Forward 10s, plus Next/Previous Episode buttons for Series VOD.
+                // - Movies, Adult & Series: Rewind 10s, Play/Pause, Forward 10s, plus Next/Previous Episode buttons for Series.
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -468,7 +630,7 @@ fun PlayerScreen(
                                     modifier = Modifier.size(46.dp)
                                 )
                                 Text(
-                                    text = "Auto-adjusting quality for your ${playbackInfo.connectionLabel} connection...",
+                                    text = "Buffering stream (${playbackInfo.connectionLabel})...",
                                     color = Color.White,
                                     fontSize = 13.sp
                                 )
@@ -477,7 +639,6 @@ fun PlayerScreen(
 
                         is PlayerUiState.Error -> {
                             if (isOfflineSavedPlayback) {
-                                // Offline downloaded file playback fallback canvas when device has no internet
                                 Box(
                                     modifier = Modifier.fillMaxSize(),
                                     contentAlignment = Alignment.Center
@@ -608,19 +769,19 @@ fun PlayerScreen(
                         }
 
                         is PlayerUiState.Ready -> {
-                            // Strictly ONLY Movies & Series have Play/Pause, Seek, and Next/Previous Episode buttons.
+                            // Strictly ONLY Movies, Adult & Series have Play/Pause, Seek, and Next/Previous Episode buttons.
                             // Live TV has NO pause/play button and plays continuously until exit.
                             if (areControlsVisible && !activeChannel.isLiveBroadcast) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(22.dp)
                                 ) {
-                                    // Previous Episode button for Series VOD
+                                    // Previous Episode button for Series
                                     if (isSeriesVod) {
                                         IconButton(
                                             onClick = {
                                                 previousEpisode?.let { prev ->
-                                                    activeChannel = prev.toPlayableChannel(seriesTitlePrefix)
+                                                    playerController.switchChannel(prev.toPlayableChannel(seriesTitlePrefix))
                                                 }
                                             },
                                             enabled = previousEpisode != null,
@@ -696,12 +857,12 @@ fun PlayerScreen(
                                         )
                                     }
 
-                                    // Next Episode button for Series VOD
+                                    // Next Episode button for Series
                                     if (isSeriesVod) {
                                         IconButton(
                                             onClick = {
                                                 nextEpisode?.let { next ->
-                                                    activeChannel = next.toPlayableChannel(seriesTitlePrefix)
+                                                    playerController.switchChannel(next.toPlayableChannel(seriesTitlePrefix))
                                                 }
                                             },
                                             enabled = nextEpisode != null,
@@ -734,7 +895,7 @@ fun PlayerScreen(
 
                 // Bottom Bar:
                 // - Live TV: NO timeline slider and NO pause button; strictly real-time broadcast indicator
-                // - VOD Movie / Series Episode: Interactive seekbar + time labels + play/pause/seek + Next/Prev Episode controls
+                // - Movie / Adult / Series Episode: Interactive seekbar + time labels + play/pause/seek + Next/Prev & Episodes drawer
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -840,7 +1001,7 @@ fun PlayerScreen(
                                 )
                             }
                         } else {
-                            // Bottom transport bar for Movies & Series VOD
+                            // Bottom transport bar for Movies, Adult & Series
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -849,7 +1010,7 @@ fun PlayerScreen(
                                     IconButton(
                                         onClick = {
                                             previousEpisode?.let { prev ->
-                                                activeChannel = prev.toPlayableChannel(seriesTitlePrefix)
+                                                playerController.switchChannel(prev.toPlayableChannel(seriesTitlePrefix))
                                             }
                                         },
                                         enabled = previousEpisode != null,
@@ -910,7 +1071,7 @@ fun PlayerScreen(
                                     IconButton(
                                         onClick = {
                                             nextEpisode?.let { next ->
-                                                activeChannel = next.toPlayableChannel(seriesTitlePrefix)
+                                                playerController.switchChannel(next.toPlayableChannel(seriesTitlePrefix))
                                             }
                                         },
                                         enabled = nextEpisode != null,
@@ -925,11 +1086,39 @@ fun PlayerScreen(
                                             tint = if (nextEpisode != null) Color.White else NeliTextSecondary
                                         )
                                     }
+
+                                    // Quick button in bottom bar to open In-Player Episode Switcher
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(16.dp))
+                                            .background(Color(0xAA2B1055))
+                                            .border(1.dp, NeliGenreCyan.copy(alpha = 0.6f), RoundedCornerShape(16.dp))
+                                            .clickable { isEpisodeDrawerOpen = true }
+                                            .padding(horizontal = 12.dp, vertical = 8.dp)
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.VideoLibrary,
+                                                contentDescription = null,
+                                                tint = NeliGenreCyan,
+                                                modifier = Modifier.size(15.dp)
+                                            )
+                                            Text(
+                                                text = "All Episodes",
+                                                color = Color.White,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    }
                                 }
 
                                 Text(
                                     text = if (isSeriesVod && nextEpisode != null) {
-                                        "Next: S${nextEpisode.seasonNumber}E${nextEpisode.episodeNumber} ${nextEpisode.name}"
+                                        "Auto-Next: S${nextEpisode.seasonNumber}E${nextEpisode.episodeNumber} ${nextEpisode.name}"
                                     } else {
                                         activeChannel.description.ifBlank { "HD Cinema Mode" }
                                     },
@@ -1002,6 +1191,228 @@ fun PlayerScreen(
                                     )
                                 }
                             }
+                        }
+                    }
+                }
+            }
+        }
+
+        // In-Player VOD Episode & Season Selector Overlay Drawer (for Series)
+        AnimatedVisibility(
+            visible = isSeriesVod && isEpisodeDrawerOpen,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.align(Alignment.CenterEnd)
+        ) {
+            InPlayerEpisodesDrawer(
+                seriesTitle = seriesTitlePrefix,
+                episodes = seriesEpisodes,
+                currentEpisodeId = currentEpisodeItem?.id.orEmpty(),
+                onSelectEpisode = { selectedEp ->
+                    playerController.switchChannel(selectedEp.toPlayableChannel(seriesTitlePrefix))
+                    isEpisodeDrawerOpen = false
+                },
+                onClose = { isEpisodeDrawerOpen = false }
+            )
+        }
+    }
+}
+
+@Composable
+private fun InPlayerEpisodesDrawer(
+    seriesTitle: String,
+    episodes: List<EpisodeItem>,
+    currentEpisodeId: String,
+    onSelectEpisode: (EpisodeItem) -> Unit,
+    onClose: () -> Unit
+) {
+    val seasons = remember(episodes) {
+        episodes.map { it.seasonNumber }.distinct().sorted()
+    }
+    val initialSeason = remember(episodes, currentEpisodeId) {
+        episodes.find { it.id == currentEpisodeId }?.seasonNumber ?: seasons.firstOrNull() ?: 1
+    }
+    var selectedSeason by remember(initialSeason) { mutableIntStateOf(initialSeason) }
+
+    val seasonEpisodes = remember(episodes, selectedSeason) {
+        episodes.filter { it.seasonNumber == selectedSeason }.ifEmpty { episodes }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxHeight()
+            .width(360.dp)
+            .background(Color(0xF2120426))
+            .border(1.dp, NeliMagenta.copy(alpha = 0.5f), RoundedCornerShape(topStart = 22.dp, bottomStart = 22.dp))
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            ) { /* consume clicks inside drawer */ }
+            .padding(16.dp)
+            .testTag("in_player_episodes_drawer")
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = seriesTitle,
+                        color = Color.White,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = "Switch episode directly inside player • Auto-Next Active",
+                        color = NeliGenreCyan,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+                IconButton(
+                    onClick = onClose,
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(NeliCardPurple)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Close Episodes Drawer",
+                        tint = Color.White,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+
+            if (seasons.size > 1) {
+                Spacer(modifier = Modifier.height(10.dp))
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(vertical = 2.dp)
+                ) {
+                    items(seasons) { sNum ->
+                        val isSelected = sNum == selectedSeason
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(if (isSelected) NeliMagenta else NeliSurface)
+                                .border(
+                                    1.dp,
+                                    if (isSelected) NeliMagenta else Color(0x44A855F7),
+                                    RoundedCornerShape(14.dp)
+                                )
+                                .clickable { selectedSeason = sNum }
+                                .padding(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                text = "Season $sNum",
+                                color = Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                contentPadding = PaddingValues(bottom = 16.dp),
+                modifier = Modifier.fillMaxSize()
+            ) {
+                items(seasonEpisodes, key = { it.id }) { ep ->
+                    val isPlayingNow = ep.id == currentEpisodeId
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(if (isPlayingNow) NeliCardPurple else NeliSurface)
+                            .border(
+                                width = 1.dp,
+                                color = if (isPlayingNow) NeliMagenta else Color(0x33A855F7),
+                                shape = RoundedCornerShape(14.dp)
+                            )
+                            .clickable { onSelectEpisode(ep) }
+                            .padding(10.dp)
+                            .testTag("in_player_episode_item_${ep.id}"),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .width(88.dp)
+                                .aspectRatio(16f / 9f)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(NeliSurfaceVariant),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (ep.stillPath.isNotBlank()) {
+                                SubcomposeAsyncImage(
+                                    model = ImageRequest.Builder(LocalContext.current)
+                                        .data(ep.stillPath)
+                                        .crossfade(true)
+                                        .build(),
+                                    contentDescription = ep.name,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .clip(CircleShape)
+                                    .background(if (isPlayingNow) NeliMagenta else Color(0xAA14052B)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.PlayArrow,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = "S${ep.seasonNumber}:E${ep.episodeNumber}",
+                                    color = if (isPlayingNow) NeliMagenta else NeliGenreCyan,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.ExtraBold
+                                )
+                                if (isPlayingNow) {
+                                    Text(
+                                        text = "• PLAYING",
+                                        color = Color(0xFF10B981),
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.ExtraBold
+                                    )
+                                }
+                            }
+                            Text(
+                                text = ep.name,
+                                color = NeliTextPrimary,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = ep.durationLabel,
+                                color = NeliTextSecondary,
+                                fontSize = 11.sp
+                            )
                         }
                     }
                 }

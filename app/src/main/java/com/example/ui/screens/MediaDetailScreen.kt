@@ -144,7 +144,13 @@ fun MediaDetailScreen(
     var selectedQualityOption by remember { mutableStateOf(DownloadQualityOption.HIGH_720P) }
 
     val mediaDownloadingPct = downloadProgress[media.id]
-    val isMediaAlreadyDownloaded = isDownloaded || downloadedIds.contains(media.id)
+        ?: currentVodEpisode?.let { downloadProgress[it.id] }
+        ?: downloadProgress.values.firstOrNull()
+    val isMediaAlreadyDownloaded = if (media.isSeries && currentVodEpisode != null) {
+        downloadedIds.contains(currentVodEpisode.id)
+    } else {
+        isDownloaded || downloadedIds.contains(media.id)
+    }
 
     // Quality Selection Dialog when user taps Download
     val currentPendingTarget = pendingQualityTarget
@@ -403,7 +409,7 @@ fun MediaDetailScreen(
                             .padding(horizontal = 10.dp, vertical = 4.dp)
                     ) {
                         Text(
-                            text = if (media.isSeries) "VOD SERIES • ${media.genre.uppercase()}" else media.genre.uppercase(),
+                            text = media.genre.uppercase(),
                             color = Color.White,
                             fontSize = 10.sp,
                             fontWeight = FontWeight.ExtraBold
@@ -563,109 +569,12 @@ fun MediaDetailScreen(
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
                                 text = when {
+                                    mediaDownloadingPct != null && mediaDownloadingPct < 100 -> "Downloading $mediaDownloadingPct%"
                                     isMediaAlreadyDownloaded -> "Downloaded"
-                                    mediaDownloadingPct != null -> "Saving $mediaDownloadingPct%"
                                     else -> "Download"
                                 },
                                 color = Color.White,
                                 fontWeight = FontWeight.SemiBold
-                            )
-                        }
-                    }
-                }
-
-                // Series Video-On-Demand (VOD) Next & Previous Episode Quick Controls Bar
-                if (media.isSeries && filteredEpisodes.isNotEmpty() && currentVodEpisode != null) {
-                    Spacer(modifier = Modifier.height(12.dp))
-                    val hasPrevEp = activeEpisodeIndex > 0
-                    val hasNextEp = activeEpisodeIndex < filteredEpisodes.lastIndex
-
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(NeliSurface)
-                            .border(1.dp, Color(0x44A855F7), RoundedCornerShape(14.dp))
-                            .padding(horizontal = 10.dp, vertical = 8.dp)
-                            .testTag("series_vod_prev_next_bar"),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        OutlinedButton(
-                            onClick = {
-                                if (hasPrevEp) {
-                                    activeEpisodeIndex -= 1
-                                    val prevEp = filteredEpisodes[activeEpisodeIndex]
-                                    onPlayChannel(prevEp.toPlayableChannel(media.title))
-                                }
-                            },
-                            enabled = hasPrevEp,
-                            shape = RoundedCornerShape(10.dp),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                            modifier = Modifier.testTag("detail_prev_episode_button")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.SkipPrevious,
-                                contentDescription = "Previous Episode",
-                                tint = if (hasPrevEp) Color.White else NeliTextSecondary,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "Prev",
-                                color = if (hasPrevEp) Color.White else NeliTextSecondary,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            modifier = Modifier
-                                .weight(1f)
-                                .padding(horizontal = 8.dp)
-                        ) {
-                            Text(
-                                text = "VIDEO ON DEMAND • S${currentVodEpisode.seasonNumber}:E${currentVodEpisode.episodeNumber}",
-                                color = NeliGenreCyan,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.ExtraBold
-                            )
-                            Text(
-                                text = currentVodEpisode.name,
-                                color = Color.White,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-
-                        OutlinedButton(
-                            onClick = {
-                                if (hasNextEp) {
-                                    activeEpisodeIndex += 1
-                                    val nextEp = filteredEpisodes[activeEpisodeIndex]
-                                    onPlayChannel(nextEp.toPlayableChannel(media.title))
-                                }
-                            },
-                            enabled = hasNextEp,
-                            shape = RoundedCornerShape(10.dp),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                            modifier = Modifier.testTag("detail_next_episode_button")
-                        ) {
-                            Text(
-                                text = "Next",
-                                color = if (hasNextEp) Color.White else NeliTextSecondary,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Icon(
-                                imageVector = Icons.Default.SkipNext,
-                                contentDescription = "Next Episode",
-                                tint = if (hasNextEp) Color.White else NeliTextSecondary,
-                                modifier = Modifier.size(18.dp)
                             )
                         }
                     }

@@ -42,6 +42,7 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
     val liveChannels: StateFlow<List<LiveChannel>> = ChannelRepository.liveChannelsFlow
     val firebaseSyncStatus: StateFlow<String> = MediaContentRepository.firebaseSyncStatus
     val downloadProgress: StateFlow<Map<String, Int>> = OfflineDownloadManager.downloadProgress
+    val activeDownloadTitles: StateFlow<Map<String, String>> = OfflineDownloadManager.activeDownloadTitles
     val downloadBannerMessage: StateFlow<String?> = OfflineDownloadManager.downloadBannerMessage
 
     private val _isOfflineMode = MutableStateFlow(!OfflineDownloadManager.isDeviceOnline(appContext))
@@ -55,7 +56,23 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
         )
 
     val downloadedIds: StateFlow<Set<String>> = downloads
-        .map { list -> list.map { it.id }.toSet() }
+        .map { list ->
+            list.filter { it.downloadStatus == "COMPLETED" }
+                .map { it.id }
+                .toSet()
+        }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptySet()
+        )
+
+    val downloadingIds: StateFlow<Set<String>> = downloads
+        .map { list ->
+            list.filter { it.downloadStatus == "DOWNLOADING" }
+                .map { it.id }
+                .toSet()
+        }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
@@ -167,45 +184,42 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
 
     /**
      * Downloads a movie or series to the phone's internal storage (`offline_media`) at the selected quality.
-     * Strictly prevents downloading the same movie twice.
+     * Runs in a persistent background scope so it continues even when the user exits the app.
      */
     fun addDownload(
         media: MediaContent,
         quality: DownloadQualityOption = DownloadQualityOption.HIGH_720P
     ) {
         if (!media.downloadEnabled) return
-        viewModelScope.launch {
-            if (dao.isDownloaded(media.id) || OfflineDownloadManager.isCurrentlyDownloading(media.id)) {
-                return@launch
-            }
-            val item = DownloadedItemEntity(
-                id = media.id,
-                title = if (media.narrated && media.narrationLanguage.isNotBlank()) {
-                    "${media.title} (${media.narrationLanguage})"
-                } else {
-                    media.title
-                },
-                type = media.type,
-                posterUrl = media.posterUrl,
-                backdropUrl = media.backdropUrl,
-                streamUrl = media.streamUrl,
-                genre = media.genre,
-                duration = media.duration,
-                rating = quality.resolutionBadge,
-                fileSizeLabel = "${quality.resolutionBadge} • ${if (media.isSeries) quality.estimatedEpisodeSize else quality.estimatedMovieSize}"
-            )
-            OfflineDownloadManager.downloadMediaOffline(
-                context = appContext,
-                dao = dao,
-                item = item,
-                quality = quality
-            )
-        }
+        val item = DownloadedItemEntity(
+            id = media.id,
+            title = if (media.narrated && media.narrationLanguage.isNotBlank()) {
+                "${media.title} (${media.narrationLanguage})"
+            } else {
+                media.title
+            },
+            type = media.type,
+            posterUrl = media.posterUrl,
+            backdropUrl = media.backdropUrl,
+            streamUrl = media.streamUrl,
+            genre = media.genre,
+            duration = media.duration,
+            rating = quality.resolutionBadge,
+            fileSizeLabel = "${quality.resolutionBadge} • ${if (media.isSeries) quality.estimatedEpisodeSize else quality.estimatedMovieSize}",
+            downloadStatus = "DOWNLOADING",
+            progressPercent = 1
+        )
+        OfflineDownloadManager.enqueueBackgroundDownload(
+            context = appContext,
+            dao = dao,
+            item = item,
+            quality = quality
+        )
     }
 
     /**
      * Downloads an episode to the phone's internal storage (`offline_media`) at the selected quality.
-     * Strictly prevents downloading the same episode twice.
+     * Runs in a persistent background scope so it continues even when the user exits the app.
      */
     fun addEpisodeDownload(
         episode: EpisodeItem,
@@ -214,29 +228,26 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
         quality: DownloadQualityOption = DownloadQualityOption.HIGH_720P
     ) {
         if (!episode.downloadEnabled) return
-        viewModelScope.launch {
-            if (dao.isDownloaded(episode.id) || OfflineDownloadManager.isCurrentlyDownloading(episode.id)) {
-                return@launch
-            }
-            val item = DownloadedItemEntity(
-                id = episode.id,
-                title = "$seriesTitle • S${episode.seasonNumber}E${episode.episodeNumber}: ${episode.name}",
-                type = "series",
-                posterUrl = episode.stillPath.ifBlank { seriesPoster },
-                backdropUrl = episode.stillPath.ifBlank { seriesPoster },
-                streamUrl = episode.streamUrl,
-                genre = if (episode.narrated) "Series • ${episode.narrationLanguage}" else "Series",
-                duration = episode.durationLabel,
-                rating = quality.resolutionBadge,
-                fileSizeLabel = "${quality.resolutionBadge} • ${quality.estimatedEpisodeSize}"
-            )
-            OfflineDownloadManager.downloadMediaOffline(
-                context = appContext,
-                dao = dao,
-                item = item,
-                quality = quality
-            )
-        }
+        val item = DownloadedItemEntity(
+            id = episode.id,
+            title = "$seriesTitle • S${episode.seasonNumber}E${episode.episodeNumber}: ${episode.name}",
+            type = "series",
+            posterUrl = episode.stillPath.ifBlank { seriesPoster },
+            backdropUrl = episode.stillPath.ifBlank { seriesPoster },
+            streamUrl = episode.streamUrl,
+            genre = if (episode.narrated) "Series • ${episode.narrationLanguage}" else "Series",
+            duration = episode.durationLabel,
+            rating = quality.resolutionBadge,
+            fileSizeLabel = "${quality.resolutionBadge} • ${quality.estimatedEpisodeSize}",
+            downloadStatus = "DOWNLOADING",
+            progressPercent = 1
+        )
+        OfflineDownloadManager.enqueueBackgroundDownload(
+            context = appContext,
+            dao = dao,
+            item = item,
+            quality = quality
+        )
     }
 
     fun deleteDownload(id: String) {
