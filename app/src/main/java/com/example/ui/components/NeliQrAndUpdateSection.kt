@@ -763,7 +763,7 @@ fun NeliShareApkAndAutoUpdateSection(
                     Column {
                         Text(
                             text = "Automatic App Updates",
-                            color = Color.White,
+                            color = NeliTextPrimary,
                             fontSize = 13.sp,
                             fontWeight = FontWeight.ExtraBold
                         )
@@ -793,7 +793,7 @@ fun NeliShareApkAndAutoUpdateSection(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(14.dp))
-                    .background(Color(0xFF0E121D))
+                    .background(NeliSurfaceVariant)
                     .border(1.dp, NeliBorder, RoundedCornerShape(14.dp))
                     .padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -922,7 +922,7 @@ fun NeliShareApkAndAutoUpdateSection(
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = if (releaseInfo.isNewUpdateAvailable) "Update Now" else "Download APK",
-                        color = Color.White,
+                        color = NeliTextPrimary,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.ExtraBold
                     )
@@ -945,7 +945,7 @@ fun NeliShareApkAndAutoUpdateSection(
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = "View What's New & Release Page on GitHub (${releaseInfo.versionTag})",
-                    color = Color.White,
+                    color = NeliTextPrimary,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold
                 )

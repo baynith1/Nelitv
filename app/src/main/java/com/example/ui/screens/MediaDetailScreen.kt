@@ -365,7 +365,7 @@ fun MediaDetailScreen(
                             Text(
                                 text = downloadBannerMessage
                                     ?: "Downloading ${media.title} (${mediaDownloadingPct ?: 0}%)...",
-                                color = Color.White,
+                                color = NeliTextPrimary,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold
                             )
@@ -601,7 +601,7 @@ fun MediaDetailScreen(
                                     isMediaAlreadyDownloaded -> "Downloaded • Play"
                                     else -> "Download"
                                 },
-                                color = Color.White,
+                                color = NeliTextPrimary,
                                 fontWeight = FontWeight.SemiBold
                             )
                         }
@@ -763,7 +763,7 @@ fun MediaDetailScreen(
                                 ) {
                                     Text(
                                         text = "${season.name} (${season.episodeCount} Eps)",
-                                        color = Color.White,
+                                        color = if (isSelected) Color.White else NeliTextPrimary,
                                         fontSize = 12.sp,
                                         fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium
                                     )

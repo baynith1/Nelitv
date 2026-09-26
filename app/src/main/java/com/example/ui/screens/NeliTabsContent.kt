@@ -1232,7 +1232,7 @@ fun DownloadTabContent(
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = "Offline mode",
-                            color = Color.White,
+                            color = NeliTextPrimary,
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Bold
                         )
@@ -1584,7 +1584,7 @@ fun DownloadTabContent(
                                     Spacer(modifier = Modifier.width(3.dp))
                                     Text(
                                         text = "Pause",
-                                        color = Color.White,
+                                        color = NeliTextPrimary,
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Bold
                                     )
@@ -1995,7 +1995,7 @@ fun AccountTabContent(
                         Spacer(modifier = Modifier.width(10.dp))
                         Text(
                             text = "Continue with Google",
-                            color = Color.White,
+                            color = NeliTextPrimary,
                             fontWeight = FontWeight.Bold,
                             fontSize = 14.sp
                         )
@@ -2035,7 +2035,7 @@ fun AccountTabContent(
                                 ) {
                                     Text(
                                         text = "Use Email Instead",
-                                        color = Color.White,
+                                        color = NeliTextPrimary,
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Bold
                                     )
@@ -2085,7 +2085,7 @@ fun AccountTabContent(
                         ) {
                             Text(
                                 text = "Sign Up",
-                                color = Color.White,
+                                color = if (isRegisterMode) Color.White else NeliTextPrimary,
                                 fontWeight = FontWeight.ExtraBold,
                                 fontSize = 13.sp
                             )
@@ -2106,7 +2106,7 @@ fun AccountTabContent(
                         ) {
                             Text(
                                 text = "Sign In",
-                                color = Color.White,
+                                color = if (!isRegisterMode) Color.White else NeliTextPrimary,
                                 fontWeight = FontWeight.ExtraBold,
                                 fontSize = 13.sp
                             )
@@ -2478,7 +2478,7 @@ fun AccountTabContent(
                         ) {
                             Text(
                                 text = label,
-                                color = Color.White,
+                                color = if (isSelected) Color.White else NeliTextPrimary,
                                 fontSize = 11.sp,
                                 fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium,
                                 maxLines = 1,

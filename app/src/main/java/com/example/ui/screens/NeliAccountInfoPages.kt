@@ -390,7 +390,7 @@ fun AccountInfoDetailScreen(
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = "Back",
-                    tint = Color.White
+                    tint = NeliTextPrimary
                 )
             }
 
@@ -461,7 +461,7 @@ fun AccountInfoDetailScreen(
                             )
                             Text(
                                 text = CUSTOMER_CARE_AGENT_NAME,
-                                color = Color.White,
+                                color = NeliTextPrimary,
                                 fontSize = 20.sp,
                                 fontWeight = FontWeight.Black
                             )
@@ -530,7 +530,7 @@ fun AccountInfoDetailScreen(
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
                                     text = "Chat on WhatsApp ($CUSTOMER_CARE_PHONE)",
-                                    color = Color.White,
+                                    color = NeliTextPrimary,
                                     fontWeight = FontWeight.ExtraBold
                                 )
                             }
@@ -579,7 +579,7 @@ fun AccountInfoDetailScreen(
                         InfoCardBlock(
                             badge = "FAQ #3 • OFFLINE DOWNLOADS",
                             title = "Where are my downloaded movies saved?",
-                            body = "All downloaded movies and series episodes are stored inside your phone's internal app storage. Whenever you open NeliPlay without an internet connection, it automatically takes you to the Downloads tab so you can watch offline immediately."
+                            body = "All downloaded movies and series episodes play inside NeliPlay's Downloads tab and are also saved in your phone's Internal Storage / Movies / NeliPlay folder for direct offline access anytime."
                         )
                     }
                     item {
