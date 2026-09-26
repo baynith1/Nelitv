@@ -181,30 +181,33 @@ data class MediaContent(
     val lastAirDate: String = "",
     val seasons: List<SeriesSeason> = emptyList()
 ) {
-    val isSeries: Boolean
-        get() = type.equals("series", ignoreCase = true) || type.equals("tv_show", ignoreCase = true)
+    val isSeries: Boolean =
+        type.equals("series", ignoreCase = true) || type.equals("tv_show", ignoreCase = true)
 
-    val isAdult: Boolean
-        get() = type.equals("adult", ignoreCase = true) ||
-                com.example.data.MediaContentRepository.isAdultKeywordOrQuery(type) ||
-                com.example.data.MediaContentRepository.isAdultKeywordOrQuery(genre) ||
-                subGenres.any { com.example.data.MediaContentRepository.isAdultKeywordOrQuery(it) }
+    val isAdult: Boolean by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        type.equals("adult", ignoreCase = true) ||
+            com.example.data.MediaContentRepository.isAdultKeywordOrQuery(type) ||
+            com.example.data.MediaContentRepository.isAdultKeywordOrQuery(genre) ||
+            subGenres.any { com.example.data.MediaContentRepository.isAdultKeywordOrQuery(it) }
+    }
 
-    val isMovie: Boolean
-        get() = !isSeries && !isAdult
+    val isMovie: Boolean by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        !isSeries && !isAdult
+    }
 
     /**
      * Strictly true ONLY for Movies narrated in Swahili/Kiswahili (DJ narrated movies with 5m30s intro ads).
      * Never true for Adult, Live TV, Series, or Episodes.
      */
-    val isSwahiliNarratedMovie: Boolean
-        get() = isMovie &&
-                !isSeries &&
-                !isAdult &&
-                narrated &&
-                (narrationLanguage.contains("swahili", ignoreCase = true) ||
-                        narrationLanguage.equals("sw", ignoreCase = true) ||
-                        screenplay.contains("swahili", ignoreCase = true))
+    val isSwahiliNarratedMovie: Boolean by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        isMovie &&
+            !isSeries &&
+            !isAdult &&
+            narrated &&
+            (narrationLanguage.contains("swahili", ignoreCase = true) ||
+                narrationLanguage.equals("sw", ignoreCase = true) ||
+                screenplay.contains("swahili", ignoreCase = true))
+    }
 
     val shouldAutoSkipSwahiliMovieIntro: Boolean
         get() = isSwahiliNarratedMovie
@@ -215,8 +218,9 @@ data class MediaContent(
     /**
      * Strictly returns ONLY the first primary genre for this media item so movies are never duplicated across genres.
      */
-    val primaryGenre: String
-        get() = com.example.data.MediaContentRepository.extractPrimaryGenre(this)
+    val primaryGenre: String by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        com.example.data.MediaContentRepository.extractPrimaryGenre(this)
+    }
 
     val posterPath: String
         get() = posterUrl

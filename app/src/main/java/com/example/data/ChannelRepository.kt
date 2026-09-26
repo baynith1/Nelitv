@@ -614,10 +614,210 @@ object ChannelRepository {
      */
     fun getPrioritizedAllChannels(source: List<LiveChannel> = _liveChannelsFlow.value): List<LiveChannel> {
         val active = source.filter { it.enabled && it.published }.ifEmpty { channels }
-        return active.sortedByDescending { it.priorityTier }
+        return active
+            .map { ch ->
+                val resolvedLogo = resolveGuaranteedChannelLogoUrl(ch)
+                if (resolvedLogo != ch.thumbnailUrl) ch.copy(thumbnailUrl = resolvedLogo) else ch
+            }
+            .sortedByDescending { it.priorityTier }
+    }
+
+    /**
+     * Groups channels into vertical chunks of 6 channels so an inline Muted Video Ad / AdMob Ad
+     * is embedded after every 6 channels in the All Channels vertical view.
+     */
+    fun getAllChannelsChunkedEverySixForAds(
+        source: List<LiveChannel> = _liveChannelsFlow.value
+    ): List<List<LiveChannel>> {
+        val list = if (source.isEmpty()) getPrioritizedAllChannels() else source
+        return list.chunked(6)
     }
 
     fun getChannelsByCategory(category: String): List<LiveChannel> = filterChannels("", category)
+
+    /**
+     * Ordered homepage category sections requested before "All Channels":
+     * 1. Azam TV (all Azam TV channels)
+     * 2. Sports
+     * 3. Entertainment
+     * 4. Kids
+     * 5. News
+     * 6. Movies
+     * ...followed by Music, Documentary, Africa, Tanzania, and any remaining categories.
+     */
+    val homepageOrderedCategoryNames: List<String> = listOf(
+        "Azam TV",
+        "Sports",
+        "Entertainment",
+        "Kids",
+        "News",
+        "Movies",
+        "Music",
+        "Documentary",
+        "Africa",
+        "Tanzania",
+        "Other"
+    )
+
+    /**
+     * Groups Live TV channels into ordered category shelves for the Homepage before "All Channels":
+     * Starts with Azam TV (all Azam TV channels), then Sports, Entertainment, Kids, News, Movies,
+     * and remaining categories until all categories are shown.
+     */
+    fun getChannelsGroupedByHomepageCategories(
+        source: List<LiveChannel> = _liveChannelsFlow.value
+    ): List<Pair<String, List<LiveChannel>>> {
+        val active = getPrioritizedAllChannels(source).map { ch ->
+            val resolvedLogo = resolveGuaranteedChannelLogoUrl(ch)
+            if (resolvedLogo != ch.thumbnailUrl) ch.copy(thumbnailUrl = resolvedLogo) else ch
+        }
+        val result = mutableListOf<Pair<String, List<LiveChannel>>>()
+        val seenCategoryKeys = mutableSetOf<String>()
+
+        for (categoryName in homepageOrderedCategoryNames) {
+            val matching = when (categoryName.lowercase()) {
+                "azam tv" -> active.filter { it.isAzamPriority }
+                "sports" -> active.filter { ch ->
+                    ch.categories.any { it.equals("sport", true) || it.equals("sports", true) } ||
+                        ch.name.contains("sport", ignoreCase = true)
+                }
+                "entertainment" -> active.filter { ch ->
+                    ch.categories.any { it.equals("entertainment", true) }
+                }
+                "kids" -> active.filter { ch ->
+                    ch.categories.any {
+                        it.equals("kids", true) ||
+                            it.equals("kid", true) ||
+                            it.contains("cartoon", true) ||
+                            it.contains("animation", true)
+                    }
+                }
+                "news" -> active.filter { ch ->
+                    ch.categories.any { it.equals("news", true) } ||
+                        ch.name.contains("news", ignoreCase = true)
+                }
+                "movies" -> active.filter { ch ->
+                    ch.categories.any {
+                        it.equals("movies", true) ||
+                            it.equals("movie", true) ||
+                            it.contains("cinema", true)
+                    } || ch.name.contains("sinema", ignoreCase = true) ||
+                        ch.name.contains("movies", ignoreCase = true)
+                }
+                "music" -> active.filter { ch ->
+                    ch.categories.any { it.equals("music", true) }
+                }
+                "documentary" -> active.filter { ch ->
+                    ch.categories.any { it.equals("documentary", true) }
+                }
+                "africa" -> active.filter { ch ->
+                    ch.categories.any { it.equals("africa", true) }
+                }
+                "tanzania" -> active.filter { it.isTanzaniaChannel }
+                "other" -> active.filter { ch ->
+                    ch.categories.isEmpty() || ch.categories.any { it.equals("other", true) }
+                }
+                else -> active.filter { ch ->
+                    ch.categories.any { it.equals(categoryName, true) }
+                }
+            }
+            if (matching.isNotEmpty()) {
+                result.add(categoryName to matching)
+                seenCategoryKeys.add(categoryName.lowercase())
+            }
+        }
+
+        // Also include any custom Firebase channel categories not already in the standard list
+        val extraCategories = LinkedHashSet<String>()
+        active.forEach { ch ->
+            ch.categories.forEach { rawCat ->
+                val clean = rawCat.trim()
+                val lower = clean.lowercase()
+                if (clean.isNotEmpty() &&
+                    lower != "sport" &&
+                    lower !in seenCategoryKeys
+                ) {
+                    extraCategories.add(clean.replaceFirstChar { it.uppercase() })
+                }
+            }
+        }
+        for (extraCat in extraCategories) {
+            val matching = active.filter { ch ->
+                ch.categories.any { it.equals(extraCat, ignoreCase = true) }
+            }
+            if (matching.isNotEmpty()) {
+                result.add(extraCat to matching)
+            }
+        }
+
+        return result
+    }
+
+    /**
+     * Guarantees every channel has a valid, non-blank logo URL in both category rows and All Channels.
+     */
+    fun resolveGuaranteedChannelLogoUrl(channel: LiveChannel): String {
+        val raw = channel.thumbnailUrl.trim()
+        if (raw.startsWith("//")) {
+            return "https:$raw"
+        }
+        if (raw.startsWith("http://", ignoreCase = true)) {
+            return "https://" + raw.removePrefix("http://").removePrefix("HTTP://")
+        }
+        if (raw.startsWith("https://", ignoreCase = true) || raw.startsWith("data:image/", ignoreCase = true)) {
+            return raw
+        }
+        return resolveFallbackChannelLogoUrl(channel)
+    }
+
+    /**
+     * Reliable fallback logo URL if a channel has no logo or if its remote logo URL fails to load.
+     */
+    fun resolveFallbackChannelLogoUrl(channel: LiveChannel): String {
+        val localMatch = channels.find {
+            it.id.equals(channel.id, ignoreCase = true) ||
+                it.name.equals(channel.name.trim(), ignoreCase = true) ||
+                channel.name.contains(it.name, ignoreCase = true) ||
+                it.name.contains(channel.name.trim(), ignoreCase = true)
+        }
+        if (localMatch != null &&
+            localMatch.thumbnailUrl.isNotBlank() &&
+            !localMatch.thumbnailUrl.equals(channel.thumbnailUrl.trim(), ignoreCase = true)
+        ) {
+            return localMatch.thumbnailUrl
+        }
+        val lowerName = channel.name.lowercase()
+        val lowerCats = channel.categories.joinToString(" ").lowercase()
+        return when {
+            lowerName.contains("azam sport 1") || lowerName.contains("azam sports 1") ->
+                "https://i.ibb.co/B29Xvb5P/azam-sport-1-01.png"
+            lowerName.contains("azam sport 2") || lowerName.contains("azam sports 2") ->
+                "https://i.ibb.co/Y7Cj3Wtj/azam-sport-2-01.png"
+            lowerName.contains("azam sport 3") || lowerName.contains("azam sports 3") ->
+                "https://i.ibb.co/2YfLQ545/1000221070.png"
+            lowerName.contains("azam sport") || lowerCats.contains("sport") ->
+                "https://i.ibb.co/SwtFQNsh/1000221063.jpg"
+            lowerName.contains("azam one") || lowerName.contains("azam xtra") ->
+                "https://i.ibb.co/8gtr1n42/1000221072.jpg"
+            lowerName.contains("azam two") || lowerName.contains("clouds") ->
+                "https://i.ibb.co/Z6sdp2tg/1000221074.jpg"
+            lowerName.contains("sinema") || lowerName.contains("azam movies") || lowerCats.contains("movie") ->
+                "https://i.ibb.co/twBGTs4s/1000221073.jpg"
+            lowerName.contains("utv") || lowerName.contains("itv") || lowerCats.contains("news") ->
+                "https://i.ibb.co/N2nCDLwD/1000221071.png"
+            lowerName.contains("zbc") ->
+                "https://i.ibb.co/xtynWQsN/1000221078.png"
+            lowerName.contains("wasafi") || lowerCats.contains("music") ->
+                "https://i.ibb.co/W4PYYhRV/157731247083407-Y3-Jvc-Cwx-MTQ0-LDg5-NCww-LDU4-OA.png"
+            lowerName.contains("crown") ->
+                "https://i.ibb.co/GfWDtdQT/1000221075.png"
+            lowerName.contains("kix") ->
+                "https://i.ibb.co/ch6qGQT3/KIX-logo-svg.png"
+            lowerCats.contains("kid") || lowerName.contains("cartoon") || lowerName.contains("baby") ->
+                "https://i.ibb.co/8gV4tq4g/1000221079.png"
+            else -> "https://i.ibb.co/8gtr1n42/1000221072.jpg"
+        }
+    }
 
     /**
      * Automatically extracts the `exp` (expiration epoch seconds) embedded inside an Azam TV JWT token
@@ -732,21 +932,37 @@ object ChannelRepository {
             }
             val normalizedUrl = normalizeDashStreamUrl(rem.streamUrl)
             val isDash = normalizedUrl.contains(".mpd", ignoreCase = true)
+            val resolvedLogo = rem.thumbnailUrl.trim()
+                .ifEmpty { matchingLocal?.thumbnailUrl.orEmpty() }
+                .let { candidate ->
+                    if (candidate.isNotBlank()) candidate else resolveGuaranteedChannelLogoUrl(rem)
+                }
             rem.copy(
                 streamUrl = normalizedUrl,
                 streamFormat = if (isDash) "dash" else rem.streamFormat,
+                thumbnailUrl = resolvedLogo,
                 encryptionType = if (mergedKeys.isNotEmpty()) "clearkey" else rem.encryptionType,
                 clearKeys = mergedKeys
             )
         }
         val azamFirst = channels.take(17).map { ch ->
-            ch.copy(streamUrl = normalizeDashStreamUrl(ch.streamUrl))
+            val matchingRemote = activeRemote.find {
+                it.id.equals(ch.id, ignoreCase = true) || it.name.equals(ch.name.trim(), ignoreCase = true)
+            }
+            val mergedLogo = matchingRemote?.thumbnailUrl?.takeIf { it.isNotBlank() } ?: ch.thumbnailUrl
+            ch.copy(
+                streamUrl = normalizeDashStreamUrl(matchingRemote?.streamUrl?.ifBlank { ch.streamUrl } ?: ch.streamUrl),
+                thumbnailUrl = resolveGuaranteedChannelLogoUrl(ch.copy(thumbnailUrl = mergedLogo))
+            )
         }
         val remainingLocal = channels.drop(17).map { ch ->
-            ch.copy(streamUrl = normalizeDashStreamUrl(ch.streamUrl))
+            ch.copy(
+                streamUrl = normalizeDashStreamUrl(ch.streamUrl),
+                thumbnailUrl = resolveGuaranteedChannelLogoUrl(ch)
+            )
         }
         val newRemote = activeRemote.filter { rem ->
-            azamFirst.none { it.id == rem.id || it.name.equals(rem.name, ignoreCase = true) }
+            azamFirst.none { it.id.equals(rem.id, ignoreCase = true) || it.name.equals(rem.name.trim(), ignoreCase = true) }
         }
         val combinedRemaining = (newRemote + remainingLocal.filter { loc ->
             newRemote.none { it.id == loc.id || it.name.equals(loc.name, ignoreCase = true) }
@@ -825,6 +1041,11 @@ object ChannelRepository {
         }
 
         // Prioritize Azam TV channels first (3), then Tanzania channels (2), then featured (1), then other channels (0)
-        return filtered.sortedByDescending { it.priorityTier }
+        return filtered
+            .map { ch ->
+                val resolvedLogo = resolveGuaranteedChannelLogoUrl(ch)
+                if (resolvedLogo != ch.thumbnailUrl) ch.copy(thumbnailUrl = resolvedLogo) else ch
+            }
+            .sortedByDescending { it.priorityTier }
     }
 }

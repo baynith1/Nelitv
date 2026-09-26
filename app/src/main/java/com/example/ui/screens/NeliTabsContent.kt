@@ -24,6 +24,7 @@ import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
@@ -92,12 +93,15 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
 import com.example.data.ChannelRepository
 import com.example.data.MediaContentRepository
 import com.example.data.local.DownloadedItemEntity
 import com.example.data.local.FirebaseConfigEntity
+import com.example.ui.components.NeliAdaptiveBannerAd
+import com.example.ui.components.NeliNativeSearchAd
 import com.example.data.local.UserAccountEntity
 import com.example.data.local.WatchlistItemEntity
 import com.example.model.EpisodeItem
@@ -131,12 +135,12 @@ fun MediaPosterCard(
             media.streamUrl
         )
     }
-    val secondaryImageUrl = remember(media.id, media.backdropUrl, media.posterUrl, media.streamUrl) {
-        MediaContentRepository.resolveGuaranteedMediaImageUrl(
-            media.backdropUrl,
-            media.posterUrl,
-            media.streamUrl
-        )
+    val posterRequest = remember(media.id, primaryImageUrl) {
+        ImageRequest.Builder(context)
+            .data(primaryImageUrl)
+            .size(300, 450)
+            .crossfade(false)
+            .build()
     }
 
     Column(
@@ -156,46 +160,21 @@ fun MediaPosterCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(2f / 3f)
-                .background(NeliSurfaceVariant)
+                .background(NeliSurfaceVariant),
+            contentAlignment = Alignment.Center
         ) {
-            SubcomposeAsyncImage(
-                model = ImageRequest.Builder(context)
-                    .data(primaryImageUrl)
-                    .crossfade(true)
-                    .build(),
+            Icon(
+                imageVector = Icons.Default.Movie,
+                contentDescription = null,
+                tint = NeliMagenta.copy(alpha = 0.35f),
+                modifier = Modifier.size(34.dp)
+            )
+
+            AsyncImage(
+                model = posterRequest,
                 contentDescription = media.title,
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-                error = {
-                    SubcomposeAsyncImage(
-                        model = ImageRequest.Builder(context)
-                            .data(secondaryImageUrl)
-                            .crossfade(true)
-                            .build(),
-                        contentDescription = media.title,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize(),
-                        error = {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(
-                                        Brush.verticalGradient(
-                                            colors = listOf(Color(0xFF2B124C), Color(0xFF090A0F))
-                                        )
-                                    ),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Movie,
-                                    contentDescription = null,
-                                    tint = NeliMagenta,
-                                    modifier = Modifier.size(38.dp)
-                                )
-                            }
-                        }
-                    )
-                }
+                modifier = Modifier.fillMaxSize()
             )
 
             Box(
@@ -360,6 +339,21 @@ fun AdultMediaPosterThumbnailCard(
         )
     }
 
+    val thumbnailRequest = remember(media.id, thumbnailImageUrl) {
+        ImageRequest.Builder(context)
+            .data(thumbnailImageUrl)
+            .size(400, 225)
+            .crossfade(false)
+            .build()
+    }
+    val posterRequest = remember(media.id, posterImageUrl) {
+        ImageRequest.Builder(context)
+            .data(posterImageUrl)
+            .size(120, 180)
+            .crossfade(false)
+            .build()
+    }
+
     Column(
         modifier = modifier
             .width(230.dp)
@@ -376,25 +370,11 @@ fun AdultMediaPosterThumbnailCard(
                 .background(NeliSurfaceVariant)
         ) {
             // Full landscape thumbnail / backdrop image
-            SubcomposeAsyncImage(
-                model = ImageRequest.Builder(context)
-                    .data(thumbnailImageUrl)
-                    .crossfade(true)
-                    .build(),
+            AsyncImage(
+                model = thumbnailRequest,
                 contentDescription = media.title,
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-                error = {
-                    SubcomposeAsyncImage(
-                        model = ImageRequest.Builder(context)
-                            .data(posterImageUrl)
-                            .crossfade(true)
-                            .build(),
-                        contentDescription = media.title,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                }
+                modifier = Modifier.fillMaxSize()
             )
 
             Box(
@@ -417,11 +397,8 @@ fun AdultMediaPosterThumbnailCard(
                     .clip(RoundedCornerShape(8.dp))
                     .border(1.dp, Color.White.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
             ) {
-                SubcomposeAsyncImage(
-                    model = ImageRequest.Builder(context)
-                        .data(posterImageUrl)
-                        .crossfade(true)
-                        .build(),
+                AsyncImage(
+                    model = posterRequest,
                     contentDescription = "${media.title} Poster",
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()
@@ -607,9 +584,12 @@ fun DiscoveryTabContent(
             DiscoveryMadjsBanner()
         }
 
-        // 3. MOVIES SECTION (Grouped by First Genre)
+        // 3. MOVIES SECTION (Grouped by First Genre) + Banner after a content genre section
         if (selectedFilter.equals("All", true) || selectedFilter.equals("Movies", true)) {
-            items(moviesByFirstGenre, key = { "first_genre_${it.first}" }) { (firstGenreName, genreMovies) ->
+            itemsIndexed(
+                items = moviesByFirstGenre,
+                key = { _, pair -> "first_genre_${pair.first}" }
+            ) { index, (firstGenreName, genreMovies) ->
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -648,11 +628,20 @@ fun DiscoveryTabContent(
                             )
                         }
                     }
+
+                    // Discovery: Banner in every movie genre category section
+                    NeliAdaptiveBannerAd(
+                        placementKey = if (index == 0) {
+                            "discovery_after_genre_section"
+                        } else {
+                            "discovery_after_genre_${firstGenreName.lowercase().replace(" ", "_")}"
+                        }
+                    )
                 }
             }
         }
 
-        // 4. SERIES SECTION
+        // 4. SERIES SECTION + One banner below an appropriate section
         if ((selectedFilter.equals("All", true) || selectedFilter.equals("Series", true)) && seriesList.isNotEmpty()) {
             item {
                 Column(
@@ -693,6 +682,9 @@ fun DiscoveryTabContent(
                             )
                         }
                     }
+
+                    // SERIES: One banner below the Series section
+                    NeliAdaptiveBannerAd(placementKey = "series_below_section")
                 }
             }
         }
@@ -1103,6 +1095,14 @@ fun SearchTabContent(
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
+
+                    // SEARCH: Native ad between result groups occasionally
+                    item(
+                        span = { GridItemSpan(maxLineSpan) },
+                        key = "search_native_ad_between_groups"
+                    ) {
+                        NeliNativeSearchAd(placementKey = "search_between_result_groups")
+                    }
                 }
 
                 if (filteredEpisodes.isNotEmpty()) {
@@ -1512,6 +1512,11 @@ fun DownloadTabContent(
                     }
                 }
             }
+        }
+
+        // Download page / DOWNLOADS: One adaptive banner in a natural position
+        item(key = "downloads_natural_ad_banner") {
+            NeliAdaptiveBannerAd(placementKey = "downloads_natural_position")
         }
 
         // Recommended Downloads inside the Download tab

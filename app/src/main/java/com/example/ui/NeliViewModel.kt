@@ -25,16 +25,19 @@ import com.example.model.EpisodeItem
 import com.example.model.LiveChannel
 import com.example.model.MediaContent
 import com.example.ui.components.BottomNavTab
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class NeliViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -101,7 +104,7 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         mergedById.values.sortedByDescending { it.downloadedAt }
-    }.stateIn(
+    }.flowOn(Dispatchers.IO).stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = emptyList()
@@ -113,6 +116,7 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
                 .map { it.id }
                 .toSet()
         }
+        .flowOn(Dispatchers.IO)
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
@@ -127,7 +131,7 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
             it.downloadStatus == "DOWNLOADING" || OfflineDownloadManager.isCurrentlyDownloading(it.id)
         }.map { it.id }
         (fromList + progressMap.keys).toSet()
-    }.stateIn(
+    }.flowOn(Dispatchers.Default).stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = emptySet()
@@ -206,12 +210,10 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         registerConnectivityMonitor()
-        NeliAppUpdateManager.initialize(appContext)
-        com.example.notifications.NeliNotificationScheduler.scheduleAllDailyNotifications(appContext)
-        com.example.widget.NeliHomeWidgetProvider.updateAllWidgets(appContext)
 
-        // 1. YouTube-style automatic Google Sign-In on first launch if no account is signed in yet
-        viewModelScope.launch {
+        // Run non-UI initialization and background sync strictly on Dispatchers.IO so main UI thread stays 60/120fps
+        viewModelScope.launch(Dispatchers.IO) {
+            NeliAppUpdateManager.initialize(appContext)
             userManager.signInWithGoogleAutoOrPrimaryAccount(
                 uiContext = appContext,
                 forceInteractive = false
@@ -219,7 +221,9 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         // 2. Automatic background sync loop for Azam TV Cloud Token, Live Catalog, Daily Alerts & GitHub App Updates
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
+            // Brief startup yield so initial Compose UI renders immediately without network/JSON contention
+            delay(1200L)
             while (isActive) {
                 performAutomaticSyncCycle()
                 delay(MediaContentRepository.computeJitterDelayMsFor10MScale(10 * 60 * 1000L))
@@ -228,12 +232,12 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun triggerAutomaticBackgroundSync() {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             performAutomaticSyncCycle()
         }
     }
 
-    private suspend fun performAutomaticSyncCycle() {
+    private suspend fun performAutomaticSyncCycle() = withContext(Dispatchers.IO) {
         try {
             val apiKey = AuthRepository.resolveApiKey(appContext)
             MediaContentRepository.syncCdnTokenFromFirebase(

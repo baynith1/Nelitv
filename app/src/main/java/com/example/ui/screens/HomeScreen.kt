@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
@@ -62,8 +63,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import coil.compose.AsyncImage
 import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
+import com.example.ads.NeliAdMobManager
 import com.example.data.ChannelRepository
 import com.example.data.MediaContentRepository
 import com.example.data.OfflineDownloadManager
@@ -72,7 +75,9 @@ import com.example.ui.NeliViewModel
 import com.example.ui.components.BottomNavTab
 import com.example.ui.components.ChannelCard
 import com.example.ui.components.LiveIndicatorBadge
+import com.example.ui.components.NeliAdaptiveBannerAd
 import com.example.ui.components.NeliBottomBar
+import com.example.ui.components.NeliMutedInlineVideoAdCard
 import com.example.ui.components.TopNavBar
 import com.example.ui.theme.NeliBackground
 import com.example.ui.theme.NeliGenreCyan
@@ -183,14 +188,18 @@ fun HomeScreen(
             onPlayChannel = playWithOfflineResolution,
             onToggleWatchlist = { neliViewModel.toggleWatchlist(it) },
             onDownloadMedia = { media ->
-                neliViewModel.addDownload(media)
+                NeliAdMobManager.runDownloadWithInterstitialIfEligible(context) {
+                    neliViewModel.addDownload(media)
+                }
             },
             onDownloadEpisode = { ep ->
-                neliViewModel.addEpisodeDownload(
-                    episode = ep,
-                    seriesTitle = activeDetailMedia.title,
-                    seriesPoster = activeDetailMedia.posterUrl
-                )
+                NeliAdMobManager.runDownloadWithInterstitialIfEligible(context) {
+                    neliViewModel.addEpisodeDownload(
+                        episode = ep,
+                        seriesTitle = activeDetailMedia.title,
+                        seriesPoster = activeDetailMedia.posterUrl
+                    )
+                }
             },
             onSelectRecommendedMedia = { recommended ->
                 neliViewModel.openMediaDetails(recommended.id)
@@ -365,7 +374,9 @@ fun HomeScreen(
                         downloadBannerMessage = downloadBannerMessage,
                         onDismissBanner = { neliViewModel.dismissDownloadBanner() },
                         onStartQuickDownload = { media ->
-                            neliViewModel.addDownload(media)
+                            NeliAdMobManager.runDownloadWithInterstitialIfEligible(context) {
+                                neliViewModel.addDownload(media)
+                            }
                         },
                         onRetryDownload = { dl ->
                             neliViewModel.retryDownload(dl)
@@ -508,12 +519,8 @@ private fun LiveTvHomeTab(
         allPrioritizedChannels.filter { it.isAzamPriority }
     }
 
-    val tanzaniaChannels = remember(allPrioritizedChannels) {
-        allPrioritizedChannels.filter { it.isTanzaniaChannel }
-    }
-
-    val otherInternationalChannels = remember(allPrioritizedChannels) {
-        allPrioritizedChannels.filter { !it.isTanzaniaChannel && !it.isAzamPriority }
+    val homepageCategoryShelves = remember(allPrioritizedChannels) {
+        ChannelRepository.getChannelsGroupedByHomepageCategories(allPrioritizedChannels)
     }
 
     val featuredHeroChannels = remember(allPrioritizedChannels, azamChannels) {
@@ -522,11 +529,12 @@ private fun LiveTvHomeTab(
             .ifEmpty { allPrioritizedChannels.take(12) }
     }
 
-    val liveCategories = remember(allPrioritizedChannels) {
+    val liveCategories = remember(allPrioritizedChannels, homepageCategoryShelves) {
         val cats = LinkedHashSet<String>()
         cats.add("All")
-        cats.add("Azam TV")
-        cats.add("Tanzania")
+        homepageCategoryShelves.forEach { (catName, _) ->
+            if (catName.isNotBlank()) cats.add(catName)
+        }
         ChannelRepository.categories.forEach { if (it.isNotBlank()) cats.add(it) }
         allPrioritizedChannels.forEach { ch ->
             if (ch.category.isNotBlank()) cats.add(ch.category)
@@ -542,8 +550,9 @@ private fun LiveTvHomeTab(
         }
     }
 
-    val chunkedChannels = remember(filteredChannels) {
-        filteredChannels.chunked(2)
+    // Group All Channels into blocks of 6 channels so a Muted Video Ad is placed after every 6 channels in vertical view
+    val sixChannelBlocks = remember(filteredChannels) {
+        ChannelRepository.getAllChannelsChunkedEverySixForAds(filteredChannels)
     }
 
     PullToRefreshBox(
@@ -650,7 +659,7 @@ private fun LiveTvHomeTab(
             }
         }
 
-        // 2. Featured Live Spotlight Banner
+        // 2. Featured Live Spotlight Banner + Adaptive Banner down the slider
         if (featuredHeroChannels.isNotEmpty() && selectedCategory.equals("All", ignoreCase = true)) {
             item {
                 LiveTvHeroBanner(
@@ -658,16 +667,29 @@ private fun LiveTvHomeTab(
                     onPlayChannel = onChannelSelected
                 )
             }
+            item(key = "home_ad_below_slider") {
+                NeliAdaptiveBannerAd(placementKey = "home_below_slider")
+            }
         }
 
-        // 3. Priority Shelves when "All" is selected: Azam TV -> Tanzania -> International
-        if (selectedCategory.equals("All", ignoreCase = true) && azamChannels.isNotEmpty()) {
-            item {
+        // 3. Ordered Category Shelves before "All Channels":
+        // Starts with Azam TV (all Azam TV channels), then Sports, Entertainment, Kids, News, Movies,
+        // Music, Documentary, Africa, Tanzania, and any other categories until all categories finish.
+        if (selectedCategory.equals("All", ignoreCase = true) && homepageCategoryShelves.isNotEmpty()) {
+            itemsIndexed(
+                items = homepageCategoryShelves,
+                key = { _, pair -> "home_cat_shelf_${pair.first}" }
+            ) { catIndex, (categoryTitle, categoryChannels) ->
+                val sectionTag = when {
+                    categoryTitle.equals("Azam TV", ignoreCase = true) -> "homepage_curated_live_tv_section"
+                    categoryTitle.equals("Tanzania", ignoreCase = true) -> "homepage_tanzania_live_tv_section"
+                    else -> "homepage_category_section_${categoryTitle.lowercase().replace(" ", "_")}"
+                }
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = 8.dp)
-                        .testTag("homepage_curated_live_tv_section")
+                        .testTag(sectionTag)
                 ) {
                     Row(
                         modifier = Modifier
@@ -677,13 +699,13 @@ private fun LiveTvHomeTab(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Azam TV",
+                            text = categoryTitle,
                             color = NeliTextPrimary,
                             fontSize = 16.sp,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "${azamChannels.size} channels",
+                            text = "${categoryChannels.size} channels",
                             color = NeliTextSecondary,
                             fontSize = 12.sp
                         )
@@ -693,104 +715,29 @@ private fun LiveTvHomeTab(
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        items(azamChannels, key = { "home_azam_${it.id}" }) { channel ->
+                        items(
+                            items = categoryChannels,
+                            key = { ch -> "home_cat_${categoryTitle}_${ch.id}" }
+                        ) { channel ->
                             HomepageLiveChannelCard(
                                 channel = channel,
                                 onClick = { onChannelSelected(channel) }
                             )
                         }
                     }
-                }
-            }
 
-            if (tanzaniaChannels.isNotEmpty()) {
-                item {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 8.dp)
-                            .testTag("homepage_tanzania_live_tv_section")
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 4.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "Tanzania TV",
-                                color = NeliTextPrimary,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = "${tanzaniaChannels.size} channels",
-                                color = NeliTextSecondary,
-                                fontSize = 12.sp
-                            )
-                        }
-
-                        LazyRow(
-                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            items(tanzaniaChannels, key = { "home_tz_${it.id}" }) { channel ->
-                                HomepageLiveChannelCard(
-                                    channel = channel,
-                                    onClick = { onChannelSelected(channel) }
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            if (otherInternationalChannels.isNotEmpty()) {
-                item {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 8.dp)
-                            .testTag("homepage_international_live_tv_section")
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 4.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "International",
-                                color = NeliTextPrimary,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = "${otherInternationalChannels.size} channels",
-                                color = NeliTextSecondary,
-                                fontSize = 12.sp
-                            )
-                        }
-
-                        LazyRow(
-                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            items(otherInternationalChannels, key = { "home_intl_${it.id}" }) { channel ->
-                                HomepageLiveChannelCard(
-                                    channel = channel,
-                                    onClick = { onChannelSelected(channel) }
-                                )
-                            }
-                        }
+                    if (catIndex == 0) {
+                        NeliAdaptiveBannerAd(placementKey = "home_after_category_section")
+                    } else if ((catIndex + 1) % 3 == 0) {
+                        NeliAdaptiveBannerAd(
+                            placementKey = "home_after_category_${categoryTitle.lowercase().replace(" ", "_")}"
+                        )
                     }
                 }
             }
         }
 
-        // 4. All Live Channels Feed (Azam TV First -> Tanzania -> International)
+        // 4. All Live Channels Vertical Feed (placed after all category shelves finish, with Muted Video Ads after every 6 channels)
         item {
             Row(
                 modifier = Modifier
@@ -837,23 +784,42 @@ private fun LiveTvHomeTab(
             }
         }
 
-        items(chunkedChannels, key = { row -> "grid_row_${row.first().id}" }) { rowItems ->
-            Row(
+        itemsIndexed(
+            items = sixChannelBlocks,
+            key = { blockIdx, block -> "all_channels_block_${blockIdx}_${block.firstOrNull()?.id.orEmpty()}" }
+        ) { blockIndex, sixChannels ->
+            val rowsOfTwo = remember(sixChannels) { sixChannels.chunked(2) }
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    .testTag("all_channels_vertical_block_$blockIndex")
             ) {
-                for (channel in rowItems) {
-                    Box(modifier = Modifier.weight(1f)) {
-                        ChannelCard(
-                            channel = channel,
-                            onClick = { onChannelSelected(channel) }
-                        )
+                for (rowItems in rowsOfTwo) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        for (channel in rowItems) {
+                            Box(modifier = Modifier.weight(1f)) {
+                                ChannelCard(
+                                    channel = channel,
+                                    onClick = { onChannelSelected(channel) }
+                                )
+                            }
+                        }
+                        if (rowItems.size == 1) {
+                            Spacer(modifier = Modifier.weight(1f))
+                        }
                     }
                 }
-                if (rowItems.size == 1) {
-                    Spacer(modifier = Modifier.weight(1f))
+
+                // Embed Muted Video Ad after every 6 channels in All Channels vertical view
+                if (sixChannels.size == 6 || blockIndex == sixChannelBlocks.lastIndex) {
+                    NeliMutedInlineVideoAdCard(
+                        placementKey = "all_channels_after_${(blockIndex + 1) * 6}"
+                    )
                 }
             }
         }
@@ -1117,6 +1083,27 @@ private fun HomepageLiveChannelCard(
     channel: LiveChannel,
     onClick: () -> Unit
 ) {
+    val context = LocalContext.current
+    val primaryLogoUrl = remember(channel.id, channel.thumbnailUrl) {
+        ChannelRepository.resolveGuaranteedChannelLogoUrl(channel)
+    }
+    val fallbackLogoUrl = remember(channel.id, channel.name) {
+        ChannelRepository.resolveFallbackChannelLogoUrl(channel)
+    }
+    var activeLogoUrl by remember(channel.id, primaryLogoUrl) {
+        mutableStateOf(primaryLogoUrl)
+    }
+    var isLogoLoaded by remember(channel.id, activeLogoUrl) {
+        mutableStateOf(false)
+    }
+    val thumbRequest = remember(channel.id, activeLogoUrl) {
+        ImageRequest.Builder(context)
+            .data(activeLogoUrl)
+            .size(280, 160)
+            .crossfade(false)
+            .build()
+    }
+
     Column(
         modifier = Modifier
             .width(152.dp)
@@ -1133,27 +1120,40 @@ private fun HomepageLiveChannelCard(
                 .fillMaxWidth()
                 .height(82.dp)
                 .clip(RoundedCornerShape(8.dp))
-                .background(Color(0xFF0E121B))
-                .padding(8.dp),
+                .background(Color(0xFF161D2F))
+                .padding(6.dp),
             contentAlignment = Alignment.Center
         ) {
-            SubcomposeAsyncImage(
-                model = ImageRequest.Builder(LocalContext.current)
-                    .data(channel.thumbnailUrl)
-                    .crossfade(true)
-                    .build(),
-                contentDescription = channel.name,
-                contentScale = ContentScale.Fit,
-                modifier = Modifier.fillMaxSize(),
-                error = {
-                    Icon(
-                        imageVector = Icons.Default.Tv,
-                        contentDescription = null,
-                        tint = NeliMagenta,
-                        modifier = Modifier.size(30.dp)
-                    )
-                }
-            )
+            if (!isLogoLoaded) {
+                Icon(
+                    imageVector = Icons.Default.Tv,
+                    contentDescription = null,
+                    tint = NeliMagenta.copy(alpha = 0.55f),
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(Color.White.copy(alpha = 0.08f))
+                    .padding(4.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                AsyncImage(
+                    model = thumbRequest,
+                    contentDescription = "${channel.name} logo",
+                    contentScale = ContentScale.Fit,
+                    onSuccess = { isLogoLoaded = true },
+                    onError = {
+                        if (activeLogoUrl != fallbackLogoUrl && fallbackLogoUrl.isNotBlank()) {
+                            activeLogoUrl = fallbackLogoUrl
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
 
             LiveIndicatorBadge(
                 modifier = Modifier.align(Alignment.BottomEnd)

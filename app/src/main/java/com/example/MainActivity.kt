@@ -30,7 +30,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
+import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import com.example.ads.NeliAdMobManager
 import com.example.data.ChannelRepository
 import com.example.data.MediaContentRepository
 import com.example.model.LiveChannel
@@ -59,6 +63,7 @@ class MainActivity : ComponentActivity() {
 
     private var isSystemInPipMode by mutableStateOf(false)
     private var hasActivePlaybackForPip by mutableStateOf(false)
+    private var wasInBackground by mutableStateOf(false)
     private var pendingLaunchChannelId by mutableStateOf<String?>(null)
     private var pendingLaunchMovieId by mutableStateOf<String?>(null)
     private var pendingLaunchTab by mutableStateOf<String?>(null)
@@ -67,6 +72,7 @@ class MainActivity : ComponentActivity() {
         NativeLogSuppressor.suppressNonFatalNativeLogs()
         super.onCreate(savedInstanceState)
         NeliThemeManager.initialize(this)
+        NeliAdMobManager.initialize(this)
         enableEdgeToEdge()
         try {
             val isLight = NeliThemeManager.isLightMode
@@ -76,9 +82,13 @@ class MainActivity : ComponentActivity() {
             }
         } catch (_: Exception) {
         }
-        NeliNotificationScheduler.scheduleAllDailyNotifications(this)
-        NeliHomeWidgetProvider.ensureWidgetAutomaticallyPinnedAndUpdated(this)
         extractDeepLinkFromIntent(intent)
+
+        // Schedule notifications and widget updates asynchronously so onCreate/setContent never stalls the main thread
+        lifecycleScope.launch(Dispatchers.Default) {
+            NeliNotificationScheduler.scheduleAllDailyNotifications(this@MainActivity)
+            NeliHomeWidgetProvider.ensureWidgetAutomaticallyPinnedAndUpdated(this@MainActivity)
+        }
 
         setContent {
             val isLightMode = NeliThemeManager.isLightMode
@@ -104,6 +114,7 @@ class MainActivity : ComponentActivity() {
                     },
                     onActivePlaybackChanged = { isActive ->
                         hasActivePlaybackForPip = isActive
+                        NeliAdMobManager.updatePlaybackActiveState(isActive)
                         updateSystemPipParams(isActive)
                     },
                     onRequestSystemPipOutsideApp = {
@@ -111,6 +122,25 @@ class MainActivity : ComponentActivity() {
                     }
                 )
             }
+        }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        if (wasInBackground) {
+            wasInBackground = false
+            // Show App Open ad only occasionally when returning to foreground from background,
+            // and NEVER while watching a movie, series, or playing Live TV.
+            if (!hasActivePlaybackForPip && !isInPictureInPictureMode && !NeliAdMobManager.isPlaybackActive) {
+                NeliAdMobManager.showAppOpenAdOnForegroundIfEligible(this)
+            }
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        if (!isChangingConfigurations && !isInPictureInPictureMode) {
+            wasInBackground = true
         }
     }
 
@@ -297,7 +327,11 @@ fun NeliApp(
         val currentCtrl = sharedPlayerController
         val showFullPlayer = currentChan != null && currentCtrl != null
 
-        if (showFullPlayer && currentChan != null && currentCtrl != null) {
+        LaunchedEffect(showFullPlayer) {
+            NeliAdMobManager.updatePlaybackActiveState(showFullPlayer)
+        }
+
+        if (currentChan != null && currentCtrl != null) {
             PlayerScreen(
                 channel = currentChan,
                 onBack = {

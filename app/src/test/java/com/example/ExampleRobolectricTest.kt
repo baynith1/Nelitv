@@ -562,5 +562,123 @@ class ExampleRobolectricTest {
             assertTrue("Expected adult search results for '$query'", results.isNotEmpty())
             assertTrue(results.all { it.isAdultContent })
         }
+
+        // 10. Verify AdMob app-ads.txt, Application startup initialization, test device ID config, playback protection, cooldowns, and Download flow
+        val neliApp = app as? com.example.NeliApplication
+        assertNotNull("Expected Application context to be NeliApplication", neliApp)
+        assertTrue(com.example.ads.NeliAdMobManager.isApplicationInitialized)
+        assertTrue(
+            com.example.ads.NeliAdMobManager.configuredTestDeviceIds.contains(
+                com.google.android.gms.ads.AdRequest.DEVICE_ID_EMULATOR
+            )
+        )
+        assertTrue(
+            com.example.ads.NeliAdMobManager.configuredTestDeviceIds.contains(
+                com.example.ads.NeliAdMobManager.DEVELOPMENT_TEST_DEVICE_ID
+            )
+        )
+
+        val expectedAppAdsTxt = "google.com, pub-4408731854837351, DIRECT, f08c47fec0942fa0"
+        assertEquals(expectedAppAdsTxt, com.example.ads.NeliAdMobManager.APP_ADS_TXT_SNIPPET)
+        val assetAppAds = app.assets.open("app-ads.txt").bufferedReader().use { it.readText().trim() }
+        assertEquals(expectedAppAdsTxt, assetAppAds)
+
+        assertEquals("ca-app-pub-4408731854837351~1794082871", com.example.ads.NeliAdMobManager.APP_ID)
+        assertEquals("ca-app-pub-4408731854837351/6443774325", com.example.ads.NeliAdMobManager.APP_OPEN_AD_UNIT_ID)
+        assertEquals("ca-app-pub-4408731854837351/4300078286", com.example.ads.NeliAdMobManager.BANNER_AD_UNIT_ID)
+        assertEquals("ca-app-pub-4408731854837351/7721371986", com.example.ads.NeliAdMobManager.INTERSTITIAL_AD_UNIT_ID)
+        assertEquals("ca-app-pub-4408731854837351/6635346014", com.example.ads.NeliAdMobManager.REWARDED_INTERSTITIAL_AD_UNIT_ID)
+        assertEquals("ca-app-pub-4408731854837351/5246242721", com.example.ads.NeliAdMobManager.REWARDED_AD_UNIT_ID)
+        assertEquals("ca-app-pub-4408731854837351/7038845705", com.example.ads.NeliAdMobManager.NATIVE_ADVANCED_AD_UNIT_ID)
+
+        // Verify test ads in development vs production IDs
+        assertEquals(
+            com.example.ads.NeliAdMobManager.BANNER_AD_UNIT_ID,
+            com.example.ads.NeliAdMobManager.resolveBannerAdUnitId(useTestAds = false)
+        )
+        assertEquals(
+            com.example.ads.NeliAdMobManager.TEST_BANNER_AD_UNIT_ID,
+            com.example.ads.NeliAdMobManager.resolveBannerAdUnitId(useTestAds = true)
+        )
+
+        // Verify NO ADS inside the video player / while playback is active
+        com.example.ads.NeliAdMobManager.resetForTesting()
+        assertTrue(com.example.ads.NeliAdMobManager.isInterstitialEligible(1_000_000L))
+        assertTrue(com.example.ads.NeliAdMobManager.isAppOpenEligible(1_000_000L))
+
+        com.example.ads.NeliAdMobManager.updatePlaybackActiveState(true)
+        org.junit.Assert.assertFalse(com.example.ads.NeliAdMobManager.isInterstitialEligible(1_000_000L))
+        org.junit.Assert.assertFalse(com.example.ads.NeliAdMobManager.isAppOpenEligible(1_000_000L))
+        com.example.ads.NeliAdMobManager.updatePlaybackActiveState(false)
+
+        // Verify Interstitial is never shown immediately after an App Open ad
+        com.example.ads.NeliAdMobManager.lastAppOpenShownAtMs = 1_000_000L
+        org.junit.Assert.assertFalse(com.example.ads.NeliAdMobManager.isInterstitialEligible(1_010_000L))
+        assertTrue(com.example.ads.NeliAdMobManager.isInterstitialEligible(1_000_000L + com.example.ads.NeliAdMobManager.POST_APP_OPEN_GRACE_MS + 1000L))
+
+        // Verify Download starts immediately without a second press when no interstitial is loaded
+        var downloadTriggeredCount = 0
+        com.example.ads.NeliAdMobManager.runDownloadWithInterstitialIfEligible(app) {
+            downloadTriggeredCount++
+        }
+        assertEquals(1, downloadTriggeredCount)
+
+        // 11. Verify Homepage channel categories order (Azam TV -> Sports -> Entertainment -> Kids -> News -> Movies -> ...),
+        // 6-channel vertical chunking for Muted Video Ads, and guaranteed channel logos
+        val homepageCategories = com.example.data.ChannelRepository.getChannelsGroupedByHomepageCategories()
+        assertTrue(homepageCategories.size >= 6)
+        val firstSixTitles = homepageCategories.take(6).map { it.first }
+        assertEquals(
+            listOf("Azam TV", "Sports", "Entertainment", "Kids", "News", "Movies"),
+            firstSixTitles
+        )
+        // First category ("Azam TV") must contain all Azam TV priority channels
+        assertTrue(homepageCategories.first().second.size >= 17)
+        assertTrue(homepageCategories.first().second.all { it.isAzamPriority })
+
+        // Verify All Channels vertical chunking groups channels into blocks of 6 for Muted Video Ads
+        val sixChannelBlocks = com.example.data.ChannelRepository.getAllChannelsChunkedEverySixForAds()
+        assertTrue(sixChannelBlocks.isNotEmpty())
+        assertEquals(6, sixChannelBlocks.first().size)
+        assertEquals(
+            com.example.ads.NeliAdMobManager.TEST_NATIVE_VIDEO_AD_UNIT_ID,
+            com.example.ads.NeliAdMobManager.resolveNativeVideoAdUnitId(useTestAds = true)
+        )
+        assertEquals(
+            com.example.ads.NeliAdMobManager.NATIVE_ADVANCED_AD_UNIT_ID,
+            com.example.ads.NeliAdMobManager.resolveNativeVideoAdUnitId(useTestAds = false)
+        )
+
+        // Verify every channel in All Channels has a valid https:// logo URL and fallback logo URL
+        com.example.data.ChannelRepository.getPrioritizedAllChannels().forEach { ch ->
+            assertTrue("Channel ${ch.name} must have a valid logo URL", ch.thumbnailUrl.startsWith("https://"))
+            val fallbackLogo = com.example.data.ChannelRepository.resolveFallbackChannelLogoUrl(ch)
+            assertTrue("Channel ${ch.name} must have a valid fallback logo URL", fallbackLogo.startsWith("https://"))
+        }
+
+        // Verify Firestore tvChannels custom logo fields (e.g. channelLogo / iconUrl) are extracted and visible in All Channels
+        val customChannelFirestoreJson = """
+            {
+              "documents": [
+                {
+                  "name": "projects/neli-tv/databases/(default)/documents/tvChannels/custom_tz_ch_1",
+                  "fields": {
+                    "id": {"stringValue": "custom_tz_ch_1"},
+                    "name": {"stringValue": "Bongo Star TV"},
+                    "streamUrl": {"stringValue": "https://example.com/live/bongostar.m3u8"},
+                    "category": {"stringValue": "Entertainment"},
+                    "country": {"stringValue": "Tanzania"},
+                    "channelLogo": {"stringValue": "https://i.ibb.co/8gtr1n42/1000221072.jpg"},
+                    "enabled": {"booleanValue": true},
+                    "published": {"booleanValue": true}
+                  }
+                }
+              ]
+            }
+        """.trimIndent()
+        MediaContentRepository.parseFirestoreCollections(tvChannelsJson = customChannelFirestoreJson)
+        val syncedChannel = com.example.data.ChannelRepository.getChannelById("custom_tz_ch_1")
+        assertNotNull(syncedChannel)
+        assertEquals("https://i.ibb.co/8gtr1n42/1000221072.jpg", syncedChannel!!.thumbnailUrl)
     }
 }

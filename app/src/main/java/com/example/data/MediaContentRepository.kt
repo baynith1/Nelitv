@@ -668,17 +668,22 @@ object MediaContentRepository {
         "ngono"
     )
 
+    private val ADULT_TOKEN_SPLIT_REGEX = Regex("[\\s,/|•_-]+")
+
     /**
      * Recognizes all Adult names, aliases, and search terms such as:
      * "X", "xxx", "X video", "xvideos", "porn", "porno", "18+", "adult", "adults", "erotic", etc.
      */
     fun isAdultKeywordOrQuery(raw: String): Boolean {
+        if (raw.isEmpty()) return false
         val clean = raw.trim().lowercase(Locale.US)
         if (clean.isEmpty()) return false
         if (clean == "x") return true
         // Check standalone word "x" (e.g., "x video", "x movies", "x rated")
-        val tokens = clean.split(Regex("[\\s,/|•_-]+")).filter { it.isNotEmpty() }
-        if (tokens.any { it == "x" }) return true
+        if (clean.contains('x')) {
+            val tokens = clean.split(ADULT_TOKEN_SPLIT_REGEX)
+            if (tokens.any { it == "x" }) return true
+        }
         return ADULT_SUBSTRING_KEYWORDS.any { clean.contains(it) }
     }
 
@@ -1128,6 +1133,7 @@ object MediaContentRepository {
             val adultSingularDeferred = async { fetchUrlText("$baseFirestoreUrl/adult?pageSize=200$keyParam") }
             val episodesDeferred = async { fetchUrlText("$baseFirestoreUrl/episodes?pageSize=300$keyParam") }
             val tvChannelsDeferred = async { fetchUrlText("$baseFirestoreUrl/tvChannels?pageSize=200$keyParam") }
+            val channelsDeferred = async { fetchUrlText("$baseFirestoreUrl/channels?pageSize=200$keyParam") }
             val azamTokenDocDeferred = async {
                 val docKeyParam = if (apiKey.isNotEmpty()) "?key=$apiKey" else ""
                 fetchUrlText("$baseFirestoreUrl/config/azam_token$docKeyParam")
@@ -1143,9 +1149,13 @@ object MediaContentRepository {
                 moviesJson = moviesDeferred.await(),
                 seriesJson = seriesDeferred.await(),
                 episodesJson = episodesDeferred.await(),
-                tvChannelsJson = tvChannelsDeferred.await(),
+                tvChannelsJson = tvChannelsDeferred.await() ?: channelsDeferred.await(),
                 adultsJson = adultsDeferred.await() ?: adultSingularDeferred.await()
             )
+            val extraChannelsJson = channelsDeferred.await()
+            if (!extraChannelsJson.isNullOrBlank() && extraChannelsJson != tvChannelsDeferred.await()) {
+                parseFirestoreCollections(tvChannelsJson = extraChannelsJson)
+            }
             Result.success(totalSynced)
         } catch (e: Exception) {
             Result.failure(e)
@@ -1748,18 +1758,19 @@ object MediaContentRepository {
         val category = fields.fsString("category", "Entertainment")
         val country = fields.fsString("country", "")
         val featured = fields.fsBoolean("featured", false)
-        val logo = fields.fsString("logo")
+        val logo = extractFirestoreChannelLogo(fields)
 
         val categoriesList = buildList {
-            add(category.lowercase())
+            addAll(fields.fsStringList("categories").map { it.lowercase() })
+            if (category.isNotBlank()) add(category.lowercase())
             if (country.equals("Tanzania", ignoreCase = true)) {
                 add("tanzania")
             }
-        }
+        }.distinct()
 
         val isMp4 = normalizedUrl.substringBefore("?").endsWith(".mp4", ignoreCase = true)
         val isDash = !isMp4 && normalizedUrl.contains(".mpd", ignoreCase = true)
-        return LiveChannel(
+        val parsedChannel = LiveChannel(
             id = id,
             name = name,
             description = if (country.isNotBlank()) "$category • $country" else category,
@@ -1778,6 +1789,9 @@ object MediaContentRepository {
             featured = featured,
             enabled = enabled,
             published = published
+        )
+        return parsedChannel.copy(
+            thumbnailUrl = ChannelRepository.resolveGuaranteedChannelLogoUrl(parsedChannel)
         )
     }
 
@@ -2250,7 +2264,9 @@ object MediaContentRepository {
             }
         }
 
-        return LiveChannel(
+        val rawLogo = extractJsonChannelLogo(obj)
+
+        val parsedChannel = LiveChannel(
             id = obj.optString("id", fallbackId),
             name = name,
             description = if (country.isNotBlank()) "$category • $country" else obj.optString("description", category),
@@ -2260,7 +2276,7 @@ object MediaContentRepository {
                 isDash -> "dash"
                 else -> "hls"
             },
-            thumbnailUrl = obj.optString("logo", obj.optString("thumbnailUrl", "")),
+            thumbnailUrl = rawLogo,
             categories = buildList {
                 add(category.lowercase())
                 if (country.equals("Tanzania", ignoreCase = true)) add("tanzania")
@@ -2274,5 +2290,117 @@ object MediaContentRepository {
             enabled = enabled,
             published = published
         )
+        return parsedChannel.copy(
+            thumbnailUrl = ChannelRepository.resolveGuaranteedChannelLogoUrl(parsedChannel)
+        )
+    }
+
+    private val CHANNEL_LOGO_FIELD_CANDIDATES = listOf(
+        "logo",
+        "logoUrl",
+        "logo_url",
+        "channelLogo",
+        "channel_logo",
+        "thumbnailUrl",
+        "thumbnail_url",
+        "thumbnail",
+        "thumb",
+        "icon",
+        "iconUrl",
+        "icon_url",
+        "imageUrl",
+        "image_url",
+        "image",
+        "img",
+        "posterUrl",
+        "posterPath",
+        "poster",
+        "backdropUrl",
+        "backdropPath",
+        "tvgLogo",
+        "tvg_logo",
+        "tvg-logo",
+        "avatar",
+        "avatarUrl",
+        "coverUrl",
+        "cover",
+        "photoUrl",
+        "photo",
+        "picture"
+    )
+
+    private fun extractFirestoreChannelLogo(fields: JSONObject): String {
+        for (candidateKey in CHANNEL_LOGO_FIELD_CANDIDATES) {
+            val direct = fields.fsString(candidateKey).trim()
+            if (direct.isNotEmpty()) return direct
+            val nestedMap = fields.optJSONObject(candidateKey)
+                ?.optJSONObject("mapValue")
+                ?.optJSONObject("fields")
+            if (nestedMap != null) {
+                val nestedUrl = nestedMap.fsString("url")
+                    .ifEmpty { nestedMap.fsString("src") }
+                    .ifEmpty { nestedMap.fsString("link") }
+                    .trim()
+                if (nestedUrl.isNotEmpty()) return nestedUrl
+            }
+        }
+        val keys = fields.keys()
+        while (keys.hasNext()) {
+            val k = keys.next()
+            val lower = k.lowercase()
+            if (lower.contains("logo") ||
+                lower.contains("thumb") ||
+                lower.contains("icon") ||
+                lower.contains("image") ||
+                lower.contains("img") ||
+                lower.contains("poster") ||
+                lower.contains("avatar") ||
+                lower.contains("pic")
+            ) {
+                val v = fields.fsString(k).trim()
+                if (v.startsWith("http", ignoreCase = true) ||
+                    v.startsWith("//") ||
+                    v.startsWith("data:image/", ignoreCase = true)
+                ) {
+                    return v
+                }
+            }
+        }
+        return ""
+    }
+
+    private fun extractJsonChannelLogo(obj: JSONObject): String {
+        for (candidateKey in CHANNEL_LOGO_FIELD_CANDIDATES) {
+            val direct = obj.optString(candidateKey, "").trim()
+            if (direct.isNotEmpty() && !direct.startsWith("{")) return direct
+            val nestedObj = obj.optJSONObject(candidateKey)
+            if (nestedObj != null) {
+                val nestedUrl = nestedObj.optString("url", nestedObj.optString("src", "")).trim()
+                if (nestedUrl.isNotEmpty()) return nestedUrl
+            }
+        }
+        val keys = obj.keys()
+        while (keys.hasNext()) {
+            val k = keys.next()
+            val lower = k.lowercase()
+            if (lower.contains("logo") ||
+                lower.contains("thumb") ||
+                lower.contains("icon") ||
+                lower.contains("image") ||
+                lower.contains("img") ||
+                lower.contains("poster") ||
+                lower.contains("avatar") ||
+                lower.contains("pic")
+            ) {
+                val v = obj.optString(k, "").trim()
+                if (v.startsWith("http", ignoreCase = true) ||
+                    v.startsWith("//") ||
+                    v.startsWith("data:image/", ignoreCase = true)
+                ) {
+                    return v
+                }
+            }
+        }
+        return ""
     }
 }
