@@ -797,5 +797,90 @@ class ExampleRobolectricTest {
             com.example.ui.components.PlayerOrientationMode.LOCKED_LANDSCAPE,
             com.example.ui.components.PlayerGestureHelper.readSavedOrientationMode(context)
         )
+
+        // 7. Verify Media3 ExoPlayer Adaptive Track Selection Strategy:
+        //    - Prioritizes high-quality Full HD (1080p) streams when bandwidth and buffer are healthy
+        //    - Dynamically downscales across tiers based on network bandwidth & buffering/rebuffer state
+        //    - Smoothly scales back up when bandwidth and buffer recover
+        assertEquals(3_500, com.example.player.LivePlayerController.ADAPTIVE_MIN_DURATION_FOR_QUALITY_INCREASE_MS)
+        assertEquals(2_000, com.example.player.LivePlayerController.ADAPTIVE_MAX_DURATION_FOR_QUALITY_DECREASE_MS)
+        assertEquals(0.85f, com.example.player.LivePlayerController.ADAPTIVE_BANDWIDTH_FRACTION, 0.001f)
+
+        // High bandwidth (3.8 Mbps) + healthy buffer (6s) + not buffering -> Prioritizes FULL_HD_1080P
+        val highQualityTier = com.example.player.LivePlayerController.computeAdaptiveQualityTier(
+            estimatedBitrateBps = 3_800_000L,
+            bufferedDurationMs = 6_000L,
+            isBuffering = false,
+            consecutiveRebufferCount = 0,
+            isLowBandoNetwork = false
+        )
+        assertEquals(com.example.player.AdaptiveQualityTier.FULL_HD_1080P, highQualityTier)
+        assertEquals(1920, highQualityTier.maxWidth)
+        assertEquals(1080, highQualityTier.maxHeight)
+
+        // Moderate HD bandwidth (1.6 Mbps) -> HD_720P
+        val hd720Tier = com.example.player.LivePlayerController.computeAdaptiveQualityTier(
+            estimatedBitrateBps = 1_600_000L,
+            bufferedDurationMs = 5_000L,
+            isBuffering = false,
+            consecutiveRebufferCount = 0,
+            isLowBandoNetwork = false
+        )
+        assertEquals(com.example.player.AdaptiveQualityTier.HD_720P, hd720Tier)
+
+        // Active buffering stall with depleted buffer (< 1.5s) on high bandwidth -> Dynamically downscales from 1080p to 720p
+        val bufferingDownscaledTier = com.example.player.LivePlayerController.computeAdaptiveQualityTier(
+            estimatedBitrateBps = 3_800_000L,
+            bufferedDurationMs = 400L,
+            isBuffering = true,
+            consecutiveRebufferCount = 0,
+            isLowBandoNetwork = false
+        )
+        assertEquals(com.example.player.AdaptiveQualityTier.HD_720P, bufferingDownscaledTier)
+
+        // Repeated rebuffer stalls (consecutiveRebufferCount = 2) -> Dynamically downscales 2 steps (1080p -> 480p SD)
+        val multiRebufferTier = com.example.player.LivePlayerController.computeAdaptiveQualityTier(
+            estimatedBitrateBps = 3_800_000L,
+            bufferedDurationMs = 800L,
+            isBuffering = true,
+            consecutiveRebufferCount = 2,
+            isLowBandoNetwork = false
+        )
+        assertEquals(com.example.player.AdaptiveQualityTier.STANDARD_480P, multiRebufferTier)
+
+        // Severe bandwidth drop (220 kbps) -> Downscales to LOW_BANDO_240P with forceLowestBitrate = true
+        val emergencyLowBandoTier = com.example.player.LivePlayerController.computeAdaptiveQualityTier(
+            estimatedBitrateBps = 220_000L,
+            bufferedDurationMs = 500L,
+            isBuffering = true,
+            consecutiveRebufferCount = 1,
+            isLowBandoNetwork = true
+        )
+        assertEquals(com.example.player.AdaptiveQualityTier.LOW_BANDO_240P, emergencyLowBandoTier)
+        assertTrue(emergencyLowBandoTier.forceLowestBitrate)
+
+        // Verify LivePlayerController dynamically updates playbackInfo telemetry when evaluating adaptive track selection
+        val testChannel = com.example.data.ChannelRepository.getPrioritizedAllChannels().first()
+        val controller = com.example.player.LivePlayerController(context, testChannel)
+        val downscaled = controller.evaluateAndApplyAdaptiveTrackSelection(
+            estimatedBitrateBps = 500_000L,
+            bufferedDurationMs = 600L,
+            forceBufferingState = true,
+            rebufferCountOverride = 1
+        )
+        assertEquals(com.example.player.AdaptiveQualityTier.LOW_BANDO_240P, downscaled)
+        assertTrue(controller.playbackInfo.value.isDynamicallyDownscaled)
+        assertEquals(500, controller.playbackInfo.value.estimatedBandwidthKbps)
+
+        // Verify recovery back to FULL_HD_1080P when bandwidth & buffer recover
+        val recovered = controller.evaluateAndApplyAdaptiveTrackSelection(
+            estimatedBitrateBps = 4_200_000L,
+            bufferedDurationMs = 9_000L,
+            forceBufferingState = false,
+            rebufferCountOverride = 0
+        )
+        assertEquals(com.example.player.AdaptiveQualityTier.FULL_HD_1080P, recovered)
+        org.junit.Assert.assertFalse(controller.playbackInfo.value.isDynamicallyDownscaled)
+        controller.release()
     }
 }

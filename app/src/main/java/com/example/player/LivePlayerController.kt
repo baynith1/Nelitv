@@ -16,6 +16,9 @@ import androidx.media3.common.ParserException
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.Timeline
+import androidx.media3.common.Tracks
+import androidx.media3.common.VideoSize
+import androidx.media3.common.util.Clock
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
@@ -32,6 +35,7 @@ import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.exoplayer.source.UnrecognizedInputFormatException
 import androidx.media3.exoplayer.trackselection.AdaptiveTrackSelection
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
+import androidx.media3.exoplayer.upstream.BandwidthMeter
 import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
@@ -58,6 +62,89 @@ enum class NetworkQualityMode(val label: String) {
     STRONG_NETWORK_HD("Full HD (720p/1080p)")
 }
 
+/**
+ * Adaptive stream quality ladder ordered from highest quality (index 0) to emergency low-bandwidth (index 4).
+ * Prioritizes high-quality HD streams when bandwidth & buffer are healthy, and dynamically steps down
+ * when bandwidth drops or rebuffering stalls occur.
+ */
+enum class AdaptiveQualityTier(
+    val maxWidth: Int,
+    val maxHeight: Int,
+    val maxBitrateBps: Int,
+    val minPreferredWidth: Int,
+    val minPreferredHeight: Int,
+    val minPreferredBitrateBps: Int,
+    val forceLowestBitrate: Boolean,
+    val badgeLabel: String,
+    val description: String
+) {
+    FULL_HD_1080P(
+        maxWidth = 1920,
+        maxHeight = 1080,
+        maxBitrateBps = 5_500_000,
+        minPreferredWidth = 1280,
+        minPreferredHeight = 720,
+        minPreferredBitrateBps = 1_500_000,
+        forceLowestBitrate = false,
+        badgeLabel = "1080p Full HD",
+        description = "Prioritizing High-Quality 1080p/720p HD Stream"
+    ),
+    HD_720P(
+        maxWidth = 1280,
+        maxHeight = 720,
+        maxBitrateBps = 2_800_000,
+        minPreferredWidth = 854,
+        minPreferredHeight = 480,
+        minPreferredBitrateBps = 850_000,
+        forceLowestBitrate = false,
+        badgeLabel = "720p HD",
+        description = "High-Quality 720p Adaptive Stream"
+    ),
+    STANDARD_480P(
+        maxWidth = 854,
+        maxHeight = 480,
+        maxBitrateBps = 1_250_000,
+        minPreferredWidth = 640,
+        minPreferredHeight = 360,
+        minPreferredBitrateBps = 450_000,
+        forceLowestBitrate = false,
+        badgeLabel = "480p SD",
+        description = "Balanced 480p Adaptive Stream"
+    ),
+    DATA_SAVER_360P(
+        maxWidth = 640,
+        maxHeight = 360,
+        maxBitrateBps = 650_000,
+        minPreferredWidth = 426,
+        minPreferredHeight = 240,
+        minPreferredBitrateBps = 220_000,
+        forceLowestBitrate = false,
+        badgeLabel = "360p Saver",
+        description = "Dynamically Downscaled for Bandwidth Stability"
+    ),
+    LOW_BANDO_240P(
+        maxWidth = 426,
+        maxHeight = 240,
+        maxBitrateBps = 260_000,
+        minPreferredWidth = 0,
+        minPreferredHeight = 0,
+        minPreferredBitrateBps = 0,
+        forceLowestBitrate = true,
+        badgeLabel = "240p Seamless",
+        description = "Emergency Rebuffer Protection (240p)"
+    );
+
+    fun stepDown(): AdaptiveQualityTier {
+        val nextIndex = (ordinal + 1).coerceAtMost(entries.lastIndex)
+        return entries[nextIndex]
+    }
+
+    fun stepUp(): AdaptiveQualityTier {
+        val prevIndex = (ordinal - 1).coerceAtLeast(0)
+        return entries[prevIndex]
+    }
+}
+
 data class PlayerPlaybackInfo(
     val isPlaying: Boolean = false,
     val isLive: Boolean = true,
@@ -68,6 +155,11 @@ data class PlayerPlaybackInfo(
     val isMuted: Boolean = false,
     val volume: Float = 1.0f,
     val networkMode: NetworkQualityMode = NetworkQualityMode.AUTO_ADAPTIVE,
+    val adaptiveQualityTier: AdaptiveQualityTier = AdaptiveQualityTier.FULL_HD_1080P,
+    val activeVideoResolutionLabel: String = AdaptiveQualityTier.FULL_HD_1080P.badgeLabel,
+    val estimatedBandwidthKbps: Int = 3800,
+    val bufferedDurationMs: Long = 0L,
+    val isDynamicallyDownscaled: Boolean = false,
     val connectionLabel: String = "Mobile Data / Wi-Fi",
     val autoSkipNotice: String? = null
 )
@@ -83,6 +175,9 @@ private enum class ForcedContainerMode {
  *
  * - Movies, Adult & Series Episodes use ExoPlayer with fast keyframe seeking (`CLOSEST_SYNC`),
  *   constant-bitrate seeking enabled for MP4/TS, and automatic container detection for both `.mp4` and `.m3u8`.
+ * - Uses an Adaptive Track Selection strategy (`AdaptiveTrackSelection.Factory` + `DefaultTrackSelector`)
+ *   that prioritizes high-quality HD streams (`1080p`/`720p`) while dynamically downscaling based on
+ *   real-time network bandwidth estimates and buffering/rebuffering state to ensure seamless playback.
  * - Auto-skips the first 5 minutes and 30 seconds (`330_000L` ms) of DJ intro ads ONLY for Movies
  *   narrated in Swahili (`channel.shouldAutoSkipSwahiliMovieIntro == true`), never for Live TV, Adult, Series, or Episodes.
  * - Automatically advances to the next episode (`onEpisodeEndedAutoNext`) when a Series episode finishes.
@@ -99,6 +194,58 @@ class LivePlayerController(
          * Auto-skip start position strictly for Swahili-narrated Movies.
          */
         const val SWAHILI_MOVIE_INTRO_SKIP_MS = 330_000L
+
+        /**
+         * Media3 AdaptiveTrackSelection tuning parameters:
+         * - Fast quality decrease (2,000 ms) so ExoPlayer downscales quickly when bandwidth drops or buffer drains.
+         * - Smooth quality increase (3,500 ms) so ExoPlayer scales up to 720p/1080p as soon as a 3.5s buffer forms.
+         * - High bandwidth utilization fraction (0.85f) to prioritize high-quality video tracks.
+         */
+        const val ADAPTIVE_MIN_DURATION_FOR_QUALITY_INCREASE_MS = 3_500
+        const val ADAPTIVE_MAX_DURATION_FOR_QUALITY_DECREASE_MS = 2_000
+        const val ADAPTIVE_MIN_DURATION_TO_RETAIN_AFTER_DISCARD_MS = 6_000
+        const val ADAPTIVE_BANDWIDTH_FRACTION = 0.85f
+        const val ADAPTIVE_BUFFERED_FRACTION_TO_LIVE_EDGE = 0.65f
+
+        /**
+         * Computes the target [AdaptiveQualityTier] by prioritizing high-quality HD streams when network
+         * bandwidth is sufficient and dynamically downscaling based on bandwidth constraints, active
+         * buffering stalls, and consecutive rebuffer count.
+         */
+        fun computeAdaptiveQualityTier(
+            estimatedBitrateBps: Long,
+            bufferedDurationMs: Long,
+            isBuffering: Boolean,
+            consecutiveRebufferCount: Int,
+            isLowBandoNetwork: Boolean = false
+        ): AdaptiveQualityTier {
+            // 1. Determine base quality tier from real-time network bandwidth estimate (prioritizing High Quality)
+            val bandwidthTier = when {
+                isLowBandoNetwork || (estimatedBitrateBps in 1..319_999L) -> AdaptiveQualityTier.LOW_BANDO_240P
+                estimatedBitrateBps in 320_000L..649_999L -> AdaptiveQualityTier.DATA_SAVER_360P
+                estimatedBitrateBps in 650_000L..1_199_999L -> AdaptiveQualityTier.STANDARD_480P
+                estimatedBitrateBps in 1_200_000L..2_199_999L -> AdaptiveQualityTier.HD_720P
+                else -> AdaptiveQualityTier.FULL_HD_1080P
+            }
+
+            // 2. Dynamically downscale based on buffering state and rebuffer stalls
+            var downscaleSteps = consecutiveRebufferCount.coerceAtLeast(0)
+            if (isBuffering && bufferedDurationMs < 1_500L && downscaleSteps == 0) {
+                // Active buffering with depleted buffer immediately steps down 1 tier for faster recovery
+                downscaleSteps = 1
+            } else if (!isBuffering && bufferedDurationMs in 1..1_800L && downscaleSteps == 0 &&
+                bandwidthTier == AdaptiveQualityTier.FULL_HD_1080P
+            ) {
+                // Preemptively step down from 1080p to 720p when buffer cushion is critically thin (< 1.8s)
+                downscaleSteps = 1
+            }
+
+            var resolvedTier = bandwidthTier
+            repeat(downscaleSteps.coerceAtMost(AdaptiveQualityTier.entries.lastIndex)) {
+                resolvedTier = resolvedTier.stepDown()
+            }
+            return resolvedTier
+        }
 
         init {
             NativeLogSuppressor.suppressNonFatalNativeLogs()
@@ -118,6 +265,8 @@ class LivePlayerController(
     var onEpisodeEndedAutoNext: (() -> LiveChannel?)? = null
 
     private var exoPlayer: ExoPlayer? = null
+    private var trackSelector: DefaultTrackSelector? = null
+    private var bandwidthMeter: DefaultBandwidthMeter? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private var autoReconnectAttempts = 0
     private var forcedContainerMode = ForcedContainerMode.NONE
@@ -128,6 +277,28 @@ class LivePlayerController(
     private var lastSystemStatusPollTimeMs = 0L
     private var cachedPhoneCallActive = false
     private var cachedConnectionLabel: String = "Mobile Data / Wi-Fi"
+
+    // Adaptive Track Selection & Buffering State Telemetry
+    private var latestEstimatedBandwidthBps: Long = 3_800_000L
+    private var hasReachedReadyForCurrentStream: Boolean = false
+    private var consecutiveRebufferCount: Int = 0
+    private var bufferingEnteredAtRealtimeMs: Long = 0L
+    private var healthyPlaybackSinceRealtimeMs: Long = 0L
+    private var currentAdaptiveTier: AdaptiveQualityTier = AdaptiveQualityTier.FULL_HD_1080P
+    private var activeTrackResolutionLabel: String = AdaptiveQualityTier.FULL_HD_1080P.badgeLabel
+
+    private val bandwidthEventListener = BandwidthMeter.EventListener { _, _, bitrateEstimate ->
+        if (bitrateEstimate > 0L) {
+            latestEstimatedBandwidthBps = bitrateEstimate
+            if (_playbackInfo.value.networkMode == NetworkQualityMode.AUTO_ADAPTIVE) {
+                evaluateAndApplyAdaptiveTrackSelection(
+                    forceBufferingState = _uiState.value is PlayerUiState.Buffering
+                )
+            } else {
+                updatePlaybackInfo()
+            }
+        }
+    }
 
     private val audioManager: AudioManager? by lazy {
         context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
@@ -168,6 +339,7 @@ class LivePlayerController(
     private val positionUpdateRunnable = object : Runnable {
         override fun run() {
             val player = exoPlayer ?: return
+            val now = android.os.SystemClock.elapsedRealtime()
             val callActive = isPhoneCallActiveOrRinging()
             if (callActive) {
                 if (player.isPlaying || player.playWhenReady) {
@@ -191,12 +363,46 @@ class LivePlayerController(
                 player.play()
             }
 
+            // Refresh bandwidth estimate from DefaultBandwidthMeter
+            bandwidthMeter?.bitrateEstimate?.takeIf { it > 0L }?.let { measuredBps ->
+                latestEstimatedBandwidthBps = measuredBps
+            }
+
+            // Dynamic buffering & bandwidth adaptation during active playback/buffering
+            if (_playbackInfo.value.networkMode == NetworkQualityMode.AUTO_ADAPTIVE) {
+                if (player.playbackState == Player.STATE_BUFFERING) {
+                    if (bufferingEnteredAtRealtimeMs > 0L && now - bufferingEnteredAtRealtimeMs >= 2_200L) {
+                        // Prolonged buffering stall -> step down another quality tier dynamically
+                        consecutiveRebufferCount = (consecutiveRebufferCount + 1).coerceAtMost(4)
+                        bufferingEnteredAtRealtimeMs = now
+                        evaluateAndApplyAdaptiveTrackSelection(forceBufferingState = true)
+                    }
+                } else if (player.playbackState == Player.STATE_READY && player.isPlaying) {
+                    val bufferedAheadMs = (player.bufferedPosition - player.currentPosition).coerceAtLeast(0L)
+                    if (healthyPlaybackSinceRealtimeMs == 0L) {
+                        healthyPlaybackSinceRealtimeMs = now
+                    }
+                    // When buffer cushion is healthy (>= 6s) and playback has been steady, recover toward HD
+                    if (consecutiveRebufferCount > 0 &&
+                        bufferedAheadMs >= 6_000L &&
+                        now - healthyPlaybackSinceRealtimeMs >= 5_000L
+                    ) {
+                        consecutiveRebufferCount = (consecutiveRebufferCount - 1).coerceAtLeast(0)
+                        healthyPlaybackSinceRealtimeMs = now
+                        evaluateAndApplyAdaptiveTrackSelection(forceBufferingState = false)
+                    } else {
+                        evaluateAndApplyAdaptiveTrackSelection(forceBufferingState = false)
+                    }
+                }
+            }
+
             if (channel.isLiveBroadcast) {
                 // Ensure Live TV stays playing unless paused by phone call or external music player
                 if (!pausedByCallOrExternalAudio && !player.isPlaying && player.playbackState == Player.STATE_READY) {
                     player.playWhenReady = true
                     player.play()
                 }
+                updatePlaybackInfo()
                 mainHandler.postDelayed(this, 600L)
             } else {
                 updatePlaybackInfo()
@@ -207,15 +413,30 @@ class LivePlayerController(
 
     private val playerListener = object : Player.Listener {
         override fun onPlaybackStateChanged(playbackState: Int) {
+            val now = android.os.SystemClock.elapsedRealtime()
             when (playbackState) {
                 Player.STATE_BUFFERING -> {
                     _uiState.value = PlayerUiState.Buffering
-                    if (!channel.isLiveBroadcast) {
-                        updatePlaybackInfo()
+                    bufferingEnteredAtRealtimeMs = now
+                    healthyPlaybackSinceRealtimeMs = 0L
+                    if (hasReachedReadyForCurrentStream) {
+                        // Mid-stream rebuffer detected: dynamically step down quality tier immediately
+                        consecutiveRebufferCount = (consecutiveRebufferCount + 1).coerceAtMost(4)
                     }
+                    if (_playbackInfo.value.networkMode == NetworkQualityMode.AUTO_ADAPTIVE) {
+                        evaluateAndApplyAdaptiveTrackSelection(forceBufferingState = true)
+                    }
+                    updatePlaybackInfo()
+                    mainHandler.removeCallbacks(positionUpdateRunnable)
+                    mainHandler.postDelayed(positionUpdateRunnable, 450L)
                 }
                 Player.STATE_READY -> {
                     autoReconnectAttempts = 0
+                    hasReachedReadyForCurrentStream = true
+                    bufferingEnteredAtRealtimeMs = 0L
+                    if (healthyPlaybackSinceRealtimeMs == 0L) {
+                        healthyPlaybackSinceRealtimeMs = now
+                    }
                     val player = exoPlayer
                     if (player != null) {
                         if (isPhoneCallActiveOrRinging()) {
@@ -238,6 +459,9 @@ class LivePlayerController(
                                 player.seekTo(SWAHILI_MOVIE_INTRO_SKIP_MS)
                             }
                         }
+                    }
+                    if (_playbackInfo.value.networkMode == NetworkQualityMode.AUTO_ADAPTIVE) {
+                        evaluateAndApplyAdaptiveTrackSelection(forceBufferingState = false)
                     }
                     _uiState.value = PlayerUiState.Ready
                     updatePlaybackInfo()
@@ -274,6 +498,30 @@ class LivePlayerController(
                     }
                 }
                 Player.STATE_IDLE -> {}
+            }
+        }
+
+        override fun onTracksChanged(tracks: Tracks) {
+            for (group in tracks.groups) {
+                if (group.type == C.TRACK_TYPE_VIDEO && group.isSelected) {
+                    for (i in 0 until group.length) {
+                        if (group.isTrackSelected(i)) {
+                            val format = group.getTrackFormat(i)
+                            if (format.height > 0) {
+                                activeTrackResolutionLabel = formatResolutionLabel(format.height, format.bitrate)
+                                updatePlaybackInfo()
+                                return
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        override fun onVideoSizeChanged(videoSize: VideoSize) {
+            if (videoSize.height > 0) {
+                activeTrackResolutionLabel = formatResolutionLabel(videoSize.height, C.INDEX_UNSET)
+                updatePlaybackInfo()
             }
         }
 
@@ -336,7 +584,11 @@ class LivePlayerController(
             if (autoReconnectAttempts < 2) {
                 autoReconnectAttempts++
                 _uiState.value = PlayerUiState.Buffering
-                if (autoReconnectAttempts >= 2) {
+                // Dynamically downscale on transient network errors to ensure seamless recovery
+                consecutiveRebufferCount = (consecutiveRebufferCount + 1).coerceAtMost(4)
+                if (_playbackInfo.value.networkMode == NetworkQualityMode.AUTO_ADAPTIVE) {
+                    evaluateAndApplyAdaptiveTrackSelection(forceBufferingState = true)
+                } else if (autoReconnectAttempts >= 2) {
                     applyNetworkQualityMode(NetworkQualityMode.ULTRA_LOW_BANDO_SAVER)
                 }
                 val resumePos = lastKnownVodPositionMs
@@ -375,15 +627,32 @@ class LivePlayerController(
         }
     }
 
+    private fun formatResolutionLabel(height: Int, bitrateBps: Int): String {
+        val base = when {
+            height >= 1080 -> "1080p Full HD"
+            height >= 720 -> "720p HD"
+            height >= 480 -> "480p SD"
+            height >= 360 -> "360p Saver"
+            height > 0 -> "${height}p Seamless"
+            else -> currentAdaptiveTier.badgeLabel
+        }
+        return if (bitrateBps > 0) {
+            val kbps = (bitrateBps / 1000).coerceAtLeast(100)
+            "$base ($kbps kbps)"
+        } else {
+            base
+        }
+    }
+
     private fun isLowBandoNetworkDetected(): Boolean {
         return try {
             val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
-            val net = cm?.activeNetwork ?: return true
-            val caps = cm.getNetworkCapabilities(net) ?: return true
+            val net = cm?.activeNetwork ?: return false
+            val caps = cm.getNetworkCapabilities(net) ?: return false
             val downKbps = caps.linkDownstreamBandwidthKbps
             val isUnvalidatedCellular = caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) &&
                     !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
-            isUnvalidatedCellular || (downKbps in 1..600)
+            isUnvalidatedCellular || (downKbps in 1..450)
         } catch (_: Exception) {
             false
         }
@@ -402,7 +671,7 @@ class LivePlayerController(
             when {
                 caps == null -> "Low Bando / Zero-Rated Mode"
                 caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) &&
-                        (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) || caps.linkDownstreamBandwidthKbps in 1..600) ->
+                        (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) || caps.linkDownstreamBandwidthKbps in 1..450) ->
                     "Low Bando Data Saver"
                 caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "Mobile Data"
                 caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "Wi-Fi"
@@ -414,27 +683,90 @@ class LivePlayerController(
         return cachedConnectionLabel
     }
 
+    /**
+     * Seeds the initial bandwidth estimate for [DefaultBandwidthMeter] so that [AdaptiveTrackSelection]
+     * prioritizes high-quality HD streams (1080p/720p) on normal Wi-Fi and Mobile Data connections,
+     * while respecting constrained or low-bando links.
+     */
     private fun detectInitialBitrateEstimate(): Long {
         return try {
             val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
             val caps = cm?.activeNetwork?.let { cm.getNetworkCapabilities(it) }
-            val downKbps = caps?.linkDownstreamBandwidthKbps ?: 1200
+            val downKbps = caps?.linkDownstreamBandwidthKbps ?: 4_500
             val isLowBando = isLowBandoNetworkDetected()
             when {
-                isLowBando -> 195_000L
-                downKbps <= 800 -> 420_000L
-                downKbps <= 2500 -> 950_000L
-                else -> 1_800_000L
+                isLowBando -> 250_000L
+                downKbps in 1..600 -> 520_000L
+                downKbps in 601..1_400 -> 1_100_000L
+                downKbps in 1_401..2_800 -> 2_400_000L
+                else -> 3_800_000L
             }
         } catch (_: Exception) {
-            420_000L
+            3_800_000L
         }
+    }
+
+    /**
+     * Evaluates current network bandwidth and buffering state to dynamically update
+     * ExoPlayer's [DefaultTrackSelector] parameters for seamless adaptive playback.
+     */
+    fun evaluateAndApplyAdaptiveTrackSelection(
+        estimatedBitrateBps: Long = latestEstimatedBandwidthBps,
+        bufferedDurationMs: Long = exoPlayer?.let { (it.bufferedPosition - it.currentPosition).coerceAtLeast(0L) } ?: 0L,
+        forceBufferingState: Boolean = _uiState.value is PlayerUiState.Buffering,
+        rebufferCountOverride: Int = consecutiveRebufferCount
+    ): AdaptiveQualityTier {
+        latestEstimatedBandwidthBps = estimatedBitrateBps.coerceAtLeast(100_000L)
+        consecutiveRebufferCount = rebufferCountOverride.coerceIn(0, 4)
+
+        val resolvedTier = computeAdaptiveQualityTier(
+            estimatedBitrateBps = latestEstimatedBandwidthBps,
+            bufferedDurationMs = bufferedDurationMs,
+            isBuffering = forceBufferingState,
+            consecutiveRebufferCount = consecutiveRebufferCount,
+            isLowBandoNetwork = isLowBandoNetworkDetected() && estimatedBitrateBps < 350_000L
+        )
+        currentAdaptiveTier = resolvedTier
+        activeTrackResolutionLabel = resolvedTier.badgeLabel
+
+        if (_playbackInfo.value.networkMode == NetworkQualityMode.AUTO_ADAPTIVE) {
+            trackSelector?.let { selector ->
+                selector.setParameters(
+                    selector.buildUponParameters()
+                        .setMaxVideoSize(resolvedTier.maxWidth, resolvedTier.maxHeight)
+                        .setMaxVideoBitrate(resolvedTier.maxBitrateBps)
+                        .setMinVideoSize(resolvedTier.minPreferredWidth, resolvedTier.minPreferredHeight)
+                        .setMinVideoBitrate(resolvedTier.minPreferredBitrateBps)
+                        .setForceLowestBitrate(resolvedTier.forceLowestBitrate)
+                        .setExceedVideoConstraintsIfNecessary(true)
+                        .setExceedRendererCapabilitiesIfNecessary(true)
+                )
+            }
+            exoPlayer?.let { player ->
+                player.trackSelectionParameters = player.trackSelectionParameters
+                    .buildUpon()
+                    .setMaxVideoSize(resolvedTier.maxWidth, resolvedTier.maxHeight)
+                    .setMaxVideoBitrate(resolvedTier.maxBitrateBps)
+                    .setMinVideoSize(resolvedTier.minPreferredWidth, resolvedTier.minPreferredHeight)
+                    .setMinVideoBitrate(resolvedTier.minPreferredBitrateBps)
+                    .setForceLowestBitrate(resolvedTier.forceLowestBitrate)
+                    .build()
+            }
+        }
+
+        updatePlaybackInfo(
+            overrideBufferedDurationMs = bufferedDurationMs,
+            overrideEstimatedBitrateBps = latestEstimatedBandwidthBps
+        )
+        return resolvedTier
     }
 
     fun initializePlayer(): ExoPlayer {
         NativeLogSuppressor.suppressNonFatalNativeLogs()
         exoPlayer?.let { return it }
         autoReconnectAttempts = 0
+        hasReachedReadyForCurrentStream = false
+        consecutiveRebufferCount = 0
         _uiState.value = PlayerUiState.Loading
 
         // Prioritize standard AOSP platform codecs (c2.android.* / OMX.google.*) and exclude
@@ -467,51 +799,61 @@ class LivePlayerController(
             .setEnableDecoderFallback(true)
 
         val initialBitrate = detectInitialBitrateEstimate()
-        val lowBandoActive = isLowBandoNetworkDetected()
-        val bandwidthMeter = DefaultBandwidthMeter.Builder(context)
-            .setInitialBitrateEstimate(initialBitrate)
-            .build()
+        latestEstimatedBandwidthBps = initialBitrate
+        val lowBandoActive = isLowBandoNetworkDetected() && initialBitrate < 350_000L
 
+        val meter = DefaultBandwidthMeter.Builder(context)
+            .setInitialBitrateEstimate(initialBitrate)
+            .setResetOnNetworkTypeChange(true)
+            .build()
+            .also { bwMeter ->
+                bwMeter.addEventListener(mainHandler, bandwidthEventListener)
+            }
+        bandwidthMeter = meter
+
+        // AdaptiveTrackSelection.Factory configured to prioritize high-quality streams (bandwidthFraction = 0.85f)
+        // while reacting rapidly (2,000ms) to downscale when network bandwidth or buffer drops.
         val adaptiveTrackSelectionFactory = AdaptiveTrackSelection.Factory(
-            /* minDurationForQualityIncreaseMs = */ 4000,
-            /* maxDurationForQualityDecreaseMs = */ 1200,
-            /* minDurationToRetainAfterDiscardMs = */ 4000,
-            /* bandwidthFraction = */ 0.75f
+            /* minDurationForQualityIncreaseMs = */ ADAPTIVE_MIN_DURATION_FOR_QUALITY_INCREASE_MS,
+            /* maxDurationForQualityDecreaseMs = */ ADAPTIVE_MAX_DURATION_FOR_QUALITY_DECREASE_MS,
+            /* minDurationToRetainAfterDiscardMs = */ ADAPTIVE_MIN_DURATION_TO_RETAIN_AFTER_DISCARD_MS,
+            /* bandwidthFraction = */ ADAPTIVE_BANDWIDTH_FRACTION,
+            /* bufferedFractionToLiveEdgeForQualityIncrease = */ ADAPTIVE_BUFFERED_FRACTION_TO_LIVE_EDGE,
+            /* clock = */ Clock.DEFAULT
         )
 
-        val maxInitialWidth = when {
-            lowBandoActive -> 426
-            initialBitrate < 500_000L -> 640
-            else -> 1280
-        }
-        val maxInitialHeight = when {
-            lowBandoActive -> 240
-            initialBitrate < 500_000L -> 360
-            else -> 720
-        }
-        val maxInitialVideoBitrate = when {
-            lowBandoActive -> 240_000
-            initialBitrate < 500_000L -> 650_000
-            else -> 2_400_000
-        }
+        val initialTier = computeAdaptiveQualityTier(
+            estimatedBitrateBps = initialBitrate,
+            bufferedDurationMs = 5_000L,
+            isBuffering = false,
+            consecutiveRebufferCount = 0,
+            isLowBandoNetwork = lowBandoActive
+        )
+        currentAdaptiveTier = initialTier
+        activeTrackResolutionLabel = initialTier.badgeLabel
 
-        val trackSelector = DefaultTrackSelector(context, adaptiveTrackSelectionFactory).apply {
+        val selector = DefaultTrackSelector(context, adaptiveTrackSelectionFactory).apply {
             setParameters(
                 buildUponParameters()
-                    .setMaxVideoSize(maxInitialWidth, maxInitialHeight)
-                    .setMaxVideoBitrate(maxInitialVideoBitrate)
-                    .setForceLowestBitrate(lowBandoActive)
+                    .setMaxVideoSize(initialTier.maxWidth, initialTier.maxHeight)
+                    .setMaxVideoBitrate(initialTier.maxBitrateBps)
+                    .setMinVideoSize(initialTier.minPreferredWidth, initialTier.minPreferredHeight)
+                    .setMinVideoBitrate(initialTier.minPreferredBitrateBps)
+                    .setForceLowestBitrate(initialTier.forceLowestBitrate)
                     .setExceedVideoConstraintsIfNecessary(true)
                     .setExceedRendererCapabilitiesIfNecessary(true)
+                    .setAllowVideoMixedMimeTypeAdaptiveness(true)
+                    .setAllowVideoNonSeamlessAdaptiveness(true)
             )
         }
+        trackSelector = selector
 
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                /* minBufferMs = */ if (lowBandoActive) 4_000 else 6_000,
+                /* minBufferMs = */ if (lowBandoActive) 4_000 else 8_000,
                 /* maxBufferMs = */ if (lowBandoActive) 28_000 else 50_000,
-                /* bufferForPlaybackMs = */ if (lowBandoActive) 350 else 500,
-                /* bufferForPlaybackAfterRebufferMs = */ if (lowBandoActive) 850 else 1_000
+                /* bufferForPlaybackMs = */ if (lowBandoActive) 400 else 600,
+                /* bufferForPlaybackAfterRebufferMs = */ if (lowBandoActive) 900 else 1_200
             )
             .setBackBuffer(
                 /* backBufferDurationMs = */ 15_000,
@@ -526,8 +868,8 @@ class LivePlayerController(
             .build()
 
         val player = ExoPlayer.Builder(context, renderersFactory)
-            .setTrackSelector(trackSelector)
-            .setBandwidthMeter(bandwidthMeter)
+            .setTrackSelector(selector)
+            .setBandwidthMeter(meter)
             .setLoadControl(loadControl)
             .setAudioAttributes(mediaAudioAttributes, /* handleAudioFocus = */ true)
             .setHandleAudioBecomingNoisy(true)
@@ -540,10 +882,12 @@ class LivePlayerController(
 
         exoPlayer = player
         loadChannelStream(player, preserveVodPosition = false)
+        updatePlaybackInfo()
         return player
     }
 
     fun getPlayer(): ExoPlayer? = exoPlayer
+    fun getTrackSelector(): DefaultTrackSelector? = trackSelector
 
     /**
      * Seamlessly switches the active channel or episode on the existing ExoPlayer instance
@@ -556,12 +900,24 @@ class LivePlayerController(
         channel = newChannel
         _currentChannel.value = newChannel
         autoReconnectAttempts = 0
+        hasReachedReadyForCurrentStream = false
+        consecutiveRebufferCount = 0
+        bufferingEnteredAtRealtimeMs = 0L
+        healthyPlaybackSinceRealtimeMs = 0L
         forcedContainerMode = ForcedContainerMode.NONE
         hasAppliedSwahiliMovieIntroSkip = false
         lastKnownVodPositionMs = if (newChannel.shouldAutoSkipSwahiliMovieIntro) {
             SWAHILI_MOVIE_INTRO_SKIP_MS
         } else {
             0L
+        }
+        if (_playbackInfo.value.networkMode == NetworkQualityMode.AUTO_ADAPTIVE) {
+            evaluateAndApplyAdaptiveTrackSelection(
+                estimatedBitrateBps = latestEstimatedBandwidthBps,
+                bufferedDurationMs = 5_000L,
+                forceBufferingState = false,
+                rebufferCountOverride = 0
+            )
         }
         _playbackInfo.value = PlayerPlaybackInfo(
             isPlaying = false,
@@ -573,6 +929,11 @@ class LivePlayerController(
             isMuted = _playbackInfo.value.isMuted,
             volume = _playbackInfo.value.volume,
             networkMode = _playbackInfo.value.networkMode,
+            adaptiveQualityTier = currentAdaptiveTier,
+            activeVideoResolutionLabel = activeTrackResolutionLabel,
+            estimatedBandwidthKbps = (latestEstimatedBandwidthBps / 1000L).toInt().coerceAtLeast(100),
+            bufferedDurationMs = 0L,
+            isDynamicallyDownscaled = currentAdaptiveTier.ordinal > AdaptiveQualityTier.HD_720P.ordinal,
             connectionLabel = detectConnectionLabel(),
             autoSkipNotice = if (newChannel.shouldAutoSkipSwahiliMovieIntro) {
                 "Auto-skipped to 05:30 • Swahili Movie Intro Ads Skipped"
@@ -584,8 +945,31 @@ class LivePlayerController(
     }
 
     fun applyNetworkQualityMode(mode: NetworkQualityMode) {
+        val mappedTier = when (mode) {
+            NetworkQualityMode.ULTRA_LOW_BANDO_SAVER -> AdaptiveQualityTier.LOW_BANDO_240P
+            NetworkQualityMode.WEAK_NETWORK_SAVER -> AdaptiveQualityTier.DATA_SAVER_360P
+            NetworkQualityMode.STANDARD_480P -> AdaptiveQualityTier.STANDARD_480P
+            NetworkQualityMode.STRONG_NETWORK_HD -> AdaptiveQualityTier.FULL_HD_1080P
+            NetworkQualityMode.AUTO_ADAPTIVE -> {
+                consecutiveRebufferCount = 0
+                computeAdaptiveQualityTier(
+                    estimatedBitrateBps = latestEstimatedBandwidthBps.takeIf { it > 0L } ?: detectInitialBitrateEstimate(),
+                    bufferedDurationMs = exoPlayer?.let { (it.bufferedPosition - it.currentPosition).coerceAtLeast(0L) } ?: 5_000L,
+                    isBuffering = false,
+                    consecutiveRebufferCount = 0,
+                    isLowBandoNetwork = isLowBandoNetworkDetected() && latestEstimatedBandwidthBps < 350_000L
+                )
+            }
+        }
+        currentAdaptiveTier = mappedTier
+        activeTrackResolutionLabel = mappedTier.badgeLabel
+
         _playbackInfo.value = _playbackInfo.value.copy(
             networkMode = mode,
+            adaptiveQualityTier = mappedTier,
+            activeVideoResolutionLabel = mappedTier.badgeLabel,
+            isDynamicallyDownscaled = mode == NetworkQualityMode.AUTO_ADAPTIVE &&
+                    mappedTier.ordinal > AdaptiveQualityTier.HD_720P.ordinal,
             connectionLabel = detectConnectionLabel()
         )
         val player = exoPlayer ?: return
@@ -595,6 +979,8 @@ class LivePlayerController(
                     .buildUpon()
                     .setMaxVideoSize(426, 240)
                     .setMaxVideoBitrate(220_000)
+                    .setMinVideoSize(0, 0)
+                    .setMinVideoBitrate(0)
                     .setForceLowestBitrate(true)
                     .build()
             }
@@ -603,6 +989,8 @@ class LivePlayerController(
                     .buildUpon()
                     .setMaxVideoSize(640, 360)
                     .setMaxVideoBitrate(550_000)
+                    .setMinVideoSize(0, 0)
+                    .setMinVideoBitrate(0)
                     .setForceLowestBitrate(true)
                     .build()
             }
@@ -611,41 +999,51 @@ class LivePlayerController(
                     .buildUpon()
                     .setMaxVideoSize(854, 480)
                     .setMaxVideoBitrate(1_100_000)
+                    .setMinVideoSize(640, 360)
+                    .setMinVideoBitrate(400_000)
                     .setForceLowestBitrate(false)
                     .build()
             }
             NetworkQualityMode.AUTO_ADAPTIVE -> {
-                val est = detectInitialBitrateEstimate()
-                val lowBando = isLowBandoNetworkDetected()
+                trackSelector?.let { selector ->
+                    selector.setParameters(
+                        selector.buildUponParameters()
+                            .setMaxVideoSize(mappedTier.maxWidth, mappedTier.maxHeight)
+                            .setMaxVideoBitrate(mappedTier.maxBitrateBps)
+                            .setMinVideoSize(mappedTier.minPreferredWidth, mappedTier.minPreferredHeight)
+                            .setMinVideoBitrate(mappedTier.minPreferredBitrateBps)
+                            .setForceLowestBitrate(mappedTier.forceLowestBitrate)
+                            .setExceedVideoConstraintsIfNecessary(true)
+                            .setExceedRendererCapabilitiesIfNecessary(true)
+                    )
+                }
                 player.trackSelectionParameters
                     .buildUpon()
-                    .setMaxVideoSize(
-                        when {
-                            lowBando -> 426
-                            est < 500_000L -> 640
-                            else -> 1280
-                        },
-                        when {
-                            lowBando -> 240
-                            est < 500_000L -> 360
-                            else -> 720
-                        }
-                    )
-                    .setMaxVideoBitrate(
-                        when {
-                            lowBando -> 220_000
-                            est < 500_000L -> 650_000
-                            else -> 2_400_000
-                        }
-                    )
-                    .setForceLowestBitrate(lowBando)
+                    .setMaxVideoSize(mappedTier.maxWidth, mappedTier.maxHeight)
+                    .setMaxVideoBitrate(mappedTier.maxBitrateBps)
+                    .setMinVideoSize(mappedTier.minPreferredWidth, mappedTier.minPreferredHeight)
+                    .setMinVideoBitrate(mappedTier.minPreferredBitrateBps)
+                    .setForceLowestBitrate(mappedTier.forceLowestBitrate)
                     .build()
             }
             NetworkQualityMode.STRONG_NETWORK_HD -> {
+                trackSelector?.let { selector ->
+                    selector.setParameters(
+                        selector.buildUponParameters()
+                            .setMaxVideoSize(1920, 1080)
+                            .setMaxVideoBitrate(5_500_000)
+                            .setMinVideoSize(1280, 720)
+                            .setMinVideoBitrate(1_500_000)
+                            .setForceLowestBitrate(false)
+                            .setExceedVideoConstraintsIfNecessary(true)
+                    )
+                }
                 player.trackSelectionParameters
                     .buildUpon()
                     .setMaxVideoSize(1920, 1080)
-                    .setMaxVideoBitrate(4_500_000)
+                    .setMaxVideoBitrate(5_500_000)
+                    .setMinVideoSize(1280, 720)
+                    .setMinVideoBitrate(1_500_000)
                     .setForceLowestBitrate(false)
                     .build()
             }
@@ -952,6 +1350,9 @@ class LivePlayerController(
 
     fun release() {
         mainHandler.removeCallbacksAndMessages(null)
+        bandwidthMeter?.removeEventListener(bandwidthEventListener)
+        bandwidthMeter = null
+        trackSelector = null
         exoPlayer?.let { player ->
             player.removeListener(playerListener)
             player.clearVideoSurface()
@@ -961,22 +1362,39 @@ class LivePlayerController(
         exoPlayer = null
     }
 
-    private fun updatePlaybackInfo() {
-        val player = exoPlayer ?: return
+    private fun updatePlaybackInfo(
+        overrideBufferedDurationMs: Long? = null,
+        overrideEstimatedBitrateBps: Long? = null
+    ) {
+        val player = exoPlayer
         val isLive = channel.isLiveBroadcast
-        val duration = player.duration
-        val currentPos = player.currentPosition.coerceAtLeast(0L)
+        val duration = player?.duration ?: C.TIME_UNSET
+        val currentPos = (player?.currentPosition ?: lastKnownVodPositionMs).coerceAtLeast(0L)
         if (!isLive && currentPos > 0L) {
             lastKnownVodPositionMs = currentPos
         }
-        val isSeekable = !isLive && (player.isCurrentMediaItemSeekable || duration > 0)
+        val bufferedPos = (player?.bufferedPosition ?: currentPos).coerceAtLeast(currentPos)
+        val computedBufferedAheadMs = overrideBufferedDurationMs ?: (bufferedPos - currentPos).coerceAtLeast(0L)
+        val effectiveBps = overrideEstimatedBitrateBps
+            ?: bandwidthMeter?.bitrateEstimate?.takeIf { it > 0L }
+            ?: latestEstimatedBandwidthBps
+        val kbps = (effectiveBps / 1000L).toInt().coerceAtLeast(100)
+        val isSeekable = !isLive && ((player?.isCurrentMediaItemSeekable == true) || duration > 0)
+        val isDownscaled = _playbackInfo.value.networkMode == NetworkQualityMode.AUTO_ADAPTIVE &&
+                (currentAdaptiveTier.ordinal > AdaptiveQualityTier.HD_720P.ordinal || consecutiveRebufferCount > 0)
+
         _playbackInfo.value = _playbackInfo.value.copy(
-            isPlaying = player.isPlaying,
+            isPlaying = player?.isPlaying ?: _playbackInfo.value.isPlaying,
             isLive = isLive,
             isSeekable = isSeekable,
             currentPosition = currentPos,
-            bufferedPosition = player.bufferedPosition.coerceAtLeast(currentPos),
+            bufferedPosition = bufferedPos,
             duration = if (duration > 0) duration else C.TIME_UNSET,
+            adaptiveQualityTier = currentAdaptiveTier,
+            activeVideoResolutionLabel = activeTrackResolutionLabel,
+            estimatedBandwidthKbps = kbps,
+            bufferedDurationMs = computedBufferedAheadMs,
+            isDynamicallyDownscaled = isDownscaled,
             connectionLabel = detectConnectionLabel()
         )
     }

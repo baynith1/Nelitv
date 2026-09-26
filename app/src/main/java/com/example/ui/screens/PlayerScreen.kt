@@ -103,6 +103,7 @@ import com.example.data.MediaContentRepository
 import com.example.model.EpisodeItem
 import com.example.model.LiveChannel
 import com.example.player.LivePlayerController
+import com.example.player.NetworkQualityMode
 import com.example.player.PlayerUiState
 import com.example.ui.components.BrightnessVolumeGestureOverlay
 import com.example.ui.components.DoubleTapSeekFeedback
@@ -786,7 +787,11 @@ fun PlayerScreen(
                                 .testTag("quality_mode_button")
                                 .clip(RoundedCornerShape(20.dp))
                                 .background(Color(0xAA2B1055))
-                                .border(1.dp, NeliMagenta.copy(alpha = 0.6f), RoundedCornerShape(20.dp))
+                                .border(
+                                    1.dp,
+                                    if (playbackInfo.isDynamicallyDownscaled) NeliGenreCyan else NeliMagenta.copy(alpha = 0.6f),
+                                    RoundedCornerShape(20.dp)
+                                )
                                 .clickable { playerController.cycleNetworkQualityMode() }
                                 .padding(horizontal = 12.dp, vertical = 8.dp)
                         ) {
@@ -800,8 +805,13 @@ fun PlayerScreen(
                                     tint = NeliGenreCyan,
                                     modifier = Modifier.size(15.dp)
                                 )
+                                val qualitySummary = if (playbackInfo.networkMode == NetworkQualityMode.AUTO_ADAPTIVE) {
+                                    "Auto (${playbackInfo.adaptiveQualityTier.badgeLabel})"
+                                } else {
+                                    playbackInfo.networkMode.label
+                                }
                                 Text(
-                                    text = "${playbackInfo.networkMode.label} • ${playbackInfo.connectionLabel}",
+                                    text = "$qualitySummary • ${playbackInfo.connectionLabel}",
                                     color = Color.White,
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold
@@ -895,7 +905,11 @@ fun PlayerScreen(
                                     modifier = Modifier.size(46.dp)
                                 )
                                 Text(
-                                    text = "Buffering stream (${playbackInfo.connectionLabel})...",
+                                    text = if (playbackInfo.networkMode == NetworkQualityMode.AUTO_ADAPTIVE) {
+                                        "Buffering • Adapting to ${playbackInfo.adaptiveQualityTier.badgeLabel} (${playbackInfo.connectionLabel})..."
+                                    } else {
+                                        "Buffering stream (${playbackInfo.connectionLabel})..."
+                                    },
                                     color = Color.White,
                                     fontSize = 13.sp
                                 )
@@ -1588,6 +1602,11 @@ fun PlayerScreen(
                 onSelectNetworkQualityMode = { mode ->
                     playerController.applyNetworkQualityMode(mode)
                 },
+                adaptiveQualityBadge = playbackInfo.activeVideoResolutionLabel,
+                adaptiveQualityDescription = playbackInfo.adaptiveQualityTier.description,
+                estimatedBandwidthKbps = playbackInfo.estimatedBandwidthKbps,
+                bufferedDurationMs = playbackInfo.bufferedDurationMs,
+                isDynamicallyDownscaled = playbackInfo.isDynamicallyDownscaled,
                 brightnessLevel = brightnessLevel,
                 onBrightnessChange = { newBrightness ->
                     applyBrightnessGestureLevel(newBrightness, false)

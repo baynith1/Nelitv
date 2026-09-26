@@ -1107,6 +1107,11 @@ fun PlayerSettingsDrawer(
     onCycleResizeMode: () -> Unit,
     networkQualityMode: NetworkQualityMode,
     onSelectNetworkQualityMode: (NetworkQualityMode) -> Unit,
+    adaptiveQualityBadge: String = "1080p Full HD",
+    adaptiveQualityDescription: String = "Prioritizing High-Quality 1080p/720p HD Stream",
+    estimatedBandwidthKbps: Int = 3800,
+    bufferedDurationMs: Long = 0L,
+    isDynamicallyDownscaled: Boolean = false,
     brightnessLevel: Float,
     onBrightnessChange: (Float) -> Unit,
     volumeLevel: Float,
@@ -1466,6 +1471,76 @@ fun PlayerSettingsDrawer(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(26.dp)
+                )
+            }
+
+            // Adaptive Stream Quality & Bandwidth Telemetry Card
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(NeliSurface)
+                    .border(
+                        1.dp,
+                        if (isDynamicallyDownscaled) NeliGenreCyan else Color(0x33A855F7),
+                        RoundedCornerShape(14.dp)
+                    )
+                    .padding(12.dp)
+                    .testTag("adaptive_quality_telemetry_card"),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.NetworkCell,
+                            contentDescription = null,
+                            tint = if (isDynamicallyDownscaled) NeliGenreCyan else NeliMagenta,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = "ADAPTIVE TRACK SELECTION",
+                            color = NeliGenreCyan,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(
+                                if (isDynamicallyDownscaled) Color(0xFF0E7490) else Color(0xFF10B981)
+                            )
+                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                    ) {
+                        Text(
+                            text = adaptiveQualityBadge,
+                            color = Color.White,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                    }
+                }
+
+                Text(
+                    text = adaptiveQualityDescription,
+                    color = Color.White,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+
+                val bufferSec = (bufferedDurationMs.coerceAtLeast(0L) / 1000f)
+                Text(
+                    text = "Est. Bandwidth: $estimatedBandwidthKbps kbps • Buffer Cushion: ${"%.1f".format(java.util.Locale.US, bufferSec)}s",
+                    color = NeliTextSecondary,
+                    fontSize = 10.sp
                 )
             }
 
