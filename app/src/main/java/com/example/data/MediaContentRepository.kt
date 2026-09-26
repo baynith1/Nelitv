@@ -391,14 +391,14 @@ object MediaContentRepository {
             backdropUrl = "https://image.tmdb.org/t/p/original/2meX1nMdScFOoV4370rqHWKmXhY.jpg",
             streamUrl = "https://vz-1bb50f2e-8ea.b-cdn.net/9d14eb59-d3a0-4b01-9010-ba9bc5492865/play_480p.mp4",
             streamFormat = "mp4",
-            genre = "Adults 18+",
-            subGenres = listOf("Adults 18+", "Adult", "Romance", "18+"),
+            genre = "X Video",
+            subGenres = listOf("X Video", "XXX", "Erotic Romance", "Adults 18+", "Adult", "Porn", "X", "18+"),
             duration = "1h 42m",
             rating = "18+",
             director = "Late Night Cinema",
             screenplay = "Original",
             production = "International 18+",
-            synopsis = "Exclusive late-night adult drama and romance feature streaming in HD.",
+            synopsis = "Exclusive late-night adult X Video romance feature streaming in HD.",
             isTrending = false,
             isComingSoon = false,
             isKids = false,
@@ -420,14 +420,14 @@ object MediaContentRepository {
             backdropUrl = "https://image.tmdb.org/t/p/original/vuq5EfA9ED9vnxQgEV4zWEAFmKJ.jpg",
             streamUrl = "https://vz-1bb50f2e-8ea.b-cdn.net/9d14eb59-d3a0-4b01-9010-ba9bc5492865/play_480p.mp4",
             streamFormat = "mp4",
-            genre = "Adults 18+",
-            subGenres = listOf("Adults 18+", "Adult", "Drama", "18+"),
+            genre = "XXX",
+            subGenres = listOf("XXX", "Porn", "X Video", "Sensual Drama", "Adults 18+", "Adult", "X", "18+"),
             duration = "1h 36m",
             rating = "18+",
             director = "Late Night Cinema",
             screenplay = "Original",
             production = "International 18+",
-            synopsis = "Late-night 18+ cinema feature with full HD poster and thumbnail preview.",
+            synopsis = "Late-night XXX 18+ cinema feature with full HD poster and thumbnail preview.",
             isTrending = false,
             isComingSoon = false,
             isKids = false,
@@ -438,6 +438,35 @@ object MediaContentRepository {
             featured = false,
             published = true,
             runtimeMinutes = 96
+        ),
+        MediaContent(
+            id = "adult_velvet_temptation_hd",
+            title = "Velvet Temptation Uncensored (18+)",
+            originalTitle = "Velvet Temptation",
+            originalLanguage = "en",
+            type = "adult",
+            posterUrl = "https://image.tmdb.org/t/p/w500/3sUdP791SMnEQuJNIpRCT49pkxe.jpg",
+            backdropUrl = "https://image.tmdb.org/t/p/original/2meX1nMdScFOoV4370rqHWKmXhY.jpg",
+            streamUrl = "https://vz-1bb50f2e-8ea.b-cdn.net/9d14eb59-d3a0-4b01-9010-ba9bc5492865/play_480p.mp4",
+            streamFormat = "mp4",
+            genre = "Porn",
+            subGenres = listOf("Porn", "X Video", "XXX", "Uncensored", "Erotic Romance", "Adults 18+", "Adult", "X", "18+"),
+            duration = "1h 28m",
+            rating = "18+",
+            director = "Redlight Studio",
+            screenplay = "Original",
+            production = "International 18+",
+            synopsis = "Uncensored 18+ adult feature organized by genre and category in HD.",
+            isTrending = false,
+            isComingSoon = false,
+            isKids = false,
+            releaseYear = "2025",
+            narrated = false,
+            narrationLanguage = "",
+            downloadEnabled = true,
+            featured = false,
+            published = true,
+            runtimeMinutes = 88
         )
     )
 
@@ -609,12 +638,224 @@ object MediaContentRepository {
         }
     }
 
+    private val ADULT_SUBSTRING_KEYWORDS = listOf(
+        "adult",
+        "adults",
+        "18+",
+        "18 plus",
+        "xxx",
+        "x video",
+        "x videos",
+        "xvideo",
+        "xvideos",
+        "x-video",
+        "x-rated",
+        "xrated",
+        "porn",
+        "porno",
+        "pornography",
+        "xnxx",
+        "erotic",
+        "erotica",
+        "nsfw",
+        "uncensored",
+        "explicit",
+        "hentai",
+        "hardcore",
+        "softcore",
+        "redlight",
+        "wakubwa",
+        "ngono"
+    )
+
+    /**
+     * Recognizes all Adult names, aliases, and search terms such as:
+     * "X", "xxx", "X video", "xvideos", "porn", "porno", "18+", "adult", "adults", "erotic", etc.
+     */
+    fun isAdultKeywordOrQuery(raw: String): Boolean {
+        val clean = raw.trim().lowercase(Locale.US)
+        if (clean.isEmpty()) return false
+        if (clean == "x") return true
+        // Check standalone word "x" (e.g., "x video", "x movies", "x rated")
+        val tokens = clean.split(Regex("[\\s,/|•_-]+")).filter { it.isNotEmpty() }
+        if (tokens.any { it == "x" }) return true
+        return ADULT_SUBSTRING_KEYWORDS.any { clean.contains(it) }
+    }
+
+    /**
+     * Extracts the specific genre or category of an Adult item (e.g., "X Video", "XXX", "Porn",
+     * "Erotic Romance", "Sensual Drama", "Amateur", etc.) while preserving custom Firebase genres/categories.
+     */
+    fun extractAdultPrimaryGenreOrCategory(media: MediaContent): String {
+        val genericAdultMeta = setOf(
+            "adult",
+            "adults",
+            "adults 18+",
+            "18+",
+            "x",
+            "all",
+            "popular",
+            "featured",
+            "movies",
+            "movie"
+        )
+        val candidates = buildList {
+            media.genre.split(",", "/", "|", "•").forEach { part ->
+                val clean = part.trim()
+                if (clean.isNotEmpty()) add(clean)
+            }
+            media.subGenres.forEach { sub ->
+                sub.split(",", "/", "|", "•").forEach { part ->
+                    val clean = part.trim()
+                    if (clean.isNotEmpty()) add(clean)
+                }
+            }
+        }
+        val specific = candidates.firstOrNull { c ->
+            c.lowercase(Locale.US) !in genericAdultMeta
+        }
+        return specific ?: candidates.firstOrNull() ?: "Adults 18+"
+    }
+
+    /**
+     * Returns all distinct Adult genres and categories from the catalog (including Firebase adult data)
+     * so users can filter and browse Adult content by genre and category.
+     */
+    fun getAdultGenreAndCategoryFilters(catalog: List<MediaContent> = _mediaCatalog.value): List<String> {
+        val adults = getAdultContentCatalog(catalog)
+        val categories = LinkedHashSet<String>()
+        categories.add("All")
+
+        val genericMeta = setOf("adult", "adults", "18+", "all", "popular", "movies", "movie")
+        adults.forEach { item ->
+            val primary = extractAdultPrimaryGenreOrCategory(item)
+            if (primary.isNotBlank() && primary.lowercase(Locale.US) !in genericMeta) {
+                categories.add(primary)
+            }
+            item.subGenres.forEach { sub ->
+                val clean = sub.trim()
+                if (clean.isNotBlank() &&
+                    clean.lowercase(Locale.US) !in genericMeta &&
+                    !clean.equals("Adults 18+", ignoreCase = true) &&
+                    !clean.equals("X", ignoreCase = true)
+                ) {
+                    categories.add(clean)
+                }
+            }
+        }
+        // Ensure standard adult aliases/categories are always available for quick filtering
+        listOf("X Video", "XXX", "Porn", "Erotic Romance").forEach { std ->
+            if (categories.none { it.equals(std, ignoreCase = true) }) {
+                categories.add(std)
+            }
+        }
+        return categories.toList()
+    }
+
+    /**
+     * Organizes and groups Adult (18+) items by their Firebase genres and categories
+     * (e.g., "X Video", "XXX", "Porn", "Erotic Romance", "Sensual Drama", etc.).
+     */
+    fun getAdultsGroupedByGenreAndCategory(
+        catalog: List<MediaContent> = _mediaCatalog.value,
+        selectedAdultCategory: String = "All"
+    ): List<Pair<String, List<MediaContent>>> {
+        val adults = getAdultContentCatalog(catalog)
+        if (adults.isEmpty()) return emptyList()
+
+        val filteredAdults = if (selectedAdultCategory.equals("All", ignoreCase = true)) {
+            adults
+        } else {
+            adults.filter { item ->
+                item.genre.equals(selectedAdultCategory, ignoreCase = true) ||
+                    extractAdultPrimaryGenreOrCategory(item).equals(selectedAdultCategory, ignoreCase = true) ||
+                    item.subGenres.any { it.equals(selectedAdultCategory, ignoreCase = true) || it.contains(selectedAdultCategory, ignoreCase = true) } ||
+                    (isAdultKeywordOrQuery(selectedAdultCategory) && item.isAdultContent)
+            }
+        }
+        if (filteredAdults.isEmpty()) return emptyList()
+
+        // Group primarily by each adult item's primary genre/category
+        val grouped = linkedMapOf<String, MutableList<MediaContent>>()
+        for (item in filteredAdults) {
+            val primaryCat = if (!selectedAdultCategory.equals("All", ignoreCase = true)) {
+                selectedAdultCategory
+            } else {
+                extractAdultPrimaryGenreOrCategory(item)
+            }
+            val key = grouped.keys.firstOrNull { it.equals(primaryCat, ignoreCase = true) } ?: primaryCat
+            grouped.getOrPut(key) { mutableListOf() }.add(item)
+        }
+
+        // Also include secondary category shelves when "All" is selected so multi-category Firebase adult data is browsable by all its categories
+        if (selectedAdultCategory.equals("All", ignoreCase = true)) {
+            val skipTags = setOf("adult", "adults", "adults 18+", "18+", "x", "all", "popular", "movies", "movie")
+            for (item in filteredAdults) {
+                for (sub in item.subGenres) {
+                    val cleanSub = sub.trim()
+                    if (cleanSub.isEmpty() || cleanSub.lowercase(Locale.US) in skipTags) continue
+                    val existingKey = grouped.keys.firstOrNull { it.equals(cleanSub, ignoreCase = true) }
+                    val targetKey = existingKey ?: cleanSub
+                    val list = grouped.getOrPut(targetKey) { mutableListOf() }
+                    if (list.none { it.id == item.id }) {
+                        list.add(item)
+                    }
+                }
+            }
+        }
+
+        return grouped.entries
+            .filter { it.value.isNotEmpty() }
+            .map { it.key to it.value.toList() }
+    }
+
+    /**
+     * Comprehensive search matcher for Movies, Series, and Adults:
+     * Matches title, originalTitle, genre, all subGenres/categories, synopsis, narrationLanguage,
+     * and all Adult aliases ("X", "xxx", "X video", "porn", "18+", "adult", "erotic", etc.).
+     */
+    fun matchesMediaSearch(
+        item: MediaContent,
+        searchQuery: String,
+        selectedCategory: String = "All"
+    ): Boolean {
+        val q = searchQuery.trim()
+        val isAdultQuery = isAdultKeywordOrQuery(q)
+
+        val matchesQuery = q.isEmpty() ||
+            item.title.contains(q, ignoreCase = true) ||
+            item.originalTitle.contains(q, ignoreCase = true) ||
+            item.primaryGenre.contains(q, ignoreCase = true) ||
+            item.genre.contains(q, ignoreCase = true) ||
+            item.subGenres.any { it.contains(q, ignoreCase = true) } ||
+            item.synopsis.contains(q, ignoreCase = true) ||
+            item.narrationLanguage.contains(q, ignoreCase = true) ||
+            (isAdultQuery && item.isAdultContent)
+
+        val matchesCat = when {
+            selectedCategory.equals("All", ignoreCase = true) -> true
+            selectedCategory.equals("Movies", ignoreCase = true) -> item.isMovie && !item.isAdultContent
+            selectedCategory.equals("Series", ignoreCase = true) -> item.isSeries && !item.isAdultContent
+            selectedCategory.equals("Adults", ignoreCase = true) ||
+                isAdultKeywordOrQuery(selectedCategory) -> item.isAdultContent
+            selectedCategory.equals("Swahili", ignoreCase = true) -> item.narrated
+            else -> item.primaryGenre.contains(selectedCategory, ignoreCase = true) ||
+                item.genre.contains(selectedCategory, ignoreCase = true) ||
+                item.subGenres.any { it.contains(selectedCategory, ignoreCase = true) }
+        }
+
+        return matchesQuery && matchesCat
+    }
+
     /**
      * Extracts ONLY the FIRST real genre of a movie/media item so a movie with multiple genres
      * (e.g. Action, Animation, Drama) is placed exclusively under its first genre ("Action")
      * and is never duplicated across other genre rows.
      */
     fun extractPrimaryGenre(media: MediaContent): String {
+        if (media.type.equals("adult", ignoreCase = true)) {
+            return extractAdultPrimaryGenreOrCategory(media)
+        }
         val excludedMetaTags = setOf(
             "popular",
             "movies",
@@ -1228,26 +1469,40 @@ object MediaContentRepository {
         val published = fields.fsBoolean("published", true)
         if (!published || title.isEmpty() || streamUrl.isEmpty()) return null
 
+        val rawGenres = buildList {
+            addAll(fields.fsStringList("genres"))
+            addAll(fields.fsStringList("categories"))
+            addAll(fields.fsStringList("tags"))
+            val singleGenre = fields.fsString("genre")
+            if (singleGenre.isNotBlank()) add(singleGenre)
+            val singleCategory = fields.fsString("category").ifEmpty { fields.fsString("subCategory") }
+            if (singleCategory.isNotBlank()) add(singleCategory)
+        }.flatMap { it.split(",", "/", "|") }
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+
         val isAdultDoc = forceAdult ||
             fields.fsBoolean("adult", false) ||
             fields.fsBoolean("isAdult", false) ||
-            fields.fsString("type").equals("adult", ignoreCase = true) ||
-            fields.fsString("category").contains("adult", ignoreCase = true) ||
-            fields.fsString("genre").contains("adult", ignoreCase = true)
+            isAdultKeywordOrQuery(fields.fsString("type")) ||
+            isAdultKeywordOrQuery(fields.fsString("category")) ||
+            isAdultKeywordOrQuery(fields.fsString("genre")) ||
+            rawGenres.any { isAdultKeywordOrQuery(it) }
 
-        val rawGenres = fields.fsStringList("genres")
-            .ifEmpty {
-                val singleGenre = fields.fsString("genre").ifEmpty { fields.fsString("category") }
-                if (singleGenre.isNotBlank()) listOf(singleGenre) else emptyList()
-            }
-            .ifEmpty { if (isAdultDoc) listOf("Adults 18+") else listOf("Action") }
+        val effectiveGenres = rawGenres.ifEmpty {
+            if (isAdultDoc) listOf("X Video", "XXX", "Porn", "Adults 18+") else listOf("Action")
+        }
 
-        // Take strictly the FIRST genre as the primary genre so movies are never duplicated across genres
-        val primaryGenre = if (isAdultDoc && rawGenres.none { it.contains("adult", true) || it.contains("18+", true) }) {
-            "Adults 18+"
+        // Preserve the real first genre/category from Firebase (even for Adult items!) so Adult items are organized by their genres & categories
+        val primaryGenre = if (isAdultDoc) {
+            effectiveGenres.firstOrNull {
+                !it.equals("adult", ignoreCase = true) &&
+                    !it.equals("adults", ignoreCase = true) &&
+                    !it.equals("18+", ignoreCase = true)
+            } ?: effectiveGenres.firstOrNull() ?: "Adults 18+"
         } else {
-            rawGenres.firstOrNull()?.split(",", "/")?.firstOrNull()?.trim()?.takeIf { it.isNotEmpty() }
-                ?: if (isAdultDoc) "Adults 18+" else "Action"
+            effectiveGenres.firstOrNull() ?: "Action"
         }
 
         val narrated = fields.fsBoolean("narrated", false)
@@ -1297,9 +1552,15 @@ object MediaContentRepository {
         val subGenres = buildList {
             if (featured && !isAdultDoc) add("Popular")
             add(primaryGenre)
+            addAll(effectiveGenres)
             if (isAdultDoc) {
                 add("Adults 18+")
                 add("Adult")
+                add("X Video")
+                add("XXX")
+                add("Porn")
+                add("X")
+                add("18+")
             } else {
                 add("Movies")
             }
@@ -1688,12 +1949,12 @@ object MediaContentRepository {
             }
         }
 
-        listOf("movies", "series", "adults", "adult", "content", "items").forEach { key ->
+        listOf("movies", "series", "adults", "adult", "xxx", "xvideos", "porn", "content", "items").forEach { key ->
             if (root.has(key)) {
                 val node = root.get(key)
-                val defaultType = when (key) {
+                val defaultType = when (key.lowercase(Locale.US)) {
                     "series" -> "series"
-                    "adults", "adult" -> "adult"
+                    "adults", "adult", "xxx", "xvideos", "porn" -> "adult"
                     else -> "movie"
                 }
                 extractMediaNodes(node, defaultType = defaultType, out = parsedMedia)
@@ -1797,12 +2058,34 @@ object MediaContentRepository {
             "streamUrl",
             obj.optString("url", obj.optString("videoUrl", ""))
         ).trim()
+        val genresList = mutableListOf<String>()
+        listOf("genres", "categories", "tags").forEach { arrayKey ->
+            val arr = obj.optJSONArray(arrayKey)
+            if (arr != null) {
+                for (i in 0 until arr.length()) {
+                    val g = arr.optString(i, "").trim()
+                    if (g.isNotEmpty()) genresList.add(g)
+                }
+            }
+        }
+        val singleGenre = obj.optString("genre", "").trim()
+        if (singleGenre.isNotEmpty()) genresList.add(singleGenre)
+        val singleCategory = obj.optString("category", obj.optString("subCategory", "")).trim()
+        if (singleCategory.isNotEmpty()) genresList.add(singleCategory)
+
+        val allParsedGenres = genresList
+            .flatMap { it.split(",", "/", "|") }
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+
         val isAdult = defaultType.equals("adult", ignoreCase = true) ||
-                obj.optString("type", "").equals("adult", ignoreCase = true) ||
+                isAdultKeywordOrQuery(obj.optString("type", "")) ||
                 obj.optBoolean("adult", false) ||
                 obj.optBoolean("isAdult", false) ||
-                obj.optString("genre", "").contains("adult", ignoreCase = true) ||
-                obj.optString("category", "").contains("adult", ignoreCase = true)
+                isAdultKeywordOrQuery(singleGenre) ||
+                isAdultKeywordOrQuery(singleCategory) ||
+                allParsedGenres.any { isAdultKeywordOrQuery(it) }
 
         val isSeries = !isAdult && (obj.optString("type", defaultType).equals("series", ignoreCase = true) ||
                 obj.has("numberOfSeasons") || obj.has("seasons"))
@@ -1841,20 +2124,14 @@ object MediaContentRepository {
             isBackdrop = true
         )
 
-        val genresList = mutableListOf<String>()
-        val genresArr = obj.optJSONArray("genres")
-        if (genresArr != null) {
-            for (i in 0 until genresArr.length()) {
-                val g = genresArr.optString(i, "").trim()
-                if (g.isNotEmpty()) genresList.add(g)
-            }
-        }
-        val firstRawGenre = genresList.firstOrNull()
-            ?: obj.optString("genre", obj.optString("category", if (isAdult) "Adults 18+" else "Action"))
-        val genre = if (isAdult && !firstRawGenre.contains("adult", true) && !firstRawGenre.contains("18+", true)) {
-            "Adults 18+"
+        val genre = if (isAdult) {
+            allParsedGenres.firstOrNull {
+                !it.equals("adult", ignoreCase = true) &&
+                    !it.equals("adults", ignoreCase = true) &&
+                    !it.equals("18+", ignoreCase = true)
+            } ?: allParsedGenres.firstOrNull() ?: "Adults 18+"
         } else {
-            firstRawGenre.split(",", "/").firstOrNull()?.trim()?.ifEmpty { "Action" } ?: "Action"
+            allParsedGenres.firstOrNull() ?: "Action"
         }
         val runtime = obj.optInt("runtime", 120)
         val duration = if (isSeries) {
@@ -1891,11 +2168,20 @@ object MediaContentRepository {
             subGenres = buildList {
                 if (!isAdult) add("Popular")
                 add(genre)
-                add(when {
-                    isAdult -> "Adults 18+"
-                    isSeries -> "Series"
-                    else -> "Movies"
-                })
+                addAll(allParsedGenres)
+                if (isAdult) {
+                    add("Adults 18+")
+                    add("Adult")
+                    add("X Video")
+                    add("XXX")
+                    add("Porn")
+                    add("X")
+                    add("18+")
+                } else if (isSeries) {
+                    add("Series")
+                } else {
+                    add("Movies")
+                }
                 if (narrated && narrationLanguage.isNotBlank()) add(narrationLanguage)
             }.distinct(),
             duration = duration,

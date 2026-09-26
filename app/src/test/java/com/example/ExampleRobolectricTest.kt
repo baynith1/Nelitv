@@ -516,5 +516,51 @@ class ExampleRobolectricTest {
         vm.navigateBackFromMediaDetails()
         assertEquals(null, vm.selectedMediaId.value)
         assertEquals(com.example.ui.components.BottomNavTab.DISCOVERY, vm.selectedTab.value)
+
+        // 9. Verify Adult aliases ("X", "xxx", "X video", "porn") & Firebase Adult Genre/Category grouping and search
+        assertTrue(MediaContentRepository.isAdultKeywordOrQuery("X"))
+        assertTrue(MediaContentRepository.isAdultKeywordOrQuery("xxx"))
+        assertTrue(MediaContentRepository.isAdultKeywordOrQuery("X video"))
+        assertTrue(MediaContentRepository.isAdultKeywordOrQuery("porn"))
+        assertTrue(MediaContentRepository.isAdultKeywordOrQuery("18+"))
+        org.junit.Assert.assertFalse(MediaContentRepository.isAdultKeywordOrQuery("Box Office Action"))
+
+        val adultFirestoreJson = """
+            {
+              "documents": [
+                {
+                  "name": "projects/neliplay/databases/(default)/documents/adults/adult_fb_1",
+                  "fields": {
+                    "id": {"stringValue": "adult_fb_1"},
+                    "title": {"stringValue": "Late Night X Video Special"},
+                    "streamUrl": {"stringValue": "https://vz-1bb50f2e-8ea.b-cdn.net/9d14eb59-d3a0-4b01-9010-ba9bc5492865/play_480p.mp4"},
+                    "genre": {"stringValue": "X Video"},
+                    "category": {"stringValue": "Porn"},
+                    "genres": {"arrayValue": {"values": [{"stringValue": "X Video"}, {"stringValue": "XXX"}, {"stringValue": "Porn"}]}},
+                    "published": {"booleanValue": true}
+                  }
+                }
+              ]
+            }
+        """.trimIndent()
+        MediaContentRepository.parseFirestoreCollections(adultsJson = adultFirestoreJson)
+        val parsedAdult = MediaContentRepository.getMediaById("adult_fb_1")
+        assertNotNull(parsedAdult)
+        assertTrue(parsedAdult!!.isAdultContent)
+        assertEquals("X Video", parsedAdult.primaryGenre)
+
+        val groupedAdults = MediaContentRepository.getAdultsGroupedByGenreAndCategory()
+        assertTrue(groupedAdults.any { it.first.equals("X Video", ignoreCase = true) })
+        assertTrue(groupedAdults.any { it.first.equals("XXX", ignoreCase = true) })
+        assertTrue(groupedAdults.any { it.first.equals("Porn", ignoreCase = true) })
+
+        // Verify searching by "X", "xxx", "X video", "porn" matches adult items
+        listOf("X", "xxx", "X video", "porn").forEach { query ->
+            val results = MediaContentRepository.mediaCatalog.value.filter {
+                MediaContentRepository.matchesMediaSearch(it, query, "All")
+            }
+            assertTrue("Expected adult search results for '$query'", results.isNotEmpty())
+            assertTrue(results.all { it.isAdultContent })
+        }
     }
 }

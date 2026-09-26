@@ -541,6 +541,19 @@ fun DiscoveryTabContent(
         MediaContentRepository.getAdultContentCatalog(mediaCatalog)
     }
 
+    var selectedAdultCategory by rememberSaveable { mutableStateOf("All") }
+
+    val adultCategories = remember(mediaCatalog) {
+        MediaContentRepository.getAdultGenreAndCategoryFilters(mediaCatalog)
+    }
+
+    val adultsByGenreAndCategory = remember(mediaCatalog, selectedAdultCategory) {
+        MediaContentRepository.getAdultsGroupedByGenreAndCategory(
+            catalog = mediaCatalog,
+            selectedAdultCategory = selectedAdultCategory
+        )
+    }
+
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
@@ -684,7 +697,7 @@ fun DiscoveryTabContent(
             }
         }
 
-        // 5. ADULTS (18+) SECTION WITH GUARANTEED POSTER & THUMBNAIL IMAGES
+        // 5. ADULTS (18+) SECTION ORGANIZED BY GENRES & CATEGORIES WITH GUARANTEED POSTER & THUMBNAIL IMAGES
         if ((selectedFilter.equals("All", true) || selectedFilter.equals("Adults", true)) && adultList.isNotEmpty()) {
             item {
                 Column(
@@ -718,7 +731,7 @@ fun DiscoveryTabContent(
                                 )
                             }
                             Text(
-                                text = "Adults 18+",
+                                text = "Adults • Genres & Categories",
                                 color = NeliTextPrimary,
                                 fontSize = 16.sp,
                                 fontWeight = FontWeight.Bold
@@ -731,44 +744,97 @@ fun DiscoveryTabContent(
                         )
                     }
 
-                    // Horizontal Thumbnail + Poster dual showcase row
+                    // Adult Genre & Category Filter Bar (All | X Video | XXX | Porn | Erotic Romance | Firebase Categories...)
                     LazyRow(
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("adult_genre_category_chips")
+                    ) {
+                        items(adultCategories, key = { "adult_cat_chip_$it" }) { cat ->
+                            val isCatSelected = cat.equals(selectedAdultCategory, ignoreCase = true)
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(
+                                        if (isCatSelected) Color(0xFFEF4444) else NeliSurfaceVariant
+                                    )
+                                    .clickable { selectedAdultCategory = cat }
+                                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                                    .testTag("adult_cat_chip_${cat.lowercase()}")
+                            ) {
+                                Text(
+                                    text = cat,
+                                    color = if (isCatSelected) Color.White else NeliTextPrimary,
+                                    fontSize = 12.sp,
+                                    fontWeight = if (isCatSelected) FontWeight.Bold else FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Organized Adult Genre & Category Rows
+            items(
+                items = adultsByGenreAndCategory,
+                key = { "adult_genre_section_${it.first}" }
+            ) { (adultCategoryName, categoryItems) ->
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp)
+                        .testTag("adult_genre_row_$adultCategoryName")
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(Color(0x33EF4444))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = "18+",
+                                    color = Color(0xFFEF4444),
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.ExtraBold
+                                )
+                            }
+                            Text(
+                                text = adultCategoryName,
+                                color = NeliTextPrimary,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Text(
+                            text = "${categoryItems.size}",
+                            color = NeliTextSecondary,
+                            fontSize = 12.sp
+                        )
+                    }
+
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        items(adultList, key = { "disc_adult_thumb_${it.id}" }) { adultMedia ->
+                        items(categoryItems, key = { "disc_adult_${adultCategoryName}_${it.id}" }) { adultMedia ->
                             AdultMediaPosterThumbnailCard(
                                 media = adultMedia,
                                 onSelectDetails = { onMediaSelected(adultMedia) },
                                 onPlayDirect = { onPlayMedia(adultMedia) }
                             )
-                        }
-                    }
-
-                    // Also show vertical/poster cards when user filters specifically to "Adults"
-                    if (selectedFilter.equals("Adults", ignoreCase = true)) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        val chunkedAdults = adultList.chunked(2)
-                        chunkedAdults.forEach { rowPair ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 16.dp, vertical = 6.dp),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                rowPair.forEach { item ->
-                                    Box(modifier = Modifier.weight(1f)) {
-                                        MediaPosterCard(
-                                            media = item,
-                                            onClick = { onMediaSelected(item) },
-                                            modifier = Modifier.fillMaxWidth()
-                                        )
-                                    }
-                                }
-                                if (rowPair.size == 1) {
-                                    Spacer(modifier = Modifier.weight(1f))
-                                }
-                            }
                         }
                     }
                 }
@@ -855,8 +921,28 @@ fun SearchTabContent(
     onChannelSelected: (LiveChannel) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val searchFilterTabs = remember {
-        listOf("All", "Live TV", "Movies", "Series", "Adults", "Swahili", "Action", "Sports", "Drama")
+    val searchFilterTabs = remember(mediaList) {
+        val tabs = LinkedHashSet<String>()
+        tabs.addAll(
+            listOf(
+                "All",
+                "Live TV",
+                "Movies",
+                "Series",
+                "Adults",
+                "X Video",
+                "XXX",
+                "Porn",
+                "Swahili",
+                "Action",
+                "Sports",
+                "Drama"
+            )
+        )
+        MediaContentRepository.getAdultGenreAndCategoryFilters(mediaList)
+            .filter { !it.equals("All", ignoreCase = true) }
+            .forEach { tabs.add(it) }
+        tabs.toList()
     }
 
     val allChannels = if (liveChannels.isNotEmpty()) liveChannels else ChannelRepository.channels
@@ -864,7 +950,9 @@ fun SearchTabContent(
     val filteredChannels = remember(searchQuery, selectedCategory, allChannels) {
         if (selectedCategory.equals("Movies", true) ||
             selectedCategory.equals("Series", true) ||
-            selectedCategory.equals("Adults", true)
+            selectedCategory.equals("Adults", true) ||
+            MediaContentRepository.isAdultKeywordOrQuery(selectedCategory) ||
+            MediaContentRepository.isAdultKeywordOrQuery(searchQuery)
         ) {
             emptyList()
         } else {
@@ -881,28 +969,12 @@ fun SearchTabContent(
         if (selectedCategory.equals("Live TV", true)) {
             emptyList()
         } else {
-            val q = searchQuery.trim()
             mediaList.filter { item ->
-                val matchesQuery = q.isEmpty() ||
-                    item.title.contains(q, ignoreCase = true) ||
-                    item.originalTitle.contains(q, ignoreCase = true) ||
-                    item.primaryGenre.contains(q, ignoreCase = true) ||
-                    item.genre.contains(q, ignoreCase = true) ||
-                    item.synopsis.contains(q, ignoreCase = true) ||
-                    item.narrationLanguage.contains(q, ignoreCase = true) ||
-                    (q.equals("adult", true) && item.isAdultContent) ||
-                    (q.equals("adults", true) && item.isAdultContent)
-
-                val matchesCat = when {
-                    selectedCategory.equals("All", ignoreCase = true) -> true
-                    selectedCategory.equals("Movies", ignoreCase = true) -> item.isMovie && !item.isAdultContent
-                    selectedCategory.equals("Series", ignoreCase = true) -> item.isSeries && !item.isAdultContent
-                    selectedCategory.equals("Adults", ignoreCase = true) -> item.isAdultContent
-                    selectedCategory.equals("Swahili", ignoreCase = true) -> item.narrated
-                    else -> item.primaryGenre.contains(selectedCategory, ignoreCase = true) ||
-                        item.genre.contains(selectedCategory, ignoreCase = true)
-                }
-                matchesQuery && matchesCat
+                MediaContentRepository.matchesMediaSearch(
+                    item = item,
+                    searchQuery = searchQuery,
+                    selectedCategory = selectedCategory
+                )
             }
         }
     }
@@ -911,7 +983,9 @@ fun SearchTabContent(
         val q = searchQuery.trim()
         if (selectedCategory.equals("Live TV", true) ||
             selectedCategory.equals("Movies", true) ||
-            selectedCategory.equals("Adults", true)
+            selectedCategory.equals("Adults", true) ||
+            MediaContentRepository.isAdultKeywordOrQuery(selectedCategory) ||
+            MediaContentRepository.isAdultKeywordOrQuery(q)
         ) {
             emptyList()
         } else if (q.isEmpty() && !selectedCategory.equals("Series", true)) {

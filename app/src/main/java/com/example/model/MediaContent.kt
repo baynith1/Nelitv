@@ -186,14 +186,9 @@ data class MediaContent(
 
     val isAdult: Boolean
         get() = type.equals("adult", ignoreCase = true) ||
-                genre.contains("adult", ignoreCase = true) ||
-                genre.contains("18+", ignoreCase = true) ||
-                genre.contains("erotic", ignoreCase = true) ||
-                subGenres.any {
-                    it.contains("adult", ignoreCase = true) ||
-                            it.contains("18+", ignoreCase = true) ||
-                            it.contains("erotic", ignoreCase = true)
-                }
+                com.example.data.MediaContentRepository.isAdultKeywordOrQuery(type) ||
+                com.example.data.MediaContentRepository.isAdultKeywordOrQuery(genre) ||
+                subGenres.any { com.example.data.MediaContentRepository.isAdultKeywordOrQuery(it) }
 
     val isMovie: Boolean
         get() = !isSeries && !isAdult
