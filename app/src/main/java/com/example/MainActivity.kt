@@ -30,12 +30,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.data.ChannelRepository
 import com.example.data.MediaContentRepository
 import com.example.model.LiveChannel
 import com.example.notifications.NeliNotificationScheduler
 import com.example.player.LivePlayerController
 import com.example.player.NativeLogSuppressor
+import com.example.ui.NeliViewModel
 import com.example.ui.components.FloatingPipPlayerOverlay
 import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.PlayerScreen
@@ -191,7 +193,8 @@ fun NeliApp(
     pendingTab: String? = null,
     onConsumeDeepLink: () -> Unit = {},
     onActivePlaybackChanged: (Boolean) -> Unit = {},
-    onRequestSystemPipOutsideApp: () -> Unit = {}
+    onRequestSystemPipOutsideApp: () -> Unit = {},
+    neliViewModel: NeliViewModel = viewModel()
 ) {
     val context = LocalContext.current
 
@@ -290,35 +293,33 @@ fun NeliApp(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        val showFullPlayer = activeChannel != null && controller != null
+        val currentChan = activeChannel
+        val currentCtrl = sharedPlayerController
+        val showFullPlayer = currentChan != null && currentCtrl != null
 
-        AnimatedContent(
-            targetState = showFullPlayer,
-            transitionSpec = { fadeIn() togetherWith fadeOut() },
-            label = "neli_screen_transition"
-        ) { isFullPlayerVisible ->
-            val currentChan = activeChannel
-            val currentCtrl = sharedPlayerController
-            if (isFullPlayerVisible && currentChan != null && currentCtrl != null) {
-                PlayerScreen(
-                    channel = currentChan,
-                    onBack = {
-                        // Back button NEVER triggers PiP; it cleanly stops playback and returns to the previous screen.
-                        closeAndReleasePlayback()
-                    },
-                    sharedController = currentCtrl,
-                    onEnterPipMode = {
-                        // Enters Android OS Picture-in-Picture mode OUTSIDE the app (never inside the app)
-                        onRequestSystemPipOutsideApp()
-                    }
-                )
-            } else {
-                HomeScreen(
-                    onChannelSelected = { selected ->
-                        startOrSwitchChannel(selected)
-                    }
-                )
-            }
+        if (showFullPlayer && currentChan != null && currentCtrl != null) {
+            PlayerScreen(
+                channel = currentChan,
+                onBack = {
+                    val lastWatchedChannel = currentCtrl.currentChannel.value
+                    // Always route Movie/Series watchpage back navigation to its Movie Details page (and then Discovery)
+                    neliViewModel.onReturnFromWatchPage(lastWatchedChannel)
+                    // Back button NEVER triggers PiP; it cleanly stops playback and returns to the previous screen.
+                    closeAndReleasePlayback()
+                },
+                sharedController = currentCtrl,
+                onEnterPipMode = {
+                    // Enters Android OS Picture-in-Picture mode OUTSIDE the app (never inside the app)
+                    onRequestSystemPipOutsideApp()
+                }
+            )
+        } else {
+            HomeScreen(
+                onChannelSelected = { selected ->
+                    startOrSwitchChannel(selected)
+                },
+                neliViewModel = neliViewModel
+            )
         }
     }
 }

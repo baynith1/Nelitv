@@ -24,11 +24,13 @@ import com.example.model.DownloadQualityOption
 import com.example.model.EpisodeItem
 import com.example.model.LiveChannel
 import com.example.model.MediaContent
+import com.example.ui.components.BottomNavTab
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
@@ -51,31 +53,63 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
     private val _isOfflineMode = MutableStateFlow(!OfflineDownloadManager.isDeviceOnline(appContext))
     val isOfflineMode: StateFlow<Boolean> = _isOfflineMode.asStateFlow()
 
-    val downloads: StateFlow<List<DownloadedItemEntity>> = dao.getAllDownloads()
-        .map { list ->
-            val invalidItems = list.filter {
-                (it.downloadStatus == "COMPLETED" && !OfflineDownloadManager.isDownloadFileValidOnDisk(it)) ||
-                    (it.downloadStatus == "DOWNLOADING" && !OfflineDownloadManager.isCurrentlyDownloading(it.id))
-            }
-            if (invalidItems.isNotEmpty()) {
-                viewModelScope.launch {
-                    OfflineDownloadManager.purgeInvalidDownloads(dao, invalidItems)
+    // Navigation state: if offline at launch, send user directly to the Download page
+    private val _selectedTab = MutableStateFlow(
+        if (_isOfflineMode.value) BottomNavTab.DOWNLOAD else BottomNavTab.HOME
+    )
+    val selectedTab: StateFlow<BottomNavTab> = _selectedTab.asStateFlow()
+
+    private val _selectedMediaId = MutableStateFlow<String?>(null)
+    val selectedMediaId: StateFlow<String?> = _selectedMediaId.asStateFlow()
+
+    private val _isRefreshingLiveTv = MutableStateFlow(false)
+    val isRefreshingLiveTv: StateFlow<Boolean> = _isRefreshingLiveTv.asStateFlow()
+
+    val downloads: StateFlow<List<DownloadedItemEntity>> = combine(
+        dao.getAllDownloads(),
+        OfflineDownloadManager.activeDownloadEntities,
+        OfflineDownloadManager.downloadProgress
+    ) { dbList, activeMap, progressMap ->
+        val mergedById = LinkedHashMap<String, DownloadedItemEntity>()
+        // 1. Live active in-memory items take priority so they appear at 0ms when user taps Download
+        activeMap.values.forEach { activeItem ->
+            val livePct = progressMap[activeItem.id] ?: activeItem.progressPercent
+            mergedById[activeItem.id] = activeItem.copy(progressPercent = livePct)
+        }
+        // 2. Database items (COMPLETED, DOWNLOADING, PAUSED_ERROR)
+        dbList.forEach { dbItem ->
+            val existing = mergedById[dbItem.id]
+            if (existing == null) {
+                val isCompletedValid = dbItem.downloadStatus == "COMPLETED" &&
+                    OfflineDownloadManager.isDownloadFileValidOnDisk(dbItem)
+                val isActivelyDownloading = OfflineDownloadManager.isCurrentlyDownloading(dbItem.id)
+                val isPausedOrRetryable = dbItem.downloadStatus == "PAUSED_ERROR" ||
+                    (dbItem.downloadStatus == "DOWNLOADING" && !isActivelyDownloading)
+                if (isCompletedValid || isActivelyDownloading) {
+                    val livePct = progressMap[dbItem.id] ?: dbItem.progressPercent
+                    mergedById[dbItem.id] = dbItem.copy(progressPercent = livePct)
+                } else if (isPausedOrRetryable) {
+                    mergedById[dbItem.id] = dbItem.copy(
+                        downloadStatus = "PAUSED_ERROR",
+                        fileSizeLabel = if (dbItem.fileSizeLabel.contains("Tap Retry", ignoreCase = true)) {
+                            dbItem.fileSizeLabel
+                        } else {
+                            "Download interrupted • Tap Retry to resume"
+                        }
+                    )
                 }
             }
-            list.filter {
-                OfflineDownloadManager.isDownloadFileValidOnDisk(it) ||
-                    OfflineDownloadManager.isCurrentlyDownloading(it.id)
-            }
         }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = emptyList()
-        )
+        mergedById.values.sortedByDescending { it.downloadedAt }
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
 
     val downloadedIds: StateFlow<Set<String>> = downloads
         .map { list ->
-            list.filter { OfflineDownloadManager.isDownloadFileValidOnDisk(it) }
+            list.filter { it.downloadStatus == "COMPLETED" && OfflineDownloadManager.isDownloadFileValidOnDisk(it) }
                 .map { it.id }
                 .toSet()
         }
@@ -85,17 +119,19 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
             initialValue = emptySet()
         )
 
-    val downloadingIds: StateFlow<Set<String>> = downloads
-        .map { list ->
-            list.filter { it.downloadStatus == "DOWNLOADING" && OfflineDownloadManager.isCurrentlyDownloading(it.id) }
-                .map { it.id }
-                .toSet()
-        }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = emptySet()
-        )
+    val downloadingIds: StateFlow<Set<String>> = combine(
+        downloads,
+        OfflineDownloadManager.downloadProgress
+    ) { list, progressMap ->
+        val fromList = list.filter {
+            it.downloadStatus == "DOWNLOADING" || OfflineDownloadManager.isCurrentlyDownloading(it.id)
+        }.map { it.id }
+        (fromList + progressMap.keys).toSet()
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptySet()
+    )
 
     val watchlistItems: StateFlow<List<WatchlistItemEntity>> = dao.getAllWatchlist()
         .stateIn(
@@ -141,18 +177,30 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
 
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
-            _isOfflineMode.value = false
+            updateOfflineState(false)
             // Automatically sync Azam TV Cloud Token, catalog, and GitHub app updates when internet returns
             triggerAutomaticBackgroundSync()
         }
 
         override fun onLost(network: Network) {
-            _isOfflineMode.value = !OfflineDownloadManager.isDeviceOnline(appContext)
+            val nowOffline = !OfflineDownloadManager.isDeviceOnline(appContext)
+            if (nowOffline != _isOfflineMode.value) {
+                updateOfflineState(nowOffline)
+            }
+        }
+
+        override fun onUnavailable() {
+            if (!_isOfflineMode.value) {
+                updateOfflineState(true)
+            }
         }
 
         override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
             val hasInternet = networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-            _isOfflineMode.value = !hasInternet
+            val nowOffline = !hasInternet
+            if (nowOffline != _isOfflineMode.value) {
+                updateOfflineState(nowOffline)
+            }
         }
     }
 
@@ -221,8 +269,57 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
         } catch (_: Exception) {}
     }
 
+    /**
+     * Updates the offline mode state. Whenever the device is offline, automatically sends the user
+     * directly to the Download page (`BottomNavTab.DOWNLOAD`).
+     */
+    fun updateOfflineState(isOffline: Boolean) {
+        _isOfflineMode.value = isOffline
+        if (isOffline) {
+            _selectedMediaId.value = null
+            _selectedTab.value = BottomNavTab.DOWNLOAD
+        }
+    }
+
     fun refreshConnectivityState() {
-        _isOfflineMode.value = !OfflineDownloadManager.isDeviceOnline(appContext)
+        val currentlyOffline = !OfflineDownloadManager.isDeviceOnline(appContext)
+        if (currentlyOffline != _isOfflineMode.value) {
+            updateOfflineState(currentlyOffline)
+        }
+    }
+
+    fun selectTab(tab: BottomNavTab) {
+        _selectedMediaId.value = null
+        _selectedTab.value = tab
+    }
+
+    fun openMediaDetails(mediaId: String?) {
+        _selectedMediaId.value = mediaId
+    }
+
+    /**
+     * Called when the user presses Back from the Movie/Series Details page (`MediaDetailScreen`).
+     * Always closes the details view and sends the user directly to the Discovery page (`BottomNavTab.DISCOVERY`).
+     */
+    fun navigateBackFromMediaDetails() {
+        _selectedMediaId.value = null
+        _selectedTab.value = BottomNavTab.DISCOVERY
+    }
+
+    /**
+     * Called when the user presses Back from the Watchpage (`PlayerScreen`).
+     * - If the user was watching a Movie or Series (`!watchedChannel.isLiveBroadcast`), NEVER send them
+     *   to the Homepage; always send them to the Movie Details page (`MediaDetailScreen`) of that respective
+     *   movie/series with the underlying tab set to Discovery (`BottomNavTab.DISCOVERY`).
+     */
+    fun onReturnFromWatchPage(watchedChannel: LiveChannel) {
+        if (!watchedChannel.isLiveBroadcast) {
+            val resolvedMedia = MediaContentRepository.resolveMediaForPlaybackChannel(watchedChannel)
+            _selectedTab.value = BottomNavTab.DISCOVERY
+            if (resolvedMedia != null) {
+                _selectedMediaId.value = resolvedMedia.id
+            }
+        }
     }
 
     fun dismissDownloadBanner() {
@@ -234,6 +331,16 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
      * Runs in a persistent background scope so it continues even when the user exits the app.
      */
     fun addDownload(media: MediaContent) {
+        val guaranteedPoster = MediaContentRepository.resolveGuaranteedMediaImageUrl(
+            media.posterUrl,
+            media.backdropUrl,
+            media.streamUrl
+        )
+        val guaranteedBackdrop = MediaContentRepository.resolveGuaranteedMediaImageUrl(
+            media.backdropUrl,
+            media.posterUrl,
+            media.streamUrl
+        )
         val item = DownloadedItemEntity(
             id = media.id,
             title = if (media.narrated && media.narrationLanguage.isNotBlank()) {
@@ -242,13 +349,13 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
                 media.title
             },
             type = media.type,
-            posterUrl = media.posterUrl,
-            backdropUrl = media.backdropUrl,
+            posterUrl = guaranteedPoster,
+            backdropUrl = guaranteedBackdrop,
             streamUrl = ChannelRepository.normalizeDashStreamUrl(media.streamUrl),
-            genre = media.genre,
+            genre = media.primaryGenre,
             duration = media.duration,
             rating = media.rating,
-            fileSizeLabel = "Starting download • 1%",
+            fileSizeLabel = "Starting turbo download • 1%",
             downloadStatus = "DOWNLOADING",
             progressPercent = 1
         )
@@ -268,17 +375,22 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
         seriesTitle: String,
         seriesPoster: String
     ) {
+        val poster = MediaContentRepository.resolveGuaranteedMediaImageUrl(
+            episode.stillPath,
+            seriesPoster,
+            episode.streamUrl
+        )
         val item = DownloadedItemEntity(
             id = episode.id,
             title = "$seriesTitle • S${episode.seasonNumber}E${episode.episodeNumber}: ${episode.name}",
             type = "series",
-            posterUrl = episode.stillPath.ifBlank { seriesPoster },
-            backdropUrl = episode.stillPath.ifBlank { seriesPoster },
+            posterUrl = poster,
+            backdropUrl = poster,
             streamUrl = ChannelRepository.normalizeDashStreamUrl(episode.streamUrl),
             genre = if (episode.narrated) "Series • ${episode.narrationLanguage}" else "Series",
             duration = episode.durationLabel,
             rating = "HD",
-            fileSizeLabel = "Starting download • 1%",
+            fileSizeLabel = "Starting turbo download • 1%",
             downloadStatus = "DOWNLOADING",
             progressPercent = 1
         )
@@ -298,17 +410,22 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
         seriesPoster: String
     ) {
         val entities = episodes.map { episode ->
+            val poster = MediaContentRepository.resolveGuaranteedMediaImageUrl(
+                episode.stillPath,
+                seriesPoster,
+                episode.streamUrl
+            )
             DownloadedItemEntity(
                 id = episode.id,
                 title = "$seriesTitle • S${episode.seasonNumber}E${episode.episodeNumber}: ${episode.name}",
                 type = "series",
-                posterUrl = episode.stillPath.ifBlank { seriesPoster },
-                backdropUrl = episode.stillPath.ifBlank { seriesPoster },
+                posterUrl = poster,
+                backdropUrl = poster,
                 streamUrl = ChannelRepository.normalizeDashStreamUrl(episode.streamUrl),
                 genre = if (episode.narrated) "Series • ${episode.narrationLanguage}" else "Series",
                 duration = episode.durationLabel,
                 rating = "HD",
-                fileSizeLabel = "Starting download • 1%",
+                fileSizeLabel = "Starting turbo download • 1%",
                 downloadStatus = "DOWNLOADING",
                 progressPercent = 1
             )
@@ -318,6 +435,20 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
             dao = dao,
             items = entities
         )
+    }
+
+    fun retryDownload(item: DownloadedItemEntity) {
+        OfflineDownloadManager.retryDownload(
+            context = appContext,
+            dao = dao,
+            item = item
+        )
+    }
+
+    fun cancelDownload(id: String) {
+        viewModelScope.launch {
+            OfflineDownloadManager.deleteOfflineDownload(dao, id)
+        }
     }
 
     fun deleteDownload(id: String) {
@@ -476,6 +607,39 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
                 apiKey = apiKey,
                 projectId = MediaContentRepository.DEFAULT_PROJECT_ID
             )
+        }
+    }
+
+    /**
+     * Pull-to-refresh handler for the Homepage Live TV list.
+     * Immediately refreshes local prioritized channels & CDN tokens, then syncs any
+     * updated tokens/channels from the cloud without requiring an app restart.
+     */
+    fun refreshLiveTvFeed() {
+        if (_isRefreshingLiveTv.value) return
+        _isRefreshingLiveTv.value = true
+        refreshConnectivityState()
+        ChannelRepository.refreshLiveChannels()
+
+        viewModelScope.launch {
+            try {
+                val apiKey = AuthRepository.resolveApiKey(appContext)
+                MediaContentRepository.syncCdnTokenFromFirebase(
+                    databaseUrl = MediaContentRepository.DEFAULT_DATABASE_URL,
+                    apiKey = apiKey,
+                    projectId = MediaContentRepository.DEFAULT_PROJECT_ID
+                )
+                MediaContentRepository.syncFromFirebaseEndpoint(
+                    databaseUrl = MediaContentRepository.DEFAULT_DATABASE_URL,
+                    apiKey = apiKey,
+                    projectId = MediaContentRepository.DEFAULT_PROJECT_ID
+                )
+                ChannelRepository.refreshLiveChannels()
+                delay(350)
+            } catch (_: Exception) {
+            } finally {
+                _isRefreshingLiveTv.value = false
+            }
         }
     }
 }

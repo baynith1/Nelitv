@@ -217,6 +217,12 @@ data class MediaContent(
     val isAdultContent: Boolean
         get() = isAdult
 
+    /**
+     * Strictly returns ONLY the first primary genre for this media item so movies are never duplicated across genres.
+     */
+    val primaryGenre: String
+        get() = com.example.data.MediaContentRepository.extractPrimaryGenre(this)
+
     val posterPath: String
         get() = posterUrl
 

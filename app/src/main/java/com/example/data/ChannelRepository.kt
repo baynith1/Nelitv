@@ -35,6 +35,25 @@ object ChannelRepository {
     var AZAM_TOKEN_ENDPOINT_URL: String = DEFAULT_TOKEN_ENDPOINT_URL
         private set
 
+    @Volatile
+    var lastRefreshedEpochMs: Long = System.currentTimeMillis()
+        private set
+
+    /**
+     * Refreshes the Live TV channel feed in-place without restarting the app:
+     * re-applies the latest Azam CDN host/token to all stream URLs and re-sorts
+     * strictly by priority (Azam TV -> Tanzania -> International).
+     */
+    fun refreshLiveChannels(): List<LiveChannel> {
+        val current = _liveChannelsFlow.value.ifEmpty { channels }
+        val refreshed = getPrioritizedAllChannels(current).map { ch ->
+            ch.copy(streamUrl = normalizeDashStreamUrl(ch.streamUrl))
+        }
+        _liveChannelsFlow.value = refreshed
+        lastRefreshedEpochMs = System.currentTimeMillis()
+        return refreshed
+    }
+
     val categories = listOf(
         "All",
         "Azam TV",
@@ -588,6 +607,19 @@ object ChannelRepository {
             .sortedByDescending { it.priorityTier }
 
     /**
+     * Returns ALL enabled & published Live TV channels ordered strictly by priority:
+     * 1st: Azam TV channels (`isAzamPriority`, tier 3)
+     * 2nd: Tanzania channels (`isTanzaniaChannel`, tier 2)
+     * 3rd: Featured & Other International channels (tiers 1 & 0)
+     */
+    fun getPrioritizedAllChannels(source: List<LiveChannel> = _liveChannelsFlow.value): List<LiveChannel> {
+        val active = source.filter { it.enabled && it.published }.ifEmpty { channels }
+        return active.sortedByDescending { it.priorityTier }
+    }
+
+    fun getChannelsByCategory(category: String): List<LiveChannel> = filterChannels("", category)
+
+    /**
      * Automatically extracts the `exp` (expiration epoch seconds) embedded inside an Azam TV JWT token
      * (`eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJleHAiOiIxNzkwNDEyNTgyIi...`), so even if `exp` is `null`
      * or omitted in Firestore (`config/azam_token`), the exact expiration is decoded automatically.
@@ -616,16 +648,18 @@ object ChannelRepository {
     /**
      * Parses `exp` flexibly whether it is `null`, a Unix epoch number, a numeric string,
      * a Firestore ISO-8601 `timestamp` (date/time picker), or missing (auto-extracted from JWT).
+     * Always prefers the embedded JWT `exp` when it is newer so a stale Firestore timestamp never downgrades a valid JWT.
      */
     fun parseFlexibleExpiration(rawExp: Any?, jwtToken: String, fallbackExp: Long = AZAM_CDN_EXP): Long {
         val jwtExp = extractJwtExpSeconds(jwtToken)
         if (rawExp == null || rawExp == JSONObject.NULL) {
             return jwtExp ?: fallbackExp
         }
+        var parsedExp: Long? = null
         when (rawExp) {
             is Number -> {
                 val num = rawExp.toLong()
-                if (num > 0L) return if (num > 10_000_000_000L) num / 1000L else num
+                if (num > 0L) parsedExp = if (num > 10_000_000_000L) num / 1000L else num
             }
             is String -> {
                 val clean = rawExp.trim()
@@ -633,22 +667,26 @@ object ChannelRepository {
                     return jwtExp ?: fallbackExp
                 }
                 clean.toLongOrNull()?.let { num ->
-                    if (num > 0L) return if (num > 10_000_000_000L) num / 1000L else num
+                    if (num > 0L) parsedExp = if (num > 10_000_000_000L) num / 1000L else num
                 }
-                // Try parsing ISO-8601 date/time from Firestore timestamp picker (e.g. "2026-10-25T18:00:00Z")
-                try {
-                    val instant = java.time.Instant.parse(clean)
-                    if (instant.epochSecond > 0L) return instant.epochSecond
-                } catch (_: Exception) {
+                if (parsedExp == null) {
+                    // Try parsing ISO-8601 date/time from Firestore timestamp picker (e.g. "2026-10-25T18:00:00Z")
+                    try {
+                        val instant = java.time.Instant.parse(clean)
+                        if (instant.epochSecond > 0L) parsedExp = instant.epochSecond
+                    } catch (_: Exception) {
+                    }
                 }
             }
         }
-        return jwtExp ?: fallbackExp
+        val candidate = parsedExp ?: return (jwtExp ?: fallbackExp)
+        return if (jwtExp != null && jwtExp > candidate) jwtExp else candidate
     }
 
     /**
      * Updates the active CDN authorization token and edge host from a JSON payload:
      * `{"token": "...", "exp": null | 1790412582 | "2026-10-25T00:00:00Z", "cdnHost": "https://cdnedgch2.azamtvltd.co.tz", "source": "cache"}`
+     * Protects against expired tokens so stale/deleted Firebase configs never break Azam TV playback.
      */
     fun updateCdnAuthorizationToken(jsonStr: String): Boolean {
         return try {
@@ -662,7 +700,8 @@ object ChannelRepository {
             if (newEndpoint.startsWith("http", ignoreCase = true)) {
                 AZAM_TOKEN_ENDPOINT_URL = newEndpoint
             }
-            if (newToken.isNotEmpty()) {
+            // Reject obviously expired tokens (prior to 2025/2026) so stale tokens never overwrite working built-in token
+            if (newToken.isNotEmpty() && newExp >= 1750000000L) {
                 AZAM_CDN_TOKEN = newToken
                 if (newHost.startsWith("http", ignoreCase = true)) {
                     AZAM_CDN_HOST = newHost

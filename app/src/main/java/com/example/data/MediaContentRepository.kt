@@ -380,6 +380,64 @@ object MediaContentRepository {
             featured = true,
             published = true,
             runtimeMinutes = 130
+        ),
+        MediaContent(
+            id = "adult_midnight_desire_hd",
+            title = "Midnight Velvet (18+)",
+            originalTitle = "Midnight Velvet",
+            originalLanguage = "en",
+            type = "adult",
+            posterUrl = "https://image.tmdb.org/t/p/w500/oSk0j4yeDOqXNHIjYehgSJ2WujM.jpg",
+            backdropUrl = "https://image.tmdb.org/t/p/original/2meX1nMdScFOoV4370rqHWKmXhY.jpg",
+            streamUrl = "https://vz-1bb50f2e-8ea.b-cdn.net/9d14eb59-d3a0-4b01-9010-ba9bc5492865/play_480p.mp4",
+            streamFormat = "mp4",
+            genre = "Adults 18+",
+            subGenres = listOf("Adults 18+", "Adult", "Romance", "18+"),
+            duration = "1h 42m",
+            rating = "18+",
+            director = "Late Night Cinema",
+            screenplay = "Original",
+            production = "International 18+",
+            synopsis = "Exclusive late-night adult drama and romance feature streaming in HD.",
+            isTrending = false,
+            isComingSoon = false,
+            isKids = false,
+            releaseYear = "2025",
+            narrated = false,
+            narrationLanguage = "",
+            downloadEnabled = true,
+            featured = false,
+            published = true,
+            runtimeMinutes = 102
+        ),
+        MediaContent(
+            id = "adult_crimson_nights_hd",
+            title = "After Hours Secrets (18+)",
+            originalTitle = "After Hours Secrets",
+            originalLanguage = "en",
+            type = "adult",
+            posterUrl = "https://image.tmdb.org/t/p/w500/okJESjE3wqN4qDNFOM8TecUVfHX.jpg",
+            backdropUrl = "https://image.tmdb.org/t/p/original/vuq5EfA9ED9vnxQgEV4zWEAFmKJ.jpg",
+            streamUrl = "https://vz-1bb50f2e-8ea.b-cdn.net/9d14eb59-d3a0-4b01-9010-ba9bc5492865/play_480p.mp4",
+            streamFormat = "mp4",
+            genre = "Adults 18+",
+            subGenres = listOf("Adults 18+", "Adult", "Drama", "18+"),
+            duration = "1h 36m",
+            rating = "18+",
+            director = "Late Night Cinema",
+            screenplay = "Original",
+            production = "International 18+",
+            synopsis = "Late-night 18+ cinema feature with full HD poster and thumbnail preview.",
+            isTrending = false,
+            isComingSoon = false,
+            isKids = false,
+            releaseYear = "2025",
+            narrated = false,
+            narrationLanguage = "",
+            downloadEnabled = true,
+            featured = false,
+            published = true,
+            runtimeMinutes = 96
         )
     )
 
@@ -407,6 +465,54 @@ object MediaContentRepository {
 
     fun getMediaById(id: String): MediaContent? {
         return _mediaCatalog.value.find { it.id == id }
+    }
+
+    /**
+     * Resolves the corresponding Movie or Series [MediaContent] for a non-live playback [LiveChannel].
+     * Used when returning from the Watchpage (`PlayerScreen`) so the user is always taken to the
+     * Movie/Series Details page of that respective title instead of the Homepage.
+     */
+    fun resolveMediaForPlaybackChannel(channel: LiveChannel): MediaContent? {
+        if (channel.isLiveBroadcast) return null
+
+        // 1. Explicit seriesId on the channel
+        if (channel.seriesId.isNotBlank()) {
+            getMediaById(channel.seriesId)?.let { return it }
+        }
+
+        // 2. Strip known playback prefixes (vod_, ep_, dl_)
+        val cleanId = channel.id
+            .removePrefix("vod_")
+            .removePrefix("ep_")
+            .removePrefix("dl_")
+            .trim()
+
+        getMediaById(cleanId)?.let { return it }
+        getMediaById(channel.id)?.let { return it }
+
+        // 3. Check if cleanId or episodeId matches an episode in episodesCatalog, then find its parent Series
+        val epIdCandidate = channel.episodeId.ifBlank { cleanId }
+        val matchedEpisode = _episodesCatalog.value.find {
+            it.id.equals(epIdCandidate, ignoreCase = true) ||
+                it.id.equals(cleanId, ignoreCase = true) ||
+                "ep_${it.id}".equals(channel.id, ignoreCase = true)
+        }
+        if (matchedEpisode != null) {
+            getMediaById(matchedEpisode.seriesId)?.let { return it }
+        }
+
+        // 4. Match by title or streamUrl against mediaCatalog
+        val cleanTitle = channel.name
+            .substringBefore(" •")
+            .substringBefore(" (")
+            .trim()
+        _mediaCatalog.value.find { media ->
+            media.title.equals(cleanTitle, ignoreCase = true) ||
+                (channel.streamUrl.isNotBlank() && media.streamUrl.equals(channel.streamUrl, ignoreCase = true))
+        }?.let { return it }
+
+        // 5. Fallback to first published movie/series in catalog so non-live playback always resolves a detail page
+        return _mediaCatalog.value.firstOrNull { !it.isAdultContent } ?: _mediaCatalog.value.firstOrNull()
     }
 
     fun updateSingleEnrichedMedia(enriched: MediaContent) {
@@ -456,49 +562,198 @@ object MediaContentRepository {
     }
 
     /**
-     * Groups all available Movies & Series by their real genres so the Homepage
-     * displays rich genre rows dynamically from the live catalog.
+     * Resolves a guaranteed non-blank poster or thumbnail URL for any Movie, Series, or Adult item.
+     * Supports full HTTP/HTTPS URLs, relative TMDB paths (`/abc.jpg`), BunnyCDN automatic `thumbnail.jpg`,
+     * and high-resolution fallback cinema artwork so Adult/Movie posters & thumbnails are ALWAYS visible.
      */
-    fun getMediaGroupedByGenre(catalog: List<MediaContent> = _mediaCatalog.value): List<Pair<String, List<MediaContent>>> {
-        val published = catalog.filter { it.published }
-        if (published.isEmpty()) return emptyList()
-
-        val result = mutableListOf<Pair<String, List<MediaContent>>>()
-
-        // 1. Swahili Narrated Movies & Series
-        val swahiliItems = published.filter {
-            it.narrated || it.narrationLanguage.equals("Swahili", ignoreCase = true)
+    fun resolveGuaranteedMediaImageUrl(
+        primaryCandidate: String,
+        secondaryCandidate: String = "",
+        streamUrl: String = "",
+        isBackdrop: Boolean = false
+    ): String {
+        fun normalizeSingleUrl(raw: String): String {
+            val trimmed = raw.trim()
+            if (trimmed.isEmpty() || trimmed.equals("null", ignoreCase = true)) return ""
+            if (trimmed.startsWith("https://", ignoreCase = true) || trimmed.startsWith("http://", ignoreCase = true)) {
+                return trimmed
+            }
+            if (trimmed.startsWith("//")) {
+                return "https:$trimmed"
+            }
+            if (trimmed.startsWith("/")) {
+                val sizeSegment = if (isBackdrop) "w780" else "w500"
+                return "https://image.tmdb.org/t/p/$sizeSegment$trimmed"
+            }
+            return ""
         }
-        if (swahiliItems.isNotEmpty()) {
-            result.add("Swahili Narrated (zilizotafsiriwa)" to swahiliItems)
-        }
 
-        // 2. Collect all distinct genres across the catalog
-        val excludedTags = setOf("popular", "movies", "series", "swahili")
-        val genreMap = linkedMapOf<String, MutableList<MediaContent>>()
+        val normPrimary = normalizeSingleUrl(primaryCandidate)
+        if (normPrimary.isNotEmpty()) return normPrimary
 
-        for (media in published) {
-            val itemGenres = (listOf(media.genre) + media.subGenres)
-                .map { it.trim() }
-                .filter { it.isNotEmpty() && it.lowercase() !in excludedTags }
-                .distinctBy { it.lowercase() }
+        val normSecondary = normalizeSingleUrl(secondaryCandidate)
+        if (normSecondary.isNotEmpty()) return normSecondary
 
-            for (g in itemGenres) {
-                val canonicalKey = genreMap.keys.firstOrNull { it.equals(g, ignoreCase = true) } ?: g
-                val bucket = genreMap.getOrPut(canonicalKey) { mutableListOf() }
-                if (bucket.none { it.id == media.id }) {
-                    bucket.add(media)
-                }
+        val cleanStream = streamUrl.trim()
+        if (cleanStream.contains("b-cdn.net", ignoreCase = true)) {
+            val baseDir = cleanStream.substringBefore("?").substringBeforeLast("/")
+            if (baseDir.startsWith("http", ignoreCase = true)) {
+                return "$baseDir/thumbnail.jpg"
             }
         }
 
-        // Sort genre sections so larger/priority genres appear first
+        return if (isBackdrop) {
+            "https://image.tmdb.org/t/p/original/2meX1nMdScFOoV4370rqHWKmXhY.jpg"
+        } else {
+            "https://image.tmdb.org/t/p/w500/ui5Ujx256vAI5JbXzeTGVwMkVhs.jpg"
+        }
+    }
+
+    /**
+     * Extracts ONLY the FIRST real genre of a movie/media item so a movie with multiple genres
+     * (e.g. Action, Animation, Drama) is placed exclusively under its first genre ("Action")
+     * and is never duplicated across other genre rows.
+     */
+    fun extractPrimaryGenre(media: MediaContent): String {
+        val excludedMetaTags = setOf(
+            "popular",
+            "movies",
+            "movie",
+            "series",
+            "tv_show",
+            "swahili",
+            "all",
+            "featured",
+            "trending"
+        )
+        val rawCandidates = buildList {
+            media.genre.split(",", "/", "|", "•").forEach { part ->
+                val clean = part.trim()
+                if (clean.isNotEmpty()) add(clean)
+            }
+            media.subGenres.forEach { sub ->
+                sub.split(",", "/", "|", "•").forEach { part ->
+                    val clean = part.trim()
+                    if (clean.isNotEmpty()) add(clean)
+                }
+            }
+        }
+        val firstGenre = rawCandidates.firstOrNull { candidate ->
+            candidate.lowercase(Locale.US) !in excludedMetaTags
+        }
+        return firstGenre ?: media.genre.trim().ifEmpty { "Action" }
+    }
+
+    /**
+     * Returns all published Adult (18+) items with guaranteed non-blank poster and thumbnail URLs.
+     */
+    fun getAdultContentCatalog(catalog: List<MediaContent> = _mediaCatalog.value): List<MediaContent> {
+        return catalog
+            .filter { it.published && it.isAdult }
+            .distinctBy { it.id }
+            .map { item ->
+                val resolvedPoster = resolveGuaranteedMediaImageUrl(
+                    primaryCandidate = item.posterUrl,
+                    secondaryCandidate = item.backdropUrl,
+                    streamUrl = item.streamUrl,
+                    isBackdrop = false
+                )
+                val resolvedBackdrop = resolveGuaranteedMediaImageUrl(
+                    primaryCandidate = item.backdropUrl,
+                    secondaryCandidate = resolvedPoster,
+                    streamUrl = item.streamUrl,
+                    isBackdrop = true
+                )
+                item.copy(
+                    posterUrl = resolvedPoster,
+                    backdropUrl = resolvedBackdrop
+                )
+            }
+    }
+
+    /**
+     * Alias for [getMoviesGroupedByPrimaryGenreOnly] used by Discovery tab to group movies strictly by their 1st genre only.
+     */
+    fun getMoviesStrictlyByFirstGenre(
+        catalog: List<MediaContent> = _mediaCatalog.value
+    ): List<Pair<String, List<MediaContent>>> = getMoviesGroupedByPrimaryGenreOnly(catalog)
+
+    /**
+     * Groups Movies strictly by their FIRST genre only (`extractPrimaryGenre`) so that each movie
+     * appears in AT MOST ONE genre row and is NEVER duplicated across multiple genres.
+     * Example: If Movie A has genres ["Action", "Animation", "Drama"], it is placed ONLY in "Action".
+     */
+    fun getMoviesGroupedByPrimaryGenreOnly(
+        catalog: List<MediaContent> = _mediaCatalog.value
+    ): List<Pair<String, List<MediaContent>>> {
+        val publishedMovies = catalog.filter { it.published && it.isMovie && !it.isAdult }
+        if (publishedMovies.isEmpty()) return emptyList()
+
+        val assignedMovieIds = mutableSetOf<String>()
+        val genreMap = linkedMapOf<String, MutableList<MediaContent>>()
+
+        for (movie in publishedMovies) {
+            if (!assignedMovieIds.add(movie.id)) continue
+            val firstGenre = extractPrimaryGenre(movie)
+            val canonicalKey = genreMap.keys.firstOrNull { it.equals(firstGenre, ignoreCase = true) } ?: firstGenre
+            val bucket = genreMap.getOrPut(canonicalKey) { mutableListOf() }
+            bucket.add(movie)
+        }
+
         val priorityOrder = listOf(
             "Action",
             "Action & Adventure",
             "Crime",
-            "Drama",
             "Thriller",
+            "Drama",
+            "Sci-Fi",
+            "Science Fiction",
+            "Mystery",
+            "Adventure",
+            "Comedy",
+            "Horror",
+            "Animation",
+            "Family",
+            "Romance"
+        )
+
+        val sortedGenres = genreMap.entries.sortedWith(
+            compareBy<Map.Entry<String, MutableList<MediaContent>>> { entry ->
+                val idx = priorityOrder.indexOfFirst { it.equals(entry.key, ignoreCase = true) }
+                if (idx >= 0) idx else 100
+            }.thenByDescending { it.value.size }
+        )
+
+        return sortedGenres.mapNotNull { (genreName, items) ->
+            if (items.isNotEmpty()) genreName to items else null
+        }
+    }
+
+    /**
+     * Groups available non-adult Movies (and optional Series) strictly by their FIRST genre only
+     * so no item is ever duplicated across multiple genre rows.
+     */
+    fun getMediaGroupedByGenre(catalog: List<MediaContent> = _mediaCatalog.value): List<Pair<String, List<MediaContent>>> {
+        val published = catalog.filter { it.published && !it.isAdult }
+        if (published.isEmpty()) return emptyList()
+
+        val assignedMediaIds = mutableSetOf<String>()
+        val genreMap = linkedMapOf<String, MutableList<MediaContent>>()
+
+        for (media in published) {
+            if (!assignedMediaIds.add(media.id)) continue
+            val firstGenre = extractPrimaryGenre(media)
+            val canonicalKey = genreMap.keys.firstOrNull { it.equals(firstGenre, ignoreCase = true) } ?: firstGenre
+            val bucket = genreMap.getOrPut(canonicalKey) { mutableListOf() }
+            bucket.add(media)
+        }
+
+        val priorityOrder = listOf(
+            "Action",
+            "Action & Adventure",
+            "Crime",
+            "Thriller",
+            "Drama",
             "Mystery",
             "Sci-Fi",
             "Science Fiction",
@@ -516,13 +771,9 @@ object MediaContentRepository {
             }.thenByDescending { it.value.size }
         )
 
-        for ((genreName, items) in sortedGenres) {
-            if (items.isNotEmpty()) {
-                result.add(genreName to items)
-            }
+        return sortedGenres.mapNotNull { (genreName, items) ->
+            if (items.isNotEmpty()) genreName to items else null
         }
-
-        return result
     }
 
     fun getComingSoon(): List<MediaContent> =
@@ -632,6 +883,8 @@ object MediaContentRepository {
 
             val moviesDeferred = async { fetchUrlText("$baseFirestoreUrl/movies?pageSize=300$keyParam") }
             val seriesDeferred = async { fetchUrlText("$baseFirestoreUrl/series?pageSize=200$keyParam") }
+            val adultsDeferred = async { fetchUrlText("$baseFirestoreUrl/adults?pageSize=200$keyParam") }
+            val adultSingularDeferred = async { fetchUrlText("$baseFirestoreUrl/adult?pageSize=200$keyParam") }
             val episodesDeferred = async { fetchUrlText("$baseFirestoreUrl/episodes?pageSize=300$keyParam") }
             val tvChannelsDeferred = async { fetchUrlText("$baseFirestoreUrl/tvChannels?pageSize=200$keyParam") }
             val azamTokenDocDeferred = async {
@@ -649,7 +902,8 @@ object MediaContentRepository {
                 moviesJson = moviesDeferred.await(),
                 seriesJson = seriesDeferred.await(),
                 episodesJson = episodesDeferred.await(),
-                tvChannelsJson = tvChannelsDeferred.await()
+                tvChannelsJson = tvChannelsDeferred.await(),
+                adultsJson = adultsDeferred.await() ?: adultSingularDeferred.await()
             )
             Result.success(totalSynced)
         } catch (e: Exception) {
@@ -876,7 +1130,8 @@ object MediaContentRepository {
         moviesJson: String? = null,
         seriesJson: String? = null,
         episodesJson: String? = null,
-        tvChannelsJson: String? = null
+        tvChannelsJson: String? = null,
+        adultsJson: String? = null
     ): Int {
         val parsedMedia = mutableListOf<MediaContent>()
         val parsedEpisodes = mutableListOf<EpisodeItem>()
@@ -903,7 +1158,17 @@ object MediaContentRepository {
             if (docs != null) {
                 for (i in 0 until docs.length()) {
                     val doc = docs.optJSONObject(i) ?: continue
-                    parseFirestoreMovieDoc(doc)?.let { parsedMedia.add(it) }
+                    parseFirestoreMovieDoc(doc, forceAdult = false)?.let { parsedMedia.add(it) }
+                }
+            }
+        }
+
+        if (!adultsJson.isNullOrBlank()) {
+            val docs = JSONObject(adultsJson).optJSONArray("documents")
+            if (docs != null) {
+                for (i in 0 until docs.length()) {
+                    val doc = docs.optJSONObject(i) ?: continue
+                    parseFirestoreMovieDoc(doc, forceAdult = true)?.let { parsedMedia.add(it) }
                 }
             }
         }
@@ -952,25 +1217,76 @@ object MediaContentRepository {
         return parsedMedia.size + parsedEpisodes.size + parsedChannels.size
     }
 
-    private fun parseFirestoreMovieDoc(doc: JSONObject): MediaContent? {
+    private fun parseFirestoreMovieDoc(doc: JSONObject, forceAdult: Boolean = false): MediaContent? {
         val fields = doc.optJSONObject("fields") ?: return null
         val docId = doc.optString("name", "").substringAfterLast("/")
         val id = fields.fsString("id").ifEmpty { docId }
-        val title = fields.fsString("title")
-        val streamUrl = fields.fsString("streamUrl")
+        val title = fields.fsString("title").ifEmpty { fields.fsString("name") }
+        val streamUrl = fields.fsString("streamUrl").ifEmpty {
+            fields.fsString("videoUrl").ifEmpty { fields.fsString("url") }
+        }
         val published = fields.fsBoolean("published", true)
         if (!published || title.isEmpty() || streamUrl.isEmpty()) return null
 
-        val genres = fields.fsStringList("genres").ifEmpty { listOf("Movies") }
-        val primaryGenre = genres.firstOrNull() ?: "Movies"
+        val isAdultDoc = forceAdult ||
+            fields.fsBoolean("adult", false) ||
+            fields.fsBoolean("isAdult", false) ||
+            fields.fsString("type").equals("adult", ignoreCase = true) ||
+            fields.fsString("category").contains("adult", ignoreCase = true) ||
+            fields.fsString("genre").contains("adult", ignoreCase = true)
+
+        val rawGenres = fields.fsStringList("genres")
+            .ifEmpty {
+                val singleGenre = fields.fsString("genre").ifEmpty { fields.fsString("category") }
+                if (singleGenre.isNotBlank()) listOf(singleGenre) else emptyList()
+            }
+            .ifEmpty { if (isAdultDoc) listOf("Adults 18+") else listOf("Action") }
+
+        // Take strictly the FIRST genre as the primary genre so movies are never duplicated across genres
+        val primaryGenre = if (isAdultDoc && rawGenres.none { it.contains("adult", true) || it.contains("18+", true) }) {
+            "Adults 18+"
+        } else {
+            rawGenres.firstOrNull()?.split(",", "/")?.firstOrNull()?.trim()?.takeIf { it.isNotEmpty() }
+                ?: if (isAdultDoc) "Adults 18+" else "Action"
+        }
+
         val narrated = fields.fsBoolean("narrated", false)
         val narrationLanguage = fields.fsString("narrationLanguage")
         val runtime = fields.fsInt("runtime", 120)
         val ratingVal = fields.fsDouble("rating", 8.0)
         val featured = fields.fsBoolean("featured", false)
         val year = fields.fsInt("year", 2025)
-        val posterPath = fields.fsString("posterPath")
-        val backdropPath = fields.fsString("backdropPath").ifEmpty { posterPath }
+
+        val rawPosterCandidate = fields.fsString("posterPath")
+            .ifEmpty { fields.fsString("posterUrl") }
+            .ifEmpty { fields.fsString("poster") }
+            .ifEmpty { fields.fsString("thumbnailUrl") }
+            .ifEmpty { fields.fsString("thumbnail") }
+            .ifEmpty { fields.fsString("thumb") }
+            .ifEmpty { fields.fsString("imageUrl") }
+            .ifEmpty { fields.fsString("image") }
+            .ifEmpty { fields.fsString("coverUrl") }
+            .ifEmpty { fields.fsString("cover") }
+            .ifEmpty { fields.fsString("stillPath") }
+
+        val rawBackdropCandidate = fields.fsString("backdropPath")
+            .ifEmpty { fields.fsString("backdropUrl") }
+            .ifEmpty { fields.fsString("thumbnailUrl") }
+            .ifEmpty { fields.fsString("thumbnail") }
+            .ifEmpty { rawPosterCandidate }
+
+        val posterPath = resolveGuaranteedMediaImageUrl(
+            primaryCandidate = rawPosterCandidate,
+            secondaryCandidate = rawBackdropCandidate,
+            streamUrl = streamUrl,
+            isBackdrop = false
+        )
+        val backdropPath = resolveGuaranteedMediaImageUrl(
+            primaryCandidate = rawBackdropCandidate,
+            secondaryCandidate = posterPath,
+            streamUrl = streamUrl,
+            isBackdrop = true
+        )
 
         val format = when {
             streamUrl.substringBefore("?").endsWith(".mp4", ignoreCase = true) -> "mp4"
@@ -979,18 +1295,23 @@ object MediaContentRepository {
         }
 
         val subGenres = buildList {
-            if (featured) add("Popular")
-            addAll(genres)
-            add("Movies")
+            if (featured && !isAdultDoc) add("Popular")
+            add(primaryGenre)
+            if (isAdultDoc) {
+                add("Adults 18+")
+                add("Adult")
+            } else {
+                add("Movies")
+            }
             if (narrated && narrationLanguage.isNotBlank()) add(narrationLanguage)
-        }
+        }.distinct()
 
         return MediaContent(
             id = id,
             title = title,
             originalTitle = fields.fsString("originalTitle"),
             originalLanguage = fields.fsString("originalLanguage", "en"),
-            type = "movie",
+            type = if (isAdultDoc) "adult" else "movie",
             posterUrl = posterPath,
             backdropUrl = backdropPath,
             streamUrl = streamUrl,
@@ -998,9 +1319,9 @@ object MediaContentRepository {
             genre = primaryGenre,
             subGenres = subGenres,
             duration = formatRuntimeMinutes(runtime),
-            rating = String.format(Locale.US, "%.1f", ratingVal),
-            production = fields.fsStringList("productionCountries").joinToString(" • ").ifEmpty { "Movies" },
-            synopsis = fields.fsString("overview", "Watch $title streaming in HD on Neli TV."),
+            rating = if (isAdultDoc) "18+" else String.format(Locale.US, "%.1f", ratingVal),
+            production = fields.fsStringList("productionCountries").joinToString(" • ").ifEmpty { if (isAdultDoc) "18+ Cinema" else "Movies" },
+            synopsis = fields.fsString("overview", "Watch $title streaming in HD on Nelitv."),
             cast = parseFirestoreCastList(
                 fields = fields,
                 mediaId = id,
@@ -1011,8 +1332,8 @@ object MediaContentRepository {
                 posterUrl = posterPath,
                 backdropUrl = backdropPath
             ),
-            isTrending = featured,
-            isKids = genres.any { it.contains("kid", true) || it.contains("animation", true) || it.contains("family", true) },
+            isTrending = featured && !isAdultDoc,
+            isKids = !isAdultDoc && rawGenres.any { it.contains("kid", true) || it.contains("animation", true) || it.contains("family", true) },
             releaseYear = year.toString(),
             narrated = narrated,
             narrationLanguage = narrationLanguage,
@@ -1367,10 +1688,15 @@ object MediaContentRepository {
             }
         }
 
-        listOf("movies", "series", "content", "items").forEach { key ->
+        listOf("movies", "series", "adults", "adult", "content", "items").forEach { key ->
             if (root.has(key)) {
                 val node = root.get(key)
-                extractMediaNodes(node, defaultType = if (key == "series") "series" else "movie", out = parsedMedia)
+                val defaultType = when (key) {
+                    "series" -> "series"
+                    "adults", "adult" -> "adult"
+                    else -> "movie"
+                }
+                extractMediaNodes(node, defaultType = defaultType, out = parsedMedia)
             }
         }
 
@@ -1471,12 +1797,49 @@ object MediaContentRepository {
             "streamUrl",
             obj.optString("url", obj.optString("videoUrl", ""))
         ).trim()
-        val isSeries = obj.optString("type", defaultType).equals("series", ignoreCase = true) ||
-                obj.has("numberOfSeasons") || obj.has("seasons")
+        val isAdult = defaultType.equals("adult", ignoreCase = true) ||
+                obj.optString("type", "").equals("adult", ignoreCase = true) ||
+                obj.optBoolean("adult", false) ||
+                obj.optBoolean("isAdult", false) ||
+                obj.optString("genre", "").contains("adult", ignoreCase = true) ||
+                obj.optString("category", "").contains("adult", ignoreCase = true)
+
+        val isSeries = !isAdult && (obj.optString("type", defaultType).equals("series", ignoreCase = true) ||
+                obj.has("numberOfSeasons") || obj.has("seasons"))
         if (title.isEmpty() || (!isSeries && streamUrl.isEmpty())) return null
 
-        val poster = obj.optString("posterPath", obj.optString("posterUrl", obj.optString("thumbnailUrl", obj.optString("image", ""))))
-        val backdrop = obj.optString("backdropPath", obj.optString("backdropUrl", poster))
+        val rawPoster = obj.optString(
+            "posterPath",
+            obj.optString(
+                "posterUrl",
+                obj.optString(
+                    "poster",
+                    obj.optString(
+                        "thumbnailUrl",
+                        obj.optString(
+                            "thumbnail",
+                            obj.optString("thumb", obj.optString("imageUrl", obj.optString("image", obj.optString("coverUrl", ""))))
+                        )
+                    )
+                )
+            )
+        )
+        val rawBackdrop = obj.optString(
+            "backdropPath",
+            obj.optString("backdropUrl", obj.optString("thumbnailUrl", obj.optString("thumbnail", rawPoster)))
+        )
+        val poster = resolveGuaranteedMediaImageUrl(
+            primaryCandidate = rawPoster,
+            secondaryCandidate = rawBackdrop,
+            streamUrl = streamUrl,
+            isBackdrop = false
+        )
+        val backdrop = resolveGuaranteedMediaImageUrl(
+            primaryCandidate = rawBackdrop,
+            secondaryCandidate = poster,
+            streamUrl = streamUrl,
+            isBackdrop = true
+        )
 
         val genresList = mutableListOf<String>()
         val genresArr = obj.optJSONArray("genres")
@@ -1486,7 +1849,13 @@ object MediaContentRepository {
                 if (g.isNotEmpty()) genresList.add(g)
             }
         }
-        val genre = genresList.firstOrNull() ?: obj.optString("genre", obj.optString("category", "Action"))
+        val firstRawGenre = genresList.firstOrNull()
+            ?: obj.optString("genre", obj.optString("category", if (isAdult) "Adults 18+" else "Action"))
+        val genre = if (isAdult && !firstRawGenre.contains("adult", true) && !firstRawGenre.contains("18+", true)) {
+            "Adults 18+"
+        } else {
+            firstRawGenre.split(",", "/").firstOrNull()?.trim()?.ifEmpty { "Action" } ?: "Action"
+        }
         val runtime = obj.optInt("runtime", 120)
         val duration = if (isSeries) {
             val sCount = obj.optInt("numberOfSeasons", 1)
@@ -1495,8 +1864,8 @@ object MediaContentRepository {
         } else {
             obj.optString("duration", formatRuntimeMinutes(runtime))
         }
-        val rating = obj.optString("rating", "8.5")
-        val synopsis = obj.optString("overview", obj.optString("synopsis", obj.optString("description", "Watch $title streaming on Neli TV.")))
+        val rating = if (isAdult) "18+" else obj.optString("rating", "8.5")
+        val synopsis = obj.optString("overview", obj.optString("synopsis", obj.optString("description", "Watch $title streaming on Nelitv.")))
         val narrated = obj.optBoolean("narrated", false)
         val narrationLanguage = obj.optString("narrationLanguage", "")
 
@@ -1509,23 +1878,30 @@ object MediaContentRepository {
         return MediaContent(
             id = obj.optString("id", fallbackId),
             title = title,
-            type = if (isSeries) "series" else "movie",
+            type = when {
+                isAdult -> "adult"
+                isSeries -> "series"
+                else -> "movie"
+            },
             posterUrl = poster,
             backdropUrl = backdrop,
             streamUrl = streamUrl.ifEmpty { "https://vz-1bb50f2e-8ea.b-cdn.net/9af12e30-1b3f-469f-9bfe-db895030c77a/playlist.m3u8" },
             streamFormat = format,
             genre = genre,
             subGenres = buildList {
-                add("Popular")
-                addAll(genresList)
+                if (!isAdult) add("Popular")
                 add(genre)
-                add(if (isSeries) "Series" else "Movies")
+                add(when {
+                    isAdult -> "Adults 18+"
+                    isSeries -> "Series"
+                    else -> "Movies"
+                })
                 if (narrated && narrationLanguage.isNotBlank()) add(narrationLanguage)
-            },
+            }.distinct(),
             duration = duration,
             rating = rating,
             synopsis = synopsis,
-            isTrending = obj.optBoolean("featured", obj.optBoolean("isTrending", true)),
+            isTrending = !isAdult && obj.optBoolean("featured", obj.optBoolean("isTrending", true)),
             narrated = narrated,
             narrationLanguage = narrationLanguage,
             downloadEnabled = obj.optBoolean("downloadEnabled", true),

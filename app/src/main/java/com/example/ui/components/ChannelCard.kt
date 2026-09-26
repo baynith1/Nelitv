@@ -59,24 +59,24 @@ fun ChannelCard(
         modifier = modifier
             .testTag("channel_card_${channel.id}")
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
+            .clip(RoundedCornerShape(12.dp))
             .clickable(onClick = onClick)
-            .border(1.dp, NeliBorder, RoundedCornerShape(16.dp)),
-        shape = RoundedCornerShape(16.dp),
+            .border(0.5.dp, NeliBorder, RoundedCornerShape(12.dp)),
+        shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(
             containerColor = NeliSurface
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
-            // Dedicated Dark Broadcast Stage for Channel Logo
+            // 16:9 YouTube-style Live Thumbnail Stage
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(16f / 9f)
                     .background(
                         Brush.verticalGradient(
-                            colors = listOf(Color(0xFF0A0D16), Color(0xFF121726))
+                            colors = listOf(Color(0xFF0E121B), Color(0xFF151B29))
                         )
                     )
             ) {
@@ -99,7 +99,7 @@ fun ChannelCard(
                                 imageVector = Icons.Default.Tv,
                                 contentDescription = null,
                                 tint = NeliTextSecondary.copy(alpha = 0.4f),
-                                modifier = Modifier.size(34.dp)
+                                modifier = Modifier.size(32.dp)
                             )
                         }
                     },
@@ -108,108 +108,77 @@ fun ChannelCard(
                             modifier = Modifier.fillMaxSize(),
                             contentAlignment = Alignment.Center
                         ) {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Tv,
-                                    contentDescription = null,
-                                    tint = NeliMagenta.copy(alpha = 0.7f),
-                                    modifier = Modifier.size(34.dp)
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = channel.name.take(12),
-                                    color = NeliTextSecondary,
-                                    fontSize = 11.sp,
-                                    maxLines = 1
-                                )
-                            }
+                            Icon(
+                                imageVector = Icons.Default.Tv,
+                                contentDescription = null,
+                                tint = NeliMagenta.copy(alpha = 0.7f),
+                                modifier = Modifier.size(32.dp)
+                            )
                         }
                     }
                 )
 
-                // Format badge (DASH / HLS) at top-left
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .padding(8.dp)
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(Color(0xCC090A0F))
-                        .border(0.5.dp, NeliBorder, RoundedCornerShape(6.dp))
-                        .padding(horizontal = 6.dp, vertical = 3.dp)
-                ) {
-                    val formatLabel = when {
-                        channel.isMp4 -> "CDN • MP4"
-                        channel.isDash -> if (channel.isClearKey) "AZAM HD" else "DASH"
-                        else -> "LIVE HD"
-                    }
-
-                    Text(
-                        text = formatLabel,
-                        color = NeliGenreCyan,
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.ExtraBold
-                    )
-                }
-
-                // LIVE badge at top-right
+                // YouTube-style LIVE badge at bottom-right
                 LiveIndicatorBadge(
                     modifier = Modifier
-                        .align(Alignment.TopEnd)
+                        .align(Alignment.BottomEnd)
                         .padding(8.dp)
                 )
             }
 
-            // Info Section
-            Column(
+            // YouTube-style Channel Avatar + Title & Category Row
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(12.dp)
+                    .padding(horizontal = 10.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                Box(
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF0E121B))
+                        .border(0.5.dp, NeliBorder, CircleShape)
+                        .padding(4.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = channel.name,
-                            color = NeliTextPrimary,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = "${channel.category} • ${channel.language.uppercase()}",
-                            color = NeliTextSecondary,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
+                    SubcomposeAsyncImage(
+                        model = ImageRequest.Builder(LocalContext.current)
+                            .data(channel.thumbnailUrl)
+                            .crossfade(true)
+                            .build(),
+                        contentDescription = null,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxSize(),
+                        error = {
+                            Icon(
+                                imageVector = Icons.Default.PlayArrow,
+                                contentDescription = "Watch ${channel.name}",
+                                tint = NeliLiveRed,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    )
+                }
 
-                    Spacer(modifier = Modifier.width(8.dp))
-
-                    Box(
-                        modifier = Modifier
-                            .size(32.dp)
-                            .clip(CircleShape)
-                            .background(NeliSurfaceVariant)
-                            .border(1.dp, NeliBorder, CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.PlayArrow,
-                            contentDescription = "Watch ${channel.name}",
-                            tint = NeliMagenta,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = channel.name,
+                        color = NeliTextPrimary,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "${channel.category} • Live",
+                        color = NeliTextSecondary,
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
             }
         }
@@ -220,24 +189,24 @@ fun ChannelCard(
 fun LiveIndicatorBadge(modifier: Modifier = Modifier) {
     Row(
         modifier = modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(NeliLiveRed)
-            .padding(horizontal = 8.dp, vertical = 3.dp),
+            .clip(RoundedCornerShape(4.dp))
+            .background(Color(0xFFFF0033))
+            .padding(horizontal = 6.dp, vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         Box(
             modifier = Modifier
-                .size(6.dp)
+                .size(5.dp)
                 .clip(CircleShape)
                 .background(Color.White)
         )
         Text(
             text = "LIVE",
             color = Color.White,
-            fontSize = 10.sp,
-            fontWeight = FontWeight.Black,
-            letterSpacing = 0.5.sp
+            fontSize = 9.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 0.4.sp
         )
     }
 }

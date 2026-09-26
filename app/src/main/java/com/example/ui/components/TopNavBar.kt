@@ -7,13 +7,14 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -21,13 +22,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.LiveTv
@@ -37,7 +38,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -65,12 +65,24 @@ import com.example.ui.theme.NeliTextPrimary
 import com.example.ui.theme.NeliTextSecondary
 import com.example.ui.theme.NeliThemeManager
 
+/**
+ * Redesigned Non-Overlapping Direct Top Header Bar:
+ * - Enforces a guaranteed minimum top status-bar safe clearance (`>= 30.dp`) so the header
+ *   never climbs up into the mobile status bar (clock, battery, network banner) even after
+ *   repeated fullscreen video playback transitions.
+ * - Lives directly in the main vertical layout flow (not as a floating overlay) so it never
+ *   blocks touches on the Download page or any other tab.
+ */
 @Composable
 fun TopNavBar(
     searchQuery: String,
     onSearchQueryChange: (String) -> Unit,
     isSearchOpen: Boolean,
     onToggleSearch: () -> Unit,
+    activeTabLabel: String = "Live TV",
+    isOfflineMode: Boolean = false,
+    onOfflineClick: () -> Unit = {},
+    onBrandClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -79,202 +91,206 @@ fun TopNavBar(
     val isLightMode = NeliThemeManager.isLightMode
     val headerBgColor = if (isLightMode) Color(0xFFFFFFFF) else Color(0xFF0B0D14)
 
+    // Guaranteed status bar top safe padding so header never collides with mobile status banner
+    val systemStatusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val safeTopPadding = if (systemStatusBarTop < 30.dp) 30.dp else systemStatusBarTop
+
     LaunchedEffect(isSearchOpen) {
         if (isSearchOpen) {
-            focusRequester.requestFocus()
+            try {
+                focusRequester.requestFocus()
+            } catch (_: Exception) {
+            }
         }
     }
 
-    Surface(
-        color = headerBgColor,
-        tonalElevation = 4.dp,
-        shadowElevation = 6.dp,
+    Column(
         modifier = modifier
             .fillMaxWidth()
+            .background(headerBgColor)
+            .padding(top = safeTopPadding)
             .testTag("top_nav_bar")
     ) {
-        BoxWithConstraints(
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(headerBgColor)
-                .windowInsetsPadding(WindowInsets.statusBars)
-                // Extra top breathing space below the phone's battery percentage, clock & network status bar
-                .padding(top = 12.dp, bottom = 4.dp)
+                .height(52.dp)
+                .padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            val isTablet = maxWidth >= 600.dp
-            val horizontalPad = if (isTablet) 24.dp else 16.dp
-
-            Column(
-                modifier = Modifier.fillMaxWidth()
+            // Left: Clean YouTube-style Brand Logo
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable { onBrandClick() }
+                    .padding(vertical = 4.dp)
+                    .testTag("header_brand_logo")
             ) {
-                Row(
+                Box(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .height(if (isTablet) 64.dp else 56.dp)
-                        .padding(horizontal = horizontalPad),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                        .width(32.dp)
+                        .height(22.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(Color(0xFFFF0033)),
+                    contentAlignment = Alignment.Center
                 ) {
-                    // Brand Logo and Title: NELITV (Mother Company: Neliplay)
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        modifier = Modifier.testTag("header_brand_logo")
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(if (isTablet) 40.dp else 36.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(
-                                    Brush.linearGradient(
-                                        colors = listOf(NeliMagenta, Color(0xFFBE123C))
-                                    )
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.LiveTv,
-                                contentDescription = "Nelitv Logo",
-                                tint = Color.White,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-
-                        Column {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    text = "NELI",
-                                    color = NeliTextPrimary,
-                                    fontSize = if (isTablet) 20.sp else 18.sp,
-                                    fontWeight = FontWeight.Black,
-                                    letterSpacing = 0.8.sp
-                                )
-                                Spacer(modifier = Modifier.width(2.dp))
-                                Text(
-                                    text = "TV",
-                                    color = NeliMagenta,
-                                    fontSize = if (isTablet) 20.sp else 18.sp,
-                                    fontWeight = FontWeight.Black,
-                                    letterSpacing = 0.8.sp
-                                )
-                            }
-                            Text(
-                                text = "By Neliplay • Live TV & Cinema",
-                                color = NeliTextSecondary,
-                                fontSize = if (isTablet) 11.sp else 10.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-                    }
-
-                    // Right side actions: Theme Colour Changer (Black <-> White) & Search Button
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        IconButton(
-                            onClick = { NeliThemeManager.toggleTheme(context) },
-                            modifier = Modifier
-                                .testTag("theme_toggle_icon_button")
-                                .size(48.dp)
-                                .clip(CircleShape)
-                                .background(NeliSurfaceVariant)
-                                .border(1.dp, NeliBorder, CircleShape)
-                        ) {
-                            Icon(
-                                imageVector = if (isLightMode) Icons.Default.DarkMode else Icons.Default.LightMode,
-                                contentDescription = if (isLightMode) "Switch to Black Theme" else "Switch to White Theme",
-                                tint = if (isLightMode) Color(0xFF0F172A) else NeliGenreCyan,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-
-                        IconButton(
-                            onClick = onToggleSearch,
-                            modifier = Modifier
-                                .testTag("search_icon_button")
-                                .size(48.dp)
-                                .clip(CircleShape)
-                                .background(NeliSurfaceVariant)
-                                .border(1.dp, NeliBorder, CircleShape)
-                        ) {
-                            Icon(
-                                imageVector = if (isSearchOpen) Icons.Default.Clear else Icons.Default.Search,
-                                contentDescription = if (isSearchOpen) "Close search" else "Search",
-                                tint = if (isSearchOpen) NeliMagenta else NeliTextPrimary,
-                                modifier = Modifier.size(21.dp)
-                            )
-                        }
-                    }
+                    Icon(
+                        imageVector = Icons.Default.LiveTv,
+                        contentDescription = "Nelitv Logo",
+                        tint = Color.White,
+                        modifier = Modifier.size(14.dp)
+                    )
                 }
 
-                // Expandable search bar
-                AnimatedVisibility(
-                    visible = isSearchOpen,
-                    enter = fadeIn() + expandVertically(),
-                    exit = fadeOut() + shrinkVertically()
-                ) {
-                    Box(
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "Neli",
+                        color = NeliTextPrimary,
+                        fontSize = 19.sp,
+                        fontWeight = FontWeight.Black,
+                        letterSpacing = (-0.4).sp
+                    )
+                    Text(
+                        text = "TV",
+                        color = Color(0xFFFF0033),
+                        fontSize = 19.sp,
+                        fontWeight = FontWeight.Black,
+                        letterSpacing = (-0.4).sp
+                    )
+                }
+            }
+
+            // Right: Offline Indicator, Theme Toggle & Search Icon Buttons
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                if (isOfflineMode) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = horizontalPad, vertical = 8.dp),
-                        contentAlignment = Alignment.Center
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(Color(0x33F59E0B))
+                            .border(1.dp, Color(0x66F59E0B), RoundedCornerShape(16.dp))
+                            .clickable { onOfflineClick() }
+                            .padding(horizontal = 10.dp, vertical = 5.dp)
+                            .testTag("top_nav_offline_indicator")
                     ) {
-                        OutlinedTextField(
-                            value = searchQuery,
-                            onValueChange = onSearchQueryChange,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .widthIn(max = 720.dp)
-                                .focusRequester(focusRequester)
-                                .testTag("search_text_field"),
-                            placeholder = {
-                                Text(
-                                    text = "Search movies, series, or live channels...",
-                                    color = NeliTextSecondary,
-                                    fontSize = 14.sp
-                                )
-                            },
-                            leadingIcon = {
-                                Icon(
-                                    imageVector = Icons.Default.Search,
-                                    contentDescription = null,
-                                    tint = NeliMagenta
-                                )
-                            },
-                            trailingIcon = {
-                                if (searchQuery.isNotEmpty()) {
-                                    IconButton(onClick = { onSearchQueryChange("") }) {
-                                        Icon(
-                                            imageVector = Icons.Default.Clear,
-                                            contentDescription = "Clear search",
-                                            tint = NeliTextSecondary
-                                        )
-                                    }
-                                }
-                            },
-                            singleLine = true,
-                            shape = RoundedCornerShape(14.dp),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedContainerColor = NeliSurface,
-                                unfocusedContainerColor = NeliSurface,
-                                focusedBorderColor = NeliMagenta,
-                                unfocusedBorderColor = NeliBorder,
-                                focusedTextColor = NeliTextPrimary,
-                                unfocusedTextColor = NeliTextPrimary,
-                                cursorColor = NeliMagenta
-                            ),
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                            keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() })
+                        Icon(
+                            imageVector = Icons.Default.CloudOff,
+                            contentDescription = "Offline Mode",
+                            tint = Color(0xFFFBBF24),
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Text(
+                            text = "Offline",
+                            color = Color(0xFFFBBF24),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
                         )
                     }
                 }
 
-                HorizontalDivider(
-                    color = NeliBorder,
-                    thickness = 1.dp
+                IconButton(
+                    onClick = { NeliThemeManager.toggleTheme(context) },
+                    modifier = Modifier
+                        .testTag("theme_toggle_icon_button")
+                        .size(40.dp)
+                        .clip(CircleShape)
+                ) {
+                    Icon(
+                        imageVector = if (isLightMode) Icons.Default.DarkMode else Icons.Default.LightMode,
+                        contentDescription = if (isLightMode) "Switch to Dark Theme" else "Switch to Light Theme",
+                        tint = NeliTextPrimary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+
+                IconButton(
+                    onClick = onToggleSearch,
+                    modifier = Modifier
+                        .testTag("search_icon_button")
+                        .size(40.dp)
+                        .clip(CircleShape)
+                ) {
+                    Icon(
+                        imageVector = if (isSearchOpen) Icons.Default.Clear else Icons.Default.Search,
+                        contentDescription = if (isSearchOpen) "Close search" else "Search",
+                        tint = NeliTextPrimary,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+            }
+        }
+
+        AnimatedVisibility(
+            visible = isSearchOpen,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically()
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = onSearchQueryChange,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .widthIn(max = 720.dp)
+                        .focusRequester(focusRequester)
+                        .testTag("search_text_field"),
+                    placeholder = {
+                        Text(
+                            text = "Search NeliTV",
+                            color = NeliTextSecondary,
+                            fontSize = 14.sp
+                        )
+                    },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = null,
+                            tint = NeliMagenta
+                        )
+                    },
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { onSearchQueryChange("") }) {
+                                Icon(
+                                    imageVector = Icons.Default.Clear,
+                                    contentDescription = "Clear search",
+                                    tint = NeliTextSecondary
+                                )
+                            }
+                        }
+                    },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = NeliSurface,
+                        unfocusedContainerColor = NeliSurface,
+                        focusedBorderColor = NeliMagenta,
+                        unfocusedBorderColor = NeliBorder,
+                        focusedTextColor = NeliTextPrimary,
+                        unfocusedTextColor = NeliTextPrimary,
+                        cursorColor = NeliMagenta
+                    ),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() })
                 )
             }
         }
+
+        HorizontalDivider(
+            color = NeliBorder,
+            thickness = 1.dp
+        )
     }
 }

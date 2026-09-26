@@ -19,13 +19,13 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.Download
+import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material.icons.outlined.LiveTv
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Icon
@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ui.theme.NeliBackground
 import com.example.ui.theme.NeliBorder
+import com.example.ui.theme.NeliGenreCyan
 import com.example.ui.theme.NeliMagenta
 import com.example.ui.theme.NeliTextPrimary
 import com.example.ui.theme.NeliTextSecondary
@@ -56,47 +57,46 @@ enum class BottomNavTab(
     val tag: String
 ) {
     HOME("Home", Icons.Filled.Home, Icons.Outlined.Home, "nav_tab_home"),
+    DISCOVERY("Discovery", Icons.Filled.Explore, Icons.Outlined.Explore, "nav_tab_discovery"),
     SEARCH("Search", Icons.Filled.Search, Icons.Outlined.Search, "nav_tab_search"),
-    LIVE_TV("Live TV", Icons.Filled.LiveTv, Icons.Outlined.LiveTv, "nav_tab_live_tv"),
     DOWNLOAD("Download", Icons.Filled.Download, Icons.Outlined.Download, "nav_tab_download"),
     ACCOUNT("Account", Icons.Filled.Person, Icons.Outlined.Person, "nav_tab_account")
 }
 
 /**
- * Elevated floating dock Bottom Navigation Bar positioned comfortably above the phone's
- * Home button / gesture bar sensor so user taps never accidentally collide with the system home sensor.
+ * Clean YouTube-style Bottom Navigation Bar with safe system navigation bar clearance.
  */
 @Composable
 fun NeliBottomBar(
     selectedTab: BottomNavTab,
     onTabSelected: (BottomNavTab) -> Unit,
+    activeDownloadCount: Int = 0,
     modifier: Modifier = Modifier
 ) {
     val isLightMode = NeliThemeManager.isLightMode
-    val dockSurfaceColor = if (isLightMode) Color(0xFFFFFFFF) else Color(0xFF101420)
+    val barBgColor = if (isLightMode) Color(0xFFFFFFFF) else Color(0xFF0F0F0F)
 
-    Box(
+    Column(
         modifier = modifier
             .fillMaxWidth()
-            .background(NeliBackground.copy(alpha = 0.92f))
+            .background(barBgColor)
             .windowInsetsPadding(WindowInsets.navigationBars)
-            // Elevated clearance above the phone's Home button / gesture bar sensor
-            .padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 14.dp)
             .testTag("neli_bottom_bar")
     ) {
-        Surface(
-            color = dockSurfaceColor,
-            shape = RoundedCornerShape(24.dp),
-            tonalElevation = 10.dp,
-            shadowElevation = 14.dp,
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .border(1.dp, NeliBorder, RoundedCornerShape(24.dp))
+                .height(0.5.dp)
+                .background(NeliBorder)
+        )
+        Surface(
+            color = barBgColor,
+            modifier = Modifier.fillMaxWidth()
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 6.dp, vertical = 7.dp),
+                    .padding(horizontal = 4.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.SpaceAround,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -110,39 +110,37 @@ fun NeliBottomBar(
                     Column(
                         modifier = Modifier
                             .testTag(tab.tag)
-                            .clip(RoundedCornerShape(18.dp))
+                            .clip(RoundedCornerShape(12.dp))
                             .clickable { onTabSelected(tab) }
-                            .padding(horizontal = 10.dp, vertical = 5.dp),
+                            .padding(horizontal = 12.dp, vertical = 4.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center
                     ) {
                         Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(16.dp))
-                                .background(
-                                    if (isSelected) NeliMagenta.copy(alpha = 0.20f) else Color.Transparent
-                                )
-                                .border(
-                                    width = if (isSelected) 1.dp else 0.dp,
-                                    color = if (isSelected) NeliMagenta.copy(alpha = 0.70f) else Color.Transparent,
-                                    shape = RoundedCornerShape(16.dp)
-                                )
-                                .padding(horizontal = 14.dp, vertical = 4.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 imageVector = if (isSelected) tab.selectedIcon else tab.unselectedIcon,
                                 contentDescription = tab.label,
-                                tint = if (isSelected) NeliMagenta else tintColor,
-                                modifier = Modifier.size(22.dp)
+                                tint = tintColor,
+                                modifier = Modifier.size(24.dp)
                             )
+                            if (tab == BottomNavTab.DOWNLOAD && activeDownloadCount > 0) {
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .size(8.dp)
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(Color(0xFFFF0033))
+                                )
+                            }
                         }
-                        Spacer(modifier = Modifier.height(3.dp))
+                        Spacer(modifier = Modifier.height(2.dp))
                         Text(
                             text = tab.label,
-                            color = if (isSelected) NeliMagenta else tintColor,
-                            fontSize = 11.sp,
-                            fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.SemiBold
+                            color = tintColor,
+                            fontSize = 10.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
                         )
                     }
                 }

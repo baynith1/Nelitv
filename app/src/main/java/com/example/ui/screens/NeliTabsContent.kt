@@ -95,6 +95,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
 import com.example.data.ChannelRepository
+import com.example.data.MediaContentRepository
 import com.example.data.local.DownloadedItemEntity
 import com.example.data.local.FirebaseConfigEntity
 import com.example.data.local.UserAccountEntity
@@ -108,6 +109,7 @@ import com.example.ui.components.NeliShareApkAndAutoUpdateSection
 import com.example.ui.theme.NeliCardPurple
 import com.example.ui.theme.NeliDurationViolet
 import com.example.ui.theme.NeliGenreCyan
+import com.example.ui.theme.NeliLiveRed
 import com.example.ui.theme.NeliMagenta
 import com.example.ui.theme.NeliSurface
 import com.example.ui.theme.NeliSurfaceVariant
@@ -121,12 +123,32 @@ fun MediaPosterCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+    val primaryImageUrl = remember(media.id, media.posterUrl, media.backdropUrl, media.streamUrl) {
+        MediaContentRepository.resolveGuaranteedMediaImageUrl(
+            media.posterUrl,
+            media.backdropUrl,
+            media.streamUrl
+        )
+    }
+    val secondaryImageUrl = remember(media.id, media.backdropUrl, media.posterUrl, media.streamUrl) {
+        MediaContentRepository.resolveGuaranteedMediaImageUrl(
+            media.backdropUrl,
+            media.posterUrl,
+            media.streamUrl
+        )
+    }
+
     Column(
         modifier = modifier
             .width(152.dp)
             .clip(RoundedCornerShape(16.dp))
             .background(NeliSurface)
-            .border(1.dp, Color(0x33A855F7), RoundedCornerShape(16.dp))
+            .border(
+                width = 1.dp,
+                color = if (media.isAdultContent) Color(0x66EF4444) else Color(0x33A855F7),
+                shape = RoundedCornerShape(16.dp)
+            )
             .clickable(onClick = onClick)
             .testTag("media_card_${media.id}")
     ) {
@@ -137,32 +159,49 @@ fun MediaPosterCard(
                 .background(NeliSurfaceVariant)
         ) {
             SubcomposeAsyncImage(
-                model = ImageRequest.Builder(LocalContext.current)
-                    .data(media.posterUrl)
+                model = ImageRequest.Builder(context)
+                    .data(primaryImageUrl)
                     .crossfade(true)
                     .build(),
                 contentDescription = media.title,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
                 error = {
-                    Box(
+                    SubcomposeAsyncImage(
+                        model = ImageRequest.Builder(context)
+                            .data(secondaryImageUrl)
+                            .crossfade(true)
+                            .build(),
+                        contentDescription = media.title,
+                        contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Movie,
-                            contentDescription = null,
-                            tint = NeliMagenta,
-                            modifier = Modifier.size(36.dp)
-                        )
-                    }
+                        error = {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(
+                                        Brush.verticalGradient(
+                                            colors = listOf(Color(0xFF2B124C), Color(0xFF090A0F))
+                                        )
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Movie,
+                                    contentDescription = null,
+                                    tint = NeliMagenta,
+                                    modifier = Modifier.size(38.dp)
+                                )
+                            }
+                        }
+                    )
                 }
             )
 
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(60.dp)
+                    .height(64.dp)
                     .align(Alignment.BottomCenter)
                     .background(
                         Brush.verticalGradient(
@@ -171,8 +210,24 @@ fun MediaPosterCard(
                     )
             )
 
-            // Top-left: Swahili Narration or Type badge
-            if (media.narrated && media.narrationLanguage.isNotBlank()) {
+            // Top-left: Adult 18+, Swahili Narration, or Type badge
+            if (media.isAdultContent) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(8.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(Color(0xEEEF4444))
+                        .padding(horizontal = 7.dp, vertical = 3.dp)
+                ) {
+                    Text(
+                        text = "18+ ADULT",
+                        color = Color.White,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                }
+            } else if (media.narrated && media.narrationLanguage.isNotBlank()) {
                 Row(
                     modifier = Modifier
                         .align(Alignment.TopStart)
@@ -260,7 +315,7 @@ fun MediaPosterCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = media.genre,
+                    text = media.primaryGenre,
                     color = NeliGenreCyan,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.SemiBold,
@@ -278,6 +333,515 @@ fun MediaPosterCard(
     }
 }
 
+/**
+ * Guaranteed Poster & Thumbnail card specifically for Adult content so both poster and landscape
+ * thumbnail images are always clearly visible.
+ */
+@Composable
+fun AdultMediaPosterThumbnailCard(
+    media: MediaContent,
+    onSelectDetails: () -> Unit,
+    onPlayDirect: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val posterImageUrl = remember(media.id, media.posterUrl, media.backdropUrl, media.streamUrl) {
+        MediaContentRepository.resolveGuaranteedMediaImageUrl(
+            media.posterUrl,
+            media.backdropUrl,
+            media.streamUrl
+        )
+    }
+    val thumbnailImageUrl = remember(media.id, media.backdropUrl, media.posterUrl, media.streamUrl) {
+        MediaContentRepository.resolveGuaranteedMediaImageUrl(
+            media.backdropUrl,
+            media.posterUrl,
+            media.streamUrl
+        )
+    }
+
+    Column(
+        modifier = modifier
+            .width(230.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(NeliSurface)
+            .border(1.dp, Color(0x66EF4444), RoundedCornerShape(16.dp))
+            .clickable { onSelectDetails() }
+            .testTag("adult_card_${media.id}")
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(132.dp)
+                .background(NeliSurfaceVariant)
+        ) {
+            // Full landscape thumbnail / backdrop image
+            SubcomposeAsyncImage(
+                model = ImageRequest.Builder(context)
+                    .data(thumbnailImageUrl)
+                    .crossfade(true)
+                    .build(),
+                contentDescription = media.title,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+                error = {
+                    SubcomposeAsyncImage(
+                        model = ImageRequest.Builder(context)
+                            .data(posterImageUrl)
+                            .crossfade(true)
+                            .build(),
+                        contentDescription = media.title,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            )
+
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(Color(0x22000000), Color(0xCC090A0F))
+                        )
+                    )
+            )
+
+            // Inset Poster Image on bottom-left so both Poster & Thumbnail are visible
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(8.dp)
+                    .width(46.dp)
+                    .height(66.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .border(1.dp, Color.White.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
+            ) {
+                SubcomposeAsyncImage(
+                    model = ImageRequest.Builder(context)
+                        .data(posterImageUrl)
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = "${media.title} Poster",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+
+            // 18+ Badge
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(8.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(Color(0xEEEF4444))
+                    .padding(horizontal = 8.dp, vertical = 3.dp)
+            ) {
+                Text(
+                    text = "18+ ADULT • HD",
+                    color = Color.White,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.ExtraBold
+                )
+            }
+
+            // Play button overlay
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(8.dp)
+                    .size(34.dp)
+                    .clip(CircleShape)
+                    .background(NeliMagenta)
+                    .clickable { onPlayDirect() },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.PlayArrow,
+                    contentDescription = "Play Adult Video",
+                    tint = Color.White,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
+
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
+            Text(
+                text = media.title,
+                color = NeliTextPrimary,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.ExtraBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "${media.primaryGenre} • ${media.duration}",
+                    color = NeliGenreCyan,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = media.rating,
+                    color = Color(0xFFEF4444),
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.ExtraBold
+                )
+            }
+        }
+    }
+}
+
+const val DISCOVERY_MADJS_BANNER_TEXT = "Furahia Movie Nzuri kutoka kwa Madjs Wazuri"
+
+/**
+ * DISCOVERY TAB:
+ * Contains Movies, Series, and Adults.
+ * - Top banner displays "Furahia Movie Nzuri kutoka kwa Madjs Wazuri" (no slider at the top).
+ * - Movies are grouped strictly by their FIRST genre (`movie.primaryGenre`) so a movie with
+ *   multiple genres (e.g. Action, Animation, Drama) is placed ONLY in its first genre ("Action")
+ *   and is NEVER duplicated in any other genre section.
+ * - Series are displayed in their dedicated Series sections.
+ * - Adults content always displays visible Poster & Thumbnail images.
+ */
+@Composable
+fun DiscoveryTabContent(
+    selectedFilter: String,
+    onFilterSelected: (String) -> Unit,
+    mediaCatalog: List<MediaContent>,
+    episodesCatalog: List<EpisodeItem>,
+    onMediaSelected: (MediaContent) -> Unit,
+    onPlayMedia: (MediaContent) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val discoverySections = listOf("All", "Movies", "Series", "Adults")
+
+    // Strictly deduplicated movies grouped ONLY by their first genre
+    val moviesByFirstGenre = remember(mediaCatalog) {
+        MediaContentRepository.getMoviesStrictlyByFirstGenre(mediaCatalog)
+    }
+
+    val seriesList = remember(mediaCatalog) {
+        mediaCatalog.filter { it.published && it.isSeries && !it.isAdultContent }
+            .distinctBy { it.id }
+    }
+
+    val adultList = remember(mediaCatalog) {
+        MediaContentRepository.getAdultContentCatalog(mediaCatalog)
+    }
+
+    LazyColumn(
+        modifier = modifier
+            .fillMaxSize()
+            .testTag("discovery_tab_screen"),
+        contentPadding = PaddingValues(bottom = 32.dp)
+    ) {
+        // 1. YouTube-style Top Filter Bar (All | Movies | Series | Adults)
+        item {
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("discovery_filter_chips")
+            ) {
+                items(discoverySections) { section ->
+                    val isSelected = section.equals(selectedFilter, ignoreCase = true)
+                    val badgeColor = if (section == "Adults") Color(0xFFEF4444) else NeliTextPrimary
+                    val textColor = if (isSelected) {
+                        if (section == "Adults") Color.White else NeliSurface
+                    } else {
+                        NeliTextPrimary
+                    }
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (isSelected) badgeColor else NeliSurfaceVariant)
+                            .clickable { onFilterSelected(section) }
+                            .padding(horizontal = 14.dp, vertical = 7.dp)
+                            .testTag("discovery_chip_${section.lowercase()}")
+                    ) {
+                        val countLabel = when (section) {
+                            "Movies" -> "Movies"
+                            "Series" -> "Series"
+                            "Adults" -> "Adults 18+"
+                            else -> "All"
+                        }
+                        Text(
+                            text = countLabel,
+                            color = textColor,
+                            fontSize = 13.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                        )
+                    }
+                }
+            }
+        }
+
+        // 2. Static Discovery Banner ("Furahia Movie Nzuri kutoka kwa Madjs Wazuri") — replaces top slider
+        item {
+            DiscoveryMadjsBanner()
+        }
+
+        // 3. MOVIES SECTION (Grouped by First Genre)
+        if (selectedFilter.equals("All", true) || selectedFilter.equals("Movies", true)) {
+            items(moviesByFirstGenre, key = { "first_genre_${it.first}" }) { (firstGenreName, genreMovies) ->
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp)
+                        .testTag("movie_first_genre_row_$firstGenreName")
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = firstGenreName,
+                            color = NeliTextPrimary,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+
+                        Text(
+                            text = "${genreMovies.size}",
+                            color = NeliTextSecondary,
+                            fontSize = 12.sp
+                        )
+                    }
+
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        items(genreMovies, key = { "movie_${firstGenreName}_${it.id}" }) { movie ->
+                            MediaPosterCard(
+                                media = movie,
+                                onClick = { onMediaSelected(movie) }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // 4. SERIES SECTION
+        if ((selectedFilter.equals("All", true) || selectedFilter.equals("Series", true)) && seriesList.isNotEmpty()) {
+            item {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 12.dp)
+                        .testTag("discovery_series_section")
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Series & Episodes",
+                            color = NeliTextPrimary,
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                        Text(
+                            text = "${seriesList.size} Series • ${episodesCatalog.size} Episodes",
+                            color = NeliGenreCyan,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        items(seriesList, key = { "disc_series_${it.id}" }) { series ->
+                            MediaPosterCard(
+                                media = series,
+                                onClick = { onMediaSelected(series) }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // 5. ADULTS (18+) SECTION WITH GUARANTEED POSTER & THUMBNAIL IMAGES
+        if ((selectedFilter.equals("All", true) || selectedFilter.equals("Adults", true)) && adultList.isNotEmpty()) {
+            item {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 14.dp)
+                        .testTag("discovery_adults_section")
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(Color(0xFFEF4444))
+                                    .padding(horizontal = 8.dp, vertical = 3.dp)
+                            ) {
+                                Text(
+                                    text = "18+ ADULTS",
+                                    color = Color.White,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.ExtraBold
+                                )
+                            }
+                            Text(
+                                text = "Adults 18+",
+                                color = NeliTextPrimary,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Text(
+                            text = "${adultList.size}",
+                            color = NeliTextSecondary,
+                            fontSize = 12.sp
+                        )
+                    }
+
+                    // Horizontal Thumbnail + Poster dual showcase row
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        items(adultList, key = { "disc_adult_thumb_${it.id}" }) { adultMedia ->
+                            AdultMediaPosterThumbnailCard(
+                                media = adultMedia,
+                                onSelectDetails = { onMediaSelected(adultMedia) },
+                                onPlayDirect = { onPlayMedia(adultMedia) }
+                            )
+                        }
+                    }
+
+                    // Also show vertical/poster cards when user filters specifically to "Adults"
+                    if (selectedFilter.equals("Adults", ignoreCase = true)) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        val chunkedAdults = adultList.chunked(2)
+                        chunkedAdults.forEach { rowPair ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                rowPair.forEach { item ->
+                                    Box(modifier = Modifier.weight(1f)) {
+                                        MediaPosterCard(
+                                            media = item,
+                                            onClick = { onMediaSelected(item) },
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                    }
+                                }
+                                if (rowPair.size == 1) {
+                                    Spacer(modifier = Modifier.weight(1f))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DiscoveryMadjsBanner() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(
+                Brush.linearGradient(
+                    colors = listOf(
+                        Color(0xFF2B0B3F),
+                        Color(0xFF141B36),
+                        Color(0xFF0E121B)
+                    )
+                )
+            )
+            .border(1.dp, Color(0x44A855F7), RoundedCornerShape(16.dp))
+            .padding(horizontal = 16.dp, vertical = 14.dp)
+            .testTag("discovery_madjs_banner")
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color(0xFFFF0033)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.GraphicEq,
+                    contentDescription = "Swahili DJs",
+                    tint = Color.White,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
+                Text(
+                    text = DISCOVERY_MADJS_BANNER_TEXT,
+                    color = Color.White,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.ExtraBold
+                )
+                Text(
+                    text = "Sinema na Series zilizotafsiriwa kwa Kiswahili • HD",
+                    color = NeliGenreCyan,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+        }
+    }
+}
+
+/**
+ * SEARCH TAB:
+ * Everything is searchable (Live TV, Movies, Series, Adults, and Episodes) in a vertical multi-column grid.
+ */
 @Composable
 fun SearchTabContent(
     searchQuery: String,
@@ -286,36 +850,78 @@ fun SearchTabContent(
     onCategorySelected: (String) -> Unit,
     mediaList: List<MediaContent>,
     episodesList: List<EpisodeItem>,
+    liveChannels: List<LiveChannel> = emptyList(),
     onMediaSelected: (MediaContent) -> Unit,
     onChannelSelected: (LiveChannel) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val filteredChannels = remember(searchQuery, selectedCategory) {
-        ChannelRepository.filterChannels(searchQuery, selectedCategory)
+    val searchFilterTabs = remember {
+        listOf("All", "Live TV", "Movies", "Series", "Adults", "Swahili", "Action", "Sports", "Drama")
     }
 
-    val filteredMedia = remember(searchQuery, selectedCategory, mediaList) {
-        val q = searchQuery.trim()
-        mediaList.filter { item ->
-            val matchesQuery = q.isEmpty() ||
-                    item.title.contains(q, ignoreCase = true) ||
-                    item.originalTitle.contains(q, ignoreCase = true) ||
-                    item.genre.contains(q, ignoreCase = true) ||
-                    item.narrationLanguage.contains(q, ignoreCase = true)
-            val matchesCat = selectedCategory.equals("All", ignoreCase = true) ||
-                    item.genre.contains(selectedCategory, ignoreCase = true) ||
-                    item.subGenres.any { it.contains(selectedCategory, ignoreCase = true) }
-            matchesQuery && matchesCat
+    val allChannels = if (liveChannels.isNotEmpty()) liveChannels else ChannelRepository.channels
+
+    val filteredChannels = remember(searchQuery, selectedCategory, allChannels) {
+        if (selectedCategory.equals("Movies", true) ||
+            selectedCategory.equals("Series", true) ||
+            selectedCategory.equals("Adults", true)
+        ) {
+            emptyList()
+        } else {
+            val catFilter = if (selectedCategory.equals("Live TV", true) || selectedCategory.equals("Swahili", true)) {
+                "All"
+            } else {
+                selectedCategory
+            }
+            ChannelRepository.filterChannels(searchQuery, catFilter)
         }
     }
 
-    val filteredEpisodes = remember(searchQuery, episodesList) {
+    val filteredMedia = remember(searchQuery, selectedCategory, mediaList) {
+        if (selectedCategory.equals("Live TV", true)) {
+            emptyList()
+        } else {
+            val q = searchQuery.trim()
+            mediaList.filter { item ->
+                val matchesQuery = q.isEmpty() ||
+                    item.title.contains(q, ignoreCase = true) ||
+                    item.originalTitle.contains(q, ignoreCase = true) ||
+                    item.primaryGenre.contains(q, ignoreCase = true) ||
+                    item.genre.contains(q, ignoreCase = true) ||
+                    item.synopsis.contains(q, ignoreCase = true) ||
+                    item.narrationLanguage.contains(q, ignoreCase = true) ||
+                    (q.equals("adult", true) && item.isAdultContent) ||
+                    (q.equals("adults", true) && item.isAdultContent)
+
+                val matchesCat = when {
+                    selectedCategory.equals("All", ignoreCase = true) -> true
+                    selectedCategory.equals("Movies", ignoreCase = true) -> item.isMovie && !item.isAdultContent
+                    selectedCategory.equals("Series", ignoreCase = true) -> item.isSeries && !item.isAdultContent
+                    selectedCategory.equals("Adults", ignoreCase = true) -> item.isAdultContent
+                    selectedCategory.equals("Swahili", ignoreCase = true) -> item.narrated
+                    else -> item.primaryGenre.contains(selectedCategory, ignoreCase = true) ||
+                        item.genre.contains(selectedCategory, ignoreCase = true)
+                }
+                matchesQuery && matchesCat
+            }
+        }
+    }
+
+    val filteredEpisodes = remember(searchQuery, selectedCategory, episodesList) {
         val q = searchQuery.trim()
-        if (q.isEmpty()) emptyList() else {
+        if (selectedCategory.equals("Live TV", true) ||
+            selectedCategory.equals("Movies", true) ||
+            selectedCategory.equals("Adults", true)
+        ) {
+            emptyList()
+        } else if (q.isEmpty() && !selectedCategory.equals("Series", true)) {
+            emptyList()
+        } else {
             episodesList.filter { ep ->
-                ep.name.contains(q, ignoreCase = true) ||
-                        ep.overview.contains(q, ignoreCase = true) ||
-                        ep.narrationLanguage.contains(q, ignoreCase = true)
+                q.isEmpty() ||
+                    ep.name.contains(q, ignoreCase = true) ||
+                    ep.overview.contains(q, ignoreCase = true) ||
+                    ep.narrationLanguage.contains(q, ignoreCase = true)
             }
         }
     }
@@ -325,18 +931,11 @@ fun SearchTabContent(
             .fillMaxSize()
             .testTag("search_tab_screen")
     ) {
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 10.dp)
+                .padding(horizontal = 16.dp, vertical = 8.dp)
         ) {
-            Text(
-                text = "Discover Movies, Series & Live TV",
-                color = NeliTextPrimary,
-                fontSize = 20.sp,
-                fontWeight = FontWeight.ExtraBold
-            )
-            Spacer(modifier = Modifier.height(10.dp))
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = onSearchQueryChange,
@@ -345,25 +944,25 @@ fun SearchTabContent(
                     .testTag("search_tab_input"),
                 placeholder = {
                     Text(
-                        text = "Search movies, series, or live channels...",
+                        text = "Search channels, movies, series...",
                         color = NeliTextSecondary,
-                        fontSize = 13.sp
+                        fontSize = 14.sp
                     )
                 },
                 leadingIcon = {
                     Icon(
                         imageVector = Icons.Default.Search,
                         contentDescription = null,
-                        tint = NeliMagenta
+                        tint = NeliTextSecondary
                     )
                 },
                 singleLine = true,
-                shape = RoundedCornerShape(14.dp),
+                shape = RoundedCornerShape(24.dp),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedContainerColor = NeliSurfaceVariant,
-                    unfocusedContainerColor = NeliSurface,
+                    unfocusedContainerColor = NeliSurfaceVariant,
                     focusedBorderColor = NeliMagenta,
-                    unfocusedBorderColor = Color(0x44A855F7),
+                    unfocusedBorderColor = Color.Transparent,
                     focusedTextColor = NeliTextPrimary,
                     unfocusedTextColor = NeliTextPrimary
                 )
@@ -371,7 +970,7 @@ fun SearchTabContent(
         }
 
         CategoryChipRow(
-            categories = ChannelRepository.categories,
+            categories = searchFilterTabs,
             selectedCategory = selectedCategory,
             onCategorySelected = onCategorySelected
         )
@@ -392,14 +991,14 @@ fun SearchTabContent(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "No matching channels or movies found",
+                        text = "No matching channels, movies, series, or adult titles found",
                         color = NeliTextPrimary,
                         fontWeight = FontWeight.Bold
                     )
                 }
             }
         } else {
-            // Vertical multi-column layout only — no horizontal scrolling for search content
+            // Vertical multi-column layout only — no horizontal scrolling in Search
             LazyVerticalGrid(
                 columns = GridCells.Adaptive(minSize = 155.dp),
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 110.dp),
@@ -415,7 +1014,7 @@ fun SearchTabContent(
                         key = "search_header_media"
                     ) {
                         Text(
-                            text = "Movies & Series (${filteredMedia.size})",
+                            text = "Movies, Series & Adults (${filteredMedia.size})",
                             color = NeliTextPrimary,
                             fontSize = 15.sp,
                             fontWeight = FontWeight.ExtraBold,
@@ -438,7 +1037,7 @@ fun SearchTabContent(
                         key = "search_header_episodes"
                     ) {
                         Text(
-                            text = "Matching Episodes (${filteredEpisodes.size})",
+                            text = "Series Episodes (${filteredEpisodes.size})",
                             color = NeliGenreCyan,
                             fontSize = 14.sp,
                             fontWeight = FontWeight.ExtraBold,
@@ -476,376 +1075,28 @@ fun SearchTabContent(
                     }
                 }
 
-                item(
-                    span = { GridItemSpan(maxLineSpan) },
-                    key = "search_header_channels"
-                ) {
-                    Text(
-                        text = "Live TV Channels (${filteredChannels.size})",
-                        color = NeliTextPrimary,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        modifier = Modifier.padding(top = 6.dp, bottom = 2.dp)
-                    )
-                }
-
-                items(filteredChannels, key = { it.id }) { channel ->
-                    ChannelCard(
-                        channel = channel,
-                        onClick = { onChannelSelected(channel) }
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun LiveTvTabContent(
-    selectedCategory: String,
-    onCategorySelected: (String) -> Unit,
-    onChannelSelected: (LiveChannel) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val liveChannels by ChannelRepository.liveChannelsFlow.collectAsState()
-    val allFiltered = remember(selectedCategory, liveChannels) {
-        ChannelRepository.filterChannels("", selectedCategory)
-    }
-
-    val azamChannels = remember(allFiltered) {
-        allFiltered.filter { it.priorityTier == 3 }
-    }
-    val tanzaniaOtherChannels = remember(allFiltered) {
-        allFiltered.filter { it.priorityTier == 2 }
-    }
-    val otherChannels = remember(allFiltered) {
-        allFiltered.filter { it.priorityTier < 2 }
-    }
-
-    val sliderChannels = remember(azamChannels, allFiltered) {
-        azamChannels.ifEmpty { allFiltered }.take(10)
-    }
-
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .testTag("live_tv_tab_screen")
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.LiveTv,
-                    contentDescription = null,
-                    tint = NeliMagenta,
-                    modifier = Modifier.size(24.dp)
-                )
-                Column {
-                    Text(
-                        text = "Live TV Broadcasts",
-                        color = NeliTextPrimary,
-                        fontSize = 19.sp,
-                        fontWeight = FontWeight.ExtraBold
-                    )
-                    Text(
-                        text = "Azam TV & Tanzania CDN • Unblocked High-Speed Streaming",
-                        color = NeliGenreCyan,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-            }
-
-            Text(
-                text = "${allFiltered.size} Live",
-                color = NeliTextSecondary,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold
-            )
-        }
-
-        CategoryChipRow(
-            categories = ChannelRepository.categories,
-            selectedCategory = selectedCategory,
-            onCategorySelected = onCategorySelected
-        )
-
-        LazyVerticalGrid(
-            columns = GridCells.Adaptive(minSize = 160.dp),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 100.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            modifier = Modifier
-                .fillMaxSize()
-                .testTag("channels_grid")
-        ) {
-            if (sliderChannels.isNotEmpty()) {
-                item(span = { GridItemSpan(maxLineSpan) }, key = "live_tv_azam_hero_slider") {
-                    AzamLiveTvHeroSlider(
-                        channels = sliderChannels,
-                        onChannelSelected = onChannelSelected
-                    )
-                }
-            }
-
-            items(azamChannels, key = { "azam_${it.id}" }) { channel ->
-                ChannelCard(
-                    channel = channel,
-                    onClick = { onChannelSelected(channel) }
-                )
-            }
-
-            items(tanzaniaOtherChannels, key = { "tz_${it.id}" }) { channel ->
-                ChannelCard(
-                    channel = channel,
-                    onClick = { onChannelSelected(channel) }
-                )
-            }
-
-            items(otherChannels, key = { "other_${it.id}" }) { channel ->
-                ChannelCard(
-                    channel = channel,
-                    onClick = { onChannelSelected(channel) }
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun AzamLiveTvHeroSlider(
-    channels: List<LiveChannel>,
-    onChannelSelected: (LiveChannel) -> Unit
-) {
-    val pagerState = rememberPagerState(pageCount = { channels.size })
-    val coroutineScope = rememberCoroutineScope()
-
-    // Keep the Live TV hero slider stable without timer-forced BringIntoView jumps while scrolling.
-    BoxWithConstraints(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(bottom = 6.dp)
-            .testTag("live_tv_azam_slider")
-    ) {
-        val isTablet = maxWidth >= 600.dp
-        val sliderHeight = if (isTablet) 220.dp else 176.dp
-        Column(modifier = Modifier.fillMaxWidth()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(sliderHeight)
-            ) {
-            HorizontalPager(
-                state = pagerState,
-                pageSpacing = 12.dp,
-                beyondViewportPageCount = 1,
-                modifier = Modifier.fillMaxSize()
-            ) { page ->
-                val ch = channels[page]
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(
-                            Brush.linearGradient(
-                                colors = listOf(Color(0xFF141824), Color(0xFF0A0D14))
-                            )
-                        )
-                        .border(
-                            width = 1.dp,
-                            color = Color(0x28FFFFFF),
-                            shape = RoundedCornerShape(20.dp)
-                        )
-                        .clickable { onChannelSelected(ch) }
-                        .padding(16.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                if (filteredChannels.isNotEmpty()) {
+                    item(
+                        span = { GridItemSpan(maxLineSpan) },
+                        key = "search_header_channels"
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(106.dp)
-                                .clip(RoundedCornerShape(16.dp))
-                                .background(Color(0xFF080A10))
-                                .border(1.dp, Color(0x24FFFFFF), RoundedCornerShape(16.dp))
-                                .padding(12.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            SubcomposeAsyncImage(
-                                model = ImageRequest.Builder(LocalContext.current)
-                                    .data(ch.thumbnailUrl)
-                                    .crossfade(true)
-                                    .build(),
-                                contentDescription = ch.name,
-                                contentScale = ContentScale.Fit,
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        }
+                        Text(
+                            text = "Live TV Channels (${filteredChannels.size})",
+                            color = NeliTextPrimary,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            modifier = Modifier.padding(top = 6.dp, bottom = 2.dp)
+                        )
+                    }
 
-                        Column(
-                            modifier = Modifier.weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(NeliMagenta)
-                                        .padding(horizontal = 8.dp, vertical = 3.dp)
-                                ) {
-                                    Text(
-                                        text = "AZAM TV • CDN MP4",
-                                        color = Color.White,
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.ExtraBold
-                                    )
-                                }
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(Color(0xDD10B981))
-                                        .padding(horizontal = 7.dp, vertical = 3.dp)
-                                ) {
-                                    Text(
-                                        text = "LIVE HD",
-                                        color = Color.White,
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.ExtraBold
-                                    )
-                                }
-                            }
-
-                            Text(
-                                text = ch.name,
-                                color = Color.White,
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-
-                            Text(
-                                text = ch.description.ifBlank { "Azam TV Live Broadcast" },
-                                color = NeliGenreCyan,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis
-                            )
-
-                            Row(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(NeliMagenta)
-                                    .padding(horizontal = 14.dp, vertical = 7.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.PlayArrow,
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Text(
-                                    text = "Watch Live Now",
-                                    color = Color.White,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.ExtraBold
-                                )
-                            }
-                        }
+                    items(filteredChannels, key = { "search_ch_${it.id}" }) { channel ->
+                        ChannelCard(
+                            channel = channel,
+                            onClick = { onChannelSelected(channel) }
+                        )
                     }
                 }
             }
-
-            if (channels.size > 1) {
-                IconButton(
-                    onClick = {
-                        coroutineScope.launch {
-                            val prev = if (pagerState.currentPage - 1 < 0) channels.size - 1 else pagerState.currentPage - 1
-                            pagerState.animateScrollToPage(prev)
-                        }
-                    },
-                    modifier = Modifier
-                        .align(Alignment.CenterStart)
-                        .padding(start = 6.dp)
-                        .size(30.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xAA14052B))
-                        .border(1.dp, Color(0x44FFFFFF), CircleShape)
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
-                        contentDescription = "Previous Azam Channel",
-                        tint = Color.White,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-
-                IconButton(
-                    onClick = {
-                        coroutineScope.launch {
-                            val next = (pagerState.currentPage + 1) % channels.size
-                            pagerState.animateScrollToPage(next)
-                        }
-                    },
-                    modifier = Modifier
-                        .align(Alignment.CenterEnd)
-                        .padding(end = 6.dp)
-                        .size(30.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xAA14052B))
-                        .border(1.dp, Color(0x44FFFFFF), CircleShape)
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                        contentDescription = "Next Azam Channel",
-                        tint = Color.White,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-            }
-        }
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 8.dp),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            val dotCount = minOf(channels.size, 10)
-            for (i in 0 until dotCount) {
-                val isSelected = pagerState.currentPage == i
-                Box(
-                    modifier = Modifier
-                        .padding(horizontal = 3.dp)
-                        .height(7.dp)
-                        .width(if (isSelected) 20.dp else 7.dp)
-                        .clip(CircleShape)
-                        .background(if (isSelected) NeliMagenta else NeliSurfaceVariant)
-                        .clickable {
-                            coroutineScope.launch {
-                                pagerState.animateScrollToPage(i)
-                            }
-                        }
-                )
-            }
-        }
         }
     }
 }
@@ -854,165 +1105,228 @@ private fun AzamLiveTvHeroSlider(
 fun DownloadTabContent(
     downloads: List<DownloadedItemEntity>,
     downloadProgress: Map<String, Int> = emptyMap(),
+    downloadedIds: Set<String> = emptySet(),
+    downloadingIds: Set<String> = emptySet(),
+    mediaCatalog: List<MediaContent> = emptyList(),
     isOfflineMode: Boolean = false,
+    downloadBannerMessage: String? = null,
+    onDismissBanner: () -> Unit = {},
+    onStartQuickDownload: (MediaContent) -> Unit = {},
+    onRetryDownload: (DownloadedItemEntity) -> Unit = {},
+    onCancelDownload: (String) -> Unit = {},
     onPlayDownloaded: (DownloadedItemEntity) -> Unit,
     onDeleteDownload: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Column(
+    val downloadableCatalog = remember(mediaCatalog, downloadedIds) {
+        mediaCatalog.filter { it.published && it.downloadEnabled }
+    }
+
+    LazyColumn(
         modifier = modifier
             .fillMaxSize()
             .padding(horizontal = 16.dp)
-            .testTag("download_tab_screen")
+            .testTag("download_tab_screen"),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        contentPadding = PaddingValues(top = 12.dp, bottom = 100.dp)
     ) {
-        Spacer(modifier = Modifier.height(12.dp))
-
         if (isOfflineMode) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 10.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(NeliCardPurple)
-                    .border(1.dp, Color(0xFF10B981), RoundedCornerShape(14.dp))
-                    .padding(12.dp)
-                    .testTag("offline_mode_auto_redirect_banner"),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.DownloadDone,
-                    contentDescription = null,
-                    tint = Color(0xFF10B981),
-                    modifier = Modifier.size(22.dp)
-                )
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Offline Mode Active • Ready to Watch Without Internet",
-                        color = Color.White,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.ExtraBold
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(NeliCardPurple)
+                        .border(1.dp, Color(0xFF10B981), RoundedCornerShape(14.dp))
+                        .padding(12.dp)
+                        .testTag("offline_mode_auto_redirect_banner"),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.DownloadDone,
+                        contentDescription = null,
+                        tint = Color(0xFF10B981),
+                        modifier = Modifier.size(22.dp)
+                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Offline mode",
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Watch your downloaded videos without internet",
+                            color = NeliTextSecondary,
+                            fontSize = 11.sp
+                        )
+                    }
+                }
+            }
+        }
+
+        if (!downloadBannerMessage.isNullOrBlank()) {
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xFF1E1038))
+                        .border(1.dp, NeliMagenta.copy(alpha = 0.6f), RoundedCornerShape(12.dp))
+                        .clickable { onDismissBanner() }
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Download,
+                        contentDescription = null,
+                        tint = NeliGenreCyan,
+                        modifier = Modifier.size(20.dp)
                     )
                     Text(
-                        text = "No internet connection detected. You have been directed to your downloaded movies & series for offline viewing.",
-                        color = NeliGenreCyan,
-                        fontSize = 11.sp
+                        text = downloadBannerMessage,
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.weight(1f)
                     )
                 }
             }
         }
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Offline Downloads",
-                    color = NeliTextPrimary,
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.ExtraBold
-                )
-                Text(
-                    text = "Saved directly from streaming link to phone internal storage for offline viewing",
-                    color = NeliTextSecondary,
-                    fontSize = 12.sp
-                )
-            }
-
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(NeliCardPurple)
-                    .padding(horizontal = 12.dp, vertical = 6.dp)
+        // Header Card
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "${downloads.size} Offline",
-                    color = NeliGenreCyan,
-                    fontSize = 12.sp,
+                    text = "Downloads",
+                    color = NeliTextPrimary,
+                    fontSize = 20.sp,
                     fontWeight = FontWeight.Bold
                 )
+
+                if (downloads.isNotEmpty()) {
+                    Text(
+                        text = "${downloads.size} videos",
+                        color = NeliTextSecondary,
+                        fontSize = 12.sp
+                    )
+                }
             }
         }
 
-        Spacer(modifier = Modifier.height(14.dp))
-
         if (downloads.isEmpty()) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
+            item {
                 Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(NeliSurface)
+                        .border(0.5.dp, Color(0xFF252D40), RoundedCornerShape(14.dp))
+                        .padding(24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.padding(horizontal = 24.dp)
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.DownloadDone,
                         contentDescription = null,
-                        tint = NeliMagenta,
-                        modifier = Modifier.size(52.dp)
+                        tint = NeliTextSecondary,
+                        modifier = Modifier.size(40.dp)
                     )
                     Text(
-                        text = "No offline downloads yet",
+                        text = "No downloads yet",
                         color = NeliTextPrimary,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 17.sp
+                        fontSize = 15.sp
                     )
                     Text(
-                        text = "Download any Movie or Series Episode to your phone's internal storage to watch offline anytime. Each video is saved once without duplicate downloads.",
+                        text = "Videos you download will appear here.",
                         color = NeliTextSecondary,
                         fontSize = 12.sp
                     )
                 }
             }
         } else {
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                contentPadding = PaddingValues(bottom = 100.dp)
-            ) {
-                items(downloads, key = { it.id }) { item ->
-                    val activePct = downloadProgress[item.id]
-                    val isDownloading = activePct != null || item.downloadStatus == "DOWNLOADING"
+            items(downloads, key = { it.id }) { item ->
+                val activePct = downloadProgress[item.id]
+                val isDownloading = activePct != null ||
+                    item.downloadStatus == "DOWNLOADING" ||
+                    downloadingIds.contains(item.id)
+                val isPausedError = !isDownloading && item.downloadStatus == "PAUSED_ERROR"
+                val displayPct = (activePct ?: item.progressPercent).coerceIn(1, 100)
+                val imageUrl = MediaContentRepository.resolveGuaranteedMediaImageUrl(
+                    item.backdropUrl,
+                    item.posterUrl,
+                    item.streamUrl
+                )
 
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(NeliSurface)
-                            .border(1.dp, Color(0x33A855F7), RoundedCornerShape(16.dp))
-                            .clickable(enabled = !isDownloading) { onPlayDownloaded(item) }
-                            .padding(12.dp)
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(NeliSurface)
+                        .border(
+                            width = 1.dp,
+                            color = when {
+                                isDownloading -> NeliGenreCyan.copy(alpha = 0.7f)
+                                isPausedError -> Color(0xFFEF4444).copy(alpha = 0.7f)
+                                else -> Color(0x33A855F7)
+                            },
+                            shape = RoundedCornerShape(16.dp)
+                        )
+                        .clickable(enabled = !isDownloading && !isPausedError) {
+                            onPlayDownloaded(item)
+                        }
+                        .padding(12.dp)
+                        .testTag("download_item_${item.id}")
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        Box(
+                            modifier = Modifier
+                                .width(104.dp)
+                                .aspectRatio(16f / 10f)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(NeliSurfaceVariant),
+                            contentAlignment = Alignment.Center
                         ) {
+                            SubcomposeAsyncImage(
+                                model = ImageRequest.Builder(LocalContext.current)
+                                    .data(imageUrl)
+                                    .crossfade(true)
+                                    .build(),
+                                contentDescription = item.title,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
                             Box(
                                 modifier = Modifier
-                                    .width(104.dp)
-                                    .aspectRatio(16f / 10f)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(NeliSurfaceVariant),
+                                    .size(32.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        when {
+                                            isDownloading -> NeliGenreCyan
+                                            isPausedError -> Color(0xFFEF4444)
+                                            else -> NeliMagenta
+                                        }
+                                    ),
                                 contentAlignment = Alignment.Center
                             ) {
-                                SubcomposeAsyncImage(
-                                    model = ImageRequest.Builder(LocalContext.current)
-                                        .data(item.backdropUrl.ifBlank { item.posterUrl })
-                                        .crossfade(true)
-                                        .build(),
-                                    contentDescription = item.title,
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                                Box(
-                                    modifier = Modifier
-                                        .size(32.dp)
-                                        .clip(CircleShape)
-                                        .background(NeliMagenta),
-                                    contentAlignment = Alignment.Center
-                                ) {
+                                if (isDownloading) {
+                                    Text(
+                                        text = "$displayPct%",
+                                        color = Color.Black,
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Black
+                                    )
+                                } else {
                                     Icon(
                                         imageVector = Icons.Default.PlayArrow,
                                         contentDescription = "Play Offline",
@@ -1021,75 +1335,223 @@ fun DownloadTabContent(
                                     )
                                 }
                             }
+                        }
 
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = item.title.replace("\n", " "),
-                                    color = NeliTextPrimary,
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = "${item.genre} • ${item.duration}",
-                                    color = NeliGenreCyan,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                Spacer(modifier = Modifier.height(3.dp))
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = if (isDownloading) Icons.Default.Download else Icons.Default.CheckCircle,
-                                        contentDescription = null,
-                                        tint = if (isDownloading) NeliGenreCyan else Color(0xFF10B981),
-                                        modifier = Modifier.size(13.dp)
-                                    )
-                                    Text(
-                                        text = if (isDownloading) {
-                                            if (item.fileSizeLabel.startsWith("Downloading", ignoreCase = true)) {
-                                                item.fileSizeLabel
-                                            } else {
-                                                "Downloading to internal storage (${activePct ?: item.progressPercent}%)..."
-                                            }
-                                        } else {
-                                            item.fileSizeLabel
-                                        },
-                                        color = if (isDownloading) NeliGenreCyan else Color(0xFF10B981),
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            }
-
-                            IconButton(
-                                onClick = { onDeleteDownload(item.id) },
-                                modifier = Modifier.size(48.dp)
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = item.title.replace("\n", " "),
+                                color = NeliTextPrimary,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Spacer(modifier = Modifier.height(3.dp))
+                            Text(
+                                text = "${item.genre} • ${item.duration}",
+                                color = NeliGenreCyan,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Spacer(modifier = Modifier.height(3.dp))
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.DeleteOutline,
-                                    contentDescription = "Remove Download",
-                                    tint = NeliMagenta
+                                    imageVector = when {
+                                        isDownloading -> Icons.Default.Download
+                                        else -> Icons.Default.CheckCircle
+                                    },
+                                    contentDescription = null,
+                                    tint = when {
+                                        isDownloading -> NeliGenreCyan
+                                        isPausedError -> Color(0xFFEF4444)
+                                        else -> Color(0xFF10B981)
+                                    },
+                                    modifier = Modifier.size(13.dp)
+                                )
+                                Text(
+                                    text = when {
+                                        isDownloading -> item.fileSizeLabel.ifBlank {
+                                            "Background downloading ($displayPct%)..."
+                                        }
+                                        else -> item.fileSizeLabel
+                                    },
+                                    color = when {
+                                        isDownloading -> NeliGenreCyan
+                                        isPausedError -> Color(0xFFEF4444)
+                                        else -> Color(0xFF10B981)
+                                    },
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
                                 )
                             }
                         }
 
-                        if (isDownloading) {
-                            Spacer(modifier = Modifier.height(8.dp))
-                            LinearProgressIndicator(
-                                progress = { ((activePct ?: item.progressPercent).coerceIn(0, 100)) / 100f },
-                                color = NeliMagenta,
-                                trackColor = NeliSurfaceVariant,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(5.dp)
-                                    .clip(RoundedCornerShape(4.dp))
+                        if (isPausedError) {
+                            Button(
+                                onClick = { onRetryDownload(item) },
+                                colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.height(36.dp)
+                            ) {
+                                Text(
+                                    text = "Retry",
+                                    color = Color.White,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.ExtraBold
+                                )
+                            }
+                        }
+
+                        IconButton(
+                            onClick = {
+                                if (isDownloading) {
+                                    onCancelDownload(item.id)
+                                } else {
+                                    onDeleteDownload(item.id)
+                                }
+                            },
+                            modifier = Modifier.size(44.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.DeleteOutline,
+                                contentDescription = "Remove Download",
+                                tint = NeliMagenta
                             )
                         }
+                    }
+
+                    if (isDownloading) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        LinearProgressIndicator(
+                            progress = { displayPct / 100f },
+                            color = NeliMagenta,
+                            trackColor = NeliSurfaceVariant,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(6.dp)
+                                .clip(RoundedCornerShape(4.dp))
+                        )
+                    }
+                }
+            }
+        }
+
+        // Recommended Downloads inside the Download tab
+        if (downloadableCatalog.isNotEmpty()) {
+            item {
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "Available to Download",
+                    color = NeliTextPrimary,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            items(downloadableCatalog.take(12), key = { "quick_dl_${it.id}" }) { media ->
+                val isAlreadyDownloaded = downloadedIds.contains(media.id)
+                val isCurrentlyDownloading = downloadingIds.contains(media.id) || downloadProgress.containsKey(media.id)
+                val livePct = downloadProgress[media.id] ?: 0
+                val thumbUrl = MediaContentRepository.resolveGuaranteedMediaImageUrl(
+                    media.posterUrl,
+                    media.backdropUrl,
+                    media.streamUrl
+                )
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(NeliSurface)
+                        .border(1.dp, Color(0xFF252D40), RoundedCornerShape(14.dp))
+                        .padding(10.dp)
+                        .testTag("quick_download_row_${media.id}"),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(width = 56.dp, height = 74.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(NeliSurfaceVariant)
+                    ) {
+                        SubcomposeAsyncImage(
+                            model = ImageRequest.Builder(LocalContext.current)
+                                .data(thumbUrl)
+                                .crossfade(true)
+                                .build(),
+                            contentDescription = media.title,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = media.title,
+                            color = NeliTextPrimary,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = "${media.primaryGenre} • ${media.duration} • ${if (media.narrated) media.narrationLanguage else "HD"}",
+                            color = NeliGenreCyan,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        if (isCurrentlyDownloading) {
+                            Text(
+                                text = "Downloading in background ($livePct%)...",
+                                color = NeliMagenta,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.ExtraBold
+                            )
+                        }
+                    }
+
+                    Button(
+                        onClick = {
+                            if (!isAlreadyDownloaded && !isCurrentlyDownloading) {
+                                onStartQuickDownload(media)
+                            }
+                        },
+                        enabled = !isAlreadyDownloaded && !isCurrentlyDownloading,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = when {
+                                isAlreadyDownloaded -> Color(0xFF10B981)
+                                isCurrentlyDownloading -> NeliSurfaceVariant
+                                else -> NeliMagenta
+                            }
+                        ),
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                        modifier = Modifier
+                            .height(40.dp)
+                            .testTag("quick_download_btn_${media.id}")
+                    ) {
+                        Icon(
+                            imageVector = if (isAlreadyDownloaded) Icons.Default.DownloadDone else Icons.Default.Download,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = when {
+                                isAlreadyDownloaded -> "Saved"
+                                isCurrentlyDownloading -> "$livePct%"
+                                else -> "Download"
+                            },
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.ExtraBold
+                        )
                     }
                 }
             }
@@ -1270,26 +1732,20 @@ fun AccountTabContent(
 
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = if (isRegisterMode) "Create Your Nelitv Account" else "Sign In to Nelitv",
+                                text = if (isRegisterMode) "Create Account" else "Sign In",
                                 color = NeliTextPrimary,
                                 fontSize = 18.sp,
-                                fontWeight = FontWeight.ExtraBold
-                            )
-                            Text(
-                                text = "Nelitv (com.nelitv.app) • Powered by Neliplay (Mother Company)",
-                                color = NeliGenreCyan,
-                                fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = "Automatic sign-in with your phone's primary Google account, or use Email & Password below",
+                                text = "Sign in to sync your watchlist and downloads",
                                 color = NeliTextSecondary,
                                 fontSize = 12.sp
                             )
                         }
                     }
 
-                    // YouTube-style Automatic / One-Tap Google Account Sign-In Button
+                    // One-Tap Google Account Sign-In Button
                     Button(
                         onClick = onSignInWithGoogle,
                         enabled = !isAuthLoading,
@@ -1317,9 +1773,9 @@ fun AccountTabContent(
                         }
                         Spacer(modifier = Modifier.width(10.dp))
                         Text(
-                            text = "Continue with Google (Device Account)",
+                            text = "Continue with Google",
                             color = Color.White,
-                            fontWeight = FontWeight.ExtraBold,
+                            fontWeight = FontWeight.Bold,
                             fontSize = 14.sp
                         )
                     }
@@ -1628,15 +2084,15 @@ fun AccountTabContent(
                         )
                         Column {
                             Text(
-                                text = "Theme Colour Changer (Black / White)",
+                                text = "Appearance",
                                 color = NeliTextPrimary,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.ExtraBold
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = "Current Theme: ${NeliThemeManager.currentThemeLabel} • Badili rangi ya app kuwa Nyeusi (Black) au Nyeupe (White)",
+                                text = NeliThemeManager.currentThemeLabel,
                                 color = NeliTextSecondary,
-                                fontSize = 11.sp
+                                fontSize = 12.sp
                             )
                         }
                     }

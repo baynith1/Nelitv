@@ -25,10 +25,13 @@ data class DownloadedItemEntity(
     val rating: String,
     val fileSizeLabel: String = "740 MB",
     val localFilePath: String = "",
-    val downloadStatus: String = "COMPLETED", // "DOWNLOADING", "COMPLETED"
+    val downloadStatus: String = "COMPLETED", // "DOWNLOADING", "COMPLETED", "PAUSED_ERROR"
     val progressPercent: Int = 100,
     val timestamp: Long = System.currentTimeMillis()
-)
+) {
+    val downloadedAt: Long
+        get() = timestamp
+}
 
 @Entity(tableName = "watchlist_items")
 data class WatchlistItemEntity(

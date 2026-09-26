@@ -428,4 +428,93 @@ class ExampleRobolectricTest {
         val jitteredDelay = MediaContentRepository.computeJitterDelayMsFor10MScale(180_000L)
         assertTrue(jitteredDelay in 180_000L..225_000L)
     }
+
+    @Test
+    fun `bottom menu 5 tabs homepage all channels priority discovery first genre deduplication and adult images work properly`() {
+        // 1. Verify BottomNavTab has exactly Home, Discovery, Search, Download, Account
+        val tabs = com.example.ui.components.BottomNavTab.entries.map { it.label }
+        assertEquals(listOf("Home", "Discovery", "Search", "Download", "Account"), tabs)
+
+        // 2. Verify Homepage includes all channels prioritized by Azam TV -> Tanzania -> Other
+        val prioritized = com.example.data.ChannelRepository.getPrioritizedAllChannels()
+        assertTrue(prioritized.size >= 36)
+        assertTrue(prioritized.first().isAzamPriority)
+        val firstNonTanzaniaIdx = prioritized.indexOfFirst { !it.isTanzaniaChannel }
+        val lastAzamIdx = prioritized.indexOfLast { it.isAzamPriority }
+        assertTrue(lastAzamIdx < firstNonTanzaniaIdx)
+
+        // 3. Verify Discovery groups movies strictly by their 1st genre only (zero duplicate movies)
+        val groupedMovies = MediaContentRepository.getMoviesStrictlyByFirstGenre()
+        assertTrue(groupedMovies.isNotEmpty())
+        val allAssignedIds = groupedMovies.flatMap { (_, movies) -> movies.map { it.id } }
+        assertEquals(allAssignedIds.distinct().size, allAssignedIds.size)
+
+        // 4. Verify Adult content always has non-blank poster and thumbnail URLs
+        val adults = MediaContentRepository.getAdultContentCatalog()
+        assertTrue(adults.isNotEmpty())
+        adults.forEach { adult ->
+            assertTrue(adult.posterUrl.startsWith("https://"))
+            assertTrue(adult.backdropUrl.startsWith("https://"))
+        }
+
+        // 5. Verify expired CDN tokens are rejected so stale Firebase tokens never break Azam TV
+        val expiredTokenJson = """
+            {
+              "token": "eyJhbGciOiJIUzUxMiJ9.eyJleHAiOiIxNjAwMDAwMDAwIn0.sig",
+              "exp": 1600000000,
+              "cdnHost": "https://cdnedgch2.azamtvltd.co.tz"
+            }
+        """.trimIndent()
+        org.junit.Assert.assertFalse(
+            com.example.data.ChannelRepository.updateCdnAuthorizationToken(expiredTokenJson)
+        )
+
+        // 6. Verify Pull-to-Refresh refreshes the Live TV channel list in-place while preserving priority
+        val refreshedList = com.example.data.ChannelRepository.refreshLiveChannels()
+        assertTrue(refreshedList.size >= 36)
+        assertTrue(refreshedList.first().isAzamPriority)
+        assertTrue(com.example.data.ChannelRepository.lastRefreshedEpochMs > 0L)
+
+        // 7. Verify Discovery banner text ("Furahia Movie Nzuri kutoka kwa Madjs Wazuri")
+        assertEquals(
+            "Furahia Movie Nzuri kutoka kwa Madjs Wazuri",
+            com.example.ui.screens.DISCOVERY_MADJS_BANNER_TEXT
+        )
+
+        // 8. Verify Offline Mode sends user directly to Download page & Movie/Series Watchpage Back -> Movie Details -> Discovery
+        val app = ApplicationProvider.getApplicationContext<android.app.Application>()
+        val vm = com.example.ui.NeliViewModel(app)
+
+        // Offline mode directs immediately to Download tab
+        vm.updateOfflineState(true)
+        assertTrue(vm.isOfflineMode.value)
+        assertEquals(com.example.ui.components.BottomNavTab.DOWNLOAD, vm.selectedTab.value)
+
+        // Back online
+        vm.updateOfflineState(false)
+        vm.selectTab(com.example.ui.components.BottomNavTab.HOME)
+        assertEquals(com.example.ui.components.BottomNavTab.HOME, vm.selectedTab.value)
+
+        // User watches a Movie on Watchpage and presses Back -> must go to Movie Details page of that movie (never Homepage), then Back -> Discovery
+        val sampleMovie = MediaContentRepository.mediaCatalog.value.first { it.isMovie && !it.isAdultContent }
+        vm.onReturnFromWatchPage(sampleMovie.toPlayableChannel())
+        assertEquals( sampleMovie.id, vm.selectedMediaId.value)
+        assertEquals(com.example.ui.components.BottomNavTab.DISCOVERY, vm.selectedTab.value)
+
+        // Pressing Back from Movie Details page sends user to Discovery
+        vm.navigateBackFromMediaDetails()
+        assertEquals(null, vm.selectedMediaId.value)
+        assertEquals(com.example.ui.components.BottomNavTab.DISCOVERY, vm.selectedTab.value)
+
+        // User watches a Series Episode on Watchpage and presses Back -> must go to Series Details page of that series, then Back -> Discovery
+        val sampleEpisode = MediaContentRepository.episodesCatalog.value.first()
+        vm.selectTab(com.example.ui.components.BottomNavTab.HOME)
+        vm.onReturnFromWatchPage(sampleEpisode.toPlayableChannel("Series"))
+        assertEquals(sampleEpisode.seriesId, vm.selectedMediaId.value)
+        assertEquals(com.example.ui.components.BottomNavTab.DISCOVERY, vm.selectedTab.value)
+
+        vm.navigateBackFromMediaDetails()
+        assertEquals(null, vm.selectedMediaId.value)
+        assertEquals(com.example.ui.components.BottomNavTab.DISCOVERY, vm.selectedTab.value)
+    }
 }

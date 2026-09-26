@@ -43,9 +43,9 @@ import kotlin.coroutines.coroutineContext
 object OfflineDownloadManager {
 
     private const val NOTIFICATION_CHANNEL_ID = "neli_offline_downloads_channel"
-    private const val NOTIFICATION_CHANNEL_NAME = "Neli TV Background Downloads"
+    private const val NOTIFICATION_CHANNEL_NAME = "Nelitv Background Downloads"
     private const val MIN_VALID_VIDEO_BYTES = 64 * 1024L // At least 64 KB of real media data
-    private const val HLS_PARALLEL_SEGMENT_WORKERS = 8
+    private const val HLS_PARALLEL_SEGMENT_WORKERS = 16
     private const val MAX_CONCURRENT_MULTI_DOWNLOADS = 4
 
     /**
@@ -58,6 +58,8 @@ object OfflineDownloadManager {
     private val activeDownloadIds = ConcurrentHashMap.newKeySet<String>()
     private val activeDownloadJobs = ConcurrentHashMap<String, Job>()
     private val recentlyCompletedTimestamps = ConcurrentHashMap<String, Long>()
+    private val lastDbPersistTimeById = ConcurrentHashMap<String, Long>()
+    private val downloadStartTimestamps = ConcurrentHashMap<String, Long>()
 
     private val _downloadProgress = MutableStateFlow<Map<String, Int>>(emptyMap())
     val downloadProgress: StateFlow<Map<String, Int>> = _downloadProgress.asStateFlow()
@@ -65,13 +67,21 @@ object OfflineDownloadManager {
     private val _activeDownloadTitles = MutableStateFlow<Map<String, String>>(emptyMap())
     val activeDownloadTitles: StateFlow<Map<String, String>> = _activeDownloadTitles.asStateFlow()
 
+    private val _activeDownloadEntities = MutableStateFlow<Map<String, DownloadedItemEntity>>(emptyMap())
+    val activeDownloadEntities: StateFlow<Map<String, DownloadedItemEntity>> = _activeDownloadEntities.asStateFlow()
+
     private val _downloadBannerMessage = MutableStateFlow<String?>(null)
     val downloadBannerMessage: StateFlow<String?> = _downloadBannerMessage.asStateFlow()
 
     fun isCurrentlyDownloading(id: String): Boolean {
-        if (activeDownloadIds.contains(id) || _downloadProgress.value.containsKey(id)) return true
+        if (activeDownloadIds.contains(id) ||
+            _downloadProgress.value.containsKey(id) ||
+            _activeDownloadEntities.value.containsKey(id)
+        ) {
+            return true
+        }
         val completedAt = recentlyCompletedTimestamps[id] ?: return false
-        return (System.currentTimeMillis() - completedAt) < 15_000L
+        return (System.currentTimeMillis() - completedAt) < 20_000L
     }
 
     fun dismissBannerMessage() {
@@ -117,9 +127,6 @@ object OfflineDownloadManager {
             if (fresh.downloadStatus == "COMPLETED" && !isDownloadFileValidOnDisk(fresh)) {
                 deleteOfflineFilesOnDisk(fresh.localFilePath, fresh.id, null)
                 dao.deleteDownloadById(fresh.id)
-            } else if (fresh.downloadStatus == "DOWNLOADING" && !isCurrentlyDownloading(fresh.id)) {
-                deleteOfflineFilesOnDisk(fresh.localFilePath, fresh.id, null)
-                dao.deleteDownloadById(fresh.id)
             }
         }
     }
@@ -135,27 +142,45 @@ object OfflineDownloadManager {
         item: DownloadedItemEntity
     ) {
         val appContext = context.applicationContext
-        if (activeDownloadIds.contains(item.id)) {
+        if (activeDownloadIds.contains(item.id) && activeDownloadJobs[item.id]?.isActive == true) {
             _downloadBannerMessage.value = "\"${item.title}\" is already downloading."
             return
         }
+
+        val queuedEntity = item.copy(
+            streamUrl = ChannelRepository.normalizeDashStreamUrl(item.streamUrl.trim()),
+            fileSizeLabel = "Starting fast background download • 1%",
+            downloadStatus = "DOWNLOADING",
+            progressPercent = 1,
+            timestamp = System.currentTimeMillis()
+        )
+
+        activeDownloadIds.add(item.id)
+        downloadStartTimestamps[item.id] = System.currentTimeMillis()
+        setActiveEntity(item.id, queuedEntity)
         setActiveTitle(item.id, item.title)
         updateProgress(item.id, 1)
+
         val totalActive = _downloadProgress.value.size
         _downloadBannerMessage.value = if (totalActive > 1) {
             "Multi-Download Active ($totalActive videos) • Added \"${item.title}\"..."
         } else {
-            "Downloading \"${item.title}\" (1%)..."
+            "Downloading \"${item.title}\" in background (1%)..."
         }
 
         syncForegroundServiceState(appContext)
 
         val job = backgroundScope.launch {
+            try {
+                dao.upsertDownload(queuedEntity)
+            } catch (_: Exception) {
+            }
             multiDownloadSemaphore.withPermit {
                 downloadMediaOffline(
                     context = appContext,
                     dao = dao,
-                    item = item
+                    item = queuedEntity,
+                    alreadyRegisteredActive = true
                 )
             }
         }
@@ -232,19 +257,22 @@ object OfflineDownloadManager {
     suspend fun downloadMediaOffline(
         context: Context,
         dao: NeliMediaDao,
-        item: DownloadedItemEntity
+        item: DownloadedItemEntity,
+        alreadyRegisteredActive: Boolean = false
     ): Boolean = withContext(Dispatchers.IO) {
         val appContext = context.applicationContext
         val rawStreamUrl = ChannelRepository.normalizeDashStreamUrl(item.streamUrl.trim())
 
         if (rawStreamUrl.isBlank()) {
+            activeDownloadIds.remove(item.id)
+            removeActiveEntity(item.id)
             clearProgress(item.id)
             removeActiveTitle(item.id)
             _downloadBannerMessage.value = "Cannot download \"${item.title}\": streaming link is empty."
             return@withContext false
         }
 
-        if (!activeDownloadIds.add(item.id)) {
+        if (!alreadyRegisteredActive && !activeDownloadIds.add(item.id)) {
             _downloadBannerMessage.value = "\"${item.title}\" is already downloading."
             return@withContext false
         }
@@ -252,16 +280,19 @@ object OfflineDownloadManager {
         val existing = dao.getDownloadById(item.id)
         if (existing != null && isDownloadFileValidOnDisk(existing)) {
             activeDownloadIds.remove(item.id)
+            removeActiveEntity(item.id)
             clearProgress(item.id)
             removeActiveTitle(item.id)
             _downloadBannerMessage.value = "\"${item.title}\" is already downloaded for offline viewing."
-            return@withContext false
+            return@withContext true
         }
 
+        downloadStartTimestamps.putIfAbsent(item.id, System.currentTimeMillis())
         setActiveTitle(item.id, item.title)
         updateProgress(item.id, 1)
         _downloadBannerMessage.value = "Downloading \"${item.title}\" (1%)..."
         showDownloadNotification(appContext, item.id, item.title, 1, isCompleted = false)
+        syncForegroundServiceState(appContext)
 
         val wakeLock = acquirePartialWakeLock(appContext, item.id)
 
@@ -272,30 +303,35 @@ object OfflineDownloadManager {
 
         val initialEntity = item.copy(
             streamUrl = rawStreamUrl,
-            fileSizeLabel = "Starting download • 1%",
+            fileSizeLabel = "Downloading • 1%",
             localFilePath = "",
             downloadStatus = "DOWNLOADING",
             progressPercent = 1,
             timestamp = System.currentTimeMillis()
         )
+        setActiveEntity(item.id, initialEntity)
         dao.upsertDownload(initialEntity)
 
         try {
-            // Build candidate URLs starting with the normalized streaming link, plus BunnyCDN fallbacks
+            // Prioritize fast single-stream MP4 downloads on BunnyCDN before falling back to multi-segment HLS
             val candidateUrls = buildList {
-                add(rawStreamUrl)
                 if (rawStreamUrl.contains("b-cdn.net", ignoreCase = true)) {
                     val baseDir = rawStreamUrl.substringBefore("?").substringBeforeLast("/")
-                    if (rawStreamUrl.substringBefore("?").endsWith(".m3u8", ignoreCase = true)) {
-                        add("$baseDir/play_720p.mp4")
+                    if (rawStreamUrl.substringBefore("?").endsWith(".mp4", ignoreCase = true)) {
+                        add(rawStreamUrl)
                         add("$baseDir/play_480p.mp4")
                         add("$baseDir/play_360p.mp4")
-                    } else {
-                        add("$baseDir/play_480p.mp4")
                         add("$baseDir/play_720p.mp4")
-                        add("$baseDir/play_360p.mp4")
                         add("$baseDir/playlist.m3u8")
+                    } else {
+                        // Try direct MP4 variants first for 5x faster contiguous download speed!
+                        add("$baseDir/play_480p.mp4")
+                        add("$baseDir/play_360p.mp4")
+                        add("$baseDir/play_720p.mp4")
+                        add(rawStreamUrl)
                     }
+                } else {
+                    add(rawStreamUrl)
                 }
             }.distinct()
 
@@ -346,8 +382,13 @@ object OfflineDownloadManager {
             // Strictly verify that real video bytes were saved on internal storage before marking COMPLETED
             val savedFile = finalPlayableFile
             if (savedFile == null || !savedFile.exists() || totalDownloadedBytes <= MIN_VALID_VIDEO_BYTES) {
-                dao.deleteDownloadById(item.id)
-                _downloadBannerMessage.value = "Could not download \"${item.title}\". Stream server did not return video data."
+                val pausedEntity = initialEntity.copy(
+                    fileSizeLabel = "Download Paused • Tap Retry to Resume",
+                    downloadStatus = "PAUSED_ERROR",
+                    progressPercent = (_downloadProgress.value[item.id] ?: 1).coerceAtLeast(1)
+                )
+                dao.upsertDownload(pausedEntity)
+                _downloadBannerMessage.value = "Download paused for \"${item.title}\". Tap Retry on the Download tab."
                 cancelDownloadNotification(appContext, item.id)
                 return@withContext false
             }
@@ -363,6 +404,7 @@ object OfflineDownloadManager {
                 downloadStatus = "COMPLETED",
                 progressPercent = 100
             )
+            setActiveEntity(item.id, completedEntity)
             dao.upsertDownload(completedEntity)
             updateProgress(item.id, 100)
             _downloadBannerMessage.value = "Download complete: \"${item.title}\" ($finalSizeLabel) is ready to watch offline!"
@@ -375,17 +417,27 @@ object OfflineDownloadManager {
             cancelDownloadNotification(appContext, item.id)
             return@withContext false
         } catch (e: Exception) {
-            deleteOfflineFilesOnDisk(initialEntity.localFilePath, item.id, appContext)
-            dao.deleteDownloadById(item.id)
-            _downloadBannerMessage.value = "Download failed for \"${item.title}\". Please check your internet connection."
+            val pausedEntity = initialEntity.copy(
+                fileSizeLabel = "Network interrupted • Tap Retry to Resume",
+                downloadStatus = "PAUSED_ERROR",
+                progressPercent = (_downloadProgress.value[item.id] ?: 1).coerceAtLeast(1)
+            )
+            try {
+                dao.upsertDownload(pausedEntity)
+            } catch (_: Exception) {
+            }
+            _downloadBannerMessage.value = "Download paused for \"${item.title}\". Tap Retry in Downloads."
             cancelDownloadNotification(appContext, item.id)
             return@withContext false
         } finally {
             releaseWakeLockSafely(wakeLock)
             activeDownloadIds.remove(item.id)
             activeDownloadJobs.remove(item.id)
+            removeActiveEntity(item.id)
             removeActiveTitle(item.id)
             clearProgress(item.id)
+            lastDbPersistTimeById.remove(item.id)
+            downloadStartTimestamps.remove(item.id)
             syncForegroundServiceState(appContext)
         }
     }
@@ -435,7 +487,7 @@ object OfflineDownloadManager {
         val normalizedUrl = ChannelRepository.normalizeDashStreamUrl(urlStr)
         var downloadedBytes = 0L
         var expectedTotalBytes = -1L
-        val buffer = ByteArray(64 * 1024)
+        val buffer = ByteArray(256 * 1024) // 256 KB high-throughput socket buffer
         var lastReportedPct = 1
         var lastReportTimeMs = System.currentTimeMillis()
 
@@ -797,14 +849,27 @@ object OfflineDownloadManager {
         pct: Int,
         downloadedBytes: Long
     ) {
+        val now = System.currentTimeMillis()
+        val startMs = downloadStartTimestamps[initialEntity.id] ?: (now - 1000L)
+        val elapsedSec = ((now - startMs) / 1000.0).coerceAtLeast(0.5)
         val mbSoFar = downloadedBytes.toDouble() / (1024.0 * 1024.0)
+        val speedMbPerSec = (mbSoFar / elapsedSec).coerceAtLeast(0.2)
         val sizeProgressLabel = String.format(
             Locale.US,
-            "Downloading • %d%% (%.1f MB)",
+            "Downloading • %d%% (%.1f MB • %.1f MB/s)",
             pct,
-            mbSoFar
+            mbSoFar,
+            speedMbPerSec
         )
         updateProgress(initialEntity.id, pct)
+        val updatedEntity = initialEntity.copy(
+            localFilePath = localPath,
+            fileSizeLabel = sizeProgressLabel,
+            progressPercent = pct,
+            downloadStatus = "DOWNLOADING"
+        )
+        setActiveEntity(initialEntity.id, updatedEntity)
+
         val totalActive = _downloadProgress.value.size
         _downloadBannerMessage.value = if (totalActive > 1) {
             String.format(
@@ -818,28 +883,33 @@ object OfflineDownloadManager {
         } else {
             String.format(
                 Locale.US,
-                "Downloading \"%s\" • %d%% (%.1f MB)",
+                "Downloading \"%s\" • %d%% (%.1f MB • %.1f MB/s)",
                 initialEntity.title,
                 pct,
-                mbSoFar
+                mbSoFar,
+                speedMbPerSec
             )
         }
-        dao.upsertDownload(
-            initialEntity.copy(
-                localFilePath = localPath,
-                fileSizeLabel = sizeProgressLabel,
-                progressPercent = pct,
-                downloadStatus = "DOWNLOADING"
-            )
-        )
-        showDownloadNotification(
-            context = appContext,
-            itemId = initialEntity.id,
-            title = initialEntity.title,
-            progressPct = pct,
-            isCompleted = false
-        )
-        syncForegroundServiceState(appContext)
+
+        // Throttle disk & notification IPC to once per 1200ms in a non-blocking launch so network download never stalls
+        val lastPersist = lastDbPersistTimeById[initialEntity.id] ?: 0L
+        if (now - lastPersist >= 1200L || pct >= 99) {
+            lastDbPersistTimeById[initialEntity.id] = now
+            backgroundScope.launch {
+                try {
+                    dao.upsertDownload(updatedEntity)
+                } catch (_: Exception) {
+                }
+                showDownloadNotification(
+                    context = appContext,
+                    itemId = initialEntity.id,
+                    title = initialEntity.title,
+                    progressPct = pct,
+                    isCompleted = false
+                )
+                syncForegroundServiceState(appContext)
+            }
+        }
     }
 
     /**
@@ -1146,6 +1216,26 @@ object OfflineDownloadManager {
             nm.notify(notificationId, builder.build())
         } catch (_: Exception) {
         }
+    }
+
+    fun retryDownload(
+        context: Context,
+        dao: NeliMediaDao,
+        item: DownloadedItemEntity
+    ) {
+        enqueueBackgroundDownload(context, dao, item)
+    }
+
+    private fun setActiveEntity(id: String, entity: DownloadedItemEntity) {
+        val current = _activeDownloadEntities.value.toMutableMap()
+        current[id] = entity
+        _activeDownloadEntities.value = current
+    }
+
+    private fun removeActiveEntity(id: String) {
+        val current = _activeDownloadEntities.value.toMutableMap()
+        current.remove(id)
+        _activeDownloadEntities.value = current
     }
 
     private fun updateProgress(id: String, progress: Int) {
