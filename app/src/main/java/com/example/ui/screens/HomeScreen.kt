@@ -110,8 +110,10 @@ fun HomeScreen(
 
     val mediaCatalog by neliViewModel.mediaCatalog.collectAsState()
     val episodesCatalog by neliViewModel.episodesCatalog.collectAsState()
+    val catalogRotationSeed by neliViewModel.catalogRotationSeed.collectAsState()
     val liveChannels by neliViewModel.liveChannels.collectAsState()
     val isRefreshingLiveTv by neliViewModel.isRefreshingLiveTv.collectAsState()
+    val isRefreshingDiscovery by neliViewModel.isRefreshingDiscovery.collectAsState()
     val downloads by neliViewModel.downloads.collectAsState()
     val downloadedIds by neliViewModel.downloadedIds.collectAsState()
     val downloadingIds by neliViewModel.downloadingIds.collectAsState()
@@ -188,8 +190,12 @@ fun HomeScreen(
         val seriesEpisodes = remember(activeDetailMedia.id, episodesCatalog) {
             MediaContentRepository.getEpisodesForSeries(activeDetailMedia.id)
         }
-        val recommendedMedia = remember(activeDetailMedia.id, activeDetailMedia.primaryGenre, mediaCatalog) {
-            MediaContentRepository.getRelatedMedia(activeDetailMedia.id, activeDetailMedia.primaryGenre)
+        val recommendedMedia = remember(activeDetailMedia.id, activeDetailMedia.primaryGenre, mediaCatalog, catalogRotationSeed) {
+            MediaContentRepository.getRelatedMedia(
+                currentId = activeDetailMedia.id,
+                currentGenre = activeDetailMedia.primaryGenre,
+                rotationSeed = catalogRotationSeed
+            )
         }
         MediaDetailScreen(
             media = activeDetailMedia,
@@ -361,7 +367,11 @@ fun HomeScreen(
                             } else {
                                 playWithOfflineResolution(media.toPlayableChannel())
                             }
-                        }
+                        },
+                        catalogRotationSeed = catalogRotationSeed,
+                        isRefreshing = isRefreshingDiscovery,
+                        onRefreshDiscovery = { neliViewModel.refreshDiscoveryCatalog(forceNetworkSync = true) },
+                        onRotateMovies = { neliViewModel.rotateDiscoveryMovies() }
                     )
                 }
 

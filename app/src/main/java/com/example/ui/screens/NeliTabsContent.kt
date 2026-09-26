@@ -65,6 +65,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -75,6 +76,9 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -500,6 +504,7 @@ const val DISCOVERY_MADJS_BANNER_TEXT = "Furahia Movie Nzuri kutoka kwa Madjs Wa
  * - Series are displayed in their dedicated Series sections.
  * - Adults content always displays visible Poster & Thumbnail images.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DiscoveryTabContent(
     selectedFilter: String,
@@ -508,18 +513,46 @@ fun DiscoveryTabContent(
     episodesCatalog: List<EpisodeItem>,
     onMediaSelected: (MediaContent) -> Unit,
     onPlayMedia: (MediaContent) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    catalogRotationSeed: Long = 0L,
+    isRefreshing: Boolean = false,
+    onRefreshDiscovery: () -> Unit = { MediaContentRepository.rotateMovieCatalogOrder() },
+    onRotateMovies: () -> Unit = { MediaContentRepository.rotateMovieCatalogOrder() }
 ) {
     val discoverySections = listOf("All", "Movies", "Series", "Adults")
+    val liveRotationSeed by MediaContentRepository.catalogRotationSeed.collectAsState()
+    val effectiveSeed = if (catalogRotationSeed != 0L) catalogRotationSeed else liveRotationSeed
+    val pullToRefreshState = rememberPullToRefreshState()
 
-    // Strictly deduplicated movies grouped ONLY by their first genre
-    val moviesByFirstGenre = remember(mediaCatalog) {
-        MediaContentRepository.getMoviesStrictlyByFirstGenre(mediaCatalog)
+    // Automatic periodic rotation while browsing Discovery so movies feel alive and varied ("zibadilike badilike")
+    LaunchedEffect(selectedFilter) {
+        while (true) {
+            delay(45_000L)
+            onRotateMovies()
+        }
     }
 
-    val seriesList = remember(mediaCatalog) {
-        mediaCatalog.filter { it.published && it.isSeries && !it.isAdultContent }
+    // Rotating spotlight mix (Studio Admin new additions + rotated catalog picks)
+    val rotatingSpotlightMovies = remember(mediaCatalog, effectiveSeed) {
+        MediaContentRepository.getRotatingSpotlightMovies(
+            catalog = mediaCatalog,
+            rotationSeed = effectiveSeed,
+            limit = 12
+        )
+    }
+
+    // Strictly deduplicated movies grouped ONLY by their first genre, rotated dynamically by effectiveSeed
+    val moviesByFirstGenre = remember(mediaCatalog, effectiveSeed) {
+        MediaContentRepository.getMoviesStrictlyByFirstGenre(
+            catalog = mediaCatalog,
+            rotationSeed = effectiveSeed
+        )
+    }
+
+    val seriesList = remember(mediaCatalog, effectiveSeed) {
+        val rawSeries = mediaCatalog.filter { it.published && it.isSeries && !it.isAdultContent }
             .distinctBy { it.id }
+        MediaContentRepository.rotateMediaListForSeed(rawSeries, effectiveSeed, "discovery_series")
     }
 
     val adultList = remember(mediaCatalog) {
@@ -539,58 +572,165 @@ fun DiscoveryTabContent(
         )
     }
 
-    LazyColumn(
+    PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = onRefreshDiscovery,
+        state = pullToRefreshState,
+        indicator = {
+            PullToRefreshDefaults.Indicator(
+                state = pullToRefreshState,
+                isRefreshing = isRefreshing,
+                containerColor = NeliSurface,
+                color = NeliMagenta,
+                modifier = Modifier.align(Alignment.TopCenter)
+            )
+        },
         modifier = modifier
             .fillMaxSize()
-            .testTag("discovery_tab_screen"),
-        contentPadding = PaddingValues(bottom = 32.dp)
+            .testTag("discovery_pull_to_refresh_box")
     ) {
-        // 1. YouTube-style Top Filter Bar (All | Movies | Series | Adults)
-        item {
-            LazyRow(
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("discovery_filter_chips")
-            ) {
-                items(discoverySections) { section ->
-                    val isSelected = section.equals(selectedFilter, ignoreCase = true)
-                    val badgeColor = if (section == "Adults") Color(0xFFEF4444) else NeliTextPrimary
-                    val textColor = if (isSelected) {
-                        if (section == "Adults") Color.White else NeliSurface
-                    } else {
-                        NeliTextPrimary
-                    }
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(if (isSelected) badgeColor else NeliSurfaceVariant)
-                            .clickable { onFilterSelected(section) }
-                            .padding(horizontal = 14.dp, vertical = 7.dp)
-                            .testTag("discovery_chip_${section.lowercase()}")
-                    ) {
-                        val countLabel = when (section) {
-                            "Movies" -> "Movies"
-                            "Series" -> "Series"
-                            "Adults" -> "Adults 18+"
-                            else -> "All"
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .testTag("discovery_tab_screen"),
+            contentPadding = PaddingValues(bottom = 32.dp)
+        ) {
+            // 1. YouTube-style Top Filter Bar (All | Movies | Series | Adults)
+            item {
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("discovery_filter_chips")
+                ) {
+                    items(discoverySections) { section ->
+                        val isSelected = section.equals(selectedFilter, ignoreCase = true)
+                        val badgeColor = if (section == "Adults") Color(0xFFEF4444) else NeliTextPrimary
+                        val textColor = if (isSelected) {
+                            if (section == "Adults") Color.White else NeliSurface
+                        } else {
+                            NeliTextPrimary
                         }
-                        Text(
-                            text = countLabel,
-                            color = textColor,
-                            fontSize = 13.sp,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                        )
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (isSelected) badgeColor else NeliSurfaceVariant)
+                                .clickable {
+                                    onFilterSelected(section)
+                                    onRotateMovies()
+                                }
+                                .padding(horizontal = 14.dp, vertical = 7.dp)
+                                .testTag("discovery_chip_${section.lowercase()}")
+                        ) {
+                            val countLabel = when (section) {
+                                "Movies" -> "Movies"
+                                "Series" -> "Series"
+                                "Adults" -> "Adults 18+"
+                                else -> "All"
+                            }
+                            Text(
+                                text = countLabel,
+                                color = textColor,
+                                fontSize = 13.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                            )
+                        }
                     }
                 }
             }
-        }
 
-        // 2. Static Discovery Banner ("Furahia Movie Nzuri kutoka kwa Madjs Wazuri") — replaces top slider
-        item {
-            DiscoveryMadjsBanner()
-        }
+            // 2. Discovery Banner ("Furahia Movie Nzuri kutoka kwa Madjs Wazuri") with quick "Badilisha" (Shuffle/Rotate) button
+            item {
+                DiscoveryMadjsBanner(
+                    totalMovieCount = rotatingSpotlightMovies.size,
+                    onRotateClick = onRefreshDiscovery
+                )
+            }
+
+            // 2b. Rotating Spotlight Mix ("Filamu Zinazobadilika • Mpya & Bora") so users always see fresh Studio Admin & catalog movies
+            if ((selectedFilter.equals("All", true) || selectedFilter.equals("Movies", true)) && rotatingSpotlightMovies.size > 1) {
+                item(key = "discovery_rotating_spotlight_section") {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp)
+                            .testTag("discovery_rotating_spotlight_row")
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(NeliMagenta)
+                                        .padding(horizontal = 7.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = "MPYA & ZINAZOBADILIKA",
+                                        color = Color.White,
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.ExtraBold
+                                    )
+                                }
+                                Text(
+                                    text = "Chaguo la Sasa",
+                                    color = NeliTextPrimary,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+
+                            Row(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(NeliSurfaceVariant)
+                                    .clickable { onRotateMovies() }
+                                    .padding(horizontal = 10.dp, vertical = 4.dp)
+                                    .testTag("spotlight_shuffle_button"),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Refresh,
+                                    contentDescription = "Badilisha Movies",
+                                    tint = NeliGenreCyan,
+                                    modifier = Modifier.size(13.dp)
+                                )
+                                Text(
+                                    text = "Badilisha",
+                                    color = NeliGenreCyan,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            items(
+                                items = rotatingSpotlightMovies,
+                                key = { "spotlight_${it.id}" }
+                            ) { movie ->
+                                MediaPosterCard(
+                                    media = movie,
+                                    onClick = { onMediaSelected(movie) }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
 
         // 3. MOVIES SECTION (Grouped by First Genre) + Banner after a content genre section
         if (selectedFilter.equals("All", true) || selectedFilter.equals("Movies", true)) {
@@ -842,11 +982,15 @@ fun DiscoveryTabContent(
                 }
             }
         }
+        }
     }
 }
 
 @Composable
-private fun DiscoveryMadjsBanner() {
+private fun DiscoveryMadjsBanner(
+    totalMovieCount: Int = 0,
+    onRotateClick: () -> Unit = {}
+) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -896,11 +1040,44 @@ private fun DiscoveryMadjsBanner() {
                     fontWeight = FontWeight.ExtraBold
                 )
                 Text(
-                    text = "Sinema na Series zilizotafsiriwa kwa Kiswahili • HD",
+                    text = if (totalMovieCount > 0) {
+                        "Sinema na Series zilizotafsiriwa kwa Kiswahili • HD"
+                    } else {
+                        "Sinema na Series zilizotafsiriwa kwa Kiswahili • HD"
+                    },
                     color = NeliGenreCyan,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Medium
                 )
+            }
+
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Color(0x33A855F7))
+                    .border(1.dp, Color(0x66A855F7), RoundedCornerShape(10.dp))
+                    .clickable { onRotateClick() }
+                    .padding(horizontal = 10.dp, vertical = 8.dp)
+                    .testTag("discovery_rotate_movies_button"),
+                contentAlignment = Alignment.Center
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = "Badilisha Movies",
+                        tint = Color.White,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Text(
+                        text = "Badilisha",
+                        color = Color.White,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                }
             }
         }
     }
@@ -967,16 +1144,22 @@ fun SearchTabContent(
         }
     }
 
-    val filteredMedia = remember(searchQuery, selectedCategory, mediaList) {
+    val rotationSeed by MediaContentRepository.catalogRotationSeed.collectAsState()
+    val filteredMedia = remember(searchQuery, selectedCategory, mediaList, rotationSeed) {
         if (selectedCategory.equals("Live TV", true)) {
             emptyList()
         } else {
-            mediaList.filter { item ->
+            val matched = mediaList.filter { item ->
                 MediaContentRepository.matchesMediaSearch(
                     item = item,
                     searchQuery = searchQuery,
                     selectedCategory = selectedCategory
                 )
+            }
+            if (searchQuery.isBlank()) {
+                MediaContentRepository.rotateMediaListForSeed(matched, rotationSeed, "search_browse_$selectedCategory")
+            } else {
+                matched
             }
         }
     }
@@ -1204,8 +1387,10 @@ fun DownloadTabContent(
     onDeleteDownload: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val downloadableCatalog = remember(mediaCatalog, downloadedIds) {
-        mediaCatalog.filter { it.published && it.downloadEnabled }
+    val rotationSeed by MediaContentRepository.catalogRotationSeed.collectAsState()
+    val downloadableCatalog = remember(mediaCatalog, downloadedIds, rotationSeed) {
+        val raw = mediaCatalog.filter { it.published && it.downloadEnabled && !it.isAdultContent }
+        MediaContentRepository.rotateMediaListForSeed(raw, rotationSeed, "downloadable_catalog")
     }
 
     LazyColumn(

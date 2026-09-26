@@ -50,6 +50,7 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
 
     val mediaCatalog: StateFlow<List<MediaContent>> = MediaContentRepository.mediaCatalog
     val episodesCatalog: StateFlow<List<EpisodeItem>> = MediaContentRepository.episodesCatalog
+    val catalogRotationSeed: StateFlow<Long> = MediaContentRepository.catalogRotationSeed
     val liveChannels: StateFlow<List<LiveChannel>> = ChannelRepository.liveChannelsFlow
     val firebaseSyncStatus: StateFlow<String> = MediaContentRepository.firebaseSyncStatus
     val downloadProgress: StateFlow<Map<String, Int>> = OfflineDownloadManager.downloadProgress
@@ -70,6 +71,9 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _isRefreshingLiveTv = MutableStateFlow(false)
     val isRefreshingLiveTv: StateFlow<Boolean> = _isRefreshingLiveTv.asStateFlow()
+
+    private val _isRefreshingDiscovery = MutableStateFlow(false)
+    val isRefreshingDiscovery: StateFlow<Boolean> = _isRefreshingDiscovery.asStateFlow()
 
     val downloads: StateFlow<List<DownloadedItemEntity>> = combine(
         dao.getAllDownloads(),
@@ -325,6 +329,10 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
     fun selectTab(tab: BottomNavTab) {
         _selectedMediaId.value = null
         _selectedTab.value = tab
+        if (tab == BottomNavTab.DISCOVERY) {
+            MediaContentRepository.rotateMovieCatalogOrder()
+            refreshDiscoveryCatalog(forceNetworkSync = false)
+        }
     }
 
     fun openMediaDetails(mediaId: String?) {
@@ -338,6 +346,7 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
     fun navigateBackFromMediaDetails() {
         _selectedMediaId.value = null
         _selectedTab.value = BottomNavTab.DISCOVERY
+        MediaContentRepository.rotateMovieCatalogOrder()
     }
 
     /**
@@ -680,13 +689,66 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun refreshCatalog() {
+        MediaContentRepository.rotateMovieCatalogOrder()
         viewModelScope.launch {
             val apiKey = AuthRepository.resolveApiKey(appContext)
             MediaContentRepository.syncFromFirebaseEndpoint(
                 databaseUrl = MediaContentRepository.DEFAULT_DATABASE_URL,
                 apiKey = apiKey,
-                projectId = MediaContentRepository.DEFAULT_PROJECT_ID
+                projectId = MediaContentRepository.DEFAULT_PROJECT_ID,
+                forceRefresh = true
             )
+            com.example.widget.NeliHomeWidgetProvider.updateAllWidgets(appContext)
+        }
+    }
+
+    /**
+     * Immediately shuffles/rotates all movie shelves and spotlight picks on the Discovery page.
+     */
+    fun rotateDiscoveryMovies() {
+        MediaContentRepository.rotateMovieCatalogOrder()
+    }
+
+    /**
+     * Pull-to-refresh / live Studio Admin sync handler for the Discovery (Movies & Series) tab.
+     * Immediately rotates the movie shelves so the UI feels alive and responsive, then fetches
+     * any newly added Studio Admin movies from Cloud Firestore & Realtime Database.
+     */
+    fun refreshDiscoveryCatalog(forceNetworkSync: Boolean = true) {
+        MediaContentRepository.rotateMovieCatalogOrder()
+        if (!forceNetworkSync) {
+            viewModelScope.launch(Dispatchers.IO) {
+                try {
+                    val apiKey = AuthRepository.resolveApiKey(appContext)
+                    MediaContentRepository.syncFromFirebaseEndpoint(
+                        databaseUrl = MediaContentRepository.DEFAULT_DATABASE_URL,
+                        apiKey = apiKey,
+                        projectId = MediaContentRepository.DEFAULT_PROJECT_ID,
+                        forceRefresh = false
+                    )
+                } catch (_: Exception) {
+                }
+            }
+            return
+        }
+        if (_isRefreshingDiscovery.value) return
+        _isRefreshingDiscovery.value = true
+        viewModelScope.launch {
+            try {
+                val apiKey = AuthRepository.resolveApiKey(appContext)
+                MediaContentRepository.syncFromFirebaseEndpoint(
+                    databaseUrl = MediaContentRepository.DEFAULT_DATABASE_URL,
+                    apiKey = apiKey,
+                    projectId = MediaContentRepository.DEFAULT_PROJECT_ID,
+                    forceRefresh = true
+                )
+                MediaContentRepository.rotateMovieCatalogOrder()
+                com.example.widget.NeliHomeWidgetProvider.updateAllWidgets(appContext)
+                delay(300)
+            } catch (_: Exception) {
+            } finally {
+                _isRefreshingDiscovery.value = false
+            }
         }
     }
 

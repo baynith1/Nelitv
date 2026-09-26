@@ -382,6 +382,180 @@ object MediaContentRepository {
             runtimeMinutes = 130
         ),
         MediaContent(
+            id = "mov_2026_bongo_strike",
+            title = "Strike Force: Indian Ocean",
+            originalTitle = "Strike Force",
+            originalLanguage = "en",
+            type = "movie",
+            posterUrl = "https://image.tmdb.org/t/p/w500/1QdXdRYfktUSONkl1oD5gc6Be0s.jpg",
+            backdropUrl = "https://image.tmdb.org/t/p/original/2meX1nMdScFOoV4370rqHWKmXhY.jpg",
+            streamUrl = "https://vz-1bb50f2e-8ea.b-cdn.net/9d14eb59-d3a0-4b01-9010-ba9bc5492865/play_480p.mp4",
+            streamFormat = "mp4",
+            genre = "Action",
+            subGenres = listOf("Action", "Popular", "Movies", "Swahili"),
+            duration = "2h 08m",
+            rating = "8.8",
+            director = "Action Cinema",
+            screenplay = "Swahili Narrated",
+            production = "International Cinema",
+            synopsis = "A special maritime task force intercepts an armored cargo vessel off the East African coast in an explosive Swahili-narrated action blockbuster.",
+            isTrending = true,
+            isComingSoon = false,
+            isKids = false,
+            releaseYear = "2026",
+            narrated = true,
+            narrationLanguage = "Swahili",
+            downloadEnabled = true,
+            featured = true,
+            published = true,
+            runtimeMinutes = 128
+        ),
+        MediaContent(
+            id = "mov_2026_rogue_sniper",
+            title = "Zero Hour: Final Target",
+            originalTitle = "Zero Hour",
+            originalLanguage = "en",
+            type = "movie",
+            posterUrl = "https://image.tmdb.org/t/p/w500/okJESjE3wqN4qDNFOM8TecUVfHX.jpg",
+            backdropUrl = "https://image.tmdb.org/t/p/original/vuq5EfA9ED9vnxQgEV4zWEAFmKJ.jpg",
+            streamUrl = "https://vz-1bb50f2e-8ea.b-cdn.net/9d14eb59-d3a0-4b01-9010-ba9bc5492865/play_480p.mp4",
+            streamFormat = "mp4",
+            genre = "Action",
+            subGenres = listOf("Action", "Thriller", "Movies", "Swahili"),
+            duration = "1h 56m",
+            rating = "8.6",
+            director = "Cinema Studios",
+            screenplay = "Swahili Narrated",
+            production = "Action Studios",
+            synopsis = "Framed for a high-profile mission gone wrong, a master marksman goes rogue to clear his name and expose the mastermind behind the conspiracy.",
+            isTrending = true,
+            isComingSoon = false,
+            isKids = false,
+            releaseYear = "2026",
+            narrated = true,
+            narrationLanguage = "Swahili",
+            downloadEnabled = true,
+            featured = true,
+            published = true,
+            runtimeMinutes = 116
+        ),
+        MediaContent(
+            id = "mov_2026_silent_witness",
+            title = "Nightfall Conspiracy",
+            originalTitle = "Nightfall Conspiracy",
+            originalLanguage = "en",
+            type = "movie",
+            posterUrl = "https://image.tmdb.org/t/p/w500/oSk0j4yeDOqXNHIjYehgSJ2WujM.jpg",
+            backdropUrl = "https://image.tmdb.org/t/p/original/2meX1nMdScFOoV4370rqHWKmXhY.jpg",
+            streamUrl = "https://vz-1bb50f2e-8ea.b-cdn.net/9d14eb59-d3a0-4b01-9010-ba9bc5492865/play_480p.mp4",
+            streamFormat = "mp4",
+            genre = "Thriller",
+            subGenres = listOf("Thriller", "Mystery", "Movies", "Swahili"),
+            duration = "2h 02m",
+            rating = "8.5",
+            director = "Suspense Studios",
+            screenplay = "Swahili Narrated",
+            production = "International",
+            synopsis = "When an encrypted drive vanishes during a citywide blackout, a forensic analyst is hunted across the night by operatives who will stop at nothing.",
+            isTrending = true,
+            isComingSoon = false,
+            isKids = false,
+            releaseYear = "2026",
+            narrated = true,
+            narrationLanguage = "Swahili",
+            downloadEnabled = true,
+            featured = true,
+            published = true,
+            runtimeMinutes = 122
+        ),
+        MediaContent(
+            id = "mov_2026_cartel_gold",
+            title = "Syndicate of Gold",
+            originalTitle = "Syndicate of Gold",
+            originalLanguage = "en",
+            type = "movie",
+            posterUrl = "https://image.tmdb.org/t/p/w500/3sUdP791SMnEQuJNIpRCT49pkxe.jpg",
+            backdropUrl = "https://image.tmdb.org/t/p/original/vuq5EfA9ED9vnxQgEV4zWEAFmKJ.jpg",
+            streamUrl = "https://vz-1bb50f2e-8ea.b-cdn.net/9d14eb59-d3a0-4b01-9010-ba9bc5492865/play_480p.mp4",
+            streamFormat = "mp4",
+            genre = "Crime",
+            subGenres = listOf("Crime", "Action", "Movies", "Swahili"),
+            duration = "2h 06m",
+            rating = "8.7",
+            director = "Crime Cinema",
+            screenplay = "Swahili Narrated",
+            production = "International Cinema",
+            synopsis = "Undercover detectives infiltrate an international gold-smuggling cartel, risking everything when their cover is threatened from inside the department.",
+            isTrending = true,
+            isComingSoon = false,
+            isKids = false,
+            releaseYear = "2026",
+            narrated = true,
+            narrationLanguage = "Swahili",
+            downloadEnabled = true,
+            featured = true,
+            published = true,
+            runtimeMinutes = 126
+        ),
+        MediaContent(
+            id = "mov_2026_cyber_nexus",
+            title = "Nexus 2099: Uprising",
+            originalTitle = "Nexus 2099",
+            originalLanguage = "en",
+            type = "movie",
+            posterUrl = "https://image.tmdb.org/t/p/w500/yEB6bMYgNu6qEQWoBvlkg6Ea5P.jpg",
+            backdropUrl = "https://image.tmdb.org/t/p/original/2meX1nMdScFOoV4370rqHWKmXhY.jpg",
+            streamUrl = "https://vz-1bb50f2e-8ea.b-cdn.net/9d14eb59-d3a0-4b01-9010-ba9bc5492865/play_480p.mp4",
+            streamFormat = "mp4",
+            genre = "Sci-Fi",
+            subGenres = listOf("Sci-Fi", "Action", "Movies", "Swahili"),
+            duration = "2h 12m",
+            rating = "8.6",
+            director = "Future Cinema",
+            screenplay = "Swahili Narrated",
+            production = "Sci-Fi Studios",
+            synopsis = "In a neon-lit future metropolis, a rogue combat pilot teams up with a rebel engineer to shut down an orbital defense grid before launch.",
+            isTrending = true,
+            isComingSoon = false,
+            isKids = false,
+            releaseYear = "2026",
+            narrated = true,
+            narrationLanguage = "Swahili",
+            downloadEnabled = true,
+            featured = true,
+            published = true,
+            runtimeMinutes = 132
+        ),
+        MediaContent(
+            id = "mov_2026_dynasty_crown",
+            title = "Blood & Crown",
+            originalTitle = "Blood & Crown",
+            originalLanguage = "en",
+            type = "movie",
+            posterUrl = "https://image.tmdb.org/t/p/w500/ui5Ujx256vAI5JbXzeTGVwMkVhs.jpg",
+            backdropUrl = "https://image.tmdb.org/t/p/original/2meX1nMdScFOoV4370rqHWKmXhY.jpg",
+            streamUrl = "https://vz-1bb50f2e-8ea.b-cdn.net/9d14eb59-d3a0-4b01-9010-ba9bc5492865/play_480p.mp4",
+            streamFormat = "mp4",
+            genre = "Drama",
+            subGenres = listOf("Drama", "Crime", "Movies", "Swahili"),
+            duration = "2h 05m",
+            rating = "8.5",
+            director = "Drama Studios",
+            screenplay = "Swahili Narrated",
+            production = "International",
+            synopsis = "A powerful family empire faces betrayal from within when the heir uncovers the truth behind his brother's sudden disappearance.",
+            isTrending = true,
+            isComingSoon = false,
+            isKids = false,
+            releaseYear = "2026",
+            narrated = true,
+            narrationLanguage = "Swahili",
+            downloadEnabled = true,
+            featured = true,
+            published = true,
+            runtimeMinutes = 125
+        ),
+        MediaContent(
             id = "adult_midnight_desire_hd",
             title = "Midnight Velvet (18+)",
             originalTitle = "Midnight Velvet",
@@ -470,6 +644,10 @@ object MediaContentRepository {
         )
     )
 
+    private val initialProductionIds: Set<String> by lazy {
+        initialProductionCatalog.map { it.id }.toSet()
+    }
+
     private val _mediaCatalog = MutableStateFlow<List<MediaContent>>(initialProductionCatalog)
     val mediaCatalog: StateFlow<List<MediaContent>> = _mediaCatalog.asStateFlow()
 
@@ -480,15 +658,103 @@ object MediaContentRepository {
     val firebaseSyncStatus: StateFlow<String> = _firebaseSyncStatus.asStateFlow()
 
     /**
-     * Returns the top [limit] New 2026 Movies from the catalog, strictly excluding any adult content (`!it.isAdultContent`).
+     * Reactive rotation seed that updates automatically when Studio Admin movies sync, when the user
+     * opens/refreshes Discovery, or on periodic rotation so movies dynamically change order ("zibadilike badilike")
+     * instead of staying in one static sequence.
      */
-    fun getLatest2026NonAdultMovies(limit: Int = 3): List<MediaContent> {
+    private val _catalogRotationSeed = MutableStateFlow(System.currentTimeMillis() xor 0x5DEECE66DL)
+    val catalogRotationSeed: StateFlow<Long> = _catalogRotationSeed.asStateFlow()
+
+    /**
+     * Advances the catalog rotation seed to a guaranteed new value so all movie shelves, spotlight rows,
+     * and recommendations immediately shuffle/rotate to showcase different movies.
+     */
+    fun rotateMovieCatalogOrder(explicitSeed: Long? = null): Long {
+        val current = _catalogRotationSeed.value
+        val candidate = explicitSeed ?: (System.nanoTime() xor (current * 6364136223846793005L + 1442695040888963407L))
+        val nextSeed = if (candidate == current) candidate + 1009L else candidate
+        _catalogRotationSeed.value = nextSeed
+        return nextSeed
+    }
+
+    /**
+     * Deterministically rotates and shuffles a list of [MediaContent] for a given [seed] and [salt].
+     * Guarantees that when there are 2 or more movies, changing [seed] changes the leading movie
+     * so users always see a dynamic variety of movies across visits and refreshes.
+     */
+    fun rotateMediaListForSeed(
+        items: List<MediaContent>,
+        seed: Long = _catalogRotationSeed.value,
+        salt: String = ""
+    ): List<MediaContent> {
+        if (items.size <= 1) return items
+        val combinedHash = seed xor (salt.hashCode().toLong() * 2654435761L)
+        val rng = Random(combinedHash)
+        val shuffled = items.shuffled(rng)
+        // Also apply a cyclic shift based on positive seed steps so even 2-item or 3-item shelves visibly swap their first item
+        val shift = (( combinedHash.ushr(1) % items.size.toLong() ).toInt() + items.size) % items.size
+        if (shift == 0 && shuffled.first().id == items.first().id && items.size >= 2) {
+            return shuffled.drop(1) + shuffled.first()
+        }
+        return if (shift > 0) {
+            shuffled.drop(shift) + shuffled.take(shift)
+        } else {
+            shuffled
+        }
+    }
+
+    /**
+     * Returns a dynamically rotating spotlight mix of non-adult published movies (prioritizing Studio Admin
+     * movies and rotating across all genres) so users immediately see fresh, changing movies on Discovery.
+     */
+    fun getRotatingSpotlightMovies(
+        catalog: List<MediaContent> = _mediaCatalog.value,
+        rotationSeed: Long = _catalogRotationSeed.value,
+        limit: Int = 12
+    ): List<MediaContent> {
+        val allMovies = catalog
+            .filter { it.published && it.isMovie && !it.isAdultContent }
+            .distinctBy { it.id }
+        if (allMovies.isEmpty()) return emptyList()
+
+        val studioAdminMovies = allMovies.filter { it.id !in initialProductionIds || it.createdAtEpochMs > 0L }
+        val baseMovies = allMovies.filter { it.id in initialProductionIds && it.createdAtEpochMs <= 0L }
+
+        val rotatedStudio = rotateMediaListForSeed(studioAdminMovies, rotationSeed, "studio_admin_spotlight")
+        val rotatedBase = rotateMediaListForSeed(baseMovies, rotationSeed, "base_catalog_spotlight")
+
+        // Interleave Studio Admin movies and rotated catalog movies so new uploads and diverse genres both shine
+        val combined = mutableListOf<MediaContent>()
+        val maxLen = maxOf(rotatedStudio.size, rotatedBase.size)
+        for (i in 0 until maxLen) {
+            rotatedStudio.getOrNull(i)?.let { combined.add(it) }
+            rotatedBase.getOrNull(i)?.let { combined.add(it) }
+        }
+        return rotateMediaListForSeed(combined.distinctBy { it.id }, rotationSeed, "spotlight_final").take(limit)
+    }
+
+    /**
+     * Returns the top [limit] New 2026 Movies from the catalog, strictly excluding any adult content (`!it.isAdultContent`),
+     * and dynamically rotating among available 2026 movies using [rotationSeed].
+     */
+    fun getLatest2026NonAdultMovies(
+        limit: Int = 3,
+        rotationSeed: Long = _catalogRotationSeed.value
+    ): List<MediaContent> {
         val nonAdultMovies = _mediaCatalog.value.filter {
             it.published && it.isMovie && !it.isAdultContent
-        }
-        val movies2026 = nonAdultMovies.filter { it.releaseYear.trim() == "2026" }
-        val remaining = nonAdultMovies.filter { it.releaseYear.trim() != "2026" }
-            .sortedByDescending { it.releaseYear }
+        }.distinctBy { it.id }
+        val movies2026 = rotateMediaListForSeed(
+            nonAdultMovies.filter { it.releaseYear.trim() == "2026" },
+            rotationSeed,
+            "movies_2026"
+        )
+        val remaining = rotateMediaListForSeed(
+            nonAdultMovies.filter { it.releaseYear.trim() != "2026" }
+                .sortedByDescending { it.releaseYear },
+            rotationSeed,
+            "movies_other_years"
+        )
         return (movies2026 + remaining).take(limit)
     }
 
@@ -827,15 +1093,18 @@ object MediaContentRepository {
         val q = searchQuery.trim()
         val isAdultQuery = isAdultKeywordOrQuery(q)
 
-        val matchesQuery = q.isEmpty() ||
-            item.title.contains(q, ignoreCase = true) ||
-            item.originalTitle.contains(q, ignoreCase = true) ||
-            item.primaryGenre.contains(q, ignoreCase = true) ||
-            item.genre.contains(q, ignoreCase = true) ||
-            item.subGenres.any { it.contains(q, ignoreCase = true) } ||
-            item.synopsis.contains(q, ignoreCase = true) ||
-            item.narrationLanguage.contains(q, ignoreCase = true) ||
-            (isAdultQuery && item.isAdultContent)
+        val matchesQuery = if (isAdultQuery) {
+            item.isAdultContent
+        } else {
+            q.isEmpty() ||
+                item.title.contains(q, ignoreCase = true) ||
+                item.originalTitle.contains(q, ignoreCase = true) ||
+                item.primaryGenre.contains(q, ignoreCase = true) ||
+                item.genre.contains(q, ignoreCase = true) ||
+                item.subGenres.any { it.contains(q, ignoreCase = true) } ||
+                item.synopsis.contains(q, ignoreCase = true) ||
+                item.narrationLanguage.contains(q, ignoreCase = true)
+        }
 
         val matchesCat = when {
             selectedCategory.equals("All", ignoreCase = true) -> true
@@ -918,19 +1187,23 @@ object MediaContentRepository {
     }
 
     /**
-     * Alias for [getMoviesGroupedByPrimaryGenreOnly] used by Discovery tab to group movies strictly by their 1st genre only.
+     * Alias for [getMoviesGroupedByPrimaryGenreOnly] used by Discovery tab to group movies strictly by their 1st genre only,
+     * while dynamically rotating movie order within each genre and rotating genre shelves based on [rotationSeed].
      */
     fun getMoviesStrictlyByFirstGenre(
-        catalog: List<MediaContent> = _mediaCatalog.value
-    ): List<Pair<String, List<MediaContent>>> = getMoviesGroupedByPrimaryGenreOnly(catalog)
+        catalog: List<MediaContent> = _mediaCatalog.value,
+        rotationSeed: Long = _catalogRotationSeed.value
+    ): List<Pair<String, List<MediaContent>>> = getMoviesGroupedByPrimaryGenreOnly(catalog, rotationSeed)
 
     /**
      * Groups Movies strictly by their FIRST genre only (`extractPrimaryGenre`) so that each movie
      * appears in AT MOST ONE genre row and is NEVER duplicated across multiple genres.
-     * Example: If Movie A has genres ["Action", "Animation", "Drama"], it is placed ONLY in "Action".
+     * Uses [rotationSeed] to dynamically rotate the order of movies inside each genre shelf AND
+     * rotate the genre shelves themselves so movies never sit in a static order.
      */
     fun getMoviesGroupedByPrimaryGenreOnly(
-        catalog: List<MediaContent> = _mediaCatalog.value
+        catalog: List<MediaContent> = _mediaCatalog.value,
+        rotationSeed: Long = _catalogRotationSeed.value
     ): List<Pair<String, List<MediaContent>>> {
         val publishedMovies = catalog.filter { it.published && it.isMovie && !it.isAdult }
         if (publishedMovies.isEmpty()) return emptyList()
@@ -970,8 +1243,18 @@ object MediaContentRepository {
             }.thenByDescending { it.value.size }
         )
 
-        return sortedGenres.mapNotNull { (genreName, items) ->
-            if (items.isNotEmpty()) genreName to items else null
+        val baseRows = sortedGenres.mapNotNull { (genreName, items) ->
+            if (items.isNotEmpty()) {
+                genreName to rotateMediaListForSeed(items, rotationSeed, "genre_row_$genreName")
+            } else null
+        }
+
+        if (baseRows.size <= 1) return baseRows
+        val shelfShift = ((rotationSeed.ushr(3) % baseRows.size.toLong()).toInt() + baseRows.size) % baseRows.size
+        return if (shelfShift > 0) {
+            baseRows.drop(shelfShift) + baseRows.take(shelfShift)
+        } else {
+            baseRows
         }
     }
 
@@ -1028,21 +1311,31 @@ object MediaContentRepository {
     fun getBestForKids(): List<MediaContent> =
         _mediaCatalog.value.filter { it.isKids }.ifEmpty { _mediaCatalog.value.takeLast(3) }
 
-    fun getRelatedMedia(currentId: String, currentGenre: String = ""): List<MediaContent> {
+    fun getRelatedMedia(
+        currentId: String,
+        currentGenre: String = "",
+        rotationSeed: Long = _catalogRotationSeed.value
+    ): List<MediaContent> {
         val currentItem = _mediaCatalog.value.find { it.id == currentId }
         val targetGenre = currentGenre.ifBlank { currentItem?.genre.orEmpty() }
-        val candidates = _mediaCatalog.value.filter { it.published && it.id != currentId }
-        return candidates.sortedWith(
-            compareByDescending<MediaContent> { item ->
+        val candidates = _mediaCatalog.value.filter {
+            it.published && it.id != currentId && it.isAdultContent == (currentItem?.isAdultContent == true)
+        }
+        val sameGenre = rotateMediaListForSeed(
+            candidates.filter { item ->
                 targetGenre.isNotBlank() &&
                     (item.genre.equals(targetGenre, ignoreCase = true) ||
                         item.subGenres.any { it.equals(targetGenre, ignoreCase = true) })
-            }.thenByDescending { item ->
-                currentItem != null && item.narrated == currentItem.narrated
-            }.thenByDescending { item ->
-                item.featured || item.isTrending
-            }
-        ).take(10)
+            },
+            rotationSeed,
+            "related_same_$currentId"
+        )
+        val otherGenres = rotateMediaListForSeed(
+            candidates.filter { item -> sameGenre.none { it.id == item.id } },
+            rotationSeed,
+            "related_other_$currentId"
+        )
+        return (sameGenre + otherGenres).take(10)
     }
 
     // Production mode: no fake downloads pre-seeded
@@ -1050,12 +1343,15 @@ object MediaContentRepository {
 
     /**
      * Syncs both Cloud (`movies`, `series`, `episodes`, `tvChannels`) and
-     * Realtime Database (`live_streams`, `channels`) in parallel for `neliplay`.
+     * Realtime Database (`live_streams`, `channels`, `movies`, `series`) in parallel for `neliplay`.
+     * When [forceRefresh] is true, bypasses the edge response cache so newly added Studio Admin
+     * movies appear immediately, and rotates the catalog order.
      */
     suspend fun syncFromFirebaseEndpoint(
         databaseUrl: String = DEFAULT_DATABASE_URL,
         apiKey: String = "",
-        projectId: String = DEFAULT_PROJECT_ID
+        projectId: String = DEFAULT_PROJECT_ID,
+        forceRefresh: Boolean = false
     ): Result<Int> = withContext(Dispatchers.IO) {
         catalogSyncMutex.withLock {
             val cleanUrl = databaseUrl.trim().removeSuffix("/").ifEmpty { DEFAULT_DATABASE_URL }
@@ -1071,13 +1367,13 @@ object MediaContentRepository {
                 coroutineScope {
                     val firestoreDeferred = async {
                         if (cleanProjectId.isNotEmpty()) {
-                            syncFromCloudFirestore(cleanProjectId, cleanKey).getOrDefault(0)
+                            syncFromCloudFirestore(cleanProjectId, cleanKey, forceRefresh).getOrDefault(0)
                         } else 0
                     }
 
                     val rtdbDeferred = async {
                         if (cleanUrl.contains(".firebaseio.com") || cleanUrl.endsWith(".json")) {
-                            syncFromRealtimeDatabase(cleanUrl, cleanKey).getOrDefault(0)
+                            syncFromRealtimeDatabase(cleanUrl, cleanKey, forceRefresh).getOrDefault(0)
                         } else 0
                     }
 
@@ -1086,6 +1382,9 @@ object MediaContentRepository {
 
                 // Enrich top featured movies/series with real TMDB casters & posters
                 enrichTopCatalogItemsWithTmdb()
+
+                // Rotate catalog order whenever a sync completes so new Studio Admin movies & existing movies stay dynamic
+                rotateMovieCatalogOrder()
 
                 _firebaseSyncStatus.value =
                     "Online • ${_mediaCatalog.value.size} Titles & ${ChannelRepository.liveChannelsFlow.value.size} Live Channels (10M Scale Ready)"
@@ -1122,35 +1421,100 @@ object MediaContentRepository {
         return ""
     }
 
-    private suspend fun syncFromCloudFirestore(projectId: String, apiKey: String): Result<Int> = coroutineScope {
+    /**
+     * Fetches all pages of a Firestore collection (following `nextPageToken` up to [maxPages])
+     * so when Studio Admin adds many movies, every single document is retrieved.
+     */
+    private fun fetchPaginatedFirestoreCollection(
+        baseFirestoreUrl: String,
+        collectionName: String,
+        keyParam: String,
+        forceRefresh: Boolean = false,
+        pageSize: Int = 300,
+        maxPages: Int = 4
+    ): String? {
+        val mergedDocs = JSONArray()
+        var pageToken = ""
+        var pagesFetched = 0
+
+        while (pagesFetched < maxPages) {
+            val tokenParam = if (pageToken.isNotEmpty()) "&pageToken=$pageToken" else ""
+            val url = "$baseFirestoreUrl/$collectionName?pageSize=$pageSize$keyParam$tokenParam"
+            val body = fetchUrlText(url, forceRefresh = forceRefresh) ?: break
+            try {
+                val json = JSONObject(body)
+                val docs = json.optJSONArray("documents")
+                if (docs != null) {
+                    for (i in 0 until docs.length()) {
+                        docs.optJSONObject(i)?.let { mergedDocs.put(it) }
+                    }
+                }
+                pageToken = json.optString("nextPageToken", "").trim()
+                pagesFetched++
+                if (pageToken.isEmpty()) break
+            } catch (_: Exception) {
+                break
+            }
+        }
+
+        if (mergedDocs.length() == 0) return null
+        return JSONObject().put("documents", mergedDocs).toString()
+    }
+
+    private suspend fun syncFromCloudFirestore(
+        projectId: String,
+        apiKey: String,
+        forceRefresh: Boolean = false
+    ): Result<Int> = coroutineScope {
         try {
             val baseFirestoreUrl = "https://firestore.googleapis.com/v1/projects/$projectId/databases/(default)/documents"
             val keyParam = if (apiKey.isNotEmpty()) "&key=$apiKey" else ""
 
-            val moviesDeferred = async { fetchUrlText("$baseFirestoreUrl/movies?pageSize=300$keyParam") }
-            val seriesDeferred = async { fetchUrlText("$baseFirestoreUrl/series?pageSize=200$keyParam") }
-            val adultsDeferred = async { fetchUrlText("$baseFirestoreUrl/adults?pageSize=200$keyParam") }
-            val adultSingularDeferred = async { fetchUrlText("$baseFirestoreUrl/adult?pageSize=200$keyParam") }
-            val episodesDeferred = async { fetchUrlText("$baseFirestoreUrl/episodes?pageSize=300$keyParam") }
-            val tvChannelsDeferred = async { fetchUrlText("$baseFirestoreUrl/tvChannels?pageSize=200$keyParam") }
-            val channelsDeferred = async { fetchUrlText("$baseFirestoreUrl/channels?pageSize=200$keyParam") }
+            val moviesDeferred = async {
+                fetchPaginatedFirestoreCollection(baseFirestoreUrl, "movies", keyParam, forceRefresh)
+            }
+            val studioMoviesDeferred = async {
+                fetchPaginatedFirestoreCollection(baseFirestoreUrl, "studio_movies", keyParam, forceRefresh, pageSize = 200, maxPages = 2)
+            }
+            val seriesDeferred = async {
+                fetchPaginatedFirestoreCollection(baseFirestoreUrl, "series", keyParam, forceRefresh, pageSize = 200, maxPages = 3)
+            }
+            val adultsDeferred = async {
+                fetchPaginatedFirestoreCollection(baseFirestoreUrl, "adults", keyParam, forceRefresh, pageSize = 200, maxPages = 2)
+            }
+            val adultSingularDeferred = async {
+                fetchUrlText("$baseFirestoreUrl/adult?pageSize=200$keyParam", forceRefresh)
+            }
+            val episodesDeferred = async {
+                fetchPaginatedFirestoreCollection(baseFirestoreUrl, "episodes", keyParam, forceRefresh, pageSize = 300, maxPages = 3)
+            }
+            val tvChannelsDeferred = async {
+                fetchPaginatedFirestoreCollection(baseFirestoreUrl, "tvChannels", keyParam, forceRefresh, pageSize = 200, maxPages = 2)
+            }
+            val channelsDeferred = async {
+                fetchUrlText("$baseFirestoreUrl/channels?pageSize=200$keyParam", forceRefresh)
+            }
             val azamTokenDocDeferred = async {
                 val docKeyParam = if (apiKey.isNotEmpty()) "?key=$apiKey" else ""
-                fetchUrlText("$baseFirestoreUrl/config/azam_token$docKeyParam")
+                fetchUrlText("$baseFirestoreUrl/config/azam_token$docKeyParam", forceRefresh)
             }
-            val configDeferred = async { fetchUrlText("$baseFirestoreUrl/config?pageSize=50$keyParam") }
-            val settingsDeferred = async { fetchUrlText("$baseFirestoreUrl/settings?pageSize=50$keyParam") }
+            val configDeferred = async { fetchUrlText("$baseFirestoreUrl/config?pageSize=50$keyParam", forceRefresh) }
+            val settingsDeferred = async { fetchUrlText("$baseFirestoreUrl/settings?pageSize=50$keyParam", forceRefresh) }
 
             parseFirestoreCdnTokenDocs(azamTokenDocDeferred.await())
             parseFirestoreCdnTokenDocs(configDeferred.await())
             parseFirestoreCdnTokenDocs(settingsDeferred.await())
 
+            val primaryMoviesJson = moviesDeferred.await()
+            val extraStudioMoviesJson = studioMoviesDeferred.await()
+            val combinedMoviesJson = mergeFirestoreDocumentsJson(primaryMoviesJson, extraStudioMoviesJson)
+
             val totalSynced = parseFirestoreCollections(
-                moviesJson = moviesDeferred.await(),
+                moviesJson = combinedMoviesJson,
                 seriesJson = seriesDeferred.await(),
                 episodesJson = episodesDeferred.await(),
                 tvChannelsJson = tvChannelsDeferred.await() ?: channelsDeferred.await(),
-                adultsJson = adultsDeferred.await() ?: adultSingularDeferred.await()
+                adultsJson = mergeFirestoreDocumentsJson(adultsDeferred.await(), adultSingularDeferred.await())
             )
             val extraChannelsJson = channelsDeferred.await()
             if (!extraChannelsJson.isNullOrBlank() && extraChannelsJson != tvChannelsDeferred.await()) {
@@ -1159,6 +1523,29 @@ object MediaContentRepository {
             Result.success(totalSynced)
         } catch (e: Exception) {
             Result.failure(e)
+        }
+    }
+
+    private fun mergeFirestoreDocumentsJson(primaryJson: String?, secondaryJson: String?): String? {
+        if (primaryJson.isNullOrBlank()) return secondaryJson
+        if (secondaryJson.isNullOrBlank()) return primaryJson
+        return try {
+            val outDocs = JSONArray()
+            val primaryDocs = JSONObject(primaryJson).optJSONArray("documents")
+            val secondaryDocs = JSONObject(secondaryJson).optJSONArray("documents")
+            if (primaryDocs != null) {
+                for (i in 0 until primaryDocs.length()) {
+                    primaryDocs.optJSONObject(i)?.let { outDocs.put(it) }
+                }
+            }
+            if (secondaryDocs != null) {
+                for (i in 0 until secondaryDocs.length()) {
+                    secondaryDocs.optJSONObject(i)?.let { outDocs.put(it) }
+                }
+            }
+            JSONObject().put("documents", outDocs).toString()
+        } catch (_: Exception) {
+            primaryJson
         }
     }
 
@@ -1292,7 +1679,11 @@ object MediaContentRepository {
         }
     }
 
-    private suspend fun syncFromRealtimeDatabase(cleanUrl: String, apiKey: String): Result<Int> = coroutineScope {
+    private suspend fun syncFromRealtimeDatabase(
+        cleanUrl: String,
+        apiKey: String,
+        forceRefresh: Boolean = false
+    ): Result<Int> = coroutineScope {
         try {
             val authQuery = if (apiKey.isNotBlank()) "?auth=$apiKey" else ""
             val rootEndpoint = if (cleanUrl.endsWith(".json")) {
@@ -1301,17 +1692,21 @@ object MediaContentRepository {
                 "$cleanUrl/.json$authQuery"
             }
 
-            val rootJson = fetchUrlText(rootEndpoint)
+            val rootJson = fetchUrlText(rootEndpoint, forceRefresh)
             if (!rootJson.isNullOrBlank() && rootJson.trim().startsWith("{")) {
                 val count = parseFirebaseJsonPayload(rootJson)
                 return@coroutineScope Result.success(count)
             }
 
-            // Fallback to individual public RTDB nodes (`channels`, `live_streams`, `cdn_token`, `azam_token`) per rules
-            val channelsDeferred = async { fetchUrlText("$cleanUrl/channels.json$authQuery") }
-            val liveStreamsDeferred = async { fetchUrlText("$cleanUrl/live_streams.json$authQuery") }
-            val cdnTokenDeferred = async { fetchUrlText("$cleanUrl/cdn_token.json$authQuery") }
-            val azamTokenDeferred = async { fetchUrlText("$cleanUrl/azam_token.json$authQuery") }
+            // Fallback to individual public RTDB nodes (`movies`, `series`, `episodes`, `adults`, `channels`, `live_streams`, `cdn_token`, `azam_token`)
+            val moviesDeferred = async { fetchUrlText("$cleanUrl/movies.json$authQuery", forceRefresh) }
+            val seriesDeferred = async { fetchUrlText("$cleanUrl/series.json$authQuery", forceRefresh) }
+            val episodesDeferred = async { fetchUrlText("$cleanUrl/episodes.json$authQuery", forceRefresh) }
+            val adultsDeferred = async { fetchUrlText("$cleanUrl/adults.json$authQuery", forceRefresh) }
+            val channelsDeferred = async { fetchUrlText("$cleanUrl/channels.json$authQuery", forceRefresh) }
+            val liveStreamsDeferred = async { fetchUrlText("$cleanUrl/live_streams.json$authQuery", forceRefresh) }
+            val cdnTokenDeferred = async { fetchUrlText("$cleanUrl/cdn_token.json$authQuery", forceRefresh) }
+            val azamTokenDeferred = async { fetchUrlText("$cleanUrl/azam_token.json$authQuery", forceRefresh) }
 
             cdnTokenDeferred.await()?.trim()?.takeIf { it.startsWith("{") }?.let {
                 ChannelRepository.updateCdnAuthorizationToken(it)
@@ -1321,16 +1716,18 @@ object MediaContentRepository {
             }
 
             val combinedObj = JSONObject()
-            channelsDeferred.await()?.trim()?.let { chText ->
-                if (chText.startsWith("{") || chText.startsWith("[")) {
-                    combinedObj.put("channels", if (chText.startsWith("[")) JSONArray(chText) else JSONObject(chText))
+            fun attachNodeIfJson(key: String, rawText: String?) {
+                val trimmed = rawText?.trim() ?: return
+                if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+                    combinedObj.put(key, if (trimmed.startsWith("[")) JSONArray(trimmed) else JSONObject(trimmed))
                 }
             }
-            liveStreamsDeferred.await()?.trim()?.let { lsText ->
-                if (lsText.startsWith("{") || lsText.startsWith("[")) {
-                    combinedObj.put("live_streams", if (lsText.startsWith("[")) JSONArray(lsText) else JSONObject(lsText))
-                }
-            }
+            attachNodeIfJson("movies", moviesDeferred.await())
+            attachNodeIfJson("series", seriesDeferred.await())
+            attachNodeIfJson("episodes", episodesDeferred.await())
+            attachNodeIfJson("adults", adultsDeferred.await())
+            attachNodeIfJson("channels", channelsDeferred.await())
+            attachNodeIfJson("live_streams", liveStreamsDeferred.await())
 
             if (combinedObj.length() > 0) {
                 val count = parseFirebaseJsonPayload(combinedObj.toString())
@@ -1343,10 +1740,10 @@ object MediaContentRepository {
         }
     }
 
-    private fun fetchUrlText(urlStr: String): String? {
+    private fun fetchUrlText(urlStr: String, forceRefresh: Boolean = false): String? {
         val now = System.currentTimeMillis()
         val cached = edgeResponseCache[urlStr]
-        if (cached != null && (now - cached.timestampMs) <= EDGE_CACHE_TTL_MS) {
+        if (!forceRefresh && cached != null && (now - cached.timestampMs) <= EDGE_CACHE_TTL_MS) {
             return cached.body
         }
         return try {
@@ -1355,6 +1752,11 @@ object MediaContentRepository {
                 .header("Accept", "application/json")
                 .header("Connection", "keep-alive")
                 .header("User-Agent", "Nelitv-Android/1.0.0 (by Neliplay; 10M-Scale-Edge)")
+                .apply {
+                    if (forceRefresh) {
+                        header("Cache-Control", "no-cache")
+                    }
+                }
                 .get()
                 .build()
             highScaleHttpClient.newCall(request).execute().use { response ->
@@ -1455,10 +1857,17 @@ object MediaContentRepository {
                         )
                     } else media
                 } else media
+            }.distinctBy { it.id }
+
+            // Merge with existing Studio Admin items and initial production catalog, then rotate catalog seed
+            val existingCustom = _mediaCatalog.value.filter { existing ->
+                existing.id !in initialProductionIds && enrichedMedia.none { it.id == existing.id }
             }
-            _mediaCatalog.value = enrichedMedia + initialProductionCatalog.filter { def ->
-                enrichedMedia.none { it.id == def.id }
+            val baseFallback = initialProductionCatalog.filter { def ->
+                enrichedMedia.none { it.id == def.id } && existingCustom.none { it.id == def.id }
             }
+            _mediaCatalog.value = enrichedMedia + existingCustom + baseFallback
+            rotateMovieCatalogOrder()
         }
 
         if (parsedChannels.isNotEmpty()) {
@@ -1472,12 +1881,22 @@ object MediaContentRepository {
         val fields = doc.optJSONObject("fields") ?: return null
         val docId = doc.optString("name", "").substringAfterLast("/")
         val id = fields.fsString("id").ifEmpty { docId }
-        val title = fields.fsString("title").ifEmpty { fields.fsString("name") }
-        val streamUrl = fields.fsString("streamUrl").ifEmpty {
-            fields.fsString("videoUrl").ifEmpty { fields.fsString("url") }
-        }
+        val title = fields.fsString("title")
+            .ifEmpty { fields.fsString("name") }
+            .ifEmpty { fields.fsString("movieTitle") }
+        val streamUrl = fields.fsString("streamUrl")
+            .ifEmpty { fields.fsString("videoUrl") }
+            .ifEmpty { fields.fsString("url") }
+            .ifEmpty { fields.fsString("movieUrl") }
+            .ifEmpty { fields.fsString("fileUrl") }
+            .ifEmpty { fields.fsString("hlsUrl") }
+            .ifEmpty { fields.fsString("mp4Url") }
+            .ifEmpty { fields.fsString("playbackUrl") }
+            .ifEmpty { fields.fsString("bunnyUrl") }
         val published = fields.fsBoolean("published", true)
         if (!published || title.isEmpty() || streamUrl.isEmpty()) return null
+
+        val createdAtEpochMs = parseFirestoreDocTimestampMs(doc, fields)
 
         val rawGenres = buildList {
             addAll(fields.fsStringList("genres"))
@@ -1616,8 +2035,49 @@ object MediaContentRepository {
             viewsCount = fields.fsLong("viewsCount", 0L),
             voteCount = fields.fsLong("voteCount", 0L),
             watchlistsCount = fields.fsLong("watchlistsCount", 0L),
-            productionCountries = fields.fsStringList("productionCountries")
+            productionCountries = fields.fsStringList("productionCountries"),
+            createdAtEpochMs = createdAtEpochMs
         )
+    }
+
+    private fun parseFirestoreDocTimestampMs(doc: JSONObject, fields: JSONObject): Long {
+        for (key in listOf("updatedAt", "createdAt", "addedAt", "uploadedAt", "timestamp")) {
+            val fieldObj = fields.optJSONObject(key) ?: continue
+            if (fieldObj.has("integerValue")) {
+                val v = fieldObj.optString("integerValue", "0").toLongOrNull() ?: 0L
+                if (v > 0L) return if (v < 10_000_000_000L) v * 1000L else v
+            }
+            if (fieldObj.has("doubleValue")) {
+                val v = fieldObj.optDouble("doubleValue", 0.0).toLong()
+                if (v > 0L) return if (v < 10_000_000_000L) v * 1000L else v
+            }
+            if (fieldObj.has("timestampValue")) {
+                val iso = fieldObj.optString("timestampValue", "")
+                val parsed = parseIsoTimestampMs(iso)
+                if (parsed > 0L) return parsed
+            }
+            if (fieldObj.has("stringValue")) {
+                val str = fieldObj.optString("stringValue", "").trim()
+                val asLong = str.toLongOrNull()
+                if (asLong != null && asLong > 0L) {
+                    return if (asLong < 10_000_000_000L) asLong * 1000L else asLong
+                }
+                val parsed = parseIsoTimestampMs(str)
+                if (parsed > 0L) return parsed
+            }
+        }
+        val docUpdateIso = doc.optString("updateTime", "").ifEmpty { doc.optString("createTime", "") }
+        return parseIsoTimestampMs(docUpdateIso)
+    }
+
+    private fun parseIsoTimestampMs(iso: String): Long {
+        val clean = iso.trim()
+        if (clean.isEmpty()) return 0L
+        return try {
+            java.time.Instant.parse(clean).toEpochMilli()
+        } catch (_: Exception) {
+            0L
+        }
     }
 
     private fun parseFirestoreSeriesDoc(doc: JSONObject): MediaContent? {
@@ -1996,6 +2456,7 @@ object MediaContentRepository {
             _mediaCatalog.value = parsedMedia + _mediaCatalog.value.filter { def ->
                 parsedMedia.none { it.id == def.id }
             }
+            rotateMovieCatalogOrder()
         }
 
         if (parsedChannels.isNotEmpty()) {
@@ -2067,10 +2528,16 @@ object MediaContentRepository {
     }
 
     private fun parseSingleMediaObject(obj: JSONObject, fallbackId: String, defaultType: String): MediaContent? {
-        val title = obj.optString("title", obj.optString("name", "")).trim()
+        val title = obj.optString("title", obj.optString("name", obj.optString("movieTitle", ""))).trim()
         val streamUrl = obj.optString(
             "streamUrl",
-            obj.optString("url", obj.optString("videoUrl", ""))
+            obj.optString(
+                "url",
+                obj.optString(
+                    "videoUrl",
+                    obj.optString("movieUrl", obj.optString("fileUrl", obj.optString("playbackUrl", "")))
+                )
+            )
         ).trim()
         val genresList = mutableListOf<String>()
         listOf("genres", "categories", "tags").forEach { arrayKey ->

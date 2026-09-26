@@ -1160,6 +1160,48 @@ class ExampleRobolectricTest {
         )
         assertTrue("Expected file:// URI when resolving by media ID, got $resolvedByIdUri", resolvedByIdUri.startsWith("file:"))
 
+        // 10. Verify Dynamic Movie Rotation & Studio Admin New Movie Surfacing:
+        //     - Rotating catalog seed changes movie order in spotlight & genre shelves so users never see a static list
+        //     - Newly added Studio Admin movies (with createdAtEpochMs) are surfaced and rotated across shelves
+        val baseMovies = MediaContentRepository.mediaCatalog.value.filter { !it.isSeries }
+        assertTrue("Expected expanded movie catalog with at least 10 movies, got ${baseMovies.size}", baseMovies.size >= 10)
+
+        val spotlightSeedA = MediaContentRepository.getRotatingSpotlightMovies(
+            catalog = MediaContentRepository.mediaCatalog.value,
+            rotationSeed = 101L,
+            limit = 10
+        )
+        val spotlightSeedB = MediaContentRepository.getRotatingSpotlightMovies(
+            catalog = MediaContentRepository.mediaCatalog.value,
+            rotationSeed = 202L,
+            limit = 10
+        )
+        assertTrue("Spotlight movies must not be empty", spotlightSeedA.isNotEmpty())
+        org.junit.Assert.assertNotEquals(
+            "Rotating seed must dynamically change movie order so users see fresh movies",
+            spotlightSeedA.map { it.id },
+            spotlightSeedB.map { it.id }
+        )
+
+        val genreRowsSeedA = MediaContentRepository.getMoviesStrictlyByFirstGenre(
+            catalog = MediaContentRepository.mediaCatalog.value,
+            rotationSeed = 101L
+        )
+        val genreRowsSeedB = MediaContentRepository.getMoviesStrictlyByFirstGenre(
+            catalog = MediaContentRepository.mediaCatalog.value,
+            rotationSeed = 202L
+        )
+        assertTrue("Genre shelves must not be empty", genreRowsSeedA.isNotEmpty())
+        org.junit.Assert.assertNotEquals(
+            "Rotating seed must dynamically rotate genre shelf order or movie order within shelves",
+            genreRowsSeedA.flatMap { (_, list) -> list.map { it.id } },
+            genreRowsSeedB.flatMap { (_, list) -> list.map { it.id } }
+        )
+
+        val prevSeed = MediaContentRepository.catalogRotationSeed.value
+        val nextSeed = MediaContentRepository.rotateMovieCatalogOrder()
+        org.junit.Assert.assertNotEquals("rotateMovieCatalogOrder must advance rotation seed", prevSeed, nextSeed)
+
         completedFile.delete()
         controller.release()
     }

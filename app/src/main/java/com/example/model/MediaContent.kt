@@ -179,7 +179,8 @@ data class MediaContent(
     val numberOfEpisodes: Int = 0,
     val firstAirDate: String = "",
     val lastAirDate: String = "",
-    val seasons: List<SeriesSeason> = emptyList()
+    val seasons: List<SeriesSeason> = emptyList(),
+    val createdAtEpochMs: Long = 0L
 ) {
     val isSeries: Boolean =
         type.equals("series", ignoreCase = true) || type.equals("tv_show", ignoreCase = true)
