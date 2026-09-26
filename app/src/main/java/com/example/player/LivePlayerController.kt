@@ -1,12 +1,18 @@
 package com.example.player
 
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.media.AudioManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
+import android.os.BatteryManager
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -63,9 +69,110 @@ enum class NetworkQualityMode(val label: String) {
 }
 
 /**
+ * User-configurable policy for Battery-Aware Adaptive Playback CPU optimization.
+ */
+enum class BatteryOptimizationMode(val label: String, val subtitle: String) {
+    AUTO_BATTERY_AWARE(
+        label = "Auto Battery-Aware",
+        subtitle = "Adapts CPU, FPS & resolution on low battery or background load"
+    ),
+    ECO_BATTERY_SAVER(
+        label = "Always Eco Saver",
+        subtitle = "Caps at 480p @ 30fps & throttles background CPU wakeups"
+    ),
+    PERFORMANCE_UNRESTRICTED(
+        label = "Max Performance",
+        subtitle = "Full 1080p @ 60fps in foreground unless backgrounded"
+    )
+}
+
+/**
+ * Battery & background power profiles that govern ExoPlayer decoder resolution cap, frame rate limit,
+ * buffer window sizing, progressive extractor check intervals, and main-thread telemetry polling frequency
+ * to reduce CPU and thermal usage during low battery or background loading states.
+ */
+enum class BatteryPowerProfile(
+    val maxQualityTierCap: AdaptiveQualityTier,
+    val maxFrameRate: Int,
+    val telemetryPollIntervalLiveMs: Long,
+    val telemetryPollIntervalVodMs: Long,
+    val minBufferMs: Int,
+    val maxBufferMs: Int,
+    val backBufferMs: Int,
+    val continueLoadingCheckIntervalBytes: Int,
+    val badgeLabel: String,
+    val statusDescription: String,
+    val isCpuSavingActive: Boolean
+) {
+    OPTIMAL_POWER(
+        maxQualityTierCap = AdaptiveQualityTier.FULL_HD_1080P,
+        maxFrameRate = 60,
+        telemetryPollIntervalLiveMs = 600L,
+        telemetryPollIntervalVodMs = 300L,
+        minBufferMs = 8_000,
+        maxBufferMs = 50_000,
+        backBufferMs = 15_000,
+        continueLoadingCheckIntervalBytes = 1024 * 1024,
+        badgeLabel = "Optimal Power (60fps)",
+        statusDescription = "Full hardware acceleration • Normal CPU & buffer profile",
+        isCpuSavingActive = false
+    ),
+    LOW_BATTERY_SAVER(
+        maxQualityTierCap = AdaptiveQualityTier.STANDARD_480P,
+        maxFrameRate = 30,
+        telemetryPollIntervalLiveMs = 1_200L,
+        telemetryPollIntervalVodMs = 1_000L,
+        minBufferMs = 5_000,
+        maxBufferMs = 22_000,
+        backBufferMs = 6_000,
+        continueLoadingCheckIntervalBytes = 2 * 1024 * 1024,
+        badgeLabel = "Low Battery Eco (480p•30fps)",
+        statusDescription = "CPU Saver Active: 30fps cap, 480p decode & reduced polling",
+        isCpuSavingActive = true
+    ),
+    CRITICAL_BATTERY_SAVER(
+        maxQualityTierCap = AdaptiveQualityTier.DATA_SAVER_360P,
+        maxFrameRate = 24,
+        telemetryPollIntervalLiveMs = 1_800L,
+        telemetryPollIntervalVodMs = 1_500L,
+        minBufferMs = 4_000,
+        maxBufferMs = 14_000,
+        backBufferMs = 3_000,
+        continueLoadingCheckIntervalBytes = 3 * 1024 * 1024,
+        badgeLabel = "Critical Battery Saver (360p•24fps)",
+        statusDescription = "Max CPU Saver: 24fps cap, 360p decode & minimal wakeups",
+        isCpuSavingActive = true
+    ),
+    BACKGROUND_LOADING_SAVER(
+        maxQualityTierCap = AdaptiveQualityTier.LOW_BANDO_240P,
+        maxFrameRate = 24,
+        telemetryPollIntervalLiveMs = 2_200L,
+        telemetryPollIntervalVodMs = 2_000L,
+        minBufferMs = 3_500,
+        maxBufferMs = 12_000,
+        backBufferMs = 2_000,
+        continueLoadingCheckIntervalBytes = 4 * 1024 * 1024,
+        badgeLabel = "Background CPU Saver",
+        statusDescription = "Background/PiP Load: Throttled decoder & chunk wakeups",
+        isCpuSavingActive = true
+    )
+}
+
+/**
+ * Snapshot of real-time Android device battery & power state used to drive battery-aware playback adaptation.
+ */
+data class DeviceBatterySnapshot(
+    val batteryLevelPct: Int = 85,
+    val isCharging: Boolean = false,
+    val isOsPowerSaveMode: Boolean = false,
+    val isBackgroundLoading: Boolean = false,
+    val isPictureInPicture: Boolean = false
+)
+
+/**
  * Adaptive stream quality ladder ordered from highest quality (index 0) to emergency low-bandwidth (index 4).
  * Prioritizes high-quality HD streams when bandwidth & buffer are healthy, and dynamically steps down
- * when bandwidth drops or rebuffering stalls occur.
+ * when bandwidth drops, rebuffering stalls occur, or battery/background CPU saver caps are active.
  */
 enum class AdaptiveQualityTier(
     val maxWidth: Int,
@@ -120,7 +227,7 @@ enum class AdaptiveQualityTier(
         minPreferredBitrateBps = 220_000,
         forceLowestBitrate = false,
         badgeLabel = "360p Saver",
-        description = "Dynamically Downscaled for Bandwidth Stability"
+        description = "Dynamically Downscaled for Bandwidth / Power Stability"
     ),
     LOW_BANDO_240P(
         maxWidth = 426,
@@ -131,7 +238,7 @@ enum class AdaptiveQualityTier(
         minPreferredBitrateBps = 0,
         forceLowestBitrate = true,
         badgeLabel = "240p Seamless",
-        description = "Emergency Rebuffer Protection (240p)"
+        description = "Emergency Rebuffer / Background CPU Protection (240p)"
     );
 
     fun stepDown(): AdaptiveQualityTier {
@@ -160,6 +267,14 @@ data class PlayerPlaybackInfo(
     val estimatedBandwidthKbps: Int = 3800,
     val bufferedDurationMs: Long = 0L,
     val isDynamicallyDownscaled: Boolean = false,
+    val batteryOptimizationMode: BatteryOptimizationMode = BatteryOptimizationMode.AUTO_BATTERY_AWARE,
+    val batteryPowerProfile: BatteryPowerProfile = BatteryPowerProfile.OPTIMAL_POWER,
+    val batteryLevelPct: Int = 85,
+    val isBatteryCharging: Boolean = false,
+    val isOsPowerSaveMode: Boolean = false,
+    val isBackgroundLoadingActive: Boolean = false,
+    val isCpuSavingActive: Boolean = false,
+    val activeMaxFrameRate: Int = 60,
     val connectionLabel: String = "Mobile Data / Wi-Fi",
     val autoSkipNotice: String? = null
 )
@@ -178,6 +293,10 @@ private enum class ForcedContainerMode {
  * - Uses an Adaptive Track Selection strategy (`AdaptiveTrackSelection.Factory` + `DefaultTrackSelector`)
  *   that prioritizes high-quality HD streams (`1080p`/`720p`) while dynamically downscaling based on
  *   real-time network bandwidth estimates and buffering/rebuffering state to ensure seamless playback.
+ * - Implements a Battery-Aware Adaptive Playback Strategy (`BatteryPowerProfile`) that monitors device
+ *   battery level, charging state, OS Power Save Mode, and background/PiP loading states to dynamically
+ *   cap video decoding frame rate (`30fps`/`24fps`), cap resolution (`480p`/`360p`/`240p`), disable
+ *   off-screen background video track decoding, and throttle main-thread telemetry wakeups to reduce CPU usage.
  * - Auto-skips the first 5 minutes and 30 seconds (`330_000L` ms) of DJ intro ads ONLY for Movies
  *   narrated in Swahili (`channel.shouldAutoSkipSwahiliMovieIntro == true`), never for Live TV, Adult, Series, or Episodes.
  * - Automatically advances to the next episode (`onEpisodeEndedAutoNext`) when a Series episode finishes.
@@ -208,16 +327,63 @@ class LivePlayerController(
         const val ADAPTIVE_BUFFERED_FRACTION_TO_LIVE_EDGE = 0.65f
 
         /**
+         * Battery thresholds for Battery-Aware Adaptive Playback CPU optimization.
+         */
+        const val LOW_BATTERY_THRESHOLD_PCT = 25
+        const val CRITICAL_BATTERY_THRESHOLD_PCT = 12
+
+        /**
+         * Computes the target [BatteryPowerProfile] based on real-time device battery level,
+         * charging state, OS Power Save mode, background/PiP loading state, and user optimization policy.
+         */
+        fun computeBatteryPowerProfile(
+            batteryLevelPct: Int,
+            isCharging: Boolean,
+            isOsPowerSaveMode: Boolean,
+            isBackgroundLoading: Boolean,
+            isPictureInPicture: Boolean = false,
+            optimizationMode: BatteryOptimizationMode = BatteryOptimizationMode.AUTO_BATTERY_AWARE
+        ): BatteryPowerProfile {
+            if (isBackgroundLoading) {
+                return BatteryPowerProfile.BACKGROUND_LOADING_SAVER
+            }
+            if (optimizationMode == BatteryOptimizationMode.ECO_BATTERY_SAVER) {
+                return if (!isCharging && batteryLevelPct in 1..CRITICAL_BATTERY_THRESHOLD_PCT) {
+                    BatteryPowerProfile.CRITICAL_BATTERY_SAVER
+                } else {
+                    BatteryPowerProfile.LOW_BATTERY_SAVER
+                }
+            }
+            if (optimizationMode == BatteryOptimizationMode.PERFORMANCE_UNRESTRICTED) {
+                return if (isPictureInPicture) {
+                    BatteryPowerProfile.LOW_BATTERY_SAVER
+                } else {
+                    BatteryPowerProfile.OPTIMAL_POWER
+                }
+            }
+            // AUTO_BATTERY_AWARE:
+            return when {
+                !isCharging && batteryLevelPct in 1..CRITICAL_BATTERY_THRESHOLD_PCT ->
+                    BatteryPowerProfile.CRITICAL_BATTERY_SAVER
+                (!isCharging && batteryLevelPct in 1..LOW_BATTERY_THRESHOLD_PCT) || isOsPowerSaveMode || isPictureInPicture ->
+                    BatteryPowerProfile.LOW_BATTERY_SAVER
+                else ->
+                    BatteryPowerProfile.OPTIMAL_POWER
+            }
+        }
+
+        /**
          * Computes the target [AdaptiveQualityTier] by prioritizing high-quality HD streams when network
-         * bandwidth is sufficient and dynamically downscaling based on bandwidth constraints, active
-         * buffering stalls, and consecutive rebuffer count.
+         * bandwidth and battery are sufficient, and dynamically downscaling based on bandwidth constraints,
+         * active buffering stalls, consecutive rebuffer count, and [BatteryPowerProfile] CPU saver caps.
          */
         fun computeAdaptiveQualityTier(
             estimatedBitrateBps: Long,
             bufferedDurationMs: Long,
             isBuffering: Boolean,
             consecutiveRebufferCount: Int,
-            isLowBandoNetwork: Boolean = false
+            isLowBandoNetwork: Boolean = false,
+            batteryPowerProfile: BatteryPowerProfile = BatteryPowerProfile.OPTIMAL_POWER
         ): AdaptiveQualityTier {
             // 1. Determine base quality tier from real-time network bandwidth estimate (prioritizing High Quality)
             val bandwidthTier = when {
@@ -244,7 +410,12 @@ class LivePlayerController(
             repeat(downscaleSteps.coerceAtMost(AdaptiveQualityTier.entries.lastIndex)) {
                 resolvedTier = resolvedTier.stepDown()
             }
-            return resolvedTier
+
+            // 3. Enforce battery-aware CPU & background loading quality cap so low-battery or background
+            //    states do not waste CPU cycles decoding high-bitrate 1080p/720p video frames.
+            val cappedOrdinal = maxOf(resolvedTier.ordinal, batteryPowerProfile.maxQualityTierCap.ordinal)
+                .coerceIn(0, AdaptiveQualityTier.entries.lastIndex)
+            return AdaptiveQualityTier.entries[cappedOrdinal]
         }
 
         init {
@@ -287,6 +458,24 @@ class LivePlayerController(
     private var currentAdaptiveTier: AdaptiveQualityTier = AdaptiveQualityTier.FULL_HD_1080P
     private var activeTrackResolutionLabel: String = AdaptiveQualityTier.FULL_HD_1080P.badgeLabel
 
+    // Battery-Aware Adaptive Playback & Background CPU Saver Telemetry
+    private var batteryOptimizationMode: BatteryOptimizationMode = BatteryOptimizationMode.AUTO_BATTERY_AWARE
+    private var currentBatteryProfile: BatteryPowerProfile = BatteryPowerProfile.OPTIMAL_POWER
+    private var cachedBatterySnapshot: DeviceBatterySnapshot = DeviceBatterySnapshot()
+    private var lastBatteryPollTimeMs: Long = 0L
+    private var isBackgroundLoadingActive: Boolean = false
+    private var isPictureInPictureActive: Boolean = false
+    private var isPowerBroadcastReceiverRegistered: Boolean = false
+    private var manualBatterySnapshotOverride: DeviceBatterySnapshot? = null
+
+    private val powerStateBroadcastReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            // Immediately refresh battery snapshot & apply battery-aware ExoPlayer track/CPU limits
+            readDeviceBatterySnapshot(forceRefresh = true)
+            evaluateAndApplyBatteryAwareConfig()
+        }
+    }
+
     private val bandwidthEventListener = BandwidthMeter.EventListener { _, _, bitrateEstimate ->
         if (bitrateEstimate > 0L) {
             latestEstimatedBandwidthBps = bitrateEstimate
@@ -302,6 +491,128 @@ class LivePlayerController(
 
     private val audioManager: AudioManager? by lazy {
         context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+    }
+
+    private val powerManager: PowerManager? by lazy {
+        context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+    }
+
+    private val batteryManager: BatteryManager? by lazy {
+        context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
+    }
+
+    /**
+     * Reads real-time device battery level, charging status, and OS Power Save Mode using
+     * Android's [BatteryManager], sticky [Intent.ACTION_BATTERY_CHANGED], and [PowerManager].
+     */
+    fun readDeviceBatterySnapshot(forceRefresh: Boolean = false): DeviceBatterySnapshot {
+        manualBatterySnapshotOverride?.let { override ->
+            cachedBatterySnapshot = override.copy(
+                isBackgroundLoading = isBackgroundLoadingActive,
+                isPictureInPicture = isPictureInPictureActive
+            )
+            return cachedBatterySnapshot
+        }
+
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (!forceRefresh && lastBatteryPollTimeMs > 0L && now - lastBatteryPollTimeMs < 4_000L) {
+            cachedBatterySnapshot = cachedBatterySnapshot.copy(
+                isBackgroundLoading = isBackgroundLoadingActive,
+                isPictureInPicture = isPictureInPictureActive
+            )
+            return cachedBatterySnapshot
+        }
+        lastBatteryPollTimeMs = now
+
+        var levelPct = 85
+        var charging = false
+        try {
+            val stickyIntent = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+            if (stickyIntent != null) {
+                val level = stickyIntent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+                val scale = stickyIntent.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
+                if (level >= 0 && scale > 0) {
+                    levelPct = ((level * 100f) / scale.toFloat()).toInt().coerceIn(1, 100)
+                } else {
+                    val propCap = batteryManager?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
+                    if (propCap in 1..100) {
+                        levelPct = propCap
+                    }
+                }
+                val status = stickyIntent.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
+                val plugged = stickyIntent.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0)
+                charging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
+                        status == BatteryManager.BATTERY_STATUS_FULL ||
+                        plugged != 0
+            } else {
+                val propCap = batteryManager?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
+                if (propCap in 1..100) {
+                    levelPct = propCap
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    charging = batteryManager?.isCharging == true
+                }
+            }
+        } catch (_: Exception) {
+        }
+
+        val osPowerSave = try {
+            powerManager?.isPowerSaveMode == true
+        } catch (_: Exception) {
+            false
+        }
+
+        cachedBatterySnapshot = DeviceBatterySnapshot(
+            batteryLevelPct = levelPct,
+            isCharging = charging,
+            isOsPowerSaveMode = osPowerSave,
+            isBackgroundLoading = isBackgroundLoadingActive,
+            isPictureInPicture = isPictureInPictureActive
+        )
+        return cachedBatterySnapshot
+    }
+
+    private fun resolveActiveBatteryPowerProfile(forceRefreshBattery: Boolean = false): BatteryPowerProfile {
+        val snap = readDeviceBatterySnapshot(forceRefresh = forceRefreshBattery)
+        val profile = computeBatteryPowerProfile(
+            batteryLevelPct = snap.batteryLevelPct,
+            isCharging = snap.isCharging,
+            isOsPowerSaveMode = snap.isOsPowerSaveMode,
+            isBackgroundLoading = snap.isBackgroundLoading,
+            isPictureInPicture = snap.isPictureInPicture,
+            optimizationMode = batteryOptimizationMode
+        )
+        currentBatteryProfile = profile
+        return profile
+    }
+
+    private fun registerPowerBroadcastReceiverIfNeeded() {
+        if (isPowerBroadcastReceiverRegistered) return
+        try {
+            val filter = IntentFilter().apply {
+                addAction(Intent.ACTION_BATTERY_LOW)
+                addAction(Intent.ACTION_BATTERY_OKAY)
+                addAction(Intent.ACTION_POWER_CONNECTED)
+                addAction(Intent.ACTION_POWER_DISCONNECTED)
+                addAction(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED)
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                context.registerReceiver(powerStateBroadcastReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            } else {
+                context.registerReceiver(powerStateBroadcastReceiver, filter)
+            }
+            isPowerBroadcastReceiverRegistered = true
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun unregisterPowerBroadcastReceiverIfNeeded() {
+        if (!isPowerBroadcastReceiverRegistered) return
+        try {
+            context.unregisterReceiver(powerStateBroadcastReceiver)
+        } catch (_: Exception) {
+        }
+        isPowerBroadcastReceiverRegistered = false
     }
 
     private fun isPhoneCallActiveOrRinging(forceRefresh: Boolean = false): Boolean {
@@ -368,7 +679,10 @@ class LivePlayerController(
                 latestEstimatedBandwidthBps = measuredBps
             }
 
-            // Dynamic buffering & bandwidth adaptation during active playback/buffering
+            // Refresh device battery & background power profile
+            val activePowerProfile = resolveActiveBatteryPowerProfile(forceRefreshBattery = false)
+
+            // Dynamic buffering, bandwidth & battery-aware adaptation during active playback/buffering
             if (_playbackInfo.value.networkMode == NetworkQualityMode.AUTO_ADAPTIVE) {
                 if (player.playbackState == Player.STATE_BUFFERING) {
                     if (bufferingEnteredAtRealtimeMs > 0L && now - bufferingEnteredAtRealtimeMs >= 2_200L) {
@@ -396,17 +710,27 @@ class LivePlayerController(
                 }
             }
 
+            // If backgrounded (not in PiP) and paused/idle, stop scheduling UI polling wakeups to save CPU
+            if (isBackgroundLoadingActive && !isPictureInPictureActive &&
+                !player.isPlaying && player.playbackState != Player.STATE_BUFFERING
+            ) {
+                updatePlaybackInfo()
+                return
+            }
+
             if (channel.isLiveBroadcast) {
-                // Ensure Live TV stays playing unless paused by phone call or external music player
-                if (!pausedByCallOrExternalAudio && !player.isPlaying && player.playbackState == Player.STATE_READY) {
+                // Ensure Live TV stays playing unless paused by phone call, external music player, or off-screen background
+                if (!pausedByCallOrExternalAudio && !isBackgroundLoadingActive &&
+                    !player.isPlaying && player.playbackState == Player.STATE_READY
+                ) {
                     player.playWhenReady = true
                     player.play()
                 }
                 updatePlaybackInfo()
-                mainHandler.postDelayed(this, 600L)
+                mainHandler.postDelayed(this, activePowerProfile.telemetryPollIntervalLiveMs)
             } else {
                 updatePlaybackInfo()
-                mainHandler.postDelayed(this, 300L)
+                mainHandler.postDelayed(this, activePowerProfile.telemetryPollIntervalVodMs)
             }
         }
     }
@@ -707,37 +1031,154 @@ class LivePlayerController(
     }
 
     /**
-     * Evaluates current network bandwidth and buffering state to dynamically update
-     * ExoPlayer's [DefaultTrackSelector] parameters for seamless adaptive playback.
+     * Updates the background loading or Picture-in-Picture state so ExoPlayer immediately reduces
+     * CPU decoder workload, frame rate, wake locks, and UI telemetry polling during background or PiP states.
+     */
+    fun setBackgroundLoadingState(
+        isBackgroundLoading: Boolean,
+        isPictureInPicture: Boolean = false
+    ): BatteryPowerProfile {
+        isBackgroundLoadingActive = isBackgroundLoading
+        isPictureInPictureActive = isPictureInPicture
+        val profile = evaluateAndApplyBatteryAwareConfig()
+        if (isBackgroundLoading && !isPictureInPicture) {
+            exoPlayer?.setWakeMode(C.WAKE_MODE_NONE)
+        } else {
+            exoPlayer?.setWakeMode(
+                if (profile.isCpuSavingActive) C.WAKE_MODE_NONE else C.WAKE_MODE_NETWORK
+            )
+            mainHandler.removeCallbacks(positionUpdateRunnable)
+            mainHandler.post(positionUpdateRunnable)
+        }
+        return profile
+    }
+
+    /**
+     * Sets the user's [BatteryOptimizationMode] policy and immediately re-evaluates ExoPlayer's
+     * battery-aware track selection, frame rate cap, and CPU polling intervals.
+     */
+    fun setBatteryOptimizationMode(mode: BatteryOptimizationMode): BatteryPowerProfile {
+        batteryOptimizationMode = mode
+        return evaluateAndApplyBatteryAwareConfig()
+    }
+
+    fun cycleBatteryOptimizationMode(): BatteryOptimizationMode {
+        val entries = BatteryOptimizationMode.entries
+        val nextIndex = (entries.indexOf(batteryOptimizationMode) + 1) % entries.size
+        val nextMode = entries[nextIndex]
+        setBatteryOptimizationMode(nextMode)
+        return nextMode
+    }
+
+    /**
+     * Allows deterministic testing or runtime simulation of a specific [DeviceBatterySnapshot]
+     * (pass `null` to return to live Android [BatteryManager]/[PowerManager] hardware queries).
+     */
+    fun setDeviceBatterySnapshotOverrideForTesting(snapshot: DeviceBatterySnapshot?): BatteryPowerProfile {
+        manualBatterySnapshotOverride = snapshot
+        if (snapshot != null) {
+            isBackgroundLoadingActive = snapshot.isBackgroundLoading
+            isPictureInPictureActive = snapshot.isPictureInPicture
+        }
+        return evaluateAndApplyBatteryAwareConfig(forceRefreshBattery = true)
+    }
+
+    /**
+     * Evaluates current device battery state, charging status, OS Power Save Mode, and background/PiP
+     * loading state to apply CPU-saving parameters to ExoPlayer.
+     */
+    fun evaluateAndApplyBatteryAwareConfig(forceRefreshBattery: Boolean = false): BatteryPowerProfile {
+        val profile = resolveActiveBatteryPowerProfile(forceRefreshBattery = forceRefreshBattery)
+        val disableOffscreenVideoTrack = isBackgroundLoadingActive && !isPictureInPictureActive
+
+        if (_playbackInfo.value.networkMode == NetworkQualityMode.AUTO_ADAPTIVE) {
+            evaluateAndApplyAdaptiveTrackSelection(
+                estimatedBitrateBps = latestEstimatedBandwidthBps,
+                forceBufferingState = _uiState.value is PlayerUiState.Buffering,
+                batteryProfileOverride = profile
+            )
+        } else {
+            // Even in manual quality modes, enforce frame rate cap and off-screen background video track disabling
+            trackSelector?.let { selector ->
+                selector.setParameters(
+                    selector.buildUponParameters()
+                        .setMaxVideoFrameRate(profile.maxFrameRate)
+                        .setRendererDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
+                )
+            }
+            exoPlayer?.let { player ->
+                player.trackSelectionParameters = player.trackSelectionParameters
+                    .buildUpon()
+                    .setMaxVideoFrameRate(profile.maxFrameRate)
+                    .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
+                    .build()
+                player.setWakeMode(
+                    if (profile.isCpuSavingActive || disableOffscreenVideoTrack) C.WAKE_MODE_NONE else C.WAKE_MODE_NETWORK
+                )
+            }
+            updatePlaybackInfo()
+        }
+        return profile
+    }
+
+    /**
+     * Evaluates current network bandwidth, buffering state, and battery power profile to dynamically update
+     * ExoPlayer's [DefaultTrackSelector] parameters for seamless, battery-aware adaptive playback.
      */
     fun evaluateAndApplyAdaptiveTrackSelection(
         estimatedBitrateBps: Long = latestEstimatedBandwidthBps,
         bufferedDurationMs: Long = exoPlayer?.let { (it.bufferedPosition - it.currentPosition).coerceAtLeast(0L) } ?: 0L,
         forceBufferingState: Boolean = _uiState.value is PlayerUiState.Buffering,
-        rebufferCountOverride: Int = consecutiveRebufferCount
+        rebufferCountOverride: Int = consecutiveRebufferCount,
+        batteryProfileOverride: BatteryPowerProfile? = null
     ): AdaptiveQualityTier {
         latestEstimatedBandwidthBps = estimatedBitrateBps.coerceAtLeast(100_000L)
         consecutiveRebufferCount = rebufferCountOverride.coerceIn(0, 4)
+
+        val activePowerProfile = batteryProfileOverride ?: resolveActiveBatteryPowerProfile(forceRefreshBattery = false)
+        currentBatteryProfile = activePowerProfile
+        val disableOffscreenVideoTrack = isBackgroundLoadingActive && !isPictureInPictureActive
 
         val resolvedTier = computeAdaptiveQualityTier(
             estimatedBitrateBps = latestEstimatedBandwidthBps,
             bufferedDurationMs = bufferedDurationMs,
             isBuffering = forceBufferingState,
             consecutiveRebufferCount = consecutiveRebufferCount,
-            isLowBandoNetwork = isLowBandoNetworkDetected() && estimatedBitrateBps < 350_000L
+            isLowBandoNetwork = isLowBandoNetworkDetected() && estimatedBitrateBps < 350_000L,
+            batteryPowerProfile = activePowerProfile
         )
         currentAdaptiveTier = resolvedTier
-        activeTrackResolutionLabel = resolvedTier.badgeLabel
+        activeTrackResolutionLabel = if (activePowerProfile.isCpuSavingActive) {
+            "${resolvedTier.badgeLabel} • ${activePowerProfile.maxFrameRate}fps Eco"
+        } else {
+            resolvedTier.badgeLabel
+        }
 
         if (_playbackInfo.value.networkMode == NetworkQualityMode.AUTO_ADAPTIVE) {
+            val isOfflineLocalFile = isPlayingLocalOfflineStream()
+            val maxW = if (isOfflineLocalFile) Int.MAX_VALUE else resolvedTier.maxWidth
+            val maxH = if (isOfflineLocalFile) Int.MAX_VALUE else resolvedTier.maxHeight
+            val maxBr = if (isOfflineLocalFile) Int.MAX_VALUE else resolvedTier.maxBitrateBps
+            val minW = if (isOfflineLocalFile) 0 else resolvedTier.minPreferredWidth
+            val minH = if (isOfflineLocalFile) 0 else resolvedTier.minPreferredHeight
+            val minBr = if (isOfflineLocalFile) 0 else resolvedTier.minPreferredBitrateBps
+            val forceLowest = if (isOfflineLocalFile) {
+                false
+            } else {
+                resolvedTier.forceLowestBitrate ||
+                    activePowerProfile == BatteryPowerProfile.CRITICAL_BATTERY_SAVER ||
+                    activePowerProfile == BatteryPowerProfile.BACKGROUND_LOADING_SAVER
+            }
             trackSelector?.let { selector ->
                 selector.setParameters(
                     selector.buildUponParameters()
-                        .setMaxVideoSize(resolvedTier.maxWidth, resolvedTier.maxHeight)
-                        .setMaxVideoBitrate(resolvedTier.maxBitrateBps)
-                        .setMinVideoSize(resolvedTier.minPreferredWidth, resolvedTier.minPreferredHeight)
-                        .setMinVideoBitrate(resolvedTier.minPreferredBitrateBps)
-                        .setForceLowestBitrate(resolvedTier.forceLowestBitrate)
+                        .setMaxVideoSize(maxW, maxH)
+                        .setMaxVideoBitrate(maxBr)
+                        .setMaxVideoFrameRate(activePowerProfile.maxFrameRate)
+                        .setMinVideoSize(minW, minH)
+                        .setMinVideoBitrate(minBr)
+                        .setForceLowestBitrate(forceLowest)
+                        .setRendererDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
                         .setExceedVideoConstraintsIfNecessary(true)
                         .setExceedRendererCapabilitiesIfNecessary(true)
                 )
@@ -745,12 +1186,17 @@ class LivePlayerController(
             exoPlayer?.let { player ->
                 player.trackSelectionParameters = player.trackSelectionParameters
                     .buildUpon()
-                    .setMaxVideoSize(resolvedTier.maxWidth, resolvedTier.maxHeight)
-                    .setMaxVideoBitrate(resolvedTier.maxBitrateBps)
-                    .setMinVideoSize(resolvedTier.minPreferredWidth, resolvedTier.minPreferredHeight)
-                    .setMinVideoBitrate(resolvedTier.minPreferredBitrateBps)
-                    .setForceLowestBitrate(resolvedTier.forceLowestBitrate)
+                    .setMaxVideoSize(maxW, maxH)
+                    .setMaxVideoBitrate(maxBr)
+                    .setMaxVideoFrameRate(activePowerProfile.maxFrameRate)
+                    .setMinVideoSize(minW, minH)
+                    .setMinVideoBitrate(minBr)
+                    .setForceLowestBitrate(forceLowest)
+                    .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
                     .build()
+                player.setWakeMode(
+                    if (activePowerProfile.isCpuSavingActive || disableOffscreenVideoTrack) C.WAKE_MODE_NONE else C.WAKE_MODE_NETWORK
+                )
             }
         }
 
@@ -768,6 +1214,7 @@ class LivePlayerController(
         hasReachedReadyForCurrentStream = false
         consecutiveRebufferCount = 0
         _uiState.value = PlayerUiState.Loading
+        registerPowerBroadcastReceiverIfNeeded()
 
         // Prioritize standard AOSP platform codecs (c2.android.* / OMX.google.*) and exclude
         // buggy goldfish/ranchu emulator codecs that fail CCodecResources system resource queries (error 6)
@@ -801,6 +1248,8 @@ class LivePlayerController(
         val initialBitrate = detectInitialBitrateEstimate()
         latestEstimatedBandwidthBps = initialBitrate
         val lowBandoActive = isLowBandoNetworkDetected() && initialBitrate < 350_000L
+        val initialBatteryProfile = resolveActiveBatteryPowerProfile(forceRefreshBattery = true)
+        val disableOffscreenVideoTrack = isBackgroundLoadingActive && !isPictureInPictureActive
 
         val meter = DefaultBandwidthMeter.Builder(context)
             .setInitialBitrateEstimate(initialBitrate)
@@ -827,19 +1276,30 @@ class LivePlayerController(
             bufferedDurationMs = 5_000L,
             isBuffering = false,
             consecutiveRebufferCount = 0,
-            isLowBandoNetwork = lowBandoActive
+            isLowBandoNetwork = lowBandoActive,
+            batteryPowerProfile = initialBatteryProfile
         )
         currentAdaptiveTier = initialTier
-        activeTrackResolutionLabel = initialTier.badgeLabel
+        activeTrackResolutionLabel = if (initialBatteryProfile.isCpuSavingActive) {
+            "${initialTier.badgeLabel} • ${initialBatteryProfile.maxFrameRate}fps Eco"
+        } else {
+            initialTier.badgeLabel
+        }
 
         val selector = DefaultTrackSelector(context, adaptiveTrackSelectionFactory).apply {
             setParameters(
                 buildUponParameters()
                     .setMaxVideoSize(initialTier.maxWidth, initialTier.maxHeight)
                     .setMaxVideoBitrate(initialTier.maxBitrateBps)
+                    .setMaxVideoFrameRate(initialBatteryProfile.maxFrameRate)
                     .setMinVideoSize(initialTier.minPreferredWidth, initialTier.minPreferredHeight)
                     .setMinVideoBitrate(initialTier.minPreferredBitrateBps)
-                    .setForceLowestBitrate(initialTier.forceLowestBitrate)
+                    .setForceLowestBitrate(
+                        initialTier.forceLowestBitrate ||
+                                initialBatteryProfile == BatteryPowerProfile.CRITICAL_BATTERY_SAVER ||
+                                initialBatteryProfile == BatteryPowerProfile.BACKGROUND_LOADING_SAVER
+                    )
+                    .setRendererDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
                     .setExceedVideoConstraintsIfNecessary(true)
                     .setExceedRendererCapabilitiesIfNecessary(true)
                     .setAllowVideoMixedMimeTypeAdaptiveness(true)
@@ -848,15 +1308,19 @@ class LivePlayerController(
         }
         trackSelector = selector
 
+        val minBufMs = if (lowBandoActive) 4_000 else initialBatteryProfile.minBufferMs
+        val maxBufMs = if (lowBandoActive) minOf(28_000, initialBatteryProfile.maxBufferMs) else initialBatteryProfile.maxBufferMs
+        val backBufMs = initialBatteryProfile.backBufferMs
+
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                /* minBufferMs = */ if (lowBandoActive) 4_000 else 8_000,
-                /* maxBufferMs = */ if (lowBandoActive) 28_000 else 50_000,
-                /* bufferForPlaybackMs = */ if (lowBandoActive) 400 else 600,
-                /* bufferForPlaybackAfterRebufferMs = */ if (lowBandoActive) 900 else 1_200
+                /* minBufferMs = */ minBufMs,
+                /* maxBufferMs = */ maxBufMs,
+                /* bufferForPlaybackMs = */ if (lowBandoActive || initialBatteryProfile.isCpuSavingActive) 400 else 600,
+                /* bufferForPlaybackAfterRebufferMs = */ if (lowBandoActive || initialBatteryProfile.isCpuSavingActive) 900 else 1_200
             )
             .setBackBuffer(
-                /* backBufferDurationMs = */ 15_000,
+                /* backBufferDurationMs = */ backBufMs,
                 /* retainBackBufferFromKeyframe = */ true
             )
             .setPrioritizeTimeOverSizeThresholds(true)
@@ -873,6 +1337,13 @@ class LivePlayerController(
             .setLoadControl(loadControl)
             .setAudioAttributes(mediaAudioAttributes, /* handleAudioFocus = */ true)
             .setHandleAudioBecomingNoisy(true)
+            .setWakeMode(
+                if (initialBatteryProfile.isCpuSavingActive || disableOffscreenVideoTrack) {
+                    C.WAKE_MODE_NONE
+                } else {
+                    C.WAKE_MODE_NETWORK
+                }
+            )
             .setSeekParameters(SeekParameters.CLOSEST_SYNC)
             .build()
             .apply {
@@ -911,12 +1382,14 @@ class LivePlayerController(
         } else {
             0L
         }
+        val activePowerProfile = resolveActiveBatteryPowerProfile(forceRefreshBattery = false)
         if (_playbackInfo.value.networkMode == NetworkQualityMode.AUTO_ADAPTIVE) {
             evaluateAndApplyAdaptiveTrackSelection(
                 estimatedBitrateBps = latestEstimatedBandwidthBps,
                 bufferedDurationMs = 5_000L,
                 forceBufferingState = false,
-                rebufferCountOverride = 0
+                rebufferCountOverride = 0,
+                batteryProfileOverride = activePowerProfile
             )
         }
         _playbackInfo.value = PlayerPlaybackInfo(
@@ -933,7 +1406,16 @@ class LivePlayerController(
             activeVideoResolutionLabel = activeTrackResolutionLabel,
             estimatedBandwidthKbps = (latestEstimatedBandwidthBps / 1000L).toInt().coerceAtLeast(100),
             bufferedDurationMs = 0L,
-            isDynamicallyDownscaled = currentAdaptiveTier.ordinal > AdaptiveQualityTier.HD_720P.ordinal,
+            isDynamicallyDownscaled = currentAdaptiveTier.ordinal > AdaptiveQualityTier.HD_720P.ordinal ||
+                    activePowerProfile.isCpuSavingActive,
+            batteryOptimizationMode = batteryOptimizationMode,
+            batteryPowerProfile = activePowerProfile,
+            batteryLevelPct = cachedBatterySnapshot.batteryLevelPct,
+            isBatteryCharging = cachedBatterySnapshot.isCharging,
+            isOsPowerSaveMode = cachedBatterySnapshot.isOsPowerSaveMode,
+            isBackgroundLoadingActive = isBackgroundLoadingActive,
+            isCpuSavingActive = activePowerProfile.isCpuSavingActive,
+            activeMaxFrameRate = activePowerProfile.maxFrameRate,
             connectionLabel = detectConnectionLabel(),
             autoSkipNotice = if (newChannel.shouldAutoSkipSwahiliMovieIntro) {
                 "Auto-skipped to 05:30 • Swahili Movie Intro Ads Skipped"
@@ -945,6 +1427,8 @@ class LivePlayerController(
     }
 
     fun applyNetworkQualityMode(mode: NetworkQualityMode) {
+        val activePowerProfile = resolveActiveBatteryPowerProfile(forceRefreshBattery = false)
+        val disableOffscreenVideoTrack = isBackgroundLoadingActive && !isPictureInPictureActive
         val mappedTier = when (mode) {
             NetworkQualityMode.ULTRA_LOW_BANDO_SAVER -> AdaptiveQualityTier.LOW_BANDO_240P
             NetworkQualityMode.WEAK_NETWORK_SAVER -> AdaptiveQualityTier.DATA_SAVER_360P
@@ -957,19 +1441,32 @@ class LivePlayerController(
                     bufferedDurationMs = exoPlayer?.let { (it.bufferedPosition - it.currentPosition).coerceAtLeast(0L) } ?: 5_000L,
                     isBuffering = false,
                     consecutiveRebufferCount = 0,
-                    isLowBandoNetwork = isLowBandoNetworkDetected() && latestEstimatedBandwidthBps < 350_000L
+                    isLowBandoNetwork = isLowBandoNetworkDetected() && latestEstimatedBandwidthBps < 350_000L,
+                    batteryPowerProfile = activePowerProfile
                 )
             }
         }
         currentAdaptiveTier = mappedTier
-        activeTrackResolutionLabel = mappedTier.badgeLabel
+        activeTrackResolutionLabel = if (activePowerProfile.isCpuSavingActive) {
+            "${mappedTier.badgeLabel} • ${activePowerProfile.maxFrameRate}fps Eco"
+        } else {
+            mappedTier.badgeLabel
+        }
 
         _playbackInfo.value = _playbackInfo.value.copy(
             networkMode = mode,
             adaptiveQualityTier = mappedTier,
-            activeVideoResolutionLabel = mappedTier.badgeLabel,
-            isDynamicallyDownscaled = mode == NetworkQualityMode.AUTO_ADAPTIVE &&
-                    mappedTier.ordinal > AdaptiveQualityTier.HD_720P.ordinal,
+            activeVideoResolutionLabel = activeTrackResolutionLabel,
+            isDynamicallyDownscaled = (mode == NetworkQualityMode.AUTO_ADAPTIVE &&
+                    mappedTier.ordinal > AdaptiveQualityTier.HD_720P.ordinal) || activePowerProfile.isCpuSavingActive,
+            batteryOptimizationMode = batteryOptimizationMode,
+            batteryPowerProfile = activePowerProfile,
+            batteryLevelPct = cachedBatterySnapshot.batteryLevelPct,
+            isBatteryCharging = cachedBatterySnapshot.isCharging,
+            isOsPowerSaveMode = cachedBatterySnapshot.isOsPowerSaveMode,
+            isBackgroundLoadingActive = isBackgroundLoadingActive,
+            isCpuSavingActive = activePowerProfile.isCpuSavingActive,
+            activeMaxFrameRate = activePowerProfile.maxFrameRate,
             connectionLabel = detectConnectionLabel()
         )
         val player = exoPlayer ?: return
@@ -979,9 +1476,11 @@ class LivePlayerController(
                     .buildUpon()
                     .setMaxVideoSize(426, 240)
                     .setMaxVideoBitrate(220_000)
+                    .setMaxVideoFrameRate(activePowerProfile.maxFrameRate)
                     .setMinVideoSize(0, 0)
                     .setMinVideoBitrate(0)
                     .setForceLowestBitrate(true)
+                    .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
                     .build()
             }
             NetworkQualityMode.WEAK_NETWORK_SAVER -> {
@@ -989,9 +1488,11 @@ class LivePlayerController(
                     .buildUpon()
                     .setMaxVideoSize(640, 360)
                     .setMaxVideoBitrate(550_000)
+                    .setMaxVideoFrameRate(activePowerProfile.maxFrameRate)
                     .setMinVideoSize(0, 0)
                     .setMinVideoBitrate(0)
                     .setForceLowestBitrate(true)
+                    .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
                     .build()
             }
             NetworkQualityMode.STANDARD_480P -> {
@@ -999,9 +1500,11 @@ class LivePlayerController(
                     .buildUpon()
                     .setMaxVideoSize(854, 480)
                     .setMaxVideoBitrate(1_100_000)
+                    .setMaxVideoFrameRate(activePowerProfile.maxFrameRate)
                     .setMinVideoSize(640, 360)
                     .setMinVideoBitrate(400_000)
                     .setForceLowestBitrate(false)
+                    .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
                     .build()
             }
             NetworkQualityMode.AUTO_ADAPTIVE -> {
@@ -1010,9 +1513,11 @@ class LivePlayerController(
                         selector.buildUponParameters()
                             .setMaxVideoSize(mappedTier.maxWidth, mappedTier.maxHeight)
                             .setMaxVideoBitrate(mappedTier.maxBitrateBps)
+                            .setMaxVideoFrameRate(activePowerProfile.maxFrameRate)
                             .setMinVideoSize(mappedTier.minPreferredWidth, mappedTier.minPreferredHeight)
                             .setMinVideoBitrate(mappedTier.minPreferredBitrateBps)
                             .setForceLowestBitrate(mappedTier.forceLowestBitrate)
+                            .setRendererDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
                             .setExceedVideoConstraintsIfNecessary(true)
                             .setExceedRendererCapabilitiesIfNecessary(true)
                     )
@@ -1021,9 +1526,11 @@ class LivePlayerController(
                     .buildUpon()
                     .setMaxVideoSize(mappedTier.maxWidth, mappedTier.maxHeight)
                     .setMaxVideoBitrate(mappedTier.maxBitrateBps)
+                    .setMaxVideoFrameRate(activePowerProfile.maxFrameRate)
                     .setMinVideoSize(mappedTier.minPreferredWidth, mappedTier.minPreferredHeight)
                     .setMinVideoBitrate(mappedTier.minPreferredBitrateBps)
                     .setForceLowestBitrate(mappedTier.forceLowestBitrate)
+                    .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
                     .build()
             }
             NetworkQualityMode.STRONG_NETWORK_HD -> {
@@ -1032,9 +1539,11 @@ class LivePlayerController(
                         selector.buildUponParameters()
                             .setMaxVideoSize(1920, 1080)
                             .setMaxVideoBitrate(5_500_000)
+                            .setMaxVideoFrameRate(activePowerProfile.maxFrameRate)
                             .setMinVideoSize(1280, 720)
                             .setMinVideoBitrate(1_500_000)
                             .setForceLowestBitrate(false)
+                            .setRendererDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
                             .setExceedVideoConstraintsIfNecessary(true)
                     )
                 }
@@ -1042,9 +1551,11 @@ class LivePlayerController(
                     .buildUpon()
                     .setMaxVideoSize(1920, 1080)
                     .setMaxVideoBitrate(5_500_000)
+                    .setMaxVideoFrameRate(activePowerProfile.maxFrameRate)
                     .setMinVideoSize(1280, 720)
                     .setMinVideoBitrate(1_500_000)
                     .setForceLowestBitrate(false)
+                    .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
                     .build()
             }
         }
@@ -1074,14 +1585,29 @@ class LivePlayerController(
         }
     }
 
+    private fun isPlayingLocalOfflineStream(targetChannel: LiveChannel = channel): Boolean {
+        val rawUrl = targetChannel.streamUrl.trim()
+        if (rawUrl.startsWith("file:", ignoreCase = true) || rawUrl.startsWith("/")) {
+            return true
+        }
+        val lookupId = targetChannel.episodeId.ifBlank { targetChannel.id }
+        val resolved = com.example.data.OfflineDownloadManager.resolveLocalOfflineUriIfPresent(
+            context = context,
+            rawId = lookupId,
+            fallbackStreamUrl = rawUrl
+        )
+        return resolved.startsWith("file:", ignoreCase = true) || resolved.startsWith("/")
+    }
+
     private fun loadChannelStream(player: ExoPlayer, preserveVodPosition: Boolean = false) {
         try {
+            val isLocalOffline = isPlayingLocalOfflineStream(channel)
             val mediaSource = createMediaSource(channel)
             player.repeatMode = if (channel.isLiveBroadcast) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
             val startPositionMs = when {
                 channel.isLiveBroadcast -> C.TIME_UNSET
                 preserveVodPosition && lastKnownVodPositionMs > 0L -> lastKnownVodPositionMs
-                channel.shouldAutoSkipSwahiliMovieIntro -> {
+                !isLocalOffline && channel.shouldAutoSkipSwahiliMovieIntro -> {
                     hasAppliedSwahiliMovieIntroSkip = true
                     lastKnownVodPositionMs = SWAHILI_MOVIE_INTRO_SKIP_MS
                     SWAHILI_MOVIE_INTRO_SKIP_MS
@@ -1120,8 +1646,18 @@ class LivePlayerController(
             rawId = lookupId,
             fallbackStreamUrl = channel.streamUrl
         )
-        val effectiveStreamUrl = com.example.data.ChannelRepository.normalizeDashStreamUrl(resolvedOfflineOrOnlineUrl)
-        val manifestUri = Uri.parse(effectiveStreamUrl)
+        val isLocalOfflineFile = resolvedOfflineOrOnlineUrl.startsWith("file:", ignoreCase = true) ||
+                resolvedOfflineOrOnlineUrl.startsWith("/")
+        val effectiveStreamUrl = if (isLocalOfflineFile) {
+            resolvedOfflineOrOnlineUrl
+        } else {
+            com.example.data.ChannelRepository.normalizeDashStreamUrl(resolvedOfflineOrOnlineUrl)
+        }
+        val manifestUri = if (effectiveStreamUrl.startsWith("/")) {
+            Uri.fromFile(java.io.File(effectiveStreamUrl))
+        } else {
+            Uri.parse(effectiveStreamUrl)
+        }
         val encodedManifestQuery = manifestUri.encodedQuery
 
         val baseHttpDataSourceFactory = DefaultHttpDataSource.Factory()
@@ -1136,12 +1672,12 @@ class LivePlayerController(
                 )
             )
 
-        // Use ClearKeyDecryptingDataSource when ClearKey DRM or Azam cdntoken propagation is needed
-        // (for DASH .mpd manifests, fragmented .mp4 CDN segments, and any CDN .mp4 stream using cdntoken).
-        val needsClearKeyOrTokenWrapper =
+        // Use ClearKeyDecryptingDataSource only for online streams when ClearKey DRM or Azam cdntoken propagation is needed
+        val needsClearKeyOrTokenWrapper = !isLocalOfflineFile && (
             (channel.isClearKey && channel.clearKeys.isNotEmpty()) ||
                     effectiveStreamUrl.contains("cdntoken=", ignoreCase = true) ||
                     effectiveStreamUrl.contains("azamtvltd.co.tz", ignoreCase = true)
+            )
 
         val upstreamDataSourceFactory = if (needsClearKeyOrTokenWrapper) {
             val decryptor = if (channel.isClearKey && channel.clearKeys.isNotEmpty()) {
@@ -1178,8 +1714,6 @@ class LivePlayerController(
             .setMaxPlaybackSpeed(1.02f)
             .build()
 
-        val isLocalOfflineFile = effectiveStreamUrl.startsWith("file:", ignoreCase = true) ||
-                effectiveStreamUrl.startsWith("/")
         val isLocalHlsPlaylist = isLocalOfflineFile &&
                 effectiveStreamUrl.substringBefore("?").endsWith(".m3u8", ignoreCase = true)
         val useProgressive = when (forcedContainerMode) {
@@ -1193,18 +1727,17 @@ class LivePlayerController(
 
         return when {
             useProgressive -> {
-                // Do not hardcode MimeTypes.VIDEO_MP4 on local `.ts` files so DefaultExtractorsFactory
-                // automatically sniffs both MP4 (`Mp4Extractor`) and MPEG-TS (`TsExtractor`) offline files!
                 val mediaItemBuilder = MediaItem.Builder()
                     .setUri(manifestUri)
                     .setMediaId(channel.id)
 
-                if (!effectiveStreamUrl.substringBefore("?").endsWith(".ts", ignoreCase = true)) {
+                // For local offline files, let DefaultExtractorsFactory auto-sniff MP4, fMP4, MPEG-TS, or MKV headers
+                if (!isLocalOfflineFile && !effectiveStreamUrl.substringBefore("?").endsWith(".ts", ignoreCase = true)) {
                     mediaItemBuilder.setMimeType(MimeTypes.VIDEO_MP4)
                 }
 
                 ProgressiveMediaSource.Factory(dataSourceFactory, extractorsFactory)
-                    .setContinueLoadingCheckIntervalBytes(1024 * 1024)
+                    .setContinueLoadingCheckIntervalBytes(currentBatteryProfile.continueLoadingCheckIntervalBytes)
                     .setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
                     .createMediaSource(mediaItemBuilder.build())
             }
@@ -1350,6 +1883,7 @@ class LivePlayerController(
 
     fun release() {
         mainHandler.removeCallbacksAndMessages(null)
+        unregisterPowerBroadcastReceiverIfNeeded()
         bandwidthMeter?.removeEventListener(bandwidthEventListener)
         bandwidthMeter = null
         trackSelector = null
@@ -1380,8 +1914,9 @@ class LivePlayerController(
             ?: latestEstimatedBandwidthBps
         val kbps = (effectiveBps / 1000L).toInt().coerceAtLeast(100)
         val isSeekable = !isLive && ((player?.isCurrentMediaItemSeekable == true) || duration > 0)
-        val isDownscaled = _playbackInfo.value.networkMode == NetworkQualityMode.AUTO_ADAPTIVE &&
-                (currentAdaptiveTier.ordinal > AdaptiveQualityTier.HD_720P.ordinal || consecutiveRebufferCount > 0)
+        val isDownscaled = (_playbackInfo.value.networkMode == NetworkQualityMode.AUTO_ADAPTIVE &&
+                (currentAdaptiveTier.ordinal > AdaptiveQualityTier.HD_720P.ordinal || consecutiveRebufferCount > 0)) ||
+                currentBatteryProfile.isCpuSavingActive
 
         _playbackInfo.value = _playbackInfo.value.copy(
             isPlaying = player?.isPlaying ?: _playbackInfo.value.isPlaying,
@@ -1395,6 +1930,14 @@ class LivePlayerController(
             estimatedBandwidthKbps = kbps,
             bufferedDurationMs = computedBufferedAheadMs,
             isDynamicallyDownscaled = isDownscaled,
+            batteryOptimizationMode = batteryOptimizationMode,
+            batteryPowerProfile = currentBatteryProfile,
+            batteryLevelPct = cachedBatterySnapshot.batteryLevelPct,
+            isBatteryCharging = cachedBatterySnapshot.isCharging,
+            isOsPowerSaveMode = cachedBatterySnapshot.isOsPowerSaveMode,
+            isBackgroundLoadingActive = isBackgroundLoadingActive,
+            isCpuSavingActive = currentBatteryProfile.isCpuSavingActive,
+            activeMaxFrameRate = currentBatteryProfile.maxFrameRate,
             connectionLabel = detectConnectionLabel()
         )
     }

@@ -2,12 +2,16 @@ package com.example.data
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.content.ContentValues
 import android.content.Context
+import android.media.MediaScannerConnection
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Build
+import android.os.Environment
 import android.os.PowerManager
+import android.provider.MediaStore
 import androidx.core.app.NotificationCompat
 import com.example.data.local.DownloadedItemEntity
 import com.example.data.local.NeliMediaDao
@@ -23,6 +27,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -30,7 +35,9 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
@@ -42,10 +49,13 @@ import kotlin.coroutines.coroutineContext
 
 object OfflineDownloadManager {
 
+    const val SPECIAL_DEVICE_FOLDER_NAME = "NeliPlay"
+    const val SPECIAL_DEVICE_FOLDER_DISPLAY_PATH = "Internal Storage / Movies / NeliPlay"
+
     private const val NOTIFICATION_CHANNEL_ID = "neli_offline_downloads_channel"
     private const val NOTIFICATION_CHANNEL_NAME = "Nelitv Background Downloads"
     private const val MIN_VALID_VIDEO_BYTES = 64 * 1024L // At least 64 KB of real media data
-    private const val HLS_PARALLEL_SEGMENT_WORKERS = 16
+    private const val HLS_PARALLEL_SEGMENT_WORKERS = 12
     private const val MAX_CONCURRENT_MULTI_DOWNLOADS = 4
 
     /**
@@ -57,6 +67,7 @@ object OfflineDownloadManager {
 
     private val activeDownloadIds = ConcurrentHashMap.newKeySet<String>()
     private val activeDownloadJobs = ConcurrentHashMap<String, Job>()
+    private val pausedByUserIds = ConcurrentHashMap.newKeySet<String>()
     private val recentlyCompletedTimestamps = ConcurrentHashMap<String, Long>()
     private val lastDbPersistTimeById = ConcurrentHashMap<String, Long>()
     private val downloadStartTimestamps = ConcurrentHashMap<String, Long>()
@@ -73,13 +84,17 @@ object OfflineDownloadManager {
     private val _downloadBannerMessage = MutableStateFlow<String?>(null)
     val downloadBannerMessage: StateFlow<String?> = _downloadBannerMessage.asStateFlow()
 
+    /**
+     * Returns true ONLY while [id] is actively downloading in the background.
+     * Never returns true for completed downloads so completed items are immediately clickable and playable.
+     */
     fun isCurrentlyDownloading(id: String): Boolean {
-        if (activeDownloadIds.contains(id) ||
+        return activeDownloadIds.contains(id) ||
             _downloadProgress.value.containsKey(id) ||
             _activeDownloadEntities.value.containsKey(id)
-        ) {
-            return true
-        }
+    }
+
+    private fun isRecentlyCompletedGracePeriod(id: String): Boolean {
         val completedAt = recentlyCompletedTimestamps[id] ?: return false
         return (System.currentTimeMillis() - completedAt) < 20_000L
     }
@@ -89,7 +104,222 @@ object OfflineDownloadManager {
     }
 
     /**
-     * Verifies whether a [DownloadedItemEntity] has a real, non-empty video file or HLS bundle on internal storage.
+     * Automatically creates and returns the special `NeliPlay` folder on the device when a user starts
+     * downloading any movie or series.
+     *
+     * Creates:
+     * 1. Public shared device folders (`/storage/emulated/0/Movies/NeliPlay` and `/storage/emulated/0/Download/NeliPlay`)
+     *    when accessible on the device so the user can browse downloaded videos directly in their phone's Files app.
+     * 2. App-accessible external media directory (`Android/data/<pkg>/files/Movies/NeliPlay`).
+     * 3. Internal offline storage directory (`filesDir/offline_media/NeliPlay`).
+     */
+    fun ensureSpecialDeviceDownloadFolder(context: Context): File {
+        val appContext = context.applicationContext
+        // 1. Try creating visible public Movies/NeliPlay & Download/NeliPlay directories
+        try {
+            val publicMoviesDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES)
+            if (publicMoviesDir != null) {
+                File(publicMoviesDir, SPECIAL_DEVICE_FOLDER_NAME).mkdirs()
+            }
+        } catch (_: Exception) {
+        }
+        try {
+            val publicDownloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            if (publicDownloadsDir != null) {
+                File(publicDownloadsDir, SPECIAL_DEVICE_FOLDER_NAME).mkdirs()
+            }
+        } catch (_: Exception) {
+        }
+
+        // 2. Try external app-specific Movies/NeliPlay directory (visible in Android file managers)
+        try {
+            val extMovies = appContext.getExternalFilesDir(Environment.DIRECTORY_MOVIES)
+            if (extMovies != null) {
+                val specialExt = File(extMovies, SPECIAL_DEVICE_FOLDER_NAME)
+                if (specialExt.exists() || specialExt.mkdirs()) {
+                    // Also ensure internal fallback dir exists
+                    File(File(appContext.filesDir, "offline_media"), SPECIAL_DEVICE_FOLDER_NAME).mkdirs()
+                    return specialExt
+                }
+            }
+        } catch (_: Exception) {
+        }
+
+        // 3. Guaranteed internal storage fallback (`filesDir/offline_media/NeliPlay`)
+        val internalBase = File(appContext.filesDir, "offline_media").apply {
+            if (!exists()) mkdirs()
+        }
+        return File(internalBase, SPECIAL_DEVICE_FOLDER_NAME).apply {
+            if (!exists()) mkdirs()
+        }
+    }
+
+    /**
+     * Returns all candidate directories where offline files or partial resumes may be stored.
+     */
+    private fun getOfflineStorageDirectories(context: Context): List<File> {
+        val appContext = context.applicationContext
+        val dirs = mutableListOf<File>()
+        try {
+            val specialDir = ensureSpecialDeviceDownloadFolder(appContext)
+            dirs.add(specialDir)
+        } catch (_: Exception) {
+        }
+        val legacyInternal = File(appContext.filesDir, "offline_media").apply {
+            if (!exists()) mkdirs()
+        }
+        if (dirs.none { it.absolutePath == legacyInternal.absolutePath }) {
+            dirs.add(legacyInternal)
+        }
+        val internalSpecial = File(legacyInternal, SPECIAL_DEVICE_FOLDER_NAME).apply {
+            if (!exists()) mkdirs()
+        }
+        if (dirs.none { it.absolutePath == internalSpecial.absolutePath }) {
+            dirs.add(internalSpecial)
+        }
+        try {
+            val publicMovies = File(
+                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES),
+                SPECIAL_DEVICE_FOLDER_NAME
+            )
+            if (publicMovies.exists()) dirs.add(publicMovies)
+        } catch (_: Exception) {
+        }
+        try {
+            val publicDownloads = File(
+                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
+                SPECIAL_DEVICE_FOLDER_NAME
+            )
+            if (publicDownloads.exists()) dirs.add(publicDownloads)
+        } catch (_: Exception) {
+        }
+        return dirs.distinctBy { it.absolutePath }
+    }
+
+    /**
+     * Builds a clean, human-readable filename for saving movies & series in the device's `NeliPlay` folder
+     * so users can easily identify and play them from their phone's Files app even outside the app.
+     */
+    fun buildCleanDeviceFileName(title: String, id: String, extension: String = "mp4"): String {
+        val cleanExt = extension.trim().removePrefix(".").ifBlank { "mp4" }
+        val cleanTitle = title
+            .replace(Regex("[\\\\/:*?\"<>|\\n\\r\\t]"), " ")
+            .replace(Regex("\\s+"), "_")
+            .replace(Regex("[^a-zA-Z0-9_.-]"), "")
+            .trim('_')
+            .take(56)
+            .ifBlank { "NeliPlay_Video" }
+        val safeId = id.replace(Regex("[^a-zA-Z0-9_-]"), "_").take(24)
+        return "${cleanTitle}_${safeId}.$cleanExt"
+    }
+
+    /**
+     * Exports/copies the completed video file into the mobile device's visible shared storage folder
+     * (`Movies/NeliPlay` and `Download/NeliPlay`) so the user can open their phone's Files / Gallery app
+     * and watch the downloaded movie or series episode even without opening the app.
+     */
+    private fun exportCompletedVideoToDeviceFilesFolder(
+        context: Context,
+        sourceFile: File,
+        item: DownloadedItemEntity
+    ): File {
+        if (!sourceFile.exists() || sourceFile.length() <= MIN_VALID_VIDEO_BYTES) {
+            return sourceFile
+        }
+        val ext = sourceFile.extension.lowercase(Locale.US).ifBlank { "mp4" }
+        val cleanFileName = buildCleanDeviceFileName(item.title, item.id, ext)
+        val mimeType = when (ext) {
+            "ts" -> "video/mp2t"
+            "mkv" -> "video/x-matroska"
+            else -> "video/mp4"
+        }
+
+        // 1. Ensure human-readable file exists inside our primary NeliPlay folder
+        var primaryDeviceFile = sourceFile
+        try {
+            val specialFolder = ensureSpecialDeviceDownloadFolder(context)
+            val namedFileInSpecial = File(specialFolder, cleanFileName)
+            if (sourceFile.absolutePath != namedFileInSpecial.absolutePath) {
+                sourceFile.copyTo(namedFileInSpecial, overwrite = true)
+            }
+            if (namedFileInSpecial.exists() && namedFileInSpecial.length() > MIN_VALID_VIDEO_BYTES) {
+                primaryDeviceFile = namedFileInSpecial
+            }
+        } catch (_: Exception) {
+        }
+
+        // 2. Also try writing directly to public `/storage/emulated/0/Movies/NeliPlay/<cleanFileName>`
+        var wroteDirectlyToPublicMovies = false
+        try {
+            val publicMoviesRoot = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES)
+            if (publicMoviesRoot != null) {
+                val neliPublicFolder = File(publicMoviesRoot, SPECIAL_DEVICE_FOLDER_NAME)
+                if (neliPublicFolder.exists() || neliPublicFolder.mkdirs()) {
+                    val publicTarget = File(neliPublicFolder, cleanFileName)
+                    if (publicTarget.absolutePath != primaryDeviceFile.absolutePath) {
+                        primaryDeviceFile.copyTo(publicTarget, overwrite = true)
+                    }
+                    if (publicTarget.exists() && publicTarget.length() > MIN_VALID_VIDEO_BYTES) {
+                        wroteDirectlyToPublicMovies = true
+                        try {
+                            MediaScannerConnection.scanFile(
+                                context,
+                                arrayOf(publicTarget.absolutePath),
+                                arrayOf(mimeType),
+                                null
+                            )
+                        } catch (_: Exception) {
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) {
+        }
+
+        // 3. On Android 10+ (API 29+), also publish to MediaStore under `Movies/NeliPlay` if direct write wasn't used,
+        //    so the phone's Files app ("Movies > NeliPlay" & "Videos") always lists it immediately.
+        if (!wroteDirectlyToPublicMovies && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            try {
+                val resolver = context.contentResolver
+                val relativePath = "${Environment.DIRECTORY_MOVIES}/$SPECIAL_DEVICE_FOLDER_NAME"
+                // Avoid duplicate MediaStore rows if re-downloaded
+                try {
+                    resolver.delete(
+                        MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+                        "${MediaStore.MediaColumns.DISPLAY_NAME} = ?",
+                        arrayOf(cleanFileName)
+                    )
+                } catch (_: Exception) {
+                }
+
+                val values = ContentValues().apply {
+                    put(MediaStore.MediaColumns.DISPLAY_NAME, cleanFileName)
+                    put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
+                    put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
+                    put(MediaStore.Video.Media.TITLE, item.title)
+                    put(MediaStore.MediaColumns.IS_PENDING, 1)
+                }
+                val uri = resolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values)
+                if (uri != null) {
+                    resolver.openOutputStream(uri)?.use { outStream ->
+                        FileInputStream(primaryDeviceFile).use { inStream ->
+                            inStream.copyTo(outStream, bufferSize = 128 * 1024)
+                        }
+                    }
+                    val doneValues = ContentValues().apply {
+                        put(MediaStore.MediaColumns.IS_PENDING, 0)
+                    }
+                    resolver.update(uri, doneValues, null, null)
+                }
+            } catch (_: Exception) {
+            }
+        }
+
+        return primaryDeviceFile
+    }
+
+    /**
+     * Verifies whether a [DownloadedItemEntity] has a real, non-empty video file or HLS bundle on storage.
      */
     fun isDownloadFileValidOnDisk(entity: DownloadedItemEntity): Boolean {
         if (entity.downloadStatus != "COMPLETED" || entity.localFilePath.isBlank()) {
@@ -111,14 +341,14 @@ object OfflineDownloadManager {
 
     /**
      * Cleans up any broken/0-byte download records from Room so the UI never falsely shows "Downloaded"
-     * for an item that isn't actually on internal storage, while strictly protecting active and newly
-     * completed downloads from race-condition deletion.
+     * for an item that isn't actually on internal storage, while strictly protecting active, paused/resumable,
+     * and newly completed downloads from race-condition deletion.
      */
     suspend fun purgeInvalidDownloads(dao: NeliMediaDao, items: List<DownloadedItemEntity>) = withContext(Dispatchers.IO) {
         for (item in items) {
-            if (isCurrentlyDownloading(item.id)) continue
+            if (isCurrentlyDownloading(item.id) || isRecentlyCompletedGracePeriod(item.id)) continue
             val fresh = dao.getDownloadById(item.id) ?: continue
-            if (isCurrentlyDownloading(fresh.id)) continue
+            if (isCurrentlyDownloading(fresh.id) || isRecentlyCompletedGracePeriod(fresh.id)) continue
 
             if (isDownloadFileValidOnDisk(fresh)) {
                 continue
@@ -132,9 +362,53 @@ object OfflineDownloadManager {
     }
 
     /**
+     * Inspects any existing partial download on disk (`.mp4.part` or `hls_<safeId>`) to restore
+     * the exact progress percentage and bytes downloaded so resuming NEVER resets UI to 1%.
+     */
+    fun inspectPartialDownloadState(context: Context, id: String, fallbackPct: Int = 1): Pair<Int, Long> {
+        val safeId = id.replace(Regex("[^a-zA-Z0-9_-]"), "_")
+        val dirs = getOfflineStorageDirectories(context)
+
+        for (dir in dirs) {
+            val partFile = File(dir, "$safeId.mp4.part")
+            val metaFile = File(dir, "$safeId.mp4.meta")
+            if (partFile.exists() && partFile.length() > 0L) {
+                val bytes = partFile.length()
+                val expectedTotal = readExpectedTotalFromMeta(metaFile)
+                val pct = if (expectedTotal > 0L) {
+                    ((bytes * 99L) / expectedTotal).toInt().coerceIn(1, 99)
+                } else {
+                    fallbackPct.coerceIn(1, 95)
+                }
+                return pct to bytes
+            }
+
+            val hlsDir = File(dir, "hls_$safeId")
+            if (hlsDir.exists() && hlsDir.isDirectory) {
+                val segFiles = hlsDir.listFiles { f ->
+                    (f.name.startsWith("seg_") || f.name.startsWith("init_map_")) &&
+                        !f.name.endsWith(".tmp") &&
+                        f.length() > 0L
+                }.orEmpty()
+                if (segFiles.isNotEmpty()) {
+                    val bytes = segFiles.sumOf { it.length() }
+                    val totalSegCount = readExpectedSegmentsFromMeta(File(hlsDir, "hls_meta.json"))
+                    val pct = if (totalSegCount > 0) {
+                        ((segFiles.size * 99) / totalSegCount).coerceIn(1, 99)
+                    } else {
+                        fallbackPct.coerceIn(1, 95)
+                    }
+                    return pct to bytes
+                }
+            }
+        }
+        return fallbackPct.coerceIn(1, 99) to 0L
+    }
+
+    /**
      * Enqueues a background download using the streaming link's native quality directly.
-     * Supports concurrent Multi-Download and runs inside a Foreground Service so downloads
-     * continue even when the user leaves the app.
+     * Automatically creates the special `NeliPlay` folder on device storage and preserves any existing
+     * partial bytes on disk so resuming after an internet interruption continues seamlessly where it stopped.
      */
     fun enqueueBackgroundDownload(
         context: Context,
@@ -142,16 +416,34 @@ object OfflineDownloadManager {
         item: DownloadedItemEntity
     ) {
         val appContext = context.applicationContext
+        // Immediately ensure the special NeliPlay folder exists on the phone's storage
+        ensureSpecialDeviceDownloadFolder(appContext)
+
+        pausedByUserIds.remove(item.id)
+
         if (activeDownloadIds.contains(item.id) && activeDownloadJobs[item.id]?.isActive == true) {
             _downloadBannerMessage.value = "\"${item.title}\" is already downloading."
             return
         }
 
+        val (resumedPct, resumedBytes) = inspectPartialDownloadState(
+            context = appContext,
+            id = item.id,
+            fallbackPct = item.progressPercent.takeIf { it in 1..99 } ?: 1
+        )
+        val initialPct = if (resumedBytes > 0L) resumedPct.coerceIn(1, 99) else (item.progressPercent.takeIf { it in 2..99 } ?: 1)
+        val initialLabel = if (resumedBytes > 0L) {
+            val mb = resumedBytes.toDouble() / (1024.0 * 1024.0)
+            String.format(Locale.US, "Resuming download • %d%% (%.1f MB saved)", initialPct, mb)
+        } else {
+            "Starting download • $initialPct%"
+        }
+
         val queuedEntity = item.copy(
             streamUrl = ChannelRepository.normalizeDashStreamUrl(item.streamUrl.trim()),
-            fileSizeLabel = "Starting fast background download • 1%",
+            fileSizeLabel = initialLabel,
             downloadStatus = "DOWNLOADING",
-            progressPercent = 1,
+            progressPercent = initialPct,
             timestamp = System.currentTimeMillis()
         )
 
@@ -159,13 +451,15 @@ object OfflineDownloadManager {
         downloadStartTimestamps[item.id] = System.currentTimeMillis()
         setActiveEntity(item.id, queuedEntity)
         setActiveTitle(item.id, item.title)
-        updateProgress(item.id, 1)
+        updateProgress(item.id, initialPct)
 
         val totalActive = _downloadProgress.value.size
-        _downloadBannerMessage.value = if (totalActive > 1) {
+        _downloadBannerMessage.value = if (resumedBytes > 0L) {
+            "Resuming \"${item.title}\" from $initialPct%..."
+        } else if (totalActive > 1) {
             "Multi-Download Active ($totalActive videos) • Added \"${item.title}\"..."
         } else {
-            "Downloading \"${item.title}\" in background (1%)..."
+            "Downloading \"${item.title}\" in background ($initialPct%)..."
         }
 
         syncForegroundServiceState(appContext)
@@ -197,6 +491,67 @@ object OfflineDownloadManager {
     ) {
         items.forEach { item ->
             enqueueBackgroundDownload(context, dao, item)
+        }
+    }
+
+    /**
+     * Pauses an active download WITHOUT deleting its partial `.part` or HLS segment files on disk,
+     * so the user or automatic network recovery can resume from the exact percentage where it paused.
+     */
+    fun pauseDownload(context: Context, dao: NeliMediaDao, id: String) {
+        val appContext = context.applicationContext
+        pausedByUserIds.add(id)
+        activeDownloadJobs.remove(id)?.cancel()
+        activeDownloadIds.remove(id)
+        val currentPct = _downloadProgress.value[id]
+        removeActiveEntity(id)
+        removeActiveTitle(id)
+        clearProgress(id)
+        cancelDownloadNotification(appContext, id)
+        syncForegroundServiceState(appContext)
+
+        backgroundScope.launch {
+            val existing = dao.getDownloadById(id) ?: return@launch
+            val (diskPct, diskBytes) = inspectPartialDownloadState(
+                context = appContext,
+                id = id,
+                fallbackPct = currentPct ?: existing.progressPercent
+            )
+            val savedPct = maxOf(diskPct, currentPct ?: 1, existing.progressPercent).coerceIn(1, 99)
+            val mbLabel = if (diskBytes > 0L) {
+                String.format(Locale.US, " (%.1f MB saved)", diskBytes.toDouble() / (1024.0 * 1024.0))
+            } else ""
+            val pausedEntity = existing.copy(
+                downloadStatus = "PAUSED_ERROR",
+                progressPercent = savedPct,
+                fileSizeLabel = "Paused at $savedPct%$mbLabel • Tap Resume"
+            )
+            dao.upsertDownload(pausedEntity)
+            _downloadBannerMessage.value = "Paused \"${existing.title}\" at $savedPct%. Tap Resume anytime."
+        }
+    }
+
+    /**
+     * Automatically resumes any interrupted or network-paused downloads when internet connectivity returns,
+     * continuing from the exact byte/segment offset already saved on disk.
+     */
+    fun resumeInterruptedDownloads(context: Context, dao: NeliMediaDao) {
+        val appContext = context.applicationContext
+        if (!isDeviceOnline(appContext)) return
+        backgroundScope.launch {
+            try {
+                val all = dao.getAllDownloads().first()
+                for (entry in all) {
+                    if (pausedByUserIds.contains(entry.id)) continue
+                    if (isCurrentlyDownloading(entry.id)) continue
+                    val needsResume = entry.downloadStatus == "PAUSED_ERROR" ||
+                        (entry.downloadStatus == "DOWNLOADING" && !isDownloadFileValidOnDisk(entry))
+                    if (needsResume && entry.streamUrl.isNotBlank()) {
+                        enqueueBackgroundDownload(appContext, dao, entry)
+                    }
+                }
+            } catch (_: Exception) {
+            }
         }
     }
 
@@ -244,15 +599,20 @@ object OfflineDownloadManager {
         }
     }
 
+    private sealed interface StreamDownloadAttemptResult {
+        data class Completed(val playableFile: File, val totalBytes: Long) : StreamDownloadAttemptResult
+        data class InterruptedResumable(val partialBytes: Long, val lastPct: Int) : StreamDownloadAttemptResult
+        data object UnsupportedCandidate : StreamDownloadAttemptResult
+    }
+
     /**
-     * Downloads a movie or series episode into the device's internal storage (`filesDir/offline_media/`)
-     * using the streaming link's own quality (`item.streamUrl`), normalizing CDN authorization tokens if applicable.
+     * Downloads a movie or series episode into the device's special `NeliPlay` folder AND internal storage:
      *
-     * - For `.mp4` streams: downloads the full MP4 video file to `filesDir/offline_media/<safeId>.mp4`
-     *   with automatic HTTP Range resume on network hiccups.
-     * - For `.m3u8` HLS streams: downloads all video segments concurrently (8 workers with retry)
-     *   into `filesDir/offline_media/hls_<safeId>/` and writes `local_playlist.m3u8` so ExoPlayer's
-     *   `HlsMediaSource` plays the entire video 100% offline with full duration and timeline seeking.
+     * - Automatically creates the `NeliPlay` special folder on device storage (`Movies/NeliPlay`).
+     * - Preserves partial progress across internet interruptions (HTTP Range `.mp4.part` & segment-level HLS caching)
+     *   so an interrupted download NEVER restarts from 0%.
+     * - Exports completed downloads as clean, standalone video files in the device's `NeliPlay` folder AND
+     *   marks them `COMPLETED` with `isCurrentlyDownloading = false` so they are immediately playable offline inside the app.
      */
     suspend fun downloadMediaOffline(
         context: Context,
@@ -261,6 +621,7 @@ object OfflineDownloadManager {
         alreadyRegisteredActive: Boolean = false
     ): Boolean = withContext(Dispatchers.IO) {
         val appContext = context.applicationContext
+        val specialDeviceFolder = ensureSpecialDeviceDownloadFolder(appContext)
         val rawStreamUrl = ChannelRepository.normalizeDashStreamUrl(item.streamUrl.trim())
 
         if (rawStreamUrl.isBlank()) {
@@ -287,47 +648,67 @@ object OfflineDownloadManager {
             return@withContext true
         }
 
+        val (resumedPct, resumedBytes) = inspectPartialDownloadState(
+            context = appContext,
+            id = item.id,
+            fallbackPct = maxOf(item.progressPercent, existing?.progressPercent ?: 1).coerceIn(1, 99)
+        )
+        val startPct = if (resumedBytes > 0L) resumedPct else maxOf(1, item.progressPercent.coerceIn(1, 99))
+
         downloadStartTimestamps.putIfAbsent(item.id, System.currentTimeMillis())
         setActiveTitle(item.id, item.title)
-        updateProgress(item.id, 1)
-        _downloadBannerMessage.value = "Downloading \"${item.title}\" (1%)..."
-        showDownloadNotification(appContext, item.id, item.title, 1, isCompleted = false)
+        updateProgress(item.id, startPct)
+        _downloadBannerMessage.value = if (resumedBytes > 0L) {
+            "Resuming \"${item.title}\" ($startPct%)..."
+        } else {
+            "Downloading \"${item.title}\" ($startPct%)..."
+        }
+        showDownloadNotification(appContext, item.id, item.title, startPct, isCompleted = false)
         syncForegroundServiceState(appContext)
 
         val wakeLock = acquirePartialWakeLock(appContext, item.id)
-
-        val offlineDir = File(appContext.filesDir, "offline_media").apply {
-            if (!exists()) mkdirs()
-        }
         val safeId = item.id.replace(Regex("[^a-zA-Z0-9_-]"), "_")
 
         val initialEntity = item.copy(
             streamUrl = rawStreamUrl,
-            fileSizeLabel = "Downloading • 1%",
-            localFilePath = "",
+            fileSizeLabel = if (resumedBytes > 0L) {
+                val mb = resumedBytes.toDouble() / (1024.0 * 1024.0)
+                String.format(Locale.US, "Resuming • %d%% (%.1f MB)", startPct, mb)
+            } else {
+                "Downloading • $startPct%"
+            },
+            localFilePath = existing?.localFilePath.orEmpty(),
             downloadStatus = "DOWNLOADING",
-            progressPercent = 1,
+            progressPercent = startPct,
             timestamp = System.currentTimeMillis()
         )
         setActiveEntity(item.id, initialEntity)
         dao.upsertDownload(initialEntity)
 
         try {
-            // Prioritize fast single-stream MP4 downloads on BunnyCDN before falling back to multi-segment HLS
+            // Preserve query parameters (such as CDN auth tokens) when building candidate URLs
+            val querySuffix = rawStreamUrl.substringAfter("?", "").let { if (it.isNotEmpty()) "?$it" else "" }
+            val hasExistingMp4Part = File(specialDeviceFolder, "$safeId.mp4.part").let { it.exists() && it.length() > 0L }
+            val hasExistingHlsBundle = File(specialDeviceFolder, "hls_$safeId").let {
+                it.exists() && (it.listFiles()?.isNotEmpty() == true)
+            }
+
             val candidateUrls = buildList {
-                if (rawStreamUrl.contains("b-cdn.net", ignoreCase = true)) {
+                if (hasExistingHlsBundle && !hasExistingMp4Part) {
+                    // Already have partial HLS segments on disk: resume the HLS stream directly!
+                    add(rawStreamUrl)
+                } else if (rawStreamUrl.contains("b-cdn.net", ignoreCase = true)) {
                     val baseDir = rawStreamUrl.substringBefore("?").substringBeforeLast("/")
                     if (rawStreamUrl.substringBefore("?").endsWith(".mp4", ignoreCase = true)) {
                         add(rawStreamUrl)
-                        add("$baseDir/play_480p.mp4")
-                        add("$baseDir/play_360p.mp4")
-                        add("$baseDir/play_720p.mp4")
-                        add("$baseDir/playlist.m3u8")
+                        add("$baseDir/play_480p.mp4$querySuffix")
+                        add("$baseDir/play_360p.mp4$querySuffix")
+                        add("$baseDir/play_720p.mp4$querySuffix")
+                        add("$baseDir/playlist.m3u8$querySuffix")
                     } else {
-                        // Try direct MP4 variants first for 5x faster contiguous download speed!
-                        add("$baseDir/play_480p.mp4")
-                        add("$baseDir/play_360p.mp4")
-                        add("$baseDir/play_720p.mp4")
+                        add("$baseDir/play_480p.mp4$querySuffix")
+                        add("$baseDir/play_360p.mp4$querySuffix")
+                        add("$baseDir/play_720p.mp4$querySuffix")
                         add(rawStreamUrl)
                     }
                 } else {
@@ -337,60 +718,111 @@ object OfflineDownloadManager {
 
             var finalPlayableFile: File? = null
             var totalDownloadedBytes = 0L
+            var interruptedPartialBytes = resumedBytes
+            var interruptedPct = startPct
 
             for (candidateUrl in candidateUrls) {
                 if (!coroutineContext.isActive) throw CancellationException()
 
                 val isHlsCandidate = isUrlOrResponseHls(candidateUrl)
                 if (isHlsCandidate) {
-                    val hlsBundleDir = File(offlineDir, "hls_$safeId")
+                    val hlsBundleDir = File(specialDeviceFolder, "hls_$safeId")
                     val localPlaylistFile = File(hlsBundleDir, "local_playlist.m3u8")
-                    val bytes = downloadHlsStreamToOfflinePlaylist(
-                        appContext = appContext,
-                        masterOrVariantUrl = candidateUrl,
-                        bundleDir = hlsBundleDir,
-                        localPlaylistFile = localPlaylistFile,
-                        initialEntity = initialEntity,
-                        dao = dao
-                    )
-                    if (bytes > MIN_VALID_VIDEO_BYTES && localPlaylistFile.exists() && localPlaylistFile.length() > 32L) {
-                        finalPlayableFile = localPlaylistFile
-                        totalDownloadedBytes = bytes
-                        break
-                    } else {
-                        hlsBundleDir.deleteRecursively()
+                    when (
+                        val outcome = downloadHlsStreamToOfflinePlaylist(
+                            appContext = appContext,
+                            masterOrVariantUrl = candidateUrl,
+                            bundleDir = hlsBundleDir,
+                            localPlaylistFile = localPlaylistFile,
+                            specialDeviceFolder = specialDeviceFolder,
+                            safeId = safeId,
+                            initialEntity = initialEntity,
+                            dao = dao
+                        )
+                    ) {
+                        is StreamDownloadAttemptResult.Completed -> {
+                            finalPlayableFile = outcome.playableFile
+                            totalDownloadedBytes = outcome.totalBytes
+                            break
+                        }
+                        is StreamDownloadAttemptResult.InterruptedResumable -> {
+                            // Keep all downloaded segments on disk so retry/reconnect resumes where it left off!
+                            interruptedPartialBytes = maxOf(interruptedPartialBytes, outcome.partialBytes)
+                            interruptedPct = maxOf(interruptedPct, outcome.lastPct)
+                            break
+                        }
+                        StreamDownloadAttemptResult.UnsupportedCandidate -> {
+                            // Try next candidate URL
+                        }
                     }
                 } else {
-                    val mp4File = File(offlineDir, "$safeId.mp4")
-                    val bytes = downloadDirectMp4ToFile(
-                        appContext = appContext,
-                        urlStr = candidateUrl,
-                        targetFile = mp4File,
-                        initialEntity = initialEntity,
-                        dao = dao
-                    )
-                    if (bytes > MIN_VALID_VIDEO_BYTES && mp4File.exists() && mp4File.length() > MIN_VALID_VIDEO_BYTES) {
-                        finalPlayableFile = mp4File
-                        totalDownloadedBytes = bytes
-                        break
-                    } else {
-                        if (mp4File.exists()) mp4File.delete()
+                    val mp4File = File(specialDeviceFolder, "$safeId.mp4")
+                    val partFile = File(specialDeviceFolder, "$safeId.mp4.part")
+                    val metaFile = File(specialDeviceFolder, "$safeId.mp4.meta")
+                    when (
+                        val outcome = downloadDirectMp4ToFile(
+                            appContext = appContext,
+                            urlStr = candidateUrl,
+                            targetFile = mp4File,
+                            partFile = partFile,
+                            metaFile = metaFile,
+                            initialEntity = initialEntity,
+                            dao = dao
+                        )
+                    ) {
+                        is StreamDownloadAttemptResult.Completed -> {
+                            finalPlayableFile = outcome.playableFile
+                            totalDownloadedBytes = outcome.totalBytes
+                            break
+                        }
+                        is StreamDownloadAttemptResult.InterruptedResumable -> {
+                            // Network dropped after downloading partial bytes: NEVER delete partFile!
+                            // Stop trying fallback URLs so we preserve this partial MP4 for seamless HTTP Range resume.
+                            interruptedPartialBytes = maxOf(interruptedPartialBytes, outcome.partialBytes)
+                            interruptedPct = maxOf(interruptedPct, outcome.lastPct)
+                            break
+                        }
+                        StreamDownloadAttemptResult.UnsupportedCandidate -> {
+                            // Candidate URL was 404/403 before any bytes were saved; try next candidate URL
+                        }
                     }
                 }
             }
 
-            // Strictly verify that real video bytes were saved on internal storage before marking COMPLETED
+            // Strictly verify that the complete video file exists on storage before marking COMPLETED
             val savedFile = finalPlayableFile
             if (savedFile == null || !savedFile.exists() || totalDownloadedBytes <= MIN_VALID_VIDEO_BYTES) {
+                val (diskPct, diskBytes) = inspectPartialDownloadState(appContext, item.id, interruptedPct)
+                val finalPausedPct = maxOf(interruptedPct, diskPct, _downloadProgress.value[item.id] ?: 1).coerceIn(1, 99)
+                val finalPartialBytes = maxOf(interruptedPartialBytes, diskBytes)
+                val mbSavedStr = if (finalPartialBytes > 0L) {
+                    String.format(Locale.US, " (%.1f MB saved)", finalPartialBytes.toDouble() / (1024.0 * 1024.0))
+                } else ""
                 val pausedEntity = initialEntity.copy(
-                    fileSizeLabel = "Download Paused • Tap Retry to Resume",
+                    fileSizeLabel = "Paused at $finalPausedPct%$mbSavedStr • Auto-resumes / Tap Resume",
                     downloadStatus = "PAUSED_ERROR",
-                    progressPercent = (_downloadProgress.value[item.id] ?: 1).coerceAtLeast(1)
+                    progressPercent = finalPausedPct
                 )
+                activeDownloadIds.remove(item.id)
+                removeActiveEntity(item.id)
+                clearProgress(item.id)
+                removeActiveTitle(item.id)
                 dao.upsertDownload(pausedEntity)
-                _downloadBannerMessage.value = "Download paused for \"${item.title}\". Tap Retry on the Download tab."
+                _downloadBannerMessage.value = "Connection interrupted at $finalPausedPct%$mbSavedStr. Will resume from $finalPausedPct%."
                 cancelDownloadNotification(appContext, item.id)
                 return@withContext false
+            }
+
+            // Export/copy standalone video file into the phone's visible Movies/NeliPlay folder
+            val exportedDeviceFile = if (!savedFile.name.endsWith(".m3u8", ignoreCase = true)) {
+                exportCompletedVideoToDeviceFilesFolder(appContext, savedFile, initialEntity)
+            } else {
+                savedFile
+            }
+            val finalPlayablePath = if (exportedDeviceFile.exists() && exportedDeviceFile.length() > MIN_VALID_VIDEO_BYTES) {
+                exportedDeviceFile.absolutePath
+            } else {
+                savedFile.absolutePath
             }
 
             val mb = totalDownloadedBytes.toDouble() / (1024.0 * 1024.0)
@@ -399,34 +831,58 @@ object OfflineDownloadManager {
             recentlyCompletedTimestamps[item.id] = System.currentTimeMillis()
 
             val completedEntity = initialEntity.copy(
-                localFilePath = savedFile.absolutePath,
+                localFilePath = finalPlayablePath,
                 fileSizeLabel = finalSizeLabel,
                 downloadStatus = "COMPLETED",
-                progressPercent = 100
+                progressPercent = 100,
+                timestamp = System.currentTimeMillis()
             )
-            setActiveEntity(item.id, completedEntity)
+
+            // Crucial: clear active downloading flags BEFORE emitting completedEntity to Room
+            // so the UI immediately transitions from "Downloading" to playable "COMPLETED" state!
+            activeDownloadIds.remove(item.id)
+            removeActiveEntity(item.id)
+            removeActiveTitle(item.id)
+            clearProgress(item.id)
+
             dao.upsertDownload(completedEntity)
-            updateProgress(item.id, 100)
-            _downloadBannerMessage.value = "Download complete: \"${item.title}\" ($finalSizeLabel) is ready to watch offline!"
+            _downloadBannerMessage.value = "Download complete: \"${item.title}\" ($finalSizeLabel) • Tap to play offline!"
             showDownloadNotification(appContext, item.id, item.title, 100, isCompleted = true)
             return@withContext true
         } catch (e: CancellationException) {
+            if (pausedByUserIds.contains(item.id)) {
+                // User paused the download: keep partial files on disk so they can resume from the same spot!
+                return@withContext false
+            }
             deleteOfflineFilesOnDisk(initialEntity.localFilePath, item.id, appContext)
             dao.deleteDownloadById(item.id)
-            _downloadBannerMessage.value = "Download cancelled for \"${item.title}\"."
+            _downloadBannerMessage.value = "Download removed for \"${item.title}\"."
             cancelDownloadNotification(appContext, item.id)
             return@withContext false
         } catch (e: Exception) {
-            val pausedEntity = initialEntity.copy(
-                fileSizeLabel = "Network interrupted • Tap Retry to Resume",
-                downloadStatus = "PAUSED_ERROR",
-                progressPercent = (_downloadProgress.value[item.id] ?: 1).coerceAtLeast(1)
+            val (diskPct, diskBytes) = inspectPartialDownloadState(
+                context = appContext,
+                id = item.id,
+                fallbackPct = _downloadProgress.value[item.id] ?: startPct
             )
+            val pausedPct = maxOf(diskPct, _downloadProgress.value[item.id] ?: startPct).coerceIn(1, 99)
+            val mbSavedStr = if (diskBytes > 0L) {
+                String.format(Locale.US, " (%.1f MB saved)", diskBytes.toDouble() / (1024.0 * 1024.0))
+            } else ""
+            val pausedEntity = initialEntity.copy(
+                fileSizeLabel = "Paused at $pausedPct%$mbSavedStr • Tap Resume",
+                downloadStatus = "PAUSED_ERROR",
+                progressPercent = pausedPct
+            )
+            activeDownloadIds.remove(item.id)
+            removeActiveEntity(item.id)
+            clearProgress(item.id)
+            removeActiveTitle(item.id)
             try {
                 dao.upsertDownload(pausedEntity)
             } catch (_: Exception) {
             }
-            _downloadBannerMessage.value = "Download paused for \"${item.title}\". Tap Retry in Downloads."
+            _downloadBannerMessage.value = "Network interrupted at $pausedPct%$mbSavedStr. Tap Resume to continue."
             cancelDownloadNotification(appContext, item.id)
             return@withContext false
         } finally {
@@ -473,59 +929,136 @@ object OfflineDownloadManager {
         }
     }
 
+    private fun saveExpectedTotalToMeta(metaFile: File, expectedTotalBytes: Long, sourceUrl: String) {
+        if (expectedTotalBytes <= 0L) return
+        try {
+            val json = JSONObject().apply {
+                put("expectedTotalBytes", expectedTotalBytes)
+                put("sourceUrl", sourceUrl)
+            }
+            metaFile.writeText(json.toString(), Charsets.UTF_8)
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun readExpectedTotalFromMeta(metaFile: File): Long {
+        if (!metaFile.exists()) return -1L
+        return try {
+            val json = JSONObject(metaFile.readText(Charsets.UTF_8))
+            json.optLong("expectedTotalBytes", -1L)
+        } catch (_: Exception) {
+            -1L
+        }
+    }
+
+    private fun saveExpectedSegmentsToMeta(metaFile: File, totalSegments: Int, mediaPlaylistUrl: String) {
+        if (totalSegments <= 0) return
+        try {
+            val json = JSONObject().apply {
+                put("totalSegments", totalSegments)
+                put("mediaPlaylistUrl", mediaPlaylistUrl)
+            }
+            metaFile.writeText(json.toString(), Charsets.UTF_8)
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun readExpectedSegmentsFromMeta(metaFile: File): Int {
+        if (!metaFile.exists()) return -1
+        return try {
+            val json = JSONObject(metaFile.readText(Charsets.UTF_8))
+            json.optInt("totalSegments", -1)
+        } catch (_: Exception) {
+            -1
+        }
+    }
+
     /**
-     * Downloads a full `.mp4` stream without artificial size truncation so the entire video and its `moov` atom
-     * are saved intact to [targetFile], supporting HTTP Range resume across transient network drops.
+     * Downloads a full `.mp4` stream into [partFile] (`<safeId>.mp4.part`) with persistent HTTP Range
+     * resume across both transient network drops AND manual/automatic retries, then atomically moves
+     * the finished file to [targetFile] (`<safeId>.mp4`) once 100% complete.
      */
     private suspend fun downloadDirectMp4ToFile(
         appContext: Context,
         urlStr: String,
         targetFile: File,
+        partFile: File,
+        metaFile: File,
         initialEntity: DownloadedItemEntity,
         dao: NeliMediaDao
-    ): Long {
+    ): StreamDownloadAttemptResult {
         val normalizedUrl = ChannelRepository.normalizeDashStreamUrl(urlStr)
-        var downloadedBytes = 0L
-        var expectedTotalBytes = -1L
+        var downloadedBytes = if (partFile.exists()) partFile.length().coerceAtLeast(0L) else 0L
+        var expectedTotalBytes = readExpectedTotalFromMeta(metaFile)
         val buffer = ByteArray(256 * 1024) // 256 KB high-throughput socket buffer
-        var lastReportedPct = 1
+        var lastReportedPct = if (expectedTotalBytes > 0L && downloadedBytes > 0L) {
+            ((downloadedBytes * 99L) / expectedTotalBytes).toInt().coerceIn(1, 99)
+        } else {
+            initialEntity.progressPercent.coerceIn(1, 99)
+        }
         var lastReportTimeMs = System.currentTimeMillis()
 
-        for (attempt in 0..3) {
+        for (attempt in 0..5) {
             if (!coroutineContext.isActive) throw CancellationException()
             var conn: HttpURLConnection? = null
             try {
-                val rangeStart = if (attempt > 0 && downloadedBytes > 0L && (expectedTotalBytes <= 0L || downloadedBytes < expectedTotalBytes)) {
+                // Always request HTTP Range from downloadedBytes (even on attempt == 0!) so we resume where we stopped!
+                val rangeStart = if (downloadedBytes > 0L && (expectedTotalBytes <= 0L || downloadedBytes < expectedTotalBytes)) {
                     downloadedBytes
                 } else {
                     0L
                 }
                 conn = openHttpConnectionWithRedirects(normalizedUrl, rangeStartBytes = rangeStart)
                 val code = conn.responseCode
+
+                // HTTP 416 Range Not Satisfiable means the partial file on disk is already >= full remote content length
+                if (code == 416 && downloadedBytes > MIN_VALID_VIDEO_BYTES && partFile.exists()) {
+                    if (targetFile.exists()) targetFile.delete()
+                    partFile.renameTo(targetFile)
+                    metaFile.delete()
+                    return StreamDownloadAttemptResult.Completed(targetFile, downloadedBytes)
+                }
+
                 if (code !in 200..299) {
-                    if (attempt == 0) return 0L
-                    delay(400L * (attempt + 1))
+                    if (code in listOf(403, 404, 410) && downloadedBytes == 0L) {
+                        return StreamDownloadAttemptResult.UnsupportedCandidate
+                    }
+                    if (attempt == 5) break
+                    delay(600L * (attempt + 1))
                     continue
                 }
 
                 val contentType = conn.contentType.orEmpty().lowercase(Locale.US)
-                if (contentType.contains("text/html") || contentType.contains("application/json")) {
-                    return 0L
+                if (contentType.contains("text/html") || contentType.contains("application/json") || contentType.contains("mpegurl")) {
+                    if (downloadedBytes == 0L) {
+                        return StreamDownloadAttemptResult.UnsupportedCandidate
+                    }
+                    break
                 }
 
                 val isResuming = (code == HttpURLConnection.HTTP_PARTIAL && rangeStart > 0L)
                 if (!isResuming) {
+                    // Server returned 200 OK from byte 0
                     downloadedBytes = 0L
                     val len = conn.contentLengthLong
                     if (len > 0L) {
                         expectedTotalBytes = len
+                        saveExpectedTotalToMeta(metaFile, expectedTotalBytes, normalizedUrl)
                     }
-                } else if (expectedTotalBytes <= 0L && conn.contentLengthLong > 0L) {
-                    expectedTotalBytes = rangeStart + conn.contentLengthLong
+                } else {
+                    val contentRange = conn.getHeaderField("Content-Range").orEmpty()
+                    val slashTotal = contentRange.substringAfter("/", "").trim().toLongOrNull()
+                    if (slashTotal != null && slashTotal > 0L) {
+                        expectedTotalBytes = slashTotal
+                        saveExpectedTotalToMeta(metaFile, expectedTotalBytes, normalizedUrl)
+                    } else if (expectedTotalBytes <= 0L && conn.contentLengthLong > 0L) {
+                        expectedTotalBytes = rangeStart + conn.contentLengthLong
+                        saveExpectedTotalToMeta(metaFile, expectedTotalBytes, normalizedUrl)
+                    }
                 }
 
                 conn.inputStream.use { input ->
-                    FileOutputStream(targetFile, isResuming).use { output ->
+                    FileOutputStream(partFile, isResuming).use { output ->
                         while (coroutineContext.isActive) {
                             val read = input.read(buffer)
                             if (read == -1) break
@@ -547,7 +1080,7 @@ object OfflineDownloadManager {
                                     appContext = appContext,
                                     dao = dao,
                                     initialEntity = initialEntity,
-                                    localPath = targetFile.absolutePath,
+                                    localPath = "",
                                     pct = pct,
                                     downloadedBytes = downloadedBytes
                                 )
@@ -557,14 +1090,27 @@ object OfflineDownloadManager {
                     }
                 }
 
-                if (expectedTotalBytes <= 0L || downloadedBytes >= expectedTotalBytes) {
-                    return downloadedBytes
+                val isFullyDownloaded = if (expectedTotalBytes > 0L) {
+                    downloadedBytes >= expectedTotalBytes
+                } else {
+                    downloadedBytes > MIN_VALID_VIDEO_BYTES
+                }
+
+                if (isFullyDownloaded && downloadedBytes > MIN_VALID_VIDEO_BYTES) {
+                    if (targetFile.exists()) targetFile.delete()
+                    val renamed = partFile.renameTo(targetFile)
+                    if (!renamed) {
+                        partFile.copyTo(targetFile, overwrite = true)
+                        partFile.delete()
+                    }
+                    metaFile.delete()
+                    return StreamDownloadAttemptResult.Completed(targetFile, targetFile.length())
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
-                if (attempt == 3) break
-                delay(400L * (attempt + 1))
+                if (attempt == 5) break
+                delay(750L * (attempt + 1))
             } finally {
                 try {
                     conn?.inputStream?.close()
@@ -572,10 +1118,11 @@ object OfflineDownloadManager {
             }
         }
 
-        return if (expectedTotalBytes <= 0L || downloadedBytes >= (expectedTotalBytes * 95L) / 100L) {
-            downloadedBytes
+        val savedPartBytes = if (partFile.exists()) partFile.length() else downloadedBytes
+        return if (savedPartBytes > 0L) {
+            StreamDownloadAttemptResult.InterruptedResumable(savedPartBytes, lastReportedPct.coerceIn(1, 99))
         } else {
-            0L
+            StreamDownloadAttemptResult.UnsupportedCandidate
         }
     }
 
@@ -590,45 +1137,77 @@ object OfflineDownloadManager {
     }
 
     /**
-     * Downloads an HLS `.m3u8` stream into [bundleDir] by:
-     * 1. Resolving the best variant `.m3u8` playlist from the master playlist (if master).
-     * 2. Downloading any `#EXT-X-MAP` init segment (`init.mp4`) and `#EXT-X-KEY` encryption key (`key.bin`).
-     * 3. Downloading all video segments (`seg_00000.ts` / `.m4s`) concurrently into [bundleDir] with automatic retries.
-     * 4. Writing a self-contained local HLS playlist [localPlaylistFile] (`local_playlist.m3u8`) that points
-     *    to the local segment files on internal storage so ExoPlayer's `HlsMediaSource` plays it 100% offline
-     *    with full timeline & seeking support!
+     * Downloads an HLS `.m3u8` stream into [bundleDir] with full segment-level resume support:
+     * 1. Never deletes [bundleDir] when starting or resuming — any segments already on disk from before an
+     *    internet interruption are reused immediately without re-downloading!
+     * 2. Downloads each segment to a `.tmp` file first and renames to `seg_XXXXX.ts`/`.m4s` only when complete.
+     * 3. Requires ALL segments to complete before marking the download `COMPLETED` (never marks a partially
+     *    interrupted HLS stream as 100% completed).
+     * 4. Writes `local_playlist.m3u8` with explicit `file://` URIs AND also merges unencrypted segments into
+     *    a standalone video file in the phone's `NeliPlay` folder so it plays both in-app and in the phone's Files app!
      */
     private suspend fun downloadHlsStreamToOfflinePlaylist(
         appContext: Context,
         masterOrVariantUrl: String,
         bundleDir: File,
         localPlaylistFile: File,
+        specialDeviceFolder: File,
+        safeId: String,
         initialEntity: DownloadedItemEntity,
         dao: NeliMediaDao
-    ): Long {
+    ): StreamDownloadAttemptResult {
         return try {
-            if (bundleDir.exists()) {
-                bundleDir.deleteRecursively()
+            if (!bundleDir.exists()) {
+                bundleDir.mkdirs()
             }
-            bundleDir.mkdirs()
+
+            val cachedMediaPlaylistFile = File(bundleDir, "cached_media_playlist.m3u8")
+            val cachedMediaUrlFile = File(bundleDir, "cached_media_url.txt")
+            val hlsMetaFile = File(bundleDir, "hls_meta.json")
 
             val normalizedMasterUrl = ChannelRepository.normalizeDashStreamUrl(masterOrVariantUrl)
-            val initialPlaylistText = fetchTextUrl(normalizedMasterUrl) ?: return 0L
-            if (!initialPlaylistText.contains("#EXTM3U", ignoreCase = true)) {
-                return 0L
-            }
 
-            // If this is a master playlist, pick the best streaming variant playlist
-            val variantUrl = selectBestVariantPlaylistFromMaster(
-                masterUrl = normalizedMasterUrl,
-                masterContent = initialPlaylistText
-            )?.let { ChannelRepository.normalizeDashStreamUrl(it) }
+            val mediaPlaylistUrl: String
+            val mediaPlaylistText: String
 
-            val mediaPlaylistUrl = variantUrl ?: normalizedMasterUrl
-            val mediaPlaylistText = if (variantUrl != null && variantUrl != normalizedMasterUrl) {
-                fetchTextUrl(variantUrl) ?: return 0L
+            if (cachedMediaPlaylistFile.exists() &&
+                cachedMediaPlaylistFile.length() > 32L &&
+                cachedMediaUrlFile.exists()
+            ) {
+                mediaPlaylistUrl = ChannelRepository.normalizeDashStreamUrl(
+                    cachedMediaUrlFile.readText(Charsets.UTF_8).trim().ifBlank { normalizedMasterUrl }
+                )
+                mediaPlaylistText = cachedMediaPlaylistFile.readText(Charsets.UTF_8)
             } else {
-                initialPlaylistText
+                val initialPlaylistText = fetchTextUrl(normalizedMasterUrl)
+                    ?: return if (bundleDir.listFiles()?.isNotEmpty() == true) {
+                        val (pct, bytes) = inspectPartialDownloadState(appContext, initialEntity.id, initialEntity.progressPercent)
+                        StreamDownloadAttemptResult.InterruptedResumable(bytes, pct)
+                    } else {
+                        StreamDownloadAttemptResult.UnsupportedCandidate
+                    }
+
+                if (!initialPlaylistText.contains("#EXTM3U", ignoreCase = true)) {
+                    return StreamDownloadAttemptResult.UnsupportedCandidate
+                }
+
+                val variantUrl = selectBestVariantPlaylistFromMaster(
+                    masterUrl = normalizedMasterUrl,
+                    masterContent = initialPlaylistText
+                )?.let { ChannelRepository.normalizeDashStreamUrl(it) }
+
+                mediaPlaylistUrl = variantUrl ?: normalizedMasterUrl
+                mediaPlaylistText = if (variantUrl != null && variantUrl != normalizedMasterUrl) {
+                    fetchTextUrl(variantUrl) ?: return StreamDownloadAttemptResult.InterruptedResumable(0L, initialEntity.progressPercent)
+                } else {
+                    initialPlaylistText
+                }
+
+                try {
+                    cachedMediaUrlFile.writeText(mediaPlaylistUrl, Charsets.UTF_8)
+                    cachedMediaPlaylistFile.writeText(mediaPlaylistText, Charsets.UTF_8)
+                } catch (_: Exception) {
+                }
             }
 
             val lines = mediaPlaylistText.lines()
@@ -636,6 +1215,8 @@ object OfflineDownloadManager {
             var segmentIndex = 0
             var keyIndex = 0
             var mapIndex = 0
+            var hasEncryptionKey = false
+            val initMapFiles = mutableListOf<File>()
 
             val parsedEntries = mutableListOf<HlsPlaylistEntry>()
             var pendingExtInfLine: String? = null
@@ -652,10 +1233,16 @@ object OfflineDownloadManager {
                             val absMapUrl = ChannelRepository.normalizeDashStreamUrl(resolveRelativeUrl(mediaPlaylistUrl, uriVal))
                             val localMapName = "init_map_${mapIndex++}.mp4"
                             val localMapFile = File(bundleDir, localMapName)
-                            val bytes = downloadBinarySegmentWithRetry(absMapUrl, localMapFile)
-                            if (bytes > 0L) {
+                            val bytes = if (localMapFile.exists() && localMapFile.length() > 0L) {
+                                localMapFile.length()
+                            } else {
+                                downloadBinarySegmentWithRetry(absMapUrl, localMapFile)
+                            }
+                            if (bytes > 0L && localMapFile.exists()) {
                                 headerBytesWritten += bytes
-                                val rewrittenMap = line.replace("URI=\"$uriVal\"", "URI=\"$localMapName\"")
+                                initMapFiles.add(localMapFile)
+                                val fileUriStr = Uri.fromFile(localMapFile).toString()
+                                val rewrittenMap = line.replace("URI=\"$uriVal\"", "URI=\"$fileUriStr\"")
                                 parsedEntries.add(HlsPlaylistEntry.RawDirective(rewrittenMap))
                             }
                         }
@@ -664,13 +1251,19 @@ object OfflineDownloadManager {
                     line.startsWith("#EXT-X-KEY:", ignoreCase = true) -> {
                         val uriVal = line.substringAfter("URI=\"", "").substringBefore("\"", "")
                         if (uriVal.isNotEmpty()) {
+                            hasEncryptionKey = true
                             val absKeyUrl = ChannelRepository.normalizeDashStreamUrl(resolveRelativeUrl(mediaPlaylistUrl, uriVal))
                             val localKeyName = "enc_key_${keyIndex++}.bin"
                             val localKeyFile = File(bundleDir, localKeyName)
-                            val bytes = downloadBinarySegmentWithRetry(absKeyUrl, localKeyFile)
-                            if (bytes > 0L) {
+                            val bytes = if (localKeyFile.exists() && localKeyFile.length() > 0L) {
+                                localKeyFile.length()
+                            } else {
+                                downloadBinarySegmentWithRetry(absKeyUrl, localKeyFile)
+                            }
+                            if (bytes > 0L && localKeyFile.exists()) {
                                 headerBytesWritten += bytes
-                                val rewrittenKey = line.replace("URI=\"$uriVal\"", "URI=\"$localKeyName\"")
+                                val fileUriStr = Uri.fromFile(localKeyFile).toString()
+                                val rewrittenKey = line.replace("URI=\"$uriVal\"", "URI=\"$fileUriStr\"")
                                 parsedEntries.add(HlsPlaylistEntry.RawDirective(rewrittenKey))
                             }
                         } else {
@@ -716,14 +1309,15 @@ object OfflineDownloadManager {
             val segmentTasks = parsedEntries.filterIsInstance<HlsPlaylistEntry.MediaSegmentTask>()
             val totalSegmentCount = segmentTasks.size
             if (totalSegmentCount == 0) {
-                return 0L
+                return StreamDownloadAttemptResult.UnsupportedCandidate
             }
+            saveExpectedSegmentsToMeta(hlsMetaFile, totalSegmentCount, mediaPlaylistUrl)
 
             val totalBytesAtomic = AtomicLong(headerBytesWritten)
             val completedSegmentsAtomic = AtomicInteger(0)
             val succeededSegmentIndices = ConcurrentHashMap.newKeySet<Int>()
             val progressMutex = Mutex()
-            var lastReportedPct = 1
+            var lastReportedPct = initialEntity.progressPercent.coerceIn(1, 99)
             var lastReportTimeMs = 0L
             val semaphore = Semaphore(HLS_PARALLEL_SEGMENT_WORKERS)
 
@@ -733,9 +1327,14 @@ object OfflineDownloadManager {
                         semaphore.withPermit {
                             if (!coroutineContext.isActive) throw CancellationException()
                             val localSegFile = File(bundleDir, task.localSegName)
-                            val bytes = downloadBinarySegmentWithRetry(task.absSegUrl, localSegFile)
-                            val doneCount = completedSegmentsAtomic.incrementAndGet()
+                            // Reuse segment if already downloaded before an internet interruption!
+                            val bytes = if (localSegFile.exists() && localSegFile.length() > 0L) {
+                                localSegFile.length()
+                            } else {
+                                downloadBinarySegmentWithRetry(task.absSegUrl, localSegFile)
+                            }
                             if (bytes > 0L && localSegFile.exists() && localSegFile.length() > 0L) {
+                                val doneCount = completedSegmentsAtomic.incrementAndGet()
                                 val currentTotalBytes = totalBytesAtomic.addAndGet(bytes)
                                 succeededSegmentIndices.add(task.segmentIndex)
 
@@ -751,7 +1350,7 @@ object OfflineDownloadManager {
                                                 appContext = appContext,
                                                 dao = dao,
                                                 initialEntity = initialEntity,
-                                                localPath = localPlaylistFile.absolutePath,
+                                                localPath = "",
                                                 pct = lastReportedPct,
                                                 downloadedBytes = currentTotalBytes
                                             )
@@ -765,10 +1364,19 @@ object OfflineDownloadManager {
             }
 
             val finalTotalBytes = totalBytesAtomic.get()
-            if (succeededSegmentIndices.isEmpty() || finalTotalBytes <= MIN_VALID_VIDEO_BYTES) {
-                return 0L
+            val succeededCount = succeededSegmentIndices.size
+            // Never mark an interrupted HLS download as COMPLETED unless all segments succeeded!
+            val allSegmentsCompleted = succeededCount >= totalSegmentCount
+
+            if (!allSegmentsCompleted || finalTotalBytes <= MIN_VALID_VIDEO_BYTES) {
+                val partialPct = ((succeededCount * 99) / totalSegmentCount.coerceAtLeast(1)).coerceIn(1, 99)
+                return StreamDownloadAttemptResult.InterruptedResumable(
+                    partialBytes = finalTotalBytes,
+                    lastPct = maxOf(lastReportedPct, partialPct)
+                )
             }
 
+            // Write local_playlist.m3u8 with explicit file:// URIs for every segment
             val rewrittenPlaylistLines = mutableListOf<String>()
             for (entry in parsedEntries) {
                 when (entry) {
@@ -778,7 +1386,8 @@ object OfflineDownloadManager {
                     is HlsPlaylistEntry.MediaSegmentTask -> {
                         if (succeededSegmentIndices.contains(entry.segmentIndex)) {
                             rewrittenPlaylistLines.add(entry.extInfLine)
-                            rewrittenPlaylistLines.add(entry.localSegName)
+                            val segFile = File(bundleDir, entry.localSegName)
+                            rewrittenPlaylistLines.add(Uri.fromFile(segFile).toString())
                         }
                     }
                 }
@@ -789,15 +1398,52 @@ object OfflineDownloadManager {
             }
 
             localPlaylistFile.writeText(rewrittenPlaylistLines.joinToString("\n"), Charsets.UTF_8)
-            finalTotalBytes
+
+            // Also assemble a standalone playable video file in the special NeliPlay folder when unencrypted
+            // so the user can directly open & play the movie from their phone's Files app!
+            if (!hasEncryptionKey) {
+                try {
+                    val firstSegExt = segmentTasks.firstOrNull()?.localSegName?.substringAfterLast(".", "ts") ?: "ts"
+                    val mergedExt = if (firstSegExt.equals("m4s", true) || firstSegExt.equals("mp4", true) || initMapFiles.isNotEmpty()) {
+                        "mp4"
+                    } else {
+                        "ts"
+                    }
+                    val mergedFile = File(specialDeviceFolder, "$safeId.$mergedExt")
+                    FileOutputStream(mergedFile, false).use { out ->
+                        for (initMap in initMapFiles) {
+                            if (initMap.exists()) {
+                                FileInputStream(initMap).use { it.copyTo(out, 64 * 1024) }
+                            }
+                        }
+                        for (task in segmentTasks.sortedBy { it.segmentIndex }) {
+                            val segFile = File(bundleDir, task.localSegName)
+                            if (segFile.exists()) {
+                                FileInputStream(segFile).use { it.copyTo(out, 64 * 1024) }
+                            }
+                        }
+                        out.flush()
+                    }
+                    if (mergedFile.exists() && mergedFile.length() > MIN_VALID_VIDEO_BYTES) {
+                        exportCompletedVideoToDeviceFilesFolder(appContext, mergedFile, initialEntity)
+                    }
+                } catch (_: Exception) {
+                }
+            }
+
+            StreamDownloadAttemptResult.Completed(localPlaylistFile, finalTotalBytes)
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
-            0L
+            val (pct, bytes) = inspectPartialDownloadState(appContext, initialEntity.id, initialEntity.progressPercent)
+            StreamDownloadAttemptResult.InterruptedResumable(bytes, pct)
         }
     }
 
-    private suspend fun downloadBinarySegmentWithRetry(urlStr: String, targetFile: File, maxRetries: Int = 3): Long {
+    private suspend fun downloadBinarySegmentWithRetry(urlStr: String, targetFile: File, maxRetries: Int = 4): Long {
+        if (targetFile.exists() && targetFile.length() > 0L) {
+            return targetFile.length()
+        }
         for (attempt in 0 until maxRetries) {
             if (!coroutineContext.isActive) throw CancellationException()
             val bytes = downloadBinarySegmentToFile(urlStr, targetFile)
@@ -805,23 +1451,29 @@ object OfflineDownloadManager {
                 return bytes
             }
             if (attempt < maxRetries - 1) {
-                delay(200L * (attempt + 1))
+                delay(300L * (attempt + 1))
             }
         }
         return 0L
     }
 
+    /**
+     * Downloads a segment atomically via a `.tmp` file so a mid-segment network drop never leaves
+     * a corrupt/truncated segment file on disk.
+     */
     private fun downloadBinarySegmentToFile(urlStr: String, targetFile: File): Long {
         var conn: HttpURLConnection? = null
+        val tempFile = File(targetFile.parentFile, "${targetFile.name}.tmp")
         return try {
             conn = openHttpConnectionWithRedirects(urlStr)
             if (conn.responseCode !in 200..299) {
                 return 0L
             }
+            val expectedLen = conn.contentLengthLong
             var bytesWritten = 0L
             val buffer = ByteArray(32 * 1024)
             conn.inputStream.use { input ->
-                FileOutputStream(targetFile).use { output ->
+                FileOutputStream(tempFile, false).use { output ->
                     while (true) {
                         val read = input.read(buffer)
                         if (read == -1) break
@@ -831,8 +1483,21 @@ object OfflineDownloadManager {
                     output.flush()
                 }
             }
+            if (bytesWritten <= 0L || (expectedLen > 0L && bytesWritten < expectedLen)) {
+                tempFile.delete()
+                return 0L
+            }
+            if (targetFile.exists()) targetFile.delete()
+            val renamed = tempFile.renameTo(targetFile)
+            if (!renamed) {
+                tempFile.copyTo(targetFile, overwrite = true)
+                tempFile.delete()
+            }
             bytesWritten
         } catch (_: Exception) {
+            try {
+                tempFile.delete()
+            } catch (_: Exception) {}
             0L
         } finally {
             try {
@@ -854,18 +1519,19 @@ object OfflineDownloadManager {
         val elapsedSec = ((now - startMs) / 1000.0).coerceAtLeast(0.5)
         val mbSoFar = downloadedBytes.toDouble() / (1024.0 * 1024.0)
         val speedMbPerSec = (mbSoFar / elapsedSec).coerceAtLeast(0.2)
+        val safePct = pct.coerceIn(1, 99)
         val sizeProgressLabel = String.format(
             Locale.US,
             "Downloading • %d%% (%.1f MB • %.1f MB/s)",
-            pct,
+            safePct,
             mbSoFar,
             speedMbPerSec
         )
-        updateProgress(initialEntity.id, pct)
+        updateProgress(initialEntity.id, safePct)
         val updatedEntity = initialEntity.copy(
             localFilePath = localPath,
             fileSizeLabel = sizeProgressLabel,
-            progressPercent = pct,
+            progressPercent = safePct,
             downloadStatus = "DOWNLOADING"
         )
         setActiveEntity(initialEntity.id, updatedEntity)
@@ -877,7 +1543,7 @@ object OfflineDownloadManager {
                 "Multi-Download (%d videos) • \"%s\" %d%% (%.1f MB)",
                 totalActive,
                 initialEntity.title,
-                pct,
+                safePct,
                 mbSoFar
             )
         } else {
@@ -885,7 +1551,7 @@ object OfflineDownloadManager {
                 Locale.US,
                 "Downloading \"%s\" • %d%% (%.1f MB • %.1f MB/s)",
                 initialEntity.title,
-                pct,
+                safePct,
                 mbSoFar,
                 speedMbPerSec
             )
@@ -893,18 +1559,21 @@ object OfflineDownloadManager {
 
         // Throttle disk & notification IPC to once per 1200ms in a non-blocking launch so network download never stalls
         val lastPersist = lastDbPersistTimeById[initialEntity.id] ?: 0L
-        if (now - lastPersist >= 1200L || pct >= 99) {
+        if (now - lastPersist >= 1200L || safePct >= 99) {
             lastDbPersistTimeById[initialEntity.id] = now
             backgroundScope.launch {
                 try {
-                    dao.upsertDownload(updatedEntity)
+                    val currentInDb = dao.getDownloadById(initialEntity.id)
+                    if (currentInDb?.downloadStatus != "COMPLETED") {
+                        dao.upsertDownload(updatedEntity)
+                    }
                 } catch (_: Exception) {
                 }
                 showDownloadNotification(
                     context = appContext,
                     itemId = initialEntity.id,
                     title = initialEntity.title,
-                    progressPct = pct,
+                    progressPct = safePct,
                     isCompleted = false
                 )
                 syncForegroundServiceState(appContext)
@@ -1047,39 +1716,59 @@ object OfflineDownloadManager {
                     file.delete()
                 }
             }
-            if (context != null) {
-                val safeId = id.replace(Regex("[^a-zA-Z0-9_-]"), "_")
-                val offlineDir = File(context.filesDir, "offline_media")
-                File(offlineDir, "$safeId.mp4").takeIf { it.exists() }?.delete()
-                File(offlineDir, "hls_$safeId").takeIf { it.exists() }?.deleteRecursively()
+            val safeId = id.replace(Regex("[^a-zA-Z0-9_-]"), "_")
+            val dirs = if (context != null) {
+                getOfflineStorageDirectories(context)
+            } else {
+                listOfNotNull(
+                    localFilePath.takeIf { it.isNotBlank() }?.let { File(it).parentFile }
+                )
+            }
+            for (dir in dirs) {
+                File(dir, "$safeId.mp4").takeIf { it.exists() }?.delete()
+                File(dir, "$safeId.ts").takeIf { it.exists() }?.delete()
+                File(dir, "$safeId.mp4.part").takeIf { it.exists() }?.delete()
+                File(dir, "$safeId.mp4.meta").takeIf { it.exists() }?.delete()
+                File(dir, "hls_$safeId").takeIf { it.exists() }?.deleteRecursively()
+                dir.listFiles { f -> f.name.endsWith("_$safeId.mp4") || f.name.endsWith("_$safeId.ts") }
+                    ?.forEach { it.delete() }
             }
         } catch (_: Exception) {}
     }
 
-    suspend fun deleteOfflineDownload(dao: NeliMediaDao, id: String) = withContext(Dispatchers.IO) {
+    suspend fun deleteOfflineDownload(dao: NeliMediaDao, id: String, context: Context? = null) = withContext(Dispatchers.IO) {
+        pausedByUserIds.remove(id)
         activeDownloadJobs.remove(id)?.cancel()
         recentlyCompletedTimestamps.remove(id)
         val existing = dao.getDownloadById(id)
         if (existing != null) {
-            deleteOfflineFilesOnDisk(existing.localFilePath, id, null)
+            deleteOfflineFilesOnDisk(existing.localFilePath, id, context)
+        } else if (context != null) {
+            deleteOfflineFilesOnDisk("", id, context)
         }
         dao.deleteDownloadById(id)
         activeDownloadIds.remove(id)
+        removeActiveEntity(id)
         removeActiveTitle(id)
         clearProgress(id)
     }
 
     /**
-     * Automatically checks `filesDir/offline_media/` for a valid downloaded `.mp4` or `hls_<safeId>/local_playlist.m3u8`
-     * matching [rawId] so offline playback works everywhere (Downloads tab, Movie/Series details, Next/Prev episode, In-Player VOD).
+     * Automatically checks all `NeliPlay` offline directories for a valid downloaded `.mp4`, `.ts`, or
+     * `hls_<safeId>/local_playlist.m3u8` matching [rawId] so offline playback works everywhere
+     * (Downloads tab, Movie/Series details, Next/Prev episode, In-Player VOD).
      */
     fun resolveLocalOfflineUriIfPresent(
         context: Context,
         rawId: String,
         fallbackStreamUrl: String
     ): String {
-        if (fallbackStreamUrl.startsWith("file:", ignoreCase = true) || fallbackStreamUrl.startsWith("/")) {
+        if (fallbackStreamUrl.startsWith("file:", ignoreCase = true)) {
             return fallbackStreamUrl
+        }
+        if (fallbackStreamUrl.startsWith("/")) {
+            val f = File(fallbackStreamUrl)
+            if (f.exists()) return Uri.fromFile(f).toString()
         }
         val cleanId = rawId
             .removePrefix("vod_")
@@ -1094,21 +1783,36 @@ object OfflineDownloadManager {
             rawId.replace(Regex("[^a-zA-Z0-9_-]"), "_")
         ).distinct()
 
-        val offlineDir = File(context.filesDir, "offline_media")
-        if (!offlineDir.exists()) return fallbackStreamUrl
+        val offlineDirs = getOfflineStorageDirectories(context)
 
-        for (safeId in safeCandidates) {
-            // 1. Check direct MP4 file
-            val mp4File = File(offlineDir, "$safeId.mp4")
-            if (mp4File.exists() && mp4File.length() > MIN_VALID_VIDEO_BYTES) {
-                return Uri.fromFile(mp4File).toString()
-            }
-            // 2. Check local HLS bundle playlist
-            val hlsPlaylist = File(File(offlineDir, "hls_$safeId"), "local_playlist.m3u8")
-            if (hlsPlaylist.exists() && hlsPlaylist.length() > 32L) {
-                val bundleBytes = hlsPlaylist.parentFile?.listFiles()?.sumOf { it.length() } ?: 0L
-                if (bundleBytes > MIN_VALID_VIDEO_BYTES) {
-                    return Uri.fromFile(hlsPlaylist).toString()
+        for (dir in offlineDirs) {
+            if (!dir.exists()) continue
+            for (safeId in safeCandidates) {
+                // 1. Check direct MP4 or TS file by safeId
+                val mp4File = File(dir, "$safeId.mp4")
+                if (mp4File.exists() && mp4File.length() > MIN_VALID_VIDEO_BYTES) {
+                    return Uri.fromFile(mp4File).toString()
+                }
+                val tsFile = File(dir, "$safeId.ts")
+                if (tsFile.exists() && tsFile.length() > MIN_VALID_VIDEO_BYTES) {
+                    return Uri.fromFile(tsFile).toString()
+                }
+                // 2. Check titled file in NeliPlay folder (`<Title>_<safeId>.mp4`)
+                val titledMatch = dir.listFiles { f ->
+                    (f.name.endsWith("_$safeId.mp4", ignoreCase = true) ||
+                        f.name.endsWith("_$safeId.ts", ignoreCase = true)) &&
+                        f.length() > MIN_VALID_VIDEO_BYTES
+                }?.firstOrNull()
+                if (titledMatch != null) {
+                    return Uri.fromFile(titledMatch).toString()
+                }
+                // 3. Check local HLS bundle playlist
+                val hlsPlaylist = File(File(dir, "hls_$safeId"), "local_playlist.m3u8")
+                if (hlsPlaylist.exists() && hlsPlaylist.length() > 32L) {
+                    val bundleBytes = hlsPlaylist.parentFile?.listFiles()?.sumOf { it.length() } ?: 0L
+                    if (bundleBytes > MIN_VALID_VIDEO_BYTES) {
+                        return Uri.fromFile(hlsPlaylist).toString()
+                    }
                 }
             }
         }
@@ -1117,13 +1821,14 @@ object OfflineDownloadManager {
 
     /**
      * Resolves the playback URI for a stream or downloaded item:
-     * Whenever a valid downloaded video file or local HLS `.m3u8` bundle exists on phone internal storage,
+     * Whenever a valid downloaded video file or local HLS `.m3u8` bundle exists on phone storage,
      * ALWAYS returns the local `file://` URI so offline playback works 100% offline without needing internet.
      */
     fun resolvePlayableUrl(
         streamUrl: String,
         localFilePath: String,
-        context: Context? = null
+        context: Context? = null,
+        itemId: String = ""
     ): String {
         if (localFilePath.isNotBlank()) {
             val file = File(localFilePath)
@@ -1136,6 +1841,16 @@ object OfflineDownloadManager {
                 } else if (file.length() > MIN_VALID_VIDEO_BYTES) {
                     return Uri.fromFile(file).toString()
                 }
+            }
+        }
+        if (context != null && itemId.isNotBlank()) {
+            val resolvedById = resolveLocalOfflineUriIfPresent(
+                context = context,
+                rawId = itemId,
+                fallbackStreamUrl = streamUrl
+            )
+            if (resolvedById.startsWith("file:", ignoreCase = true)) {
+                return resolvedById
             }
         }
         return streamUrl
@@ -1194,12 +1909,12 @@ object OfflineDownloadManager {
                     else android.R.drawable.stat_sys_download
                 )
                 .setContentTitle(
-                    if (isCompleted) "Offline Download Complete"
+                    if (isCompleted) "Download Complete • Ready Offline"
                     else "Downloading $title"
                 )
                 .setContentText(
-                    if (isCompleted) "$title is saved to internal storage for offline viewing"
-                    else "$progressPct% • Background download active"
+                    if (isCompleted) "$title is ready in app & in device folder Movies/NeliPlay"
+                    else "$progressPct% • Saving to app & device folder NeliPlay"
                 )
                 .setPriority(NotificationCompat.PRIORITY_LOW)
                 .setOnlyAlertOnce(true)

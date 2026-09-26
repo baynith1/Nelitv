@@ -548,12 +548,11 @@ fun MediaDetailScreen(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = if (media.isSeries && currentVodEpisode != null) {
-                                "Watch S${currentVodEpisode.seasonNumber}E${currentVodEpisode.episodeNumber}"
-                            } else if (media.isSeries) {
-                                "Watch Series"
-                            } else {
-                                "Watch Movie"
+                            text = when {
+                                isMediaAlreadyDownloaded -> "Watch Offline"
+                                media.isSeries && currentVodEpisode != null -> "Watch S${currentVodEpisode.seasonNumber}E${currentVodEpisode.episodeNumber}"
+                                media.isSeries -> "Watch Series"
+                                else -> "Watch Movie"
                             },
                             color = Color.White,
                             fontWeight = FontWeight.Bold,
@@ -562,11 +561,16 @@ fun MediaDetailScreen(
                     }
 
                     if (media.downloadEnabled) {
+                        val isActivelyDownloadingThis = !isMediaAlreadyDownloaded && mediaDownloadingPct != null && mediaDownloadingPct < 100
                         OutlinedButton(
                             onClick = {
                                 if (isMediaAlreadyDownloaded) {
-                                    onOpenDownloadsTab()
-                                } else if (mediaDownloadingPct == null) {
+                                    if (media.isSeries && currentVodEpisode != null) {
+                                        onPlayChannel(currentVodEpisode.toPlayableChannel(media.title))
+                                    } else {
+                                        onPlayChannel(media.toPlayableChannel())
+                                    }
+                                } else if (!isActivelyDownloadingThis) {
                                     // Immediately start downloading using the streaming link's quality
                                     if (media.isSeries && currentVodEpisode != null) {
                                         onDownloadEpisode(currentVodEpisode)
@@ -575,7 +579,7 @@ fun MediaDetailScreen(
                                     }
                                 }
                             },
-                            enabled = mediaDownloadingPct == null,
+                            enabled = !isActivelyDownloadingThis,
                             shape = RoundedCornerShape(14.dp),
                             modifier = Modifier
                                 .height(50.dp)
@@ -584,7 +588,7 @@ fun MediaDetailScreen(
                             Icon(
                                 imageVector = when {
                                     isMediaAlreadyDownloaded -> Icons.Default.CheckCircle
-                                    mediaDownloadingPct != null -> Icons.Default.Downloading
+                                    isActivelyDownloadingThis -> Icons.Default.Downloading
                                     else -> Icons.Default.Download
                                 },
                                 contentDescription = null,
@@ -593,8 +597,8 @@ fun MediaDetailScreen(
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
                                 text = when {
-                                    mediaDownloadingPct != null && mediaDownloadingPct < 100 -> "Downloading $mediaDownloadingPct%"
-                                    isMediaAlreadyDownloaded -> "Downloaded"
+                                    isActivelyDownloadingThis -> "Downloading $mediaDownloadingPct%"
+                                    isMediaAlreadyDownloaded -> "Downloaded • Play"
                                     else -> "Download"
                                 },
                                 color = Color.White,
@@ -884,15 +888,18 @@ fun MediaDetailScreen(
                     }
 
                     if (ep.downloadEnabled) {
+                        val isEpActivelyDownloading = !isEpDownloaded && epProgress != null && epProgress < 100
                         IconButton(
                             onClick = {
                                 if (isEpDownloaded) {
-                                    onOpenDownloadsTab()
-                                } else if (epProgress == null) {
+                                    val idx = filteredEpisodes.indexOfFirst { it.id == ep.id }
+                                    if (idx >= 0) activeEpisodeIndex = idx
+                                    onPlayChannel(ep.toPlayableChannel(media.title))
+                                } else if (!isEpActivelyDownloading) {
                                     onDownloadEpisode(ep)
                                 }
                             },
-                            enabled = epProgress == null,
+                            enabled = !isEpActivelyDownloading,
                             modifier = Modifier
                                 .size(48.dp)
                                 .testTag("download_episode_${ep.id}")
@@ -900,10 +907,10 @@ fun MediaDetailScreen(
                             Icon(
                                 imageVector = when {
                                     isEpDownloaded -> Icons.Default.CheckCircle
-                                    epProgress != null -> Icons.Default.Downloading
+                                    isEpActivelyDownloading -> Icons.Default.Downloading
                                     else -> Icons.Default.Download
                                 },
-                                contentDescription = if (isEpDownloaded) "Downloaded Offline" else "Download Episode",
+                                contentDescription = if (isEpDownloaded) "Play Downloaded Episode Offline" else "Download Episode",
                                 tint = if (isEpDownloaded) Color(0xFF10B981) else NeliGenreCyan
                             )
                         }

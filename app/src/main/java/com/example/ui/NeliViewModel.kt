@@ -74,30 +74,40 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
         OfflineDownloadManager.downloadProgress
     ) { dbList, activeMap, progressMap ->
         val mergedById = LinkedHashMap<String, DownloadedItemEntity>()
-        // 1. Live active in-memory items take priority so they appear at 0ms when user taps Download
+        // 1. Live active in-memory items take priority while actively downloading
         activeMap.values.forEach { activeItem ->
-            val livePct = progressMap[activeItem.id] ?: activeItem.progressPercent
-            mergedById[activeItem.id] = activeItem.copy(progressPercent = livePct)
+            if (activeItem.downloadStatus != "COMPLETED") {
+                val livePct = (progressMap[activeItem.id] ?: activeItem.progressPercent).coerceIn(1, 99)
+                mergedById[activeItem.id] = activeItem.copy(progressPercent = livePct)
+            }
         }
-        // 2. Database items (COMPLETED, DOWNLOADING, PAUSED_ERROR)
+        // 2. Database items (COMPLETED always wins over any stale in-memory state, followed by DOWNLOADING and PAUSED_ERROR)
         dbList.forEach { dbItem ->
-            val existing = mergedById[dbItem.id]
-            if (existing == null) {
-                val isCompletedValid = dbItem.downloadStatus == "COMPLETED" &&
-                    dbItem.localFilePath.isNotBlank()
+            val isCompletedValid = dbItem.downloadStatus == "COMPLETED" &&
+                dbItem.localFilePath.isNotBlank()
+            if (isCompletedValid) {
+                mergedById[dbItem.id] = dbItem.copy(
+                    downloadStatus = "COMPLETED",
+                    progressPercent = 100
+                )
+            } else if (!mergedById.containsKey(dbItem.id)) {
                 val isActivelyDownloading = OfflineDownloadManager.isCurrentlyDownloading(dbItem.id)
                 val isPausedOrRetryable = dbItem.downloadStatus == "PAUSED_ERROR" ||
                     (dbItem.downloadStatus == "DOWNLOADING" && !isActivelyDownloading)
-                if (isCompletedValid || isActivelyDownloading) {
-                    val livePct = progressMap[dbItem.id] ?: dbItem.progressPercent
+                if (isActivelyDownloading) {
+                    val livePct = (progressMap[dbItem.id] ?: dbItem.progressPercent).coerceIn(1, 99)
                     mergedById[dbItem.id] = dbItem.copy(progressPercent = livePct)
                 } else if (isPausedOrRetryable) {
+                    val savedPct = dbItem.progressPercent.coerceIn(1, 99)
                     mergedById[dbItem.id] = dbItem.copy(
                         downloadStatus = "PAUSED_ERROR",
-                        fileSizeLabel = if (dbItem.fileSizeLabel.contains("Tap Retry", ignoreCase = true)) {
+                        progressPercent = savedPct,
+                        fileSizeLabel = if (dbItem.fileSizeLabel.contains("Resume", ignoreCase = true) ||
+                            dbItem.fileSizeLabel.contains("Retry", ignoreCase = true)
+                        ) {
                             dbItem.fileSizeLabel
                         } else {
-                            "Download interrupted • Tap Retry to resume"
+                            "Paused at $savedPct% • Tap Resume to continue"
                         }
                     )
                 }
@@ -127,10 +137,12 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
         downloads,
         OfflineDownloadManager.downloadProgress
     ) { list, progressMap ->
+        val completedSet = list.filter { it.downloadStatus == "COMPLETED" }.map { it.id }.toSet()
         val fromList = list.filter {
-            it.downloadStatus == "DOWNLOADING" || OfflineDownloadManager.isCurrentlyDownloading(it.id)
+            it.downloadStatus != "COMPLETED" &&
+                (it.downloadStatus == "DOWNLOADING" || OfflineDownloadManager.isCurrentlyDownloading(it.id))
         }.map { it.id }
-        (fromList + progressMap.keys).toSet()
+        ((fromList + progressMap.keys) - completedSet).toSet()
     }.flowOn(Dispatchers.Default).stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
@@ -182,6 +194,8 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
             updateOfflineState(false)
+            // Automatically resume any downloads that were interrupted by network loss
+            OfflineDownloadManager.resumeInterruptedDownloads(appContext, dao)
             // Automatically sync Azam TV Cloud Token, catalog, and GitHub app updates when internet returns
             triggerAutomaticBackgroundSync()
         }
@@ -318,6 +332,11 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun onReturnFromWatchPage(watchedChannel: LiveChannel) {
         if (!watchedChannel.isLiveBroadcast) {
+            if (watchedChannel.id.startsWith("dl_") || _isOfflineMode.value) {
+                _selectedMediaId.value = null
+                _selectedTab.value = BottomNavTab.DOWNLOAD
+                return
+            }
             val resolvedMedia = MediaContentRepository.resolveMediaForPlaybackChannel(watchedChannel)
             _selectedTab.value = BottomNavTab.DISCOVERY
             if (resolvedMedia != null) {
@@ -449,15 +468,23 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
+    fun pauseDownload(id: String) {
+        OfflineDownloadManager.pauseDownload(
+            context = appContext,
+            dao = dao,
+            id = id
+        )
+    }
+
     fun cancelDownload(id: String) {
         viewModelScope.launch {
-            OfflineDownloadManager.deleteOfflineDownload(dao, id)
+            OfflineDownloadManager.deleteOfflineDownload(dao, id, appContext)
         }
     }
 
     fun deleteDownload(id: String) {
         viewModelScope.launch {
-            OfflineDownloadManager.deleteOfflineDownload(dao, id)
+            OfflineDownloadManager.deleteOfflineDownload(dao, id, appContext)
         }
     }
 

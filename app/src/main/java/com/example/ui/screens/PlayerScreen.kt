@@ -422,13 +422,27 @@ fun PlayerScreen(
             when (event) {
                 Lifecycle.Event.ON_STOP -> {
                     // Only pause on STOP if Activity is NOT in Picture-in-Picture mode
-                    if (activity?.isInPictureInPictureMode != true) {
+                    if (activity?.isInPictureInPictureMode == true) {
+                        playerController.setBackgroundLoadingState(
+                            isBackgroundLoading = false,
+                            isPictureInPicture = true
+                        )
+                    } else {
                         wasPausedByLifecycle = true
+                        playerController.setBackgroundLoadingState(
+                            isBackgroundLoading = true,
+                            isPictureInPicture = false
+                        )
                         playerController.pause()
                     }
                 }
                 Lifecycle.Event.ON_RESUME -> {
-                    if (activity?.isInPictureInPictureMode != true) {
+                    val inPip = activity?.isInPictureInPictureMode == true
+                    playerController.setBackgroundLoadingState(
+                        isBackgroundLoading = false,
+                        isPictureInPicture = inPip
+                    )
+                    if (!inPip) {
                         activity?.requestedOrientation = orientationMode.activityOrientationConstant
                     }
                     if (wasPausedByLifecycle) {
@@ -1607,6 +1621,16 @@ fun PlayerScreen(
                 estimatedBandwidthKbps = playbackInfo.estimatedBandwidthKbps,
                 bufferedDurationMs = playbackInfo.bufferedDurationMs,
                 isDynamicallyDownscaled = playbackInfo.isDynamicallyDownscaled,
+                batteryOptimizationMode = playbackInfo.batteryOptimizationMode,
+                onSelectBatteryOptimizationMode = { mode ->
+                    playerController.setBatteryOptimizationMode(mode)
+                },
+                batteryPowerProfile = playbackInfo.batteryPowerProfile,
+                batteryLevelPct = playbackInfo.batteryLevelPct,
+                isBatteryCharging = playbackInfo.isBatteryCharging,
+                isOsPowerSaveMode = playbackInfo.isOsPowerSaveMode,
+                isCpuSavingActive = playbackInfo.isCpuSavingActive,
+                activeMaxFrameRate = playbackInfo.activeMaxFrameRate,
                 brightnessLevel = brightnessLevel,
                 onBrightnessChange = { newBrightness ->
                     applyBrightnessGestureLevel(newBrightness, false)

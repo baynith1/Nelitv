@@ -881,6 +881,183 @@ class ExampleRobolectricTest {
         )
         assertEquals(com.example.player.AdaptiveQualityTier.FULL_HD_1080P, recovered)
         org.junit.Assert.assertFalse(controller.playbackInfo.value.isDynamicallyDownscaled)
+
+        // 8. Verify Battery-Aware Adaptive Playback Strategy (CPU & Power Optimization):
+        //    - Healthy battery (85% discharging, foreground) -> OPTIMAL_POWER (60fps, 1080p allowed)
+        val optimalProfile = com.example.player.LivePlayerController.computeBatteryPowerProfile(
+            batteryLevelPct = 85,
+            isCharging = false,
+            isOsPowerSaveMode = false,
+            isBackgroundLoading = false,
+            isPictureInPicture = false,
+            optimizationMode = com.example.player.BatteryOptimizationMode.AUTO_BATTERY_AWARE
+        )
+        assertEquals(com.example.player.BatteryPowerProfile.OPTIMAL_POWER, optimalProfile)
+        assertEquals(60, optimalProfile.maxFrameRate)
+        org.junit.Assert.assertFalse(optimalProfile.isCpuSavingActive)
+
+        //    - Low battery (20% discharging) -> LOW_BATTERY_SAVER (caps to 480p @ 30fps & throttles polling to 1.0s/1.2s)
+        val lowBatProfile = com.example.player.LivePlayerController.computeBatteryPowerProfile(
+            batteryLevelPct = 20,
+            isCharging = false,
+            isOsPowerSaveMode = false,
+            isBackgroundLoading = false,
+            isPictureInPicture = false,
+            optimizationMode = com.example.player.BatteryOptimizationMode.AUTO_BATTERY_AWARE
+        )
+        assertEquals(com.example.player.BatteryPowerProfile.LOW_BATTERY_SAVER, lowBatProfile)
+        assertEquals(30, lowBatProfile.maxFrameRate)
+        assertEquals(com.example.player.AdaptiveQualityTier.STANDARD_480P, lowBatProfile.maxQualityTierCap)
+        assertTrue(lowBatProfile.isCpuSavingActive)
+
+        //    - Low battery (18%) while CHARGING -> OPTIMAL_POWER (full 1080p @ 60fps when plugged in)
+        val chargingLowBatProfile = com.example.player.LivePlayerController.computeBatteryPowerProfile(
+            batteryLevelPct = 18,
+            isCharging = true,
+            isOsPowerSaveMode = false,
+            isBackgroundLoading = false,
+            isPictureInPicture = false,
+            optimizationMode = com.example.player.BatteryOptimizationMode.AUTO_BATTERY_AWARE
+        )
+        assertEquals(com.example.player.BatteryPowerProfile.OPTIMAL_POWER, chargingLowBatProfile)
+
+        //    - Critical battery (9% discharging) -> CRITICAL_BATTERY_SAVER (caps to 360p @ 24fps, 1.5s/1.8s polling)
+        val criticalBatProfile = com.example.player.LivePlayerController.computeBatteryPowerProfile(
+            batteryLevelPct = 9,
+            isCharging = false,
+            isOsPowerSaveMode = false,
+            isBackgroundLoading = false,
+            isPictureInPicture = false,
+            optimizationMode = com.example.player.BatteryOptimizationMode.AUTO_BATTERY_AWARE
+        )
+        assertEquals(com.example.player.BatteryPowerProfile.CRITICAL_BATTERY_SAVER, criticalBatProfile)
+        assertEquals(24, criticalBatProfile.maxFrameRate)
+        assertEquals(com.example.player.AdaptiveQualityTier.DATA_SAVER_360P, criticalBatProfile.maxQualityTierCap)
+
+        //    - Background loading state -> BACKGROUND_LOADING_SAVER (240p @ 24fps cap & minimal CPU wakeups)
+        val backgroundLoadProfile = com.example.player.LivePlayerController.computeBatteryPowerProfile(
+            batteryLevelPct = 90,
+            isCharging = true,
+            isOsPowerSaveMode = false,
+            isBackgroundLoading = true,
+            isPictureInPicture = false,
+            optimizationMode = com.example.player.BatteryOptimizationMode.AUTO_BATTERY_AWARE
+        )
+        assertEquals(com.example.player.BatteryPowerProfile.BACKGROUND_LOADING_SAVER, backgroundLoadProfile)
+        assertEquals(24, backgroundLoadProfile.maxFrameRate)
+        assertEquals(com.example.player.AdaptiveQualityTier.LOW_BANDO_240P, backgroundLoadProfile.maxQualityTierCap)
+
+        //    - Verify LivePlayerController dynamically caps high-bandwidth 1080p stream to 480p @ 30fps on low battery
+        val appliedLowBatteryProfile = controller.setDeviceBatterySnapshotOverrideForTesting(
+            com.example.player.DeviceBatterySnapshot(
+                batteryLevelPct = 19,
+                isCharging = false,
+                isOsPowerSaveMode = false,
+                isBackgroundLoading = false,
+                isPictureInPicture = false
+            )
+        )
+        assertEquals(com.example.player.BatteryPowerProfile.LOW_BATTERY_SAVER, appliedLowBatteryProfile)
+        assertEquals(com.example.player.AdaptiveQualityTier.STANDARD_480P, controller.playbackInfo.value.adaptiveQualityTier)
+        assertEquals(30, controller.playbackInfo.value.activeMaxFrameRate)
+        assertTrue(controller.playbackInfo.value.isCpuSavingActive)
+
+        //    - Verify background loading state switches controller to BACKGROUND_LOADING_SAVER (240p @ 24fps)
+        val appliedBgProfile = controller.setBackgroundLoadingState(
+            isBackgroundLoading = true,
+            isPictureInPicture = false
+        )
+        assertEquals(com.example.player.BatteryPowerProfile.BACKGROUND_LOADING_SAVER, appliedBgProfile)
+        assertEquals(com.example.player.AdaptiveQualityTier.LOW_BANDO_240P, controller.playbackInfo.value.adaptiveQualityTier)
+        assertEquals(24, controller.playbackInfo.value.activeMaxFrameRate)
+        assertTrue(controller.playbackInfo.value.isBackgroundLoadingActive)
+
+        //    - Verify returning to foreground while charging restores OPTIMAL_POWER (1080p @ 60fps)
+        controller.setDeviceBatterySnapshotOverrideForTesting(
+            com.example.player.DeviceBatterySnapshot(
+                batteryLevelPct = 80,
+                isCharging = true,
+                isOsPowerSaveMode = false,
+                isBackgroundLoading = false,
+                isPictureInPicture = false
+            )
+        )
+        assertEquals(com.example.player.BatteryPowerProfile.OPTIMAL_POWER, controller.playbackInfo.value.batteryPowerProfile)
+        assertEquals(com.example.player.AdaptiveQualityTier.FULL_HD_1080P, controller.playbackInfo.value.adaptiveQualityTier)
+        assertEquals(60, controller.playbackInfo.value.activeMaxFrameRate)
+        org.junit.Assert.assertFalse(controller.playbackInfo.value.isCpuSavingActive)
+
+        // 9. Verify Offline Download Manager:
+        //    - Special NeliPlay folder auto-creation on device storage
+        //    - Resumable partial download state across internet interruptions (never resets to 0%)
+        //    - Completed download is immediately playable offline inside the app (never stuck in downloading state)
+        val specialFolder = com.example.data.OfflineDownloadManager.ensureSpecialDeviceDownloadFolder(context)
+        assertTrue(specialFolder.exists())
+        assertEquals(com.example.data.OfflineDownloadManager.SPECIAL_DEVICE_FOLDER_NAME, specialFolder.name)
+
+        val cleanName = com.example.data.OfflineDownloadManager.buildCleanDeviceFileName(
+            title = "Never a Thief (Swahili)",
+            id = "mov_test_resume_1",
+            extension = "mp4"
+        )
+        assertTrue(cleanName.endsWith("_mov_test_resume_1.mp4"))
+
+        // Simulate a partial MP4 download interrupted at 50% (500 KB out of 1,000 KB)
+        val partFile = java.io.File(specialFolder, "mov_test_resume_1.mp4.part")
+        val metaFile = java.io.File(specialFolder, "mov_test_resume_1.mp4.meta")
+        partFile.writeBytes(ByteArray(500 * 1024) { 0x11 })
+        metaFile.writeText("""{"expectedTotalBytes": ${1000 * 1024}, "sourceUrl": "https://example.com/movie.mp4"}""")
+
+        val (resumedPct, resumedBytes) = com.example.data.OfflineDownloadManager.inspectPartialDownloadState(
+            context = context,
+            id = "mov_test_resume_1",
+            fallbackPct = 1
+        )
+        assertEquals(500 * 1024L, resumedBytes)
+        assertTrue("Expected resumed percentage around 49%, got $resumedPct", resumedPct in 48..51)
+
+        // Simulate completion of the download in the special NeliPlay folder
+        val completedFile = java.io.File(specialFolder, cleanName)
+        partFile.copyTo(completedFile, overwrite = true)
+        partFile.delete()
+        metaFile.delete()
+
+        val completedEntity = com.example.data.local.DownloadedItemEntity(
+            id = "mov_test_resume_1",
+            title = "Never a Thief (Swahili)",
+            type = "movie",
+            posterUrl = "https://example.com/poster.jpg",
+            backdropUrl = "https://example.com/backdrop.jpg",
+            streamUrl = "https://example.com/movie.mp4",
+            localFilePath = completedFile.absolutePath,
+            genre = "Action",
+            duration = "2h 00m",
+            rating = "8.5",
+            fileSizeLabel = "0.5 MB • Offline Ready",
+            downloadStatus = "COMPLETED",
+            progressPercent = 100
+        )
+
+        // Completed download must be valid on disk, NOT marked as currently downloading, and resolve to file:// URI
+        assertTrue(com.example.data.OfflineDownloadManager.isDownloadFileValidOnDisk(completedEntity))
+        org.junit.Assert.assertFalse(com.example.data.OfflineDownloadManager.isCurrentlyDownloading(completedEntity.id))
+
+        val playableUri = com.example.data.OfflineDownloadManager.resolvePlayableUrl(
+            streamUrl = completedEntity.streamUrl,
+            localFilePath = completedEntity.localFilePath,
+            context = context,
+            itemId = completedEntity.id
+        )
+        assertTrue("Expected file:// URI for offline playback, got $playableUri", playableUri.startsWith("file:"))
+
+        val resolvedByIdUri = com.example.data.OfflineDownloadManager.resolveLocalOfflineUriIfPresent(
+            context = context,
+            rawId = "vod_mov_test_resume_1",
+            fallbackStreamUrl = completedEntity.streamUrl
+        )
+        assertTrue("Expected file:// URI when resolving by media ID, got $resolvedByIdUri", resolvedByIdUri.startsWith("file:"))
+
+        completedFile.delete()
         controller.release()
     }
 }

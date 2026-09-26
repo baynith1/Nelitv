@@ -266,6 +266,13 @@ fun NeliApp(
         onActivePlaybackChanged(activeChannel != null && sharedPlayerController != null)
     }
 
+    LaunchedEffect(isSystemInPipMode, sharedPlayerController) {
+        sharedPlayerController?.setBackgroundLoadingState(
+            isBackgroundLoading = false,
+            isPictureInPicture = isSystemInPipMode
+        )
+    }
+
     val startOrSwitchChannel: (LiveChannel) -> Unit = { selected ->
         val existing = sharedPlayerController
         if (existing == null) {

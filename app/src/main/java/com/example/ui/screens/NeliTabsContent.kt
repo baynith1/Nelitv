@@ -47,8 +47,11 @@ import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.NetworkCell
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material.icons.filled.Star
@@ -1187,9 +1190,11 @@ fun DownloadTabContent(
     downloadBannerMessage: String? = null,
     onDismissBanner: () -> Unit = {},
     onStartQuickDownload: (MediaContent) -> Unit = {},
+    onPauseDownload: (String) -> Unit = {},
     onRetryDownload: (DownloadedItemEntity) -> Unit = {},
     onCancelDownload: (String) -> Unit = {},
     onPlayDownloaded: (DownloadedItemEntity) -> Unit,
+    onPlayQuickMediaOffline: (MediaContent) -> Unit = {},
     onDeleteDownload: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -1237,6 +1242,41 @@ fun DownloadTabContent(
                             fontSize = 11.sp
                         )
                     }
+                }
+            }
+        }
+
+        // Special Mobile Device Folder Info Banner (Movies/NeliPlay)
+        item {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color(0xFF160B2E))
+                    .border(1.dp, NeliGenreCyan.copy(alpha = 0.45f), RoundedCornerShape(12.dp))
+                    .padding(horizontal = 12.dp, vertical = 10.dp)
+                    .testTag("device_storage_folder_banner"),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Folder,
+                    contentDescription = null,
+                    tint = NeliGenreCyan,
+                    modifier = Modifier.size(20.dp)
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Phone Storage Folder: ${com.example.data.OfflineDownloadManager.SPECIAL_DEVICE_FOLDER_DISPLAY_PATH}",
+                        color = Color.White,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                    Text(
+                        text = "All downloaded movies & series play inside the app and are saved in your phone's NeliPlay folder for offline access anytime.",
+                        color = NeliTextSecondary,
+                        fontSize = 10.sp
+                    )
                 }
             }
         }
@@ -1320,7 +1360,7 @@ fun DownloadTabContent(
                         fontSize = 15.sp
                     )
                     Text(
-                        text = "Videos you download will appear here.",
+                        text = "Videos you download will appear here and in your phone's NeliPlay folder.",
                         color = NeliTextSecondary,
                         fontSize = 12.sp
                     )
@@ -1328,12 +1368,19 @@ fun DownloadTabContent(
             }
         } else {
             items(downloads, key = { it.id }) { item ->
+                val isCompleted = item.downloadStatus == "COMPLETED" && item.localFilePath.isNotBlank()
                 val activePct = downloadProgress[item.id]
-                val isDownloading = activePct != null ||
-                    item.downloadStatus == "DOWNLOADING" ||
-                    downloadingIds.contains(item.id)
-                val isPausedError = !isDownloading && item.downloadStatus == "PAUSED_ERROR"
-                val displayPct = (activePct ?: item.progressPercent).coerceIn(1, 100)
+                val isDownloading = !isCompleted && (
+                    activePct != null ||
+                        item.downloadStatus == "DOWNLOADING" ||
+                        downloadingIds.contains(item.id)
+                    )
+                val isPausedError = !isCompleted && !isDownloading && item.downloadStatus == "PAUSED_ERROR"
+                val displayPct = if (isCompleted) {
+                    100
+                } else {
+                    (activePct ?: item.progressPercent).coerceIn(1, 99)
+                }
                 val imageUrl = MediaContentRepository.resolveGuaranteedMediaImageUrl(
                     item.backdropUrl,
                     item.posterUrl,
@@ -1348,14 +1395,18 @@ fun DownloadTabContent(
                         .border(
                             width = 1.dp,
                             color = when {
+                                isCompleted -> Color(0xFF10B981).copy(alpha = 0.65f)
                                 isDownloading -> NeliGenreCyan.copy(alpha = 0.7f)
-                                isPausedError -> Color(0xFFEF4444).copy(alpha = 0.7f)
+                                isPausedError -> Color(0xFFF59E0B).copy(alpha = 0.7f)
                                 else -> Color(0x33A855F7)
                             },
                             shape = RoundedCornerShape(16.dp)
                         )
-                        .clickable(enabled = !isDownloading && !isPausedError) {
-                            onPlayDownloaded(item)
+                        .clickable {
+                            when {
+                                isCompleted -> onPlayDownloaded(item)
+                                isPausedError -> onRetryDownload(item)
+                            }
                         }
                         .padding(12.dp)
                         .testTag("download_item_${item.id}")
@@ -1374,10 +1425,13 @@ fun DownloadTabContent(
                         }
                         Box(
                             modifier = Modifier
-                                .width(104.dp)
+                                .width(108.dp)
                                 .aspectRatio(16f / 10f)
                                 .clip(RoundedCornerShape(12.dp))
-                                .background(NeliSurfaceVariant),
+                                .background(NeliSurfaceVariant)
+                                .clickable(enabled = isCompleted || isPausedError) {
+                                    if (isCompleted) onPlayDownloaded(item) else onRetryDownload(item)
+                                },
                             contentAlignment = Alignment.Center
                         ) {
                             AsyncImage(
@@ -1388,31 +1442,42 @@ fun DownloadTabContent(
                             )
                             Box(
                                 modifier = Modifier
-                                    .size(32.dp)
+                                    .size(36.dp)
                                     .clip(CircleShape)
                                     .background(
                                         when {
                                             isDownloading -> NeliGenreCyan
-                                            isPausedError -> Color(0xFFEF4444)
+                                            isPausedError -> Color(0xFFF59E0B)
                                             else -> NeliMagenta
                                         }
                                     ),
                                 contentAlignment = Alignment.Center
                             ) {
-                                if (isDownloading) {
-                                    Text(
-                                        text = "$displayPct%",
-                                        color = Color.Black,
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.Black
-                                    )
-                                } else {
-                                    Icon(
-                                        imageVector = Icons.Default.PlayArrow,
-                                        contentDescription = "Play Offline",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(20.dp)
-                                    )
+                                when {
+                                    isDownloading -> {
+                                        Text(
+                                            text = "$displayPct%",
+                                            color = Color.Black,
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Black
+                                        )
+                                    }
+                                    isPausedError -> {
+                                        Icon(
+                                            imageVector = Icons.Default.Refresh,
+                                            contentDescription = "Resume Download",
+                                            tint = Color.Black,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                    else -> {
+                                        Icon(
+                                            imageVector = Icons.Default.PlayArrow,
+                                            contentDescription = "Play Offline",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(22.dp)
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -1441,12 +1506,13 @@ fun DownloadTabContent(
                                 Icon(
                                     imageVector = when {
                                         isDownloading -> Icons.Default.Download
+                                        isPausedError -> Icons.Default.Refresh
                                         else -> Icons.Default.CheckCircle
                                     },
                                     contentDescription = null,
                                     tint = when {
                                         isDownloading -> NeliGenreCyan
-                                        isPausedError -> Color(0xFFEF4444)
+                                        isPausedError -> Color(0xFFF59E0B)
                                         else -> Color(0xFF10B981)
                                     },
                                     modifier = Modifier.size(13.dp)
@@ -1454,13 +1520,18 @@ fun DownloadTabContent(
                                 Text(
                                     text = when {
                                         isDownloading -> item.fileSizeLabel.ifBlank {
-                                            "Background downloading ($displayPct%)..."
+                                            "Downloading • $displayPct%"
                                         }
-                                        else -> item.fileSizeLabel
+                                        isPausedError -> item.fileSizeLabel.ifBlank {
+                                            "Paused at $displayPct% • Tap Resume"
+                                        }
+                                        else -> item.fileSizeLabel.ifBlank {
+                                            "Offline Ready • Saved in NeliPlay"
+                                        }
                                     },
                                     color = when {
                                         isDownloading -> NeliGenreCyan
-                                        isPausedError -> Color(0xFFEF4444)
+                                        isPausedError -> Color(0xFFF59E0B)
                                         else -> Color(0xFF10B981)
                                     },
                                     fontSize = 11.sp,
@@ -1469,20 +1540,73 @@ fun DownloadTabContent(
                             }
                         }
 
-                        if (isPausedError) {
-                            Button(
-                                onClick = { onRetryDownload(item) },
-                                colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta),
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                                shape = RoundedCornerShape(10.dp),
-                                modifier = Modifier.height(36.dp)
-                            ) {
-                                Text(
-                                    text = "Retry",
-                                    color = Color.White,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.ExtraBold
-                                )
+                        when {
+                            isCompleted -> {
+                                Button(
+                                    onClick = { onPlayDownloaded(item) },
+                                    colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier
+                                        .height(38.dp)
+                                        .testTag("play_offline_btn_${item.id}")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.PlayArrow,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "Play",
+                                        color = Color.White,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.ExtraBold
+                                    )
+                                }
+                            }
+                            isDownloading -> {
+                                OutlinedButton(
+                                    onClick = { onPauseDownload(item.id) },
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier
+                                        .height(36.dp)
+                                        .testTag("pause_download_btn_${item.id}")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Pause,
+                                        contentDescription = "Pause Download",
+                                        tint = NeliGenreCyan,
+                                        modifier = Modifier.size(15.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(3.dp))
+                                    Text(
+                                        text = "Pause",
+                                        color = Color.White,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                            isPausedError -> {
+                                Button(
+                                    onClick = { onRetryDownload(item) },
+                                    colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier
+                                        .height(36.dp)
+                                        .testTag("resume_download_btn_${item.id}")
+                                ) {
+                                    Text(
+                                        text = "Resume",
+                                        color = Color.White,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.ExtraBold
+                                    )
+                                }
                             }
                         }
 
@@ -1494,7 +1618,7 @@ fun DownloadTabContent(
                                     onDeleteDownload(item.id)
                                 }
                             },
-                            modifier = Modifier.size(44.dp)
+                            modifier = Modifier.size(42.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.DeleteOutline,
@@ -1504,11 +1628,11 @@ fun DownloadTabContent(
                         }
                     }
 
-                    if (isDownloading) {
+                    if (isDownloading || isPausedError) {
                         Spacer(modifier = Modifier.height(8.dp))
                         LinearProgressIndicator(
                             progress = { displayPct / 100f },
-                            color = NeliMagenta,
+                            color = if (isPausedError) Color(0xFFF59E0B) else NeliMagenta,
                             trackColor = NeliSurfaceVariant,
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -1607,11 +1731,18 @@ fun DownloadTabContent(
 
                     Button(
                         onClick = {
-                            if (!isAlreadyDownloaded && !isCurrentlyDownloading) {
+                            if (isAlreadyDownloaded) {
+                                val matchingEntity = downloads.find { it.id == media.id }
+                                if (matchingEntity != null) {
+                                    onPlayDownloaded(matchingEntity)
+                                } else {
+                                    onPlayQuickMediaOffline(media)
+                                }
+                            } else if (!isCurrentlyDownloading) {
                                 onStartQuickDownload(media)
                             }
                         },
-                        enabled = !isAlreadyDownloaded && !isCurrentlyDownloading,
+                        enabled = !isCurrentlyDownloading,
                         colors = ButtonDefaults.buttonColors(
                             containerColor = when {
                                 isAlreadyDownloaded -> Color(0xFF10B981)
@@ -1626,7 +1757,7 @@ fun DownloadTabContent(
                             .testTag("quick_download_btn_${media.id}")
                     ) {
                         Icon(
-                            imageVector = if (isAlreadyDownloaded) Icons.Default.DownloadDone else Icons.Default.Download,
+                            imageVector = if (isAlreadyDownloaded) Icons.Default.PlayArrow else Icons.Default.Download,
                             contentDescription = null,
                             tint = Color.White,
                             modifier = Modifier.size(16.dp)
@@ -1634,7 +1765,7 @@ fun DownloadTabContent(
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
                             text = when {
-                                isAlreadyDownloaded -> "Saved"
+                                isAlreadyDownloaded -> "Play Offline"
                                 isCurrentlyDownloading -> "$livePct%"
                                 else -> "Download"
                             },

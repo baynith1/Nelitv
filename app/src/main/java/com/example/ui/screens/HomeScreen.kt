@@ -155,16 +155,24 @@ fun HomeScreen(
     val playWithOfflineResolution: (LiveChannel) -> Unit = { playable ->
         val cleanId = playable.id.removePrefix("vod_").removePrefix("ep_").removePrefix("dl_")
         val localEntry = downloads.find { it.id == cleanId || it.id == playable.id }
-        if (localEntry != null && localEntry.localFilePath.isNotBlank()) {
-            val resolvedUrl = OfflineDownloadManager.resolvePlayableUrl(
-                streamUrl = playable.streamUrl,
-                localFilePath = localEntry.localFilePath,
-                context = context
-            )
-            onChannelSelected(playable.copy(streamUrl = resolvedUrl))
+        val resolvedUrl = OfflineDownloadManager.resolvePlayableUrl(
+            streamUrl = playable.streamUrl,
+            localFilePath = localEntry?.localFilePath.orEmpty(),
+            context = context,
+            itemId = cleanId
+        )
+        val isLocalFile = resolvedUrl.startsWith("file:", ignoreCase = true) || resolvedUrl.startsWith("/")
+        val resolvedFormat = if (isLocalFile) {
+            if (resolvedUrl.substringBefore("?").endsWith(".m3u8", ignoreCase = true)) "hls" else "mp4"
         } else {
-            onChannelSelected(playable)
+            playable.streamFormat
         }
+        onChannelSelected(
+            playable.copy(
+                streamUrl = resolvedUrl,
+                streamFormat = resolvedFormat
+            )
+        )
     }
 
     if (activeDetailMedia != null) {
@@ -377,6 +385,9 @@ fun HomeScreen(
                                 neliViewModel.addDownload(media)
                             }
                         },
+                        onPauseDownload = { id ->
+                            neliViewModel.pauseDownload(id)
+                        },
                         onRetryDownload = { dl ->
                             neliViewModel.retryDownload(dl)
                         },
@@ -387,7 +398,8 @@ fun HomeScreen(
                             val resolvedUrl = OfflineDownloadManager.resolvePlayableUrl(
                                 streamUrl = dl.streamUrl,
                                 localFilePath = dl.localFilePath,
-                                context = context
+                                context = context,
+                                itemId = dl.id
                             )
                             val format = when {
                                 resolvedUrl.startsWith("file:", true) ||
@@ -419,6 +431,9 @@ fun HomeScreen(
                                     isAdultContent = matchedMedia?.isAdultContent == true || dl.type.equals("adult", true)
                                 )
                             )
+                        },
+                        onPlayQuickMediaOffline = { media ->
+                            playWithOfflineResolution(media.toPlayableChannel())
                         },
                         onDeleteDownload = { neliViewModel.deleteDownload(it) }
                     )

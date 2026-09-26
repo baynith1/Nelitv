@@ -93,6 +93,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.material.icons.filled.BatteryAlert
+import androidx.compose.material.icons.filled.BatteryChargingFull
+import androidx.compose.material.icons.filled.BatterySaver
+import androidx.compose.material.icons.filled.BatteryStd
+import com.example.player.BatteryOptimizationMode
+import com.example.player.BatteryPowerProfile
 import com.example.player.NetworkQualityMode
 import com.example.ui.theme.NeliCardPurple
 import com.example.ui.theme.NeliGenreCyan
@@ -1112,6 +1118,14 @@ fun PlayerSettingsDrawer(
     estimatedBandwidthKbps: Int = 3800,
     bufferedDurationMs: Long = 0L,
     isDynamicallyDownscaled: Boolean = false,
+    batteryOptimizationMode: BatteryOptimizationMode = BatteryOptimizationMode.AUTO_BATTERY_AWARE,
+    onSelectBatteryOptimizationMode: (BatteryOptimizationMode) -> Unit = {},
+    batteryPowerProfile: BatteryPowerProfile = BatteryPowerProfile.OPTIMAL_POWER,
+    batteryLevelPct: Int = 85,
+    isBatteryCharging: Boolean = false,
+    isOsPowerSaveMode: Boolean = false,
+    isCpuSavingActive: Boolean = false,
+    activeMaxFrameRate: Int = 60,
     brightnessLevel: Float,
     onBrightnessChange: (Float) -> Unit,
     volumeLevel: Float,
@@ -1542,6 +1556,121 @@ fun PlayerSettingsDrawer(
                     color = NeliTextSecondary,
                     fontSize = 10.sp
                 )
+            }
+
+            // Battery-Aware Adaptive Playback CPU Optimization Card
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(NeliSurface)
+                    .border(
+                        1.dp,
+                        if (isCpuSavingActive) Color(0xFF10B981) else Color(0x33A855F7),
+                        RoundedCornerShape(14.dp)
+                    )
+                    .padding(12.dp)
+                    .testTag("battery_aware_playback_card"),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                val batteryIcon = when {
+                    isBatteryCharging -> Icons.Default.BatteryChargingFull
+                    batteryPowerProfile == BatteryPowerProfile.CRITICAL_BATTERY_SAVER -> Icons.Default.BatteryAlert
+                    isCpuSavingActive || isOsPowerSaveMode -> Icons.Default.BatterySaver
+                    else -> Icons.Default.BatteryStd
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = batteryIcon,
+                            contentDescription = null,
+                            tint = if (isCpuSavingActive) Color(0xFF10B981) else NeliGenreCyan,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = "BATTERY-AWARE CPU SAVER",
+                            color = if (isCpuSavingActive) Color(0xFF10B981) else NeliGenreCyan,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(
+                                if (isCpuSavingActive) Color(0xFF10B981) else Color(0xFF3B1A6B)
+                            )
+                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                    ) {
+                        Text(
+                            text = batteryPowerProfile.badgeLabel,
+                            color = Color.White,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                    }
+                }
+
+                Text(
+                    text = batteryPowerProfile.statusDescription,
+                    color = Color.White,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+
+                val chargeLabel = when {
+                    isBatteryCharging -> "Charging"
+                    isOsPowerSaveMode -> "OS Battery Saver"
+                    else -> "Discharging"
+                }
+                Text(
+                    text = "Battery: $batteryLevelPct% ($chargeLabel) • Max Decode Rate: ${activeMaxFrameRate}fps",
+                    color = NeliTextSecondary,
+                    fontSize = 10.sp
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    BatteryOptimizationMode.entries.forEach { mode ->
+                        val isSelected = mode == batteryOptimizationMode
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(
+                                    if (isSelected) NeliCardPurple else Color(0x55180631)
+                                )
+                                .border(
+                                    1.dp,
+                                    if (isSelected) NeliGenreCyan else Color(0x33FFFFFF),
+                                    RoundedCornerShape(10.dp)
+                                )
+                                .clickable { onSelectBatteryOptimizationMode(mode) }
+                                .padding(horizontal = 6.dp, vertical = 7.dp)
+                                .testTag("battery_mode_option_${mode.name.lowercase()}"),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = mode.label,
+                                color = if (isSelected) Color.White else NeliTextSecondary,
+                                fontSize = 10.sp,
+                                fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
             }
 
             // Video Aspect Ratio & Stream Quality Quick Settings
