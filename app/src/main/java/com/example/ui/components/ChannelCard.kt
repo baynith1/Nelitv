@@ -40,6 +40,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import coil.request.CachePolicy
 import coil.request.ImageRequest
 import com.example.data.ChannelRepository
 import com.example.model.LiveChannel
@@ -48,6 +49,10 @@ import com.example.ui.theme.NeliMagenta
 import com.example.ui.theme.NeliSurface
 import com.example.ui.theme.NeliTextPrimary
 import com.example.ui.theme.NeliTextSecondary
+
+private val ChannelStageGradient = Brush.verticalGradient(
+    colors = listOf(Color(0xFF141B2D), Color(0xFF1D253B))
+)
 
 @Composable
 fun ChannelCard(
@@ -68,18 +73,16 @@ fun ChannelCard(
     var isLogoLoaded by remember(channel.id, activeLogoUrl) {
         mutableStateOf(false)
     }
+    val channelInitials = remember(channel.name) {
+        channel.name.trim().take(2).uppercase()
+    }
 
     val thumbRequest = remember(channel.id, activeLogoUrl) {
         ImageRequest.Builder(context)
             .data(activeLogoUrl)
-            .size(360, 200)
-            .crossfade(false)
-            .build()
-    }
-    val avatarRequest = remember(channel.id, activeLogoUrl) {
-        ImageRequest.Builder(context)
-            .data(activeLogoUrl)
-            .size(84, 84)
+            .size(320, 180)
+            .memoryCachePolicy(CachePolicy.ENABLED)
+            .diskCachePolicy(CachePolicy.ENABLED)
             .crossfade(false)
             .build()
     }
@@ -95,7 +98,7 @@ fun ChannelCard(
         colors = CardDefaults.cardColors(
             containerColor = NeliSurface
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
             // 16:9 YouTube-style Live Thumbnail Stage with high-visibility logo container
@@ -103,11 +106,7 @@ fun ChannelCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(16f / 9f)
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(Color(0xFF141B2D), Color(0xFF1D253B))
-                        )
-                    ),
+                    .background(ChannelStageGradient),
                 contentAlignment = Alignment.Center
             ) {
                 if (!isLogoLoaded) {
@@ -119,7 +118,7 @@ fun ChannelCard(
                             imageVector = Icons.Default.Tv,
                             contentDescription = null,
                             tint = NeliMagenta.copy(alpha = 0.65f),
-                            modifier = Modifier.size(26.dp)
+                            modifier = Modifier.size(24.dp)
                         )
                         Text(
                             text = channel.name.take(12).uppercase(),
@@ -135,7 +134,7 @@ fun ChannelCard(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(horizontal = 16.dp, vertical = 10.dp)
+                        .padding(horizontal = 14.dp, vertical = 8.dp)
                         .clip(RoundedCornerShape(10.dp))
                         .background(Color.White.copy(alpha = 0.08f))
                         .padding(6.dp)
@@ -168,33 +167,24 @@ fun ChannelCard(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 10.dp, vertical = 10.dp),
+                    .padding(horizontal = 10.dp, vertical = 9.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.spacedBy(9.dp)
             ) {
                 Box(
                     modifier = Modifier
-                        .size(34.dp)
+                        .size(32.dp)
                         .clip(CircleShape)
                         .background(Color(0xFF1E263C))
                         .border(0.5.dp, NeliBorder, CircleShape)
-                        .padding(3.dp)
                         .testTag("channel_avatar_logo_${channel.id}"),
                     contentAlignment = Alignment.Center
                 ) {
-                    if (!isLogoLoaded) {
-                        Text(
-                            text = channel.name.trim().take(2).uppercase(),
-                            color = Color.White,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.ExtraBold
-                        )
-                    }
-                    AsyncImage(
-                        model = avatarRequest,
-                        contentDescription = "${channel.name} icon",
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier.fillMaxSize()
+                    Text(
+                        text = channelInitials,
+                        color = Color.White,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.ExtraBold
                     )
                 }
 

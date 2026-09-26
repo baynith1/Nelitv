@@ -1,0 +1,15 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls",
+      "delegate_permission/common.get_login_creds"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.nelitv.app",
+      "sha256_cert_fingerprints": [
+        "EE:19:DC:24:4F:42:EA:40:6F:AE:75:CE:B1:56:51:21:7F:B2:A6:38:6B:04:F1:E6:4D:F2:C3:B3:38:E3:9A:C3"
+      ]
+    }
+  }
+]

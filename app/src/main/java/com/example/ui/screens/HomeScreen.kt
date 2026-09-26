@@ -56,6 +56,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -64,6 +65,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import coil.request.CachePolicy
 import coil.request.ImageRequest
 import com.example.ads.NeliAdMobManager
 import com.example.data.ChannelRepository
@@ -153,28 +155,33 @@ fun HomeScreen(
         }
     }
 
-    // Helper that resolves offline internal storage path if a movie/episode was already downloaded
+    // Helper that resolves offline internal storage path if a movie/episode was already downloaded,
+    // while launching Live TV channels instantaneously without any disk I/O
     val playWithOfflineResolution: (LiveChannel) -> Unit = { playable ->
-        val cleanId = playable.id.removePrefix("vod_").removePrefix("ep_").removePrefix("dl_")
-        val localEntry = downloads.find { it.id == cleanId || it.id == playable.id }
-        val resolvedUrl = OfflineDownloadManager.resolvePlayableUrl(
-            streamUrl = playable.streamUrl,
-            localFilePath = localEntry?.localFilePath.orEmpty(),
-            context = context,
-            itemId = cleanId
-        )
-        val isLocalFile = resolvedUrl.startsWith("file:", ignoreCase = true) || resolvedUrl.startsWith("/")
-        val resolvedFormat = if (isLocalFile) {
-            if (resolvedUrl.substringBefore("?").endsWith(".m3u8", ignoreCase = true)) "hls" else "mp4"
+        if (playable.isLiveBroadcast && !playable.id.startsWith("dl_")) {
+            onChannelSelected(playable)
         } else {
-            playable.streamFormat
-        }
-        onChannelSelected(
-            playable.copy(
-                streamUrl = resolvedUrl,
-                streamFormat = resolvedFormat
+            val cleanId = playable.id.removePrefix("vod_").removePrefix("ep_").removePrefix("dl_")
+            val localEntry = downloads.find { it.id == cleanId || it.id == playable.id }
+            val resolvedUrl = OfflineDownloadManager.resolvePlayableUrl(
+                streamUrl = playable.streamUrl,
+                localFilePath = localEntry?.localFilePath.orEmpty(),
+                context = context,
+                itemId = cleanId
             )
-        )
+            val isLocalFile = resolvedUrl.startsWith("file:", ignoreCase = true) || resolvedUrl.startsWith("/")
+            val resolvedFormat = if (isLocalFile) {
+                if (resolvedUrl.substringBefore("?").endsWith(".m3u8", ignoreCase = true)) "hls" else "mp4"
+            } else {
+                playable.streamFormat
+            }
+            onChannelSelected(
+                playable.copy(
+                    streamUrl = resolvedUrl,
+                    streamFormat = resolvedFormat
+                )
+            )
+        }
     }
 
     if (activeDetailMedia != null) {
@@ -550,7 +557,8 @@ private fun LiveTvHomeTab(
     val featuredHeroChannels = remember(allPrioritizedChannels, azamChannels) {
         (azamChannels + ChannelRepository.homePageFeaturedChannels)
             .distinctBy { it.id }
-            .ifEmpty { allPrioritizedChannels.take(12) }
+            .take(10)
+            .ifEmpty { allPrioritizedChannels.take(10) }
     }
 
     val liveCategories = remember(allPrioritizedChannels, homepageCategoryShelves) {
@@ -577,6 +585,13 @@ private fun LiveTvHomeTab(
     // Group All Channels into blocks of 6 channels so a Muted Video Ad is placed after every 6 channels in vertical view
     val sixChannelBlocks = remember(filteredChannels) {
         ChannelRepository.getAllChannelsChunkedEverySixForAds(filteredChannels)
+    }
+    val screenWidthDp = LocalConfiguration.current.screenWidthDp
+    val columnsPerRow = remember(screenWidthDp) {
+        when {
+            screenWidthDp >= 600 -> 3
+            else -> 2
+        }
     }
 
     PullToRefreshBox(
@@ -810,15 +825,16 @@ private fun LiveTvHomeTab(
 
         itemsIndexed(
             items = sixChannelBlocks,
-            key = { blockIdx, block -> "all_channels_block_${blockIdx}_${block.firstOrNull()?.id.orEmpty()}" }
+            key = { blockIdx, block -> "all_channels_block_${blockIdx}_${block.firstOrNull()?.id.orEmpty()}" },
+            contentType = { _, _ -> "six_channel_block" }
         ) { blockIndex, sixChannels ->
-            val rowsOfTwo = remember(sixChannels) { sixChannels.chunked(2) }
+            val rowsInBlock = remember(sixChannels, columnsPerRow) { sixChannels.chunked(columnsPerRow) }
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("all_channels_vertical_block_$blockIndex")
             ) {
-                for (rowItems in rowsOfTwo) {
+                for (rowItems in rowsInBlock) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -833,16 +849,21 @@ private fun LiveTvHomeTab(
                                 )
                             }
                         }
-                        if (rowItems.size == 1) {
+                        val emptySlots = (columnsPerRow - rowItems.size).coerceAtLeast(0)
+                        repeat(emptySlots) {
                             Spacer(modifier = Modifier.weight(1f))
                         }
                     }
                 }
 
-                // Embed Muted Video Ad after primary 6-channel blocks without overloading WebView/MediaView memory
-                if (blockIndex <= 1 && (sixChannels.size == 6 || blockIndex == sixChannelBlocks.lastIndex)) {
+                // Embed Muted Video Ad after primary 6-channel block without overloading WebView/MediaView memory
+                if (blockIndex == 0 && (sixChannels.size == 6 || blockIndex == sixChannelBlocks.lastIndex)) {
                     NeliMutedInlineVideoAdCard(
                         placementKey = "all_channels_after_${(blockIndex + 1) * 6}"
+                    )
+                } else if (blockIndex == 2) {
+                    NeliAdaptiveBannerAd(
+                        placementKey = "all_channels_banner_after_${(blockIndex + 1) * 6}"
                     )
                 }
             }
@@ -888,7 +909,7 @@ private fun LiveTvHeroBanner(
                     state = pagerState,
                     contentPadding = PaddingValues(horizontal = 16.dp),
                     pageSpacing = 12.dp,
-                    beyondViewportPageCount = 1,
+                    beyondViewportPageCount = 0,
                     modifier = Modifier.fillMaxSize()
                 ) { page ->
                     val channel = heroChannels[page]
@@ -908,7 +929,9 @@ private fun LiveTvHeroBanner(
                     val heroLogoRequest = remember(channel.id, activeHeroLogo) {
                         ImageRequest.Builder(context)
                             .data(activeHeroLogo)
-                            .size(280, 280)
+                            .size(260, 260)
+                            .memoryCachePolicy(CachePolicy.ENABLED)
+                            .diskCachePolicy(CachePolicy.ENABLED)
                             .crossfade(false)
                             .build()
                     }
@@ -1155,7 +1178,9 @@ private fun HomepageLiveChannelCard(
     val thumbRequest = remember(channel.id, activeLogoUrl) {
         ImageRequest.Builder(context)
             .data(activeLogoUrl)
-            .size(280, 160)
+            .size(240, 140)
+            .memoryCachePolicy(CachePolicy.ENABLED)
+            .diskCachePolicy(CachePolicy.ENABLED)
             .crossfade(false)
             .build()
     }

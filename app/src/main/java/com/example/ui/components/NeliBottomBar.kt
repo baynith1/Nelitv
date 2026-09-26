@@ -10,11 +10,16 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -75,13 +80,17 @@ fun NeliBottomBar(
 ) {
     val isLightMode = NeliThemeManager.isLightMode
     val barBgColor = if (isLightMode) Color(0xFFFFFFFF) else Color(0xFF0F0F0F)
+    val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val safeBottomPadding = if (navBarBottom < 8.dp) 8.dp else navBarBottom
 
     Column(
         modifier = modifier
             .fillMaxWidth()
             .background(barBgColor)
-            .windowInsetsPadding(WindowInsets.navigationBars)
-            .testTag("neli_bottom_bar")
+            .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal))
+            .padding(bottom = safeBottomPadding)
+            .testTag("neli_bottom_bar"),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Box(
             modifier = Modifier
@@ -91,7 +100,9 @@ fun NeliBottomBar(
         )
         Surface(
             color = barBgColor,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
+                .widthIn(max = 720.dp)
         ) {
             Row(
                 modifier = Modifier

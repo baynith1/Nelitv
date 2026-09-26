@@ -457,6 +457,34 @@ class LivePlayerController(
     private var healthyPlaybackSinceRealtimeMs: Long = 0L
     private var currentAdaptiveTier: AdaptiveQualityTier = AdaptiveQualityTier.FULL_HD_1080P
     private var activeTrackResolutionLabel: String = AdaptiveQualityTier.FULL_HD_1080P.badgeLabel
+    private var lastAppliedTrackSelectorKey: String = ""
+    private var cachedOfflineStreamChannelId: String = ""
+    private var cachedIsLocalOfflineStream: Boolean = false
+
+    private val sharedBaseHttpDataSourceFactory: DefaultHttpDataSource.Factory by lazy {
+        DefaultHttpDataSource.Factory()
+            .setAllowCrossProtocolRedirects(true)
+            .setConnectTimeoutMs(8_000)
+            .setReadTimeoutMs(12_000)
+            .setUserAgent("Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36")
+            .setDefaultRequestProperties(
+                mapOf(
+                    "Accept" to "*/*",
+                    "Connection" to "keep-alive"
+                )
+            )
+    }
+
+    private val sharedExtractorsFactory: DefaultExtractorsFactory by lazy {
+        DefaultExtractorsFactory()
+            .setConstantBitrateSeekingEnabled(true)
+            .setConstantBitrateSeekingAlwaysEnabled(true)
+            .setMp4ExtractorFlags(Mp4Extractor.FLAG_WORKAROUND_IGNORE_EDIT_LISTS)
+            .setTsExtractorFlags(
+                DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES or
+                        DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS
+            )
+    }
 
     // Battery-Aware Adaptive Playback & Background CPU Saver Telemetry
     private var batteryOptimizationMode: BatteryOptimizationMode = BatteryOptimizationMode.AUTO_BATTERY_AWARE
@@ -1159,9 +1187,11 @@ class LivePlayerController(
             val maxW = if (isOfflineLocalFile) Int.MAX_VALUE else resolvedTier.maxWidth
             val maxH = if (isOfflineLocalFile) Int.MAX_VALUE else resolvedTier.maxHeight
             val maxBr = if (isOfflineLocalFile) Int.MAX_VALUE else resolvedTier.maxBitrateBps
-            val minW = if (isOfflineLocalFile) 0 else resolvedTier.minPreferredWidth
-            val minH = if (isOfflineLocalFile) 0 else resolvedTier.minPreferredHeight
-            val minBr = if (isOfflineLocalFile) 0 else resolvedTier.minPreferredBitrateBps
+            // Use 0 for minW/minH/minBr in AUTO_ADAPTIVE so ExoPlayer starts video immediately on the fastest
+            // keyframe without stalling for a heavy 1080p segment, then smoothly scales up to maxW/maxH
+            val minW = 0
+            val minH = 0
+            val minBr = 0
             val forceLowest = if (isOfflineLocalFile) {
                 false
             } else {
@@ -1169,34 +1199,38 @@ class LivePlayerController(
                     activePowerProfile == BatteryPowerProfile.CRITICAL_BATTERY_SAVER ||
                     activePowerProfile == BatteryPowerProfile.BACKGROUND_LOADING_SAVER
             }
-            trackSelector?.let { selector ->
-                selector.setParameters(
-                    selector.buildUponParameters()
+            val selectorKey = "AUTO_${maxW}x${maxH}_${maxBr}_${activePowerProfile.maxFrameRate}_${forceLowest}_${disableOffscreenVideoTrack}_${activePowerProfile.isCpuSavingActive}"
+            if (selectorKey != lastAppliedTrackSelectorKey) {
+                lastAppliedTrackSelectorKey = selectorKey
+                trackSelector?.let { selector ->
+                    selector.setParameters(
+                        selector.buildUponParameters()
+                            .setMaxVideoSize(maxW, maxH)
+                            .setMaxVideoBitrate(maxBr)
+                            .setMaxVideoFrameRate(activePowerProfile.maxFrameRate)
+                            .setMinVideoSize(minW, minH)
+                            .setMinVideoBitrate(minBr)
+                            .setForceLowestBitrate(forceLowest)
+                            .setRendererDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
+                            .setExceedVideoConstraintsIfNecessary(true)
+                            .setExceedRendererCapabilitiesIfNecessary(true)
+                    )
+                }
+                exoPlayer?.let { player ->
+                    player.trackSelectionParameters = player.trackSelectionParameters
+                        .buildUpon()
                         .setMaxVideoSize(maxW, maxH)
                         .setMaxVideoBitrate(maxBr)
                         .setMaxVideoFrameRate(activePowerProfile.maxFrameRate)
                         .setMinVideoSize(minW, minH)
                         .setMinVideoBitrate(minBr)
                         .setForceLowestBitrate(forceLowest)
-                        .setRendererDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
-                        .setExceedVideoConstraintsIfNecessary(true)
-                        .setExceedRendererCapabilitiesIfNecessary(true)
-                )
-            }
-            exoPlayer?.let { player ->
-                player.trackSelectionParameters = player.trackSelectionParameters
-                    .buildUpon()
-                    .setMaxVideoSize(maxW, maxH)
-                    .setMaxVideoBitrate(maxBr)
-                    .setMaxVideoFrameRate(activePowerProfile.maxFrameRate)
-                    .setMinVideoSize(minW, minH)
-                    .setMinVideoBitrate(minBr)
-                    .setForceLowestBitrate(forceLowest)
-                    .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
-                    .build()
-                player.setWakeMode(
-                    if (activePowerProfile.isCpuSavingActive || disableOffscreenVideoTrack) C.WAKE_MODE_NONE else C.WAKE_MODE_NETWORK
-                )
+                        .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
+                        .build()
+                    player.setWakeMode(
+                        if (activePowerProfile.isCpuSavingActive || disableOffscreenVideoTrack) C.WAKE_MODE_NONE else C.WAKE_MODE_NETWORK
+                    )
+                }
             }
         }
 
@@ -1292,8 +1326,8 @@ class LivePlayerController(
                     .setMaxVideoSize(initialTier.maxWidth, initialTier.maxHeight)
                     .setMaxVideoBitrate(initialTier.maxBitrateBps)
                     .setMaxVideoFrameRate(initialBatteryProfile.maxFrameRate)
-                    .setMinVideoSize(initialTier.minPreferredWidth, initialTier.minPreferredHeight)
-                    .setMinVideoBitrate(initialTier.minPreferredBitrateBps)
+                    .setMinVideoSize(0, 0)
+                    .setMinVideoBitrate(0)
                     .setForceLowestBitrate(
                         initialTier.forceLowestBitrate ||
                                 initialBatteryProfile == BatteryPowerProfile.CRITICAL_BATTERY_SAVER ||
@@ -1308,16 +1342,16 @@ class LivePlayerController(
         }
         trackSelector = selector
 
-        val minBufMs = if (lowBandoActive) 4_000 else initialBatteryProfile.minBufferMs
-        val maxBufMs = if (lowBandoActive) minOf(28_000, initialBatteryProfile.maxBufferMs) else initialBatteryProfile.maxBufferMs
-        val backBufMs = initialBatteryProfile.backBufferMs
+        val minBufMs = if (lowBandoActive) 3_500 else minOf(6_000, initialBatteryProfile.minBufferMs)
+        val maxBufMs = if (lowBandoActive) minOf(24_000, initialBatteryProfile.maxBufferMs) else minOf(36_000, initialBatteryProfile.maxBufferMs)
+        val backBufMs = minOf(8_000, initialBatteryProfile.backBufferMs)
 
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
                 /* minBufferMs = */ minBufMs,
                 /* maxBufferMs = */ maxBufMs,
-                /* bufferForPlaybackMs = */ if (lowBandoActive || initialBatteryProfile.isCpuSavingActive) 400 else 600,
-                /* bufferForPlaybackAfterRebufferMs = */ if (lowBandoActive || initialBatteryProfile.isCpuSavingActive) 900 else 1_200
+                /* bufferForPlaybackMs = */ if (lowBandoActive || initialBatteryProfile.isCpuSavingActive) 200 else 250,
+                /* bufferForPlaybackAfterRebufferMs = */ if (lowBandoActive || initialBatteryProfile.isCpuSavingActive) 450 else 550
             )
             .setBackBuffer(
                 /* backBufferDurationMs = */ backBufMs,
@@ -1590,13 +1624,24 @@ class LivePlayerController(
         if (rawUrl.startsWith("file:", ignoreCase = true) || rawUrl.startsWith("/")) {
             return true
         }
+        // Live TV broadcasts are never local offline files; avoid any disk I/O on the main thread
+        if (targetChannel.isLiveBroadcast && !targetChannel.id.startsWith("dl_")) {
+            return false
+        }
+        val cacheKey = "${targetChannel.id}|${targetChannel.episodeId}|$rawUrl"
+        if (cacheKey == cachedOfflineStreamChannelId) {
+            return cachedIsLocalOfflineStream
+        }
         val lookupId = targetChannel.episodeId.ifBlank { targetChannel.id }
         val resolved = com.example.data.OfflineDownloadManager.resolveLocalOfflineUriIfPresent(
             context = context,
             rawId = lookupId,
             fallbackStreamUrl = rawUrl
         )
-        return resolved.startsWith("file:", ignoreCase = true) || resolved.startsWith("/")
+        val isLocal = resolved.startsWith("file:", ignoreCase = true) || resolved.startsWith("/")
+        cachedOfflineStreamChannelId = cacheKey
+        cachedIsLocalOfflineStream = isLocal
+        return isLocal
     }
 
     private fun loadChannelStream(player: ExoPlayer, preserveVodPosition: Boolean = false) {
@@ -1640,12 +1685,16 @@ class LivePlayerController(
     }
 
     private fun createMediaSource(channel: LiveChannel): MediaSource {
-        val lookupId = channel.episodeId.ifBlank { channel.id }
-        val resolvedOfflineOrOnlineUrl = com.example.data.OfflineDownloadManager.resolveLocalOfflineUriIfPresent(
-            context = context,
-            rawId = lookupId,
-            fallbackStreamUrl = channel.streamUrl
-        )
+        val resolvedOfflineOrOnlineUrl = if (channel.isLiveBroadcast && !channel.id.startsWith("dl_")) {
+            channel.streamUrl
+        } else {
+            val lookupId = channel.episodeId.ifBlank { channel.id }
+            com.example.data.OfflineDownloadManager.resolveLocalOfflineUriIfPresent(
+                context = context,
+                rawId = lookupId,
+                fallbackStreamUrl = channel.streamUrl
+            )
+        }
         val isLocalOfflineFile = resolvedOfflineOrOnlineUrl.startsWith("file:", ignoreCase = true) ||
                 resolvedOfflineOrOnlineUrl.startsWith("/")
         val effectiveStreamUrl = if (isLocalOfflineFile) {
@@ -1660,17 +1709,7 @@ class LivePlayerController(
         }
         val encodedManifestQuery = manifestUri.encodedQuery
 
-        val baseHttpDataSourceFactory = DefaultHttpDataSource.Factory()
-            .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(15_000)
-            .setReadTimeoutMs(20_000)
-            .setUserAgent("Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36")
-            .setDefaultRequestProperties(
-                mapOf(
-                    "Accept" to "*/*",
-                    "Connection" to "keep-alive"
-                )
-            )
+        val baseHttpDataSourceFactory = sharedBaseHttpDataSourceFactory
 
         // Use ClearKeyDecryptingDataSource only for online streams when ClearKey DRM or Azam cdntoken propagation is needed
         val needsClearKeyOrTokenWrapper = !isLocalOfflineFile && (
@@ -1697,21 +1736,14 @@ class LivePlayerController(
         val dataSourceFactory = DefaultDataSource.Factory(context, upstreamDataSourceFactory)
         val loadErrorHandlingPolicy = LiveStreamLoadErrorHandlingPolicy()
 
-        val extractorsFactory = DefaultExtractorsFactory()
-            .setConstantBitrateSeekingEnabled(true)
-            .setConstantBitrateSeekingAlwaysEnabled(true)
-            .setMp4ExtractorFlags(Mp4Extractor.FLAG_WORKAROUND_IGNORE_EDIT_LISTS)
-            .setTsExtractorFlags(
-                DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES or
-                        DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS
-            )
+        val extractorsFactory = sharedExtractorsFactory
 
         val liveConfiguration = MediaItem.LiveConfiguration.Builder()
-            .setTargetOffsetMs(10_000L)
-            .setMinOffsetMs(4_000L)
-            .setMaxOffsetMs(25_000L)
-            .setMinPlaybackSpeed(0.98f)
-            .setMaxPlaybackSpeed(1.02f)
+            .setTargetOffsetMs(4_500L)
+            .setMinOffsetMs(2_000L)
+            .setMaxOffsetMs(16_000L)
+            .setMinPlaybackSpeed(0.97f)
+            .setMaxPlaybackSpeed(1.03f)
             .build()
 
         val isLocalHlsPlaylist = isLocalOfflineFile &&

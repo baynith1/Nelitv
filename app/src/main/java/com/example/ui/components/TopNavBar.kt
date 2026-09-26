@@ -14,14 +14,19 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -103,7 +108,7 @@ fun TopNavBar(
             32.dp
         }
     }
-    val systemStatusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val systemStatusBarTop = WindowInsets.statusBars.union(WindowInsets.displayCutout).asPaddingValues().calculateTopPadding()
     val minSafeTop = if (systemStatusBarResDp < 32.dp) 32.dp else systemStatusBarResDp
     val safeTopPadding = if (systemStatusBarTop < minSafeTop) minSafeTop else systemStatusBarTop
 
@@ -120,6 +125,7 @@ fun TopNavBar(
         modifier = modifier
             .fillMaxWidth()
             .background(headerBgColor)
+            .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal))
             .padding(top = safeTopPadding)
             .testTag("top_nav_bar")
     ) {

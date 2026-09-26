@@ -66,6 +66,8 @@ import kotlinx.coroutines.delay
  * - If an ad fails to load (or while loading / when offline), hides the ad container completely
  *   so it never leaves a large empty space or causes layout thrashing.
  */
+private val cachedBannerViewsByPlacement = java.util.concurrent.ConcurrentHashMap<String, AdView>()
+
 @Composable
 fun NeliAdaptiveBannerAd(
     placementKey: String,
@@ -76,11 +78,15 @@ fun NeliAdaptiveBannerAd(
     val isInspection = LocalInspectionMode.current
     val configuration = LocalConfiguration.current
 
-    var isAdLoaded by rememberSaveable(placementKey) { mutableStateOf(false) }
+    var isAdLoaded by rememberSaveable(placementKey) {
+        mutableStateOf(NeliAdMobManager.bannerLoadStatusByPlacement[placementKey] == true)
+    }
     var isAdFailed by rememberSaveable(placementKey) {
         mutableStateOf(NeliAdMobManager.bannerLoadStatusByPlacement[placementKey] == false)
     }
-    var adViewInstance by remember(placementKey) { mutableStateOf<AdView?>(null) }
+    var adViewInstance by remember(placementKey) {
+        mutableStateOf<AdView?>(cachedBannerViewsByPlacement[placementKey])
+    }
 
     val isOnline = remember(context) { OfflineDownloadManager.isDeviceOnline(context) }
     if (isInspection || !isOnline || isAdFailed) {
@@ -93,16 +99,25 @@ fun NeliAdaptiveBannerAd(
 
     // Defer AdView creation & loading so UI frames and scrolling render smoothly first
     LaunchedEffect(placementKey, adWidthDp) {
+        val existingCached = cachedBannerViewsByPlacement[placementKey]
+        if (existingCached != null) {
+            adViewInstance = existingCached
+            if (NeliAdMobManager.bannerLoadStatusByPlacement[placementKey] == true) {
+                isAdLoaded = true
+            }
+            return@LaunchedEffect
+        }
         if (adViewInstance == null && !isAdFailed) {
-            delay(450L)
+            delay(550L)
             try {
-                val createdView = AdView(context).apply {
+                val appContext = context.applicationContext ?: context
+                val createdView = AdView(appContext).apply {
                     isFocusable = false
                     isFocusableInTouchMode = false
                     descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
                     setAdSize(
                         AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(
-                            context,
+                            appContext,
                             adWidthDp
                         )
                     )
@@ -118,10 +133,12 @@ fun NeliAdaptiveBannerAd(
                             isAdLoaded = false
                             isAdFailed = true
                             NeliAdMobManager.bannerLoadStatusByPlacement[placementKey] = false
+                            cachedBannerViewsByPlacement.remove(placementKey)
                         }
                     }
                     loadAd(AdRequest.Builder().build())
                 }
+                cachedBannerViewsByPlacement[placementKey] = createdView
                 adViewInstance = createdView
             } catch (_: Throwable) {
                 isAdFailed = true
@@ -133,10 +150,9 @@ fun NeliAdaptiveBannerAd(
     DisposableEffect(placementKey) {
         onDispose {
             try {
-                adViewInstance?.destroy()
+                (adViewInstance?.parent as? ViewGroup)?.removeView(adViewInstance)
             } catch (_: Throwable) {
             }
-            adViewInstance = null
         }
     }
 

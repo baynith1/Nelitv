@@ -275,14 +275,12 @@ fun NeliApp(
 
     val startOrSwitchChannel: (LiveChannel) -> Unit = { selected ->
         val existing = sharedPlayerController
+        activeChannel = selected
         if (existing == null) {
-            val controller = LivePlayerController(context, selected)
-            controller.initializePlayer()
-            sharedPlayerController = controller
+            sharedPlayerController = LivePlayerController(context, selected)
         } else {
             existing.switchChannel(selected)
         }
-        activeChannel = selected
     }
 
     val closeAndReleasePlayback: () -> Unit = {

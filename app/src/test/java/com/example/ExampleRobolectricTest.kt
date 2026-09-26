@@ -143,11 +143,42 @@ class ExampleRobolectricTest {
         assertTrue(signInRes.isSuccess)
         assertEquals("Juma Bakari", signInRes.getOrNull()?.realName)
 
-        // Verify Google Sign-In flow and google-services.json key resolution
+        // Verify Google Sign-In flow and google-services.json key & SHA-1/SHA-256 resolution
         val resolvedFirebaseKey = com.example.data.AuthRepository.resolveApiKey(context)
         assertTrue("Expected non-blank Firebase API key from google-services.json or BuildConfig", resolvedFirebaseKey.isNotBlank())
         val resolvedWebClientId = com.example.data.UserManager.resolveWebClientId(context)
-        assertTrue(resolvedWebClientId.contains("39702563643"))
+        assertEquals(
+            "39702563643-ffg3f9g17s23vjngij5umvtvujrd7g3m.apps.googleusercontent.com",
+            resolvedWebClientId
+        )
+        val resolvedGoogleAppId = com.example.data.UserManager.resolveGoogleAppId(context)
+        assertEquals(
+            "1:39702563643:android:c7917211faf4e36e83051e",
+            resolvedGoogleAppId
+        )
+        assertEquals(
+            "39702563643-dnbrhh1gi2gkfibfokvugp1icln9toei.apps.googleusercontent.com",
+            com.example.data.UserManager.ANDROID_OAUTH_CLIENT_ID
+        )
+        assertEquals(
+            "77:B9:99:A6:A4:75:FB:2C:77:AE:5D:55:75:5D:26:34:75:DF:E3:CE",
+            com.example.data.UserManager.SHA1_CERTIFICATE_FINGERPRINT
+        )
+        assertEquals(
+            "77b999a6a475fb2c77ae5d55755d263475dfe3ce",
+            com.example.data.UserManager.SHA1_CERTIFICATE_HASH
+        )
+        assertEquals(
+            "EE:19:DC:24:4F:42:EA:40:6F:AE:75:CE:B1:56:51:21:7F:B2:A6:38:6B:04:F1:E6:4D:F2:C3:B3:38:E3:9A:C3",
+            com.example.data.UserManager.SHA256_CERTIFICATE_FINGERPRINT
+        )
+        val assetLinksJson = context.assets.open("assetlinks.json").bufferedReader().use { it.readText() }
+        assertTrue(assetLinksJson.contains("com.nelitv.app"))
+        assertTrue(
+            assetLinksJson.contains(
+                "EE:19:DC:24:4F:42:EA:40:6F:AE:75:CE:B1:56:51:21:7F:B2:A6:38:6B:04:F1:E6:4D:F2:C3:B3:38:E3:9A:C3"
+            )
+        )
 
         dao.logoutAllUsers()
         val googleSignInRes = com.example.data.AuthRepository.signInWithGoogleAccount(
@@ -162,6 +193,41 @@ class ExampleRobolectricTest {
         assertEquals("aibaynith@gmail.com", googleUser!!.email)
         assertEquals("Alex Michael Baineth", googleUser.realName)
         assertTrue(googleUser.isLoggedIn)
+
+        // Verify AuthenticationRepository encapsulates Google Sign-In, Email/Password Registration, and Session Management
+        val authRepo = com.example.data.AuthenticationRepository(context, dao)
+        assertTrue(authRepo.isUserSignedIn())
+        assertEquals("aibaynith@gmail.com", authRepo.getCurrentUser()?.email)
+
+        // Sign out and verify session is cleared while saved accounts remain available
+        authRepo.signOut()
+        org.junit.Assert.assertFalse(authRepo.isUserSignedIn())
+        assertTrue(authRepo.getSavedAccounts().size >= 2)
+
+        // Register a new account via AuthenticationRepository
+        val repoRegRes = authRepo.registerWithEmailAndPassword(
+            realName = "Amina Hassan",
+            email = "amina@nelitv.tz",
+            password = "securePassword99"
+        )
+        assertTrue(repoRegRes.isSuccess)
+        assertTrue(authRepo.isUserSignedIn())
+        assertEquals("amina@nelitv.tz", authRepo.getCurrentUser()?.email)
+        assertEquals("Amina Hassan", authRepo.getCurrentUser()?.realName)
+
+        // Switch active session back to Google account and verify session management
+        val switchRes = authRepo.switchActiveSession("aibaynith@gmail.com")
+        assertTrue(switchRes.isSuccess)
+        assertEquals("aibaynith@gmail.com", authRepo.getCurrentUser()?.email)
+
+        // Sign in with Google ID token via AuthenticationRepository
+        val googleTokenRes = authRepo.signInWithGoogleIdToken(
+            idToken = "mock.eyJlbWFpbCI6ImFpYmF5bml0aEBnbWFpbC5jb20iLCJuYW1lIjoiQWxleCBNaWNoYWVsIEJhaW5ldGgifQ.sig"
+        )
+        assertTrue(googleTokenRes.isSuccess)
+        assertEquals("aibaynith@gmail.com", googleTokenRes.getOrNull()?.email)
+        assertEquals("Alex Michael Baineth", googleTokenRes.getOrNull()?.realName)
+
         db.close()
     }
 
@@ -611,7 +677,24 @@ class ExampleRobolectricTest {
         assertEquals("ca-app-pub-4408731854837351/5246242721", com.example.ads.NeliAdMobManager.REWARDED_AD_UNIT_ID)
         assertEquals("ca-app-pub-4408731854837351/7038845705", com.example.ads.NeliAdMobManager.NATIVE_ADVANCED_AD_UNIT_ID)
 
-        // Verify test ads in development vs production IDs
+        // Verify Production Mode is enabled by default (real publisher AdMob IDs served, not test ads)
+        org.junit.Assert.assertFalse(com.example.ads.NeliAdMobManager.useTestAdsInDevelopment)
+        assertEquals(
+            com.example.ads.NeliAdMobManager.BANNER_AD_UNIT_ID,
+            com.example.ads.NeliAdMobManager.resolveBannerAdUnitId()
+        )
+        assertEquals(
+            com.example.ads.NeliAdMobManager.APP_OPEN_AD_UNIT_ID,
+            com.example.ads.NeliAdMobManager.resolveAppOpenAdUnitId()
+        )
+        assertEquals(
+            com.example.ads.NeliAdMobManager.INTERSTITIAL_AD_UNIT_ID,
+            com.example.ads.NeliAdMobManager.resolveInterstitialAdUnitId()
+        )
+        assertEquals(
+            com.example.ads.NeliAdMobManager.NATIVE_ADVANCED_AD_UNIT_ID,
+            com.example.ads.NeliAdMobManager.resolveNativeAdUnitId()
+        )
         assertEquals(
             com.example.ads.NeliAdMobManager.BANNER_AD_UNIT_ID,
             com.example.ads.NeliAdMobManager.resolveBannerAdUnitId(useTestAds = false)

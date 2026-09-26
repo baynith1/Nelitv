@@ -19,7 +19,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -27,6 +29,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -521,6 +524,8 @@ fun PlayerScreen(
                 PlayerView(ctx).apply {
                     useController = false
                     keepScreenOn = true
+                    setShutterBackgroundColor(android.graphics.Color.BLACK)
+                    setKeepContentOnPlayerReset(false)
                     this.resizeMode = resizeMode
                     layoutParams = ViewGroup.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
@@ -646,7 +651,7 @@ fun PlayerScreen(
                     .fillMaxSize()
                     .background(Color(0x660B021A))
             ) {
-                // Top Bar
+                // Top Bar (with safe display cutout padding so camera notch/edge never overlaps controls)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -656,7 +661,8 @@ fun PlayerScreen(
                                 colors = listOf(Color(0xE614052B), Color.Transparent)
                             )
                         )
-                        .padding(horizontal = 20.dp, vertical = 16.dp),
+                        .windowInsetsPadding(WindowInsets.displayCutout)
+                        .padding(horizontal = 20.dp, vertical = 14.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
@@ -1202,6 +1208,7 @@ fun PlayerScreen(
                                 colors = listOf(Color.Transparent, Color(0xEE14052B))
                             )
                         )
+                        .windowInsetsPadding(WindowInsets.displayCutout)
                         .padding(horizontal = 20.dp, vertical = 14.dp)
                 ) {
                     // Quick Gesture Status & Interactive Controls Pill (Brightness • Double-Tap ±10s • Volume)

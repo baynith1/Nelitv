@@ -9,6 +9,8 @@ import android.net.NetworkRequest
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.AuthRepository
+import com.example.data.AuthSessionState
+import com.example.data.AuthenticationRepository
 import com.example.data.ChannelRepository
 import com.example.data.GoogleAutoSignInResult
 import com.example.data.MediaContentRepository
@@ -43,7 +45,8 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
 
     private val appContext = application.applicationContext
     private val dao = NeliDatabase.getInstance(application).mediaDao()
-    val userManager = UserManager(appContext, dao)
+    val authenticationRepository = AuthenticationRepository(appContext, dao)
+    val userManager = UserManager(appContext, dao, authenticationRepository)
 
     val mediaCatalog: StateFlow<List<MediaContent>> = MediaContentRepository.mediaCatalog
     val episodesCatalog: StateFlow<List<EpisodeItem>> = MediaContentRepository.episodesCatalog
@@ -172,11 +175,18 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
             initialValue = FirebaseConfigEntity()
         )
 
-    val currentUser: StateFlow<UserAccountEntity?> = dao.getActiveUser()
+    val currentUser: StateFlow<UserAccountEntity?> = authenticationRepository.currentUserFlow
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = null
+        )
+
+    val authSessionState: StateFlow<AuthSessionState> = authenticationRepository.authStateFlow
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = AuthSessionState.Unauthenticated
         )
 
     private val _authError = MutableStateFlow<String?>(null)
@@ -560,7 +570,7 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
             _authError.value = null
             _googleFallbackMessage.value = null
 
-            val result = userManager.signInWithGoogleAutoOrPrimaryAccount(
+            val result = authenticationRepository.signInWithGoogle(
                 uiContext = uiContext,
                 forceInteractive = true
             )
@@ -591,7 +601,7 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
             _isAuthLoading.value = true
             _authError.value = null
             _googleFallbackMessage.value = null
-            val result = userManager.completeGoogleAccountSignIn(
+            val result = authenticationRepository.signInWithGoogleAccount(
                 email = email,
                 displayName = displayName
             )
@@ -615,7 +625,7 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
             _isAuthLoading.value = true
             _authError.value = null
             _googleFallbackMessage.value = null
-            val result = userManager.registerWithEmailAndPassword(
+            val result = authenticationRepository.registerWithEmailAndPassword(
                 realName = realName,
                 email = email,
                 password = password
@@ -632,7 +642,7 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
             _isAuthLoading.value = true
             _authError.value = null
             _googleFallbackMessage.value = null
-            val result = userManager.loginWithEmailAndPassword(
+            val result = authenticationRepository.signInWithEmailAndPassword(
                 email = email,
                 password = password
             )
@@ -647,7 +657,7 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _authError.value = null
             _googleFallbackMessage.value = null
-            userManager.signOut()
+            authenticationRepository.signOut()
         }
     }
 

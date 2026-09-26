@@ -95,8 +95,12 @@ object NeliAdMobManager {
     var configuredTestDeviceIds: List<String> = emptyList()
         private set
 
+    /**
+     * Production Mode enabled (`false` = serves real publisher AdMob ads using production Ad Unit IDs).
+     * Can be toggled to `true` in unit tests to verify test ad unit resolution.
+     */
     @Volatile
-    var useTestAdsInDevelopment: Boolean = BuildConfig.DEBUG
+    var useTestAdsInDevelopment: Boolean = false
 
     @Volatile
     var isPlaybackActive: Boolean = false
@@ -169,8 +173,9 @@ object NeliAdMobManager {
     ): RequestConfiguration {
         val deviceIds = (DEFAULT_TEST_DEVICE_IDS + extraTestDeviceIds).distinct()
         configuredTestDeviceIds = deviceIds
+        val activeTestIds = if (useTestAdsInDevelopment) deviceIds else emptyList()
         val requestConfig = RequestConfiguration.Builder()
-            .setTestDeviceIds(deviceIds)
+            .setTestDeviceIds(activeTestIds)
             .build()
         try {
             MobileAds.setRequestConfiguration(requestConfig)
