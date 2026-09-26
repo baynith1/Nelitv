@@ -16,11 +16,19 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
@@ -28,6 +36,8 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.coroutines.coroutineContext
 
 object OfflineDownloadManager {
@@ -35,6 +45,7 @@ object OfflineDownloadManager {
     private const val NOTIFICATION_CHANNEL_ID = "neli_offline_downloads_channel"
     private const val NOTIFICATION_CHANNEL_NAME = "Neli TV Background Downloads"
     private const val MIN_VALID_VIDEO_BYTES = 64 * 1024L // At least 64 KB of real media data
+    private const val HLS_PARALLEL_SEGMENT_WORKERS = 8
 
     /**
      * Application-scoped background coroutine scope so downloads continue automatically
@@ -44,6 +55,7 @@ object OfflineDownloadManager {
 
     private val activeDownloadIds = ConcurrentHashMap.newKeySet<String>()
     private val activeDownloadJobs = ConcurrentHashMap<String, Job>()
+    private val recentlyCompletedTimestamps = ConcurrentHashMap<String, Long>()
 
     private val _downloadProgress = MutableStateFlow<Map<String, Int>>(emptyMap())
     val downloadProgress: StateFlow<Map<String, Int>> = _downloadProgress.asStateFlow()
@@ -54,7 +66,11 @@ object OfflineDownloadManager {
     private val _downloadBannerMessage = MutableStateFlow<String?>(null)
     val downloadBannerMessage: StateFlow<String?> = _downloadBannerMessage.asStateFlow()
 
-    fun isCurrentlyDownloading(id: String): Boolean = activeDownloadIds.contains(id)
+    fun isCurrentlyDownloading(id: String): Boolean {
+        if (activeDownloadIds.contains(id)) return true
+        val completedAt = recentlyCompletedTimestamps[id] ?: return false
+        return (System.currentTimeMillis() - completedAt) < 15_000L
+    }
 
     fun dismissBannerMessage() {
         _downloadBannerMessage.value = null
@@ -83,16 +99,25 @@ object OfflineDownloadManager {
 
     /**
      * Cleans up any broken/0-byte download records from Room so the UI never falsely shows "Downloaded"
-     * for an item that isn't actually on internal storage.
+     * for an item that isn't actually on internal storage, while strictly protecting active and newly
+     * completed downloads from race-condition deletion.
      */
     suspend fun purgeInvalidDownloads(dao: NeliMediaDao, items: List<DownloadedItemEntity>) = withContext(Dispatchers.IO) {
         for (item in items) {
-            if (item.downloadStatus == "COMPLETED" && !isDownloadFileValidOnDisk(item)) {
-                deleteOfflineFilesOnDisk(item.localFilePath, item.id, null)
-                dao.deleteDownloadById(item.id)
-            } else if (item.downloadStatus == "DOWNLOADING" && !activeDownloadIds.contains(item.id)) {
-                deleteOfflineFilesOnDisk(item.localFilePath, item.id, null)
-                dao.deleteDownloadById(item.id)
+            if (isCurrentlyDownloading(item.id)) continue
+            val fresh = dao.getDownloadById(item.id) ?: continue
+            if (isCurrentlyDownloading(fresh.id)) continue
+
+            if (isDownloadFileValidOnDisk(fresh)) {
+                continue
+            }
+
+            if (fresh.downloadStatus == "COMPLETED" && !isDownloadFileValidOnDisk(fresh)) {
+                deleteOfflineFilesOnDisk(fresh.localFilePath, fresh.id, null)
+                dao.deleteDownloadById(fresh.id)
+            } else if (fresh.downloadStatus == "DOWNLOADING" && !isCurrentlyDownloading(fresh.id)) {
+                deleteOfflineFilesOnDisk(fresh.localFilePath, fresh.id, null)
+                dao.deleteDownloadById(fresh.id)
             }
         }
     }
@@ -111,6 +136,10 @@ object OfflineDownloadManager {
             _downloadBannerMessage.value = "\"${item.title}\" is already downloading."
             return
         }
+        setActiveTitle(item.id, item.title)
+        updateProgress(item.id, 1)
+        _downloadBannerMessage.value = "Downloading \"${item.title}\" (1%)..."
+
         val job = backgroundScope.launch {
             downloadMediaOffline(
                 context = appContext,
@@ -142,11 +171,12 @@ object OfflineDownloadManager {
 
     /**
      * Downloads a movie or series episode into the device's internal storage (`filesDir/offline_media/`)
-     * using the streaming link's own quality (`item.streamUrl`) without mutating the URL.
+     * using the streaming link's own quality (`item.streamUrl`), normalizing CDN authorization tokens if applicable.
      *
-     * - For `.mp4` streams: downloads the full MP4 video file to `filesDir/offline_media/<safeId>.mp4`.
-     * - For `.m3u8` HLS streams: downloads all video segments (and any `#EXT-X-MAP` / `#EXT-X-KEY` files)
-     *   into `filesDir/offline_media/<safeId>/` and writes `local_playlist.m3u8` so ExoPlayer's
+     * - For `.mp4` streams: downloads the full MP4 video file to `filesDir/offline_media/<safeId>.mp4`
+     *   with automatic HTTP Range resume on network hiccups.
+     * - For `.m3u8` HLS streams: downloads all video segments concurrently (8 workers with retry)
+     *   into `filesDir/offline_media/hls_<safeId>/` and writes `local_playlist.m3u8` so ExoPlayer's
      *   `HlsMediaSource` plays the entire video 100% offline with full duration and timeline seeking.
      */
     suspend fun downloadMediaOffline(
@@ -155,25 +185,29 @@ object OfflineDownloadManager {
         item: DownloadedItemEntity
     ): Boolean = withContext(Dispatchers.IO) {
         val appContext = context.applicationContext
-        val rawStreamUrl = item.streamUrl.trim()
+        val rawStreamUrl = ChannelRepository.normalizeDashStreamUrl(item.streamUrl.trim())
 
         if (rawStreamUrl.isBlank()) {
+            clearProgress(item.id)
+            removeActiveTitle(item.id)
             _downloadBannerMessage.value = "Cannot download \"${item.title}\": streaming link is empty."
             return@withContext false
         }
 
-        if (activeDownloadIds.contains(item.id)) {
+        if (!activeDownloadIds.add(item.id)) {
             _downloadBannerMessage.value = "\"${item.title}\" is already downloading."
             return@withContext false
         }
 
         val existing = dao.getDownloadById(item.id)
         if (existing != null && isDownloadFileValidOnDisk(existing)) {
+            activeDownloadIds.remove(item.id)
+            clearProgress(item.id)
+            removeActiveTitle(item.id)
             _downloadBannerMessage.value = "\"${item.title}\" is already downloaded for offline viewing."
             return@withContext false
         }
 
-        activeDownloadIds.add(item.id)
         setActiveTitle(item.id, item.title)
         updateProgress(item.id, 1)
         _downloadBannerMessage.value = "Downloading \"${item.title}\" (1%)..."
@@ -187,6 +221,7 @@ object OfflineDownloadManager {
         val safeId = item.id.replace(Regex("[^a-zA-Z0-9_-]"), "_")
 
         val initialEntity = item.copy(
+            streamUrl = rawStreamUrl,
             fileSizeLabel = "Starting download • 1%",
             localFilePath = "",
             downloadStatus = "DOWNLOADING",
@@ -196,17 +231,19 @@ object OfflineDownloadManager {
         dao.upsertDownload(initialEntity)
 
         try {
-            // Build candidate URLs starting with the EXACT streaming link provided for this movie/episode
+            // Build candidate URLs starting with the normalized streaming link, plus BunnyCDN fallbacks
             val candidateUrls = buildList {
                 add(rawStreamUrl)
-                // Only if the exact URL fails on BunnyCDN, try the sibling container on the same video GUID
                 if (rawStreamUrl.contains("b-cdn.net", ignoreCase = true)) {
-                    val baseDir = rawStreamUrl.substringBeforeLast("/")
+                    val baseDir = rawStreamUrl.substringBefore("?").substringBeforeLast("/")
                     if (rawStreamUrl.substringBefore("?").endsWith(".m3u8", ignoreCase = true)) {
                         add("$baseDir/play_720p.mp4")
                         add("$baseDir/play_480p.mp4")
                         add("$baseDir/play_360p.mp4")
                     } else {
+                        add("$baseDir/play_480p.mp4")
+                        add("$baseDir/play_720p.mp4")
+                        add("$baseDir/play_360p.mp4")
                         add("$baseDir/playlist.m3u8")
                     }
                 }
@@ -268,6 +305,8 @@ object OfflineDownloadManager {
             val mb = totalDownloadedBytes.toDouble() / (1024.0 * 1024.0)
             val finalSizeLabel = String.format(Locale.US, "%.1f MB • Offline Ready", mb)
 
+            recentlyCompletedTimestamps[item.id] = System.currentTimeMillis()
+
             val completedEntity = initialEntity.copy(
                 localFilePath = savedFile.absolutePath,
                 fileSizeLabel = finalSizeLabel,
@@ -322,7 +361,9 @@ object OfflineDownloadManager {
                 }
                 false
             } finally {
-                conn.disconnect()
+                try {
+                    conn.inputStream?.close()
+                } catch (_: Exception) {}
             }
         } catch (_: Exception) {
             false
@@ -331,7 +372,7 @@ object OfflineDownloadManager {
 
     /**
      * Downloads a full `.mp4` stream without artificial size truncation so the entire video and its `moov` atom
-     * are saved intact to [targetFile], reporting true byte progress along the way.
+     * are saved intact to [targetFile], supporting HTTP Range resume across transient network drops.
      */
     private suspend fun downloadDirectMp4ToFile(
         appContext: Context,
@@ -340,75 +381,116 @@ object OfflineDownloadManager {
         initialEntity: DownloadedItemEntity,
         dao: NeliMediaDao
     ): Long {
-        var conn: HttpURLConnection? = null
-        return try {
-            conn = openHttpConnectionWithRedirects(urlStr)
-            val code = conn.responseCode
-            if (code !in 200..299) {
-                return 0L
-            }
+        val normalizedUrl = ChannelRepository.normalizeDashStreamUrl(urlStr)
+        var downloadedBytes = 0L
+        var expectedTotalBytes = -1L
+        val buffer = ByteArray(64 * 1024)
+        var lastReportedPct = 1
+        var lastReportTimeMs = System.currentTimeMillis()
 
-            val contentType = conn.contentType.orEmpty().lowercase(Locale.US)
-            if (contentType.contains("text/html") || contentType.contains("application/json")) {
-                return 0L
-            }
-
-            val contentLength = conn.contentLengthLong
-            var downloadedBytes = 0L
-            val buffer = ByteArray(64 * 1024)
-            var lastReportedPct = 1
-            var lastReportTimeMs = System.currentTimeMillis()
-
-            conn.inputStream.use { input ->
-                FileOutputStream(targetFile).use { output ->
-                    while (coroutineContext.isActive) {
-                        val read = input.read(buffer)
-                        if (read == -1) break
-                        output.write(buffer, 0, read)
-                        downloadedBytes += read
-
-                        val now = System.currentTimeMillis()
-                        val pct = if (contentLength > 0L) {
-                            ((downloadedBytes * 99L) / contentLength).toInt().coerceIn(1, 99)
-                        } else {
-                            // If server uses chunked transfer without Content-Length, advance smoothly by MB
-                            val mbDownloaded = downloadedBytes / (1024L * 1024L)
-                            (1 + (mbDownloaded * 2).toInt()).coerceIn(1, 95)
-                        }
-
-                        if (pct > lastReportedPct || (now - lastReportTimeMs >= 800L && downloadedBytes > 0L)) {
-                            lastReportedPct = pct
-                            lastReportTimeMs = now
-                            reportProgressUpdate(
-                                appContext = appContext,
-                                dao = dao,
-                                initialEntity = initialEntity,
-                                localPath = targetFile.absolutePath,
-                                pct = pct,
-                                downloadedBytes = downloadedBytes
-                            )
-                        }
-                    }
-                    output.flush()
-                }
-            }
-            downloadedBytes
-        } catch (e: CancellationException) {
-            throw e
-        } catch (_: Exception) {
-            0L
-        } finally {
+        for (attempt in 0..3) {
+            if (!coroutineContext.isActive) throw CancellationException()
+            var conn: HttpURLConnection? = null
             try {
-                conn?.disconnect()
-            } catch (_: Exception) {}
+                val rangeStart = if (attempt > 0 && downloadedBytes > 0L && (expectedTotalBytes <= 0L || downloadedBytes < expectedTotalBytes)) {
+                    downloadedBytes
+                } else {
+                    0L
+                }
+                conn = openHttpConnectionWithRedirects(normalizedUrl, rangeStartBytes = rangeStart)
+                val code = conn.responseCode
+                if (code !in 200..299) {
+                    if (attempt == 0) return 0L
+                    delay(400L * (attempt + 1))
+                    continue
+                }
+
+                val contentType = conn.contentType.orEmpty().lowercase(Locale.US)
+                if (contentType.contains("text/html") || contentType.contains("application/json")) {
+                    return 0L
+                }
+
+                val isResuming = (code == HttpURLConnection.HTTP_PARTIAL && rangeStart > 0L)
+                if (!isResuming) {
+                    downloadedBytes = 0L
+                    val len = conn.contentLengthLong
+                    if (len > 0L) {
+                        expectedTotalBytes = len
+                    }
+                } else if (expectedTotalBytes <= 0L && conn.contentLengthLong > 0L) {
+                    expectedTotalBytes = rangeStart + conn.contentLengthLong
+                }
+
+                conn.inputStream.use { input ->
+                    FileOutputStream(targetFile, isResuming).use { output ->
+                        while (coroutineContext.isActive) {
+                            val read = input.read(buffer)
+                            if (read == -1) break
+                            output.write(buffer, 0, read)
+                            downloadedBytes += read
+
+                            val now = System.currentTimeMillis()
+                            val pct = if (expectedTotalBytes > 0L) {
+                                ((downloadedBytes * 99L) / expectedTotalBytes).toInt().coerceIn(1, 99)
+                            } else {
+                                val mbDownloaded = downloadedBytes / (1024L * 1024L)
+                                (1 + (mbDownloaded * 2).toInt()).coerceIn(1, 95)
+                            }
+
+                            if (pct > lastReportedPct || (now - lastReportTimeMs >= 700L && downloadedBytes > 0L)) {
+                                lastReportedPct = pct
+                                lastReportTimeMs = now
+                                reportProgressUpdate(
+                                    appContext = appContext,
+                                    dao = dao,
+                                    initialEntity = initialEntity,
+                                    localPath = targetFile.absolutePath,
+                                    pct = pct,
+                                    downloadedBytes = downloadedBytes
+                                )
+                            }
+                        }
+                        output.flush()
+                    }
+                }
+
+                if (expectedTotalBytes <= 0L || downloadedBytes >= expectedTotalBytes) {
+                    return downloadedBytes
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                if (attempt == 3) break
+                delay(400L * (attempt + 1))
+            } finally {
+                try {
+                    conn?.inputStream?.close()
+                } catch (_: Exception) {}
+            }
         }
+
+        return if (expectedTotalBytes <= 0L || downloadedBytes >= (expectedTotalBytes * 95L) / 100L) {
+            downloadedBytes
+        } else {
+            0L
+        }
+    }
+
+    private sealed interface HlsPlaylistEntry {
+        data class RawDirective(val line: String) : HlsPlaylistEntry
+        data class MediaSegmentTask(
+            val segmentIndex: Int,
+            val absSegUrl: String,
+            val localSegName: String,
+            val extInfLine: String
+        ) : HlsPlaylistEntry
     }
 
     /**
      * Downloads an HLS `.m3u8` stream into [bundleDir] by:
      * 1. Resolving the best variant `.m3u8` playlist from the master playlist (if master).
      * 2. Downloading any `#EXT-X-MAP` init segment (`init.mp4`) and `#EXT-X-KEY` encryption key (`key.bin`).
-     * 3. Downloading all video segments (`seg_00000.ts` / `.m4s`) into [bundleDir].
+     * 3. Downloading all video segments (`seg_00000.ts` / `.m4s`) concurrently into [bundleDir] with automatic retries.
      * 4. Writing a self-contained local HLS playlist [localPlaylistFile] (`local_playlist.m3u8`) that points
      *    to the local segment files on internal storage so ExoPlayer's `HlsMediaSource` plays it 100% offline
      *    with full timeline & seeking support!
@@ -427,44 +509,32 @@ object OfflineDownloadManager {
             }
             bundleDir.mkdirs()
 
-            val initialPlaylistText = fetchTextUrl(masterOrVariantUrl) ?: return 0L
+            val normalizedMasterUrl = ChannelRepository.normalizeDashStreamUrl(masterOrVariantUrl)
+            val initialPlaylistText = fetchTextUrl(normalizedMasterUrl) ?: return 0L
             if (!initialPlaylistText.contains("#EXTM3U", ignoreCase = true)) {
                 return 0L
             }
 
             // If this is a master playlist, pick the best streaming variant playlist
             val variantUrl = selectBestVariantPlaylistFromMaster(
-                masterUrl = masterOrVariantUrl,
+                masterUrl = normalizedMasterUrl,
                 masterContent = initialPlaylistText
-            )
+            )?.let { ChannelRepository.normalizeDashStreamUrl(it) }
 
-            val mediaPlaylistUrl = variantUrl ?: masterOrVariantUrl
-            val mediaPlaylistText = if (variantUrl != null && variantUrl != masterOrVariantUrl) {
+            val mediaPlaylistUrl = variantUrl ?: normalizedMasterUrl
+            val mediaPlaylistText = if (variantUrl != null && variantUrl != normalizedMasterUrl) {
                 fetchTextUrl(variantUrl) ?: return 0L
             } else {
                 initialPlaylistText
             }
 
             val lines = mediaPlaylistText.lines()
-            // Count total segment lines so progress percentage is 100% accurate
-            val totalSegmentCount = lines.count { raw ->
-                val trimmed = raw.trim()
-                trimmed.isNotEmpty() && !trimmed.startsWith("#") &&
-                    !trimmed.substringBefore("?").endsWith(".m3u8", ignoreCase = true)
-            }
-            if (totalSegmentCount == 0) {
-                return 0L
-            }
-
-            var totalBytesWritten = 0L
-            var downloadedSegmentsCount = 0
+            var headerBytesWritten = 0L
             var segmentIndex = 0
             var keyIndex = 0
             var mapIndex = 0
-            var lastReportedPct = 1
-            var lastReportTimeMs = 0L
 
-            val rewrittenPlaylistLines = mutableListOf<String>()
+            val parsedEntries = mutableListOf<HlsPlaylistEntry>()
             var pendingExtInfLine: String? = null
 
             for (rawLine in lines) {
@@ -476,14 +546,14 @@ object OfflineDownloadManager {
                     line.startsWith("#EXT-X-MAP:", ignoreCase = true) -> {
                         val uriVal = line.substringAfter("URI=\"", "").substringBefore("\"", "")
                         if (uriVal.isNotEmpty()) {
-                            val absMapUrl = resolveRelativeUrl(mediaPlaylistUrl, uriVal)
+                            val absMapUrl = ChannelRepository.normalizeDashStreamUrl(resolveRelativeUrl(mediaPlaylistUrl, uriVal))
                             val localMapName = "init_map_${mapIndex++}.mp4"
                             val localMapFile = File(bundleDir, localMapName)
-                            val bytes = downloadBinarySegmentToFile(absMapUrl, localMapFile)
+                            val bytes = downloadBinarySegmentWithRetry(absMapUrl, localMapFile)
                             if (bytes > 0L) {
-                                totalBytesWritten += bytes
+                                headerBytesWritten += bytes
                                 val rewrittenMap = line.replace("URI=\"$uriVal\"", "URI=\"$localMapName\"")
-                                rewrittenPlaylistLines.add(rewrittenMap)
+                                parsedEntries.add(HlsPlaylistEntry.RawDirective(rewrittenMap))
                             }
                         }
                     }
@@ -491,17 +561,17 @@ object OfflineDownloadManager {
                     line.startsWith("#EXT-X-KEY:", ignoreCase = true) -> {
                         val uriVal = line.substringAfter("URI=\"", "").substringBefore("\"", "")
                         if (uriVal.isNotEmpty()) {
-                            val absKeyUrl = resolveRelativeUrl(mediaPlaylistUrl, uriVal)
+                            val absKeyUrl = ChannelRepository.normalizeDashStreamUrl(resolveRelativeUrl(mediaPlaylistUrl, uriVal))
                             val localKeyName = "enc_key_${keyIndex++}.bin"
                             val localKeyFile = File(bundleDir, localKeyName)
-                            val bytes = downloadBinarySegmentToFile(absKeyUrl, localKeyFile)
+                            val bytes = downloadBinarySegmentWithRetry(absKeyUrl, localKeyFile)
                             if (bytes > 0L) {
-                                totalBytesWritten += bytes
+                                headerBytesWritten += bytes
                                 val rewrittenKey = line.replace("URI=\"$uriVal\"", "URI=\"$localKeyName\"")
-                                rewrittenPlaylistLines.add(rewrittenKey)
+                                parsedEntries.add(HlsPlaylistEntry.RawDirective(rewrittenKey))
                             }
                         } else {
-                            rewrittenPlaylistLines.add(line)
+                            parsedEntries.add(HlsPlaylistEntry.RawDirective(line))
                         }
                     }
 
@@ -510,58 +580,105 @@ object OfflineDownloadManager {
                     }
 
                     line.startsWith("#") -> {
-                        rewrittenPlaylistLines.add(line)
+                        parsedEntries.add(HlsPlaylistEntry.RawDirective(line))
                     }
 
                     else -> {
-                        // Media segment URI line
                         val cleanSeg = line.substringBefore("?")
                         if (!cleanSeg.endsWith(".m3u8", ignoreCase = true)) {
-                            val absSegUrl = resolveRelativeUrl(mediaPlaylistUrl, line)
+                            val absSegUrl = ChannelRepository.normalizeDashStreamUrl(resolveRelativeUrl(mediaPlaylistUrl, line))
                             val ext = when {
                                 cleanSeg.endsWith(".m4s", ignoreCase = true) -> "m4s"
                                 cleanSeg.endsWith(".mp4", ignoreCase = true) -> "mp4"
                                 cleanSeg.endsWith(".aac", ignoreCase = true) -> "aac"
                                 else -> "ts"
                             }
-                            val localSegName = String.format(Locale.US, "seg_%05d.%s", segmentIndex++, ext)
-                            val localSegFile = File(bundleDir, localSegName)
-                            val bytes = downloadBinarySegmentToFile(absSegUrl, localSegFile)
-                            if (bytes > 0L && localSegFile.exists()) {
-                                totalBytesWritten += bytes
-                                downloadedSegmentsCount++
-                                if (pendingExtInfLine != null) {
-                                    rewrittenPlaylistLines.add(pendingExtInfLine!!)
-                                    pendingExtInfLine = null
-                                } else {
-                                    rewrittenPlaylistLines.add("#EXTINF:4.0,")
-                                }
-                                rewrittenPlaylistLines.add(localSegName)
-                            } else {
-                                pendingExtInfLine = null
-                            }
-
-                            val now = System.currentTimeMillis()
-                            val pct = ((segmentIndex * 99) / totalSegmentCount.coerceAtLeast(1)).coerceIn(1, 99)
-                            if (pct > lastReportedPct || (now - lastReportTimeMs >= 800L && totalBytesWritten > 0L)) {
-                                lastReportedPct = pct
-                                lastReportTimeMs = now
-                                reportProgressUpdate(
-                                    appContext = appContext,
-                                    dao = dao,
-                                    initialEntity = initialEntity,
-                                    localPath = localPlaylistFile.absolutePath,
-                                    pct = pct,
-                                    downloadedBytes = totalBytesWritten
+                            val idx = segmentIndex++
+                            val localSegName = String.format(Locale.US, "seg_%05d.%s", idx, ext)
+                            val extInf = pendingExtInfLine ?: "#EXTINF:4.0,"
+                            pendingExtInfLine = null
+                            parsedEntries.add(
+                                HlsPlaylistEntry.MediaSegmentTask(
+                                    segmentIndex = idx,
+                                    absSegUrl = absSegUrl,
+                                    localSegName = localSegName,
+                                    extInfLine = extInf
                                 )
-                            }
+                            )
                         }
                     }
                 }
             }
 
-            if (downloadedSegmentsCount == 0 || totalBytesWritten <= MIN_VALID_VIDEO_BYTES) {
+            val segmentTasks = parsedEntries.filterIsInstance<HlsPlaylistEntry.MediaSegmentTask>()
+            val totalSegmentCount = segmentTasks.size
+            if (totalSegmentCount == 0) {
                 return 0L
+            }
+
+            val totalBytesAtomic = AtomicLong(headerBytesWritten)
+            val completedSegmentsAtomic = AtomicInteger(0)
+            val succeededSegmentIndices = ConcurrentHashMap.newKeySet<Int>()
+            val progressMutex = Mutex()
+            var lastReportedPct = 1
+            var lastReportTimeMs = 0L
+            val semaphore = Semaphore(HLS_PARALLEL_SEGMENT_WORKERS)
+
+            coroutineScope {
+                segmentTasks.map { task ->
+                    async(Dispatchers.IO) {
+                        semaphore.withPermit {
+                            if (!coroutineContext.isActive) throw CancellationException()
+                            val localSegFile = File(bundleDir, task.localSegName)
+                            val bytes = downloadBinarySegmentWithRetry(task.absSegUrl, localSegFile)
+                            val doneCount = completedSegmentsAtomic.incrementAndGet()
+                            if (bytes > 0L && localSegFile.exists() && localSegFile.length() > 0L) {
+                                val currentTotalBytes = totalBytesAtomic.addAndGet(bytes)
+                                succeededSegmentIndices.add(task.segmentIndex)
+
+                                val pct = ((doneCount * 99) / totalSegmentCount.coerceAtLeast(1)).coerceIn(1, 99)
+                                val now = System.currentTimeMillis()
+                                if (pct > lastReportedPct || (now - lastReportTimeMs >= 600L && currentTotalBytes > 0L)) {
+                                    progressMutex.withLock {
+                                        val recheckNow = System.currentTimeMillis()
+                                        if (pct > lastReportedPct || (recheckNow - lastReportTimeMs >= 600L && currentTotalBytes > 0L)) {
+                                            lastReportedPct = maxOf(lastReportedPct, pct)
+                                            lastReportTimeMs = recheckNow
+                                            reportProgressUpdate(
+                                                appContext = appContext,
+                                                dao = dao,
+                                                initialEntity = initialEntity,
+                                                localPath = localPlaylistFile.absolutePath,
+                                                pct = lastReportedPct,
+                                                downloadedBytes = currentTotalBytes
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }.awaitAll()
+            }
+
+            val finalTotalBytes = totalBytesAtomic.get()
+            if (succeededSegmentIndices.isEmpty() || finalTotalBytes <= MIN_VALID_VIDEO_BYTES) {
+                return 0L
+            }
+
+            val rewrittenPlaylistLines = mutableListOf<String>()
+            for (entry in parsedEntries) {
+                when (entry) {
+                    is HlsPlaylistEntry.RawDirective -> {
+                        rewrittenPlaylistLines.add(entry.line)
+                    }
+                    is HlsPlaylistEntry.MediaSegmentTask -> {
+                        if (succeededSegmentIndices.contains(entry.segmentIndex)) {
+                            rewrittenPlaylistLines.add(entry.extInfLine)
+                            rewrittenPlaylistLines.add(entry.localSegName)
+                        }
+                    }
+                }
             }
 
             if (rewrittenPlaylistLines.none { it.startsWith("#EXT-X-ENDLIST", ignoreCase = true) }) {
@@ -569,12 +686,26 @@ object OfflineDownloadManager {
             }
 
             localPlaylistFile.writeText(rewrittenPlaylistLines.joinToString("\n"), Charsets.UTF_8)
-            totalBytesWritten
+            finalTotalBytes
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
             0L
         }
+    }
+
+    private suspend fun downloadBinarySegmentWithRetry(urlStr: String, targetFile: File, maxRetries: Int = 3): Long {
+        for (attempt in 0 until maxRetries) {
+            if (!coroutineContext.isActive) throw CancellationException()
+            val bytes = downloadBinarySegmentToFile(urlStr, targetFile)
+            if (bytes > 0L && targetFile.exists() && targetFile.length() > 0L) {
+                return bytes
+            }
+            if (attempt < maxRetries - 1) {
+                delay(200L * (attempt + 1))
+            }
+        }
+        return 0L
     }
 
     private fun downloadBinarySegmentToFile(urlStr: String, targetFile: File): Long {
@@ -602,7 +733,7 @@ object OfflineDownloadManager {
             0L
         } finally {
             try {
-                conn?.disconnect()
+                conn?.inputStream?.close()
             } catch (_: Exception) {}
         }
     }
@@ -656,13 +787,19 @@ object OfflineDownloadManager {
     ): String? {
         val lines = masterContent.lines().map { it.trim() }.filter { it.isNotEmpty() }
         val variantCandidates = mutableListOf<String>()
+        var previousWasStreamInf = false
 
         for (line in lines) {
-            if (!line.startsWith("#")) {
+            if (line.startsWith("#EXT-X-STREAM-INF", ignoreCase = true)) {
+                previousWasStreamInf = true
+            } else if (!line.startsWith("#")) {
                 val clean = line.substringBefore("?")
-                if (clean.endsWith(".m3u8", ignoreCase = true)) {
+                if (previousWasStreamInf || clean.endsWith(".m3u8", ignoreCase = true)) {
                     variantCandidates.add(resolveRelativeUrl(masterUrl, line))
                 }
+                previousWasStreamInf = false
+            } else {
+                previousWasStreamInf = false
             }
         }
 
@@ -701,8 +838,12 @@ object OfflineDownloadManager {
      * Opens an [HttpURLConnection] using the exact same headers as [com.example.player.LivePlayerController]
      * (no unauthorized Referer header that causes BunnyCDN 403) and follows HTTP/HTTPS redirects.
      */
-    private fun openHttpConnectionWithRedirects(urlStr: String, maxRedirects: Int = 5): HttpURLConnection {
-        var currentUrl = urlStr
+    private fun openHttpConnectionWithRedirects(
+        urlStr: String,
+        maxRedirects: Int = 5,
+        rangeStartBytes: Long = 0L
+    ): HttpURLConnection {
+        var currentUrl = ChannelRepository.normalizeDashStreamUrl(urlStr)
         var redirects = 0
 
         while (redirects <= maxRedirects) {
@@ -717,6 +858,9 @@ object OfflineDownloadManager {
                 )
                 setRequestProperty("Accept", "*/*")
                 setRequestProperty("Connection", "keep-alive")
+                if (rangeStartBytes > 0L) {
+                    setRequestProperty("Range", "bytes=$rangeStartBytes-")
+                }
             }
 
             val code = conn.responseCode
@@ -731,7 +875,7 @@ object OfflineDownloadManager {
                 val location = conn.getHeaderField("Location")
                 conn.disconnect()
                 if (!location.isNullOrBlank()) {
-                    currentUrl = resolveRelativeUrl(currentUrl, location)
+                    currentUrl = ChannelRepository.normalizeDashStreamUrl(resolveRelativeUrl(currentUrl, location))
                     redirects++
                     continue
                 }
@@ -754,7 +898,7 @@ object OfflineDownloadManager {
             null
         } finally {
             try {
-                conn?.disconnect()
+                conn?.inputStream?.close()
             } catch (_: Exception) {}
         }
     }
@@ -780,6 +924,7 @@ object OfflineDownloadManager {
 
     suspend fun deleteOfflineDownload(dao: NeliMediaDao, id: String) = withContext(Dispatchers.IO) {
         activeDownloadJobs.remove(id)?.cancel()
+        recentlyCompletedTimestamps.remove(id)
         val existing = dao.getDownloadById(id)
         if (existing != null) {
             deleteOfflineFilesOnDisk(existing.localFilePath, id, null)

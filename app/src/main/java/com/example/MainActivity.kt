@@ -30,6 +30,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import com.example.model.LiveChannel
 import com.example.player.LivePlayerController
+import com.example.player.NativeLogSuppressor
 import com.example.ui.components.FloatingPipPlayerOverlay
 import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.PlayerScreen
@@ -37,10 +38,15 @@ import com.example.ui.theme.NeliTVTheme
 
 class MainActivity : ComponentActivity() {
 
+    init {
+        NativeLogSuppressor.suppressNonFatalNativeLogs()
+    }
+
     private var isSystemInPipMode by mutableStateOf(false)
     private var hasActivePlaybackForPip by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        NativeLogSuppressor.suppressNonFatalNativeLogs()
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {

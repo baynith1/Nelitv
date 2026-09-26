@@ -704,12 +704,14 @@ private fun PipPlayerSurfaceAndControls(
                 // Bottom Timeline Bar (ONLY for Movies, Adult & Series — NEVER for Live TV)
                 if (!activeChannel.isLiveBroadcast) {
                     val hasKnownDuration = playbackInfo.duration != C.TIME_UNSET && playbackInfo.duration > 0L
-                    val durationMs = if (hasKnownDuration) playbackInfo.duration else 1L
-                    val liveProgress = if (hasKnownDuration) {
-                        (playbackInfo.currentPosition.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
-                    } else 0f
+                    val durationMs = if (hasKnownDuration) {
+                        playbackInfo.duration
+                    } else {
+                        maxOf(playbackInfo.currentPosition + 600_000L, 3_600_000L)
+                    }
+                    val liveProgress = (playbackInfo.currentPosition.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
                     val displayFraction = if (isScrubbing) scrubFraction else liveProgress
-                    val displayPositionMs = if (isScrubbing && hasKnownDuration) {
+                    val displayPositionMs = if (isScrubbing) {
                         (scrubFraction * durationMs).toLong()
                     } else {
                         playbackInfo.currentPosition
@@ -737,16 +739,16 @@ private fun PipPlayerSurfaceAndControls(
                         Slider(
                             value = displayFraction,
                             onValueChange = { fraction ->
+                                val clamped = fraction.coerceIn(0f, 1f)
                                 isScrubbing = true
-                                scrubFraction = fraction.coerceIn(0f, 1f)
+                                scrubFraction = clamped
+                                playerController.seekTo((clamped * durationMs).toLong())
                             },
                             onValueChangeFinished = {
-                                if (hasKnownDuration) {
-                                    playerController.seekTo((scrubFraction * durationMs).toLong())
-                                }
+                                playerController.seekTo((scrubFraction * durationMs).toLong())
                                 isScrubbing = false
                             },
-                            enabled = hasKnownDuration,
+                            enabled = true,
                             colors = SliderDefaults.colors(
                                 thumbColor = NeliMagenta,
                                 activeTrackColor = NeliMagenta,
@@ -758,7 +760,7 @@ private fun PipPlayerSurfaceAndControls(
                                 .testTag("pip_timeline_slider")
                         )
                         Text(
-                            text = if (hasKnownDuration) formatPipTimeMs(durationMs) else "--:--",
+                            text = formatPipTimeMs(durationMs),
                             color = NeliGenreCyan,
                             fontSize = 9.sp,
                             fontWeight = FontWeight.SemiBold

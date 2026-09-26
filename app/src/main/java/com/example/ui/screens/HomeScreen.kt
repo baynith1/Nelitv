@@ -24,6 +24,8 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LiveTv
@@ -32,6 +34,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -40,8 +43,11 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -427,15 +433,34 @@ private fun HomeTabBody(
     onChannelSelected: (LiveChannel) -> Unit,
     onOpenAllLiveTv: () -> Unit
 ) {
-    // Only the 7 curated channels for the Homepage:
-    // Azam Sports 1, Azam Sports 2, Azam One, Azam Two, Sinema Zetu, KIX, and WWE
-    val homepageLiveChannels = remember {
+    val liveChannelsFlow by ChannelRepository.liveChannelsFlow.collectAsState()
+    val homepageLiveChannels = remember(liveChannelsFlow) {
         ChannelRepository.homePageFeaturedChannels
     }
 
-    val featuredHeroMedia = remember(mediaCatalog) {
-        val featured = mediaCatalog.filter { it.published && (it.featured || it.isTrending) }
-        featured.ifEmpty { mediaCatalog.filter { it.published } }.take(8)
+    val featuredHeroMedia = remember(mediaCatalog, homepageLiveChannels) {
+        val published = mediaCatalog.filter { it.published }
+        val featuredVod = published.filter { it.featured || it.isTrending }.ifEmpty { published }
+        val azamHeroSlides = homepageLiveChannels.take(6).map { ch ->
+            MediaContent(
+                id = "hero_live_${ch.id}",
+                title = ch.name,
+                type = "live",
+                posterUrl = ch.thumbnailUrl,
+                backdropUrl = ch.thumbnailUrl,
+                streamUrl = ch.streamUrl,
+                streamFormat = ch.streamFormat,
+                genre = "Azam TV Live",
+                subGenres = ch.categories,
+                duration = "LIVE 24/7",
+                rating = "LIVE",
+                synopsis = ch.description.ifBlank { "Watch ${ch.name} Live on Neli TV" },
+                releaseYear = "LIVE",
+                featured = true,
+                published = true
+            )
+        }
+        (featuredVod + azamHeroSlides).take(8)
     }
 
     val genreFilteredMedia = remember(selectedGenreTab, mediaCatalog) {
@@ -463,7 +488,13 @@ private fun HomeTabBody(
                     heroMediaList = featuredHeroMedia,
                     episodesCatalog = episodesCatalog,
                     onPlayMedia = { media ->
-                        if (media.isSeries) {
+                        if (media.id.startsWith("hero_live_")) {
+                            val chId = media.id.removePrefix("hero_live_")
+                            val liveCh = ChannelRepository.getChannelById(chId)
+                            if (liveCh != null) {
+                                onChannelSelected(liveCh)
+                            }
+                        } else if (media.isSeries) {
                             val ep = episodesCatalog.firstOrNull { it.seriesId == media.id }
                             if (ep != null) {
                                 onChannelSelected(ep.toPlayableChannel(media.title))
@@ -474,7 +505,17 @@ private fun HomeTabBody(
                             onChannelSelected(media.toPlayableChannel())
                         }
                     },
-                    onOpenDetails = onMediaSelected
+                    onOpenDetails = { media ->
+                        if (media.id.startsWith("hero_live_")) {
+                            val chId = media.id.removePrefix("hero_live_")
+                            val liveCh = ChannelRepository.getChannelById(chId)
+                            if (liveCh != null) {
+                                onChannelSelected(liveCh)
+                            }
+                        } else {
+                            onMediaSelected(media)
+                        }
+                    }
                 )
             }
         }
@@ -731,6 +772,22 @@ private fun ResponsiveCinemaHeroBanner(
     onOpenDetails: (MediaContent) -> Unit
 ) {
     val pagerState = rememberPagerState(pageCount = { heroMediaList.size })
+    val coroutineScope = rememberCoroutineScope()
+
+    // Automatic continuous hero slider advancement every 4.5 seconds when not actively dragged
+    LaunchedEffect(heroMediaList.size) {
+        if (heroMediaList.size > 1) {
+            while (true) {
+                delay(4500L)
+                if (!pagerState.isScrollInProgress && heroMediaList.size > 1) {
+                    val nextPage = (pagerState.currentPage + 1) % heroMediaList.size
+                    runCatching {
+                        pagerState.animateScrollToPage(nextPage)
+                    }
+                }
+            }
+        }
+    }
 
     BoxWithConstraints(
         modifier = Modifier
@@ -742,218 +799,278 @@ private fun ResponsiveCinemaHeroBanner(
         val bannerHeight = (maxWidth * 0.56f).coerceIn(210.dp, 260.dp)
 
         Column(modifier = Modifier.fillMaxWidth()) {
-            HorizontalPager(
-                state = pagerState,
-                contentPadding = PaddingValues(horizontal = 16.dp),
-                pageSpacing = 12.dp,
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(bannerHeight)
-            ) { page ->
-                val media = heroMediaList[page]
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clip(RoundedCornerShape(22.dp))
-                        .background(NeliSurfaceVariant)
-                        .border(
-                            width = 1.dp,
-                            brush = Brush.horizontalGradient(
-                                colors = listOf(NeliMagenta.copy(alpha = 0.8f), NeliGenreCyan.copy(alpha = 0.7f))
-                            ),
-                            shape = RoundedCornerShape(22.dp)
-                        )
-                        .clickable { onOpenDetails(media) }
-                ) {
-                    // Full-bleed Backdrop Artwork
-                    SubcomposeAsyncImage(
-                        model = ImageRequest.Builder(LocalContext.current)
-                            .data(media.backdropUrl.ifBlank { media.posterUrl })
-                            .crossfade(true)
-                            .build(),
-                        contentDescription = media.title,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize(),
-                        error = {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(
-                                        Brush.linearGradient(
-                                            colors = listOf(Color(0xFF3B1278), Color(0xFF1E073E))
-                                        )
-                                    )
-                            )
-                        }
-                    )
-
-                    // Multi-stop cinema gradient overlay for legibility
+            ) {
+                HorizontalPager(
+                    state = pagerState,
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    pageSpacing = 12.dp,
+                    beyondViewportPageCount = 1,
+                    modifier = Modifier.fillMaxSize()
+                ) { page ->
+                    val media = heroMediaList[page]
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .background(
-                                Brush.verticalGradient(
-                                    colors = listOf(
-                                        Color(0x3314052B),
-                                        Color(0xAA14052B),
-                                        Color(0xF514052B)
-                                    )
-                                )
+                            .clip(RoundedCornerShape(22.dp))
+                            .background(NeliSurfaceVariant)
+                            .border(
+                                width = 1.dp,
+                                brush = Brush.horizontalGradient(
+                                    colors = listOf(NeliMagenta.copy(alpha = 0.8f), NeliGenreCyan.copy(alpha = 0.7f))
+                                ),
+                                shape = RoundedCornerShape(22.dp)
                             )
-                    )
-
-                    // Content Overlay inside Banner
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(16.dp),
-                        verticalArrangement = Arrangement.SpaceBetween
+                            .clickable { onOpenDetails(media) }
                     ) {
-                        // Top Badges Row
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(NeliMagenta)
-                                    .padding(horizontal = 8.dp, vertical = 4.dp)
-                            ) {
-                                Text(
-                                    text = if (media.isSeries) "FEATURED SERIES" else "FEATURED MOVIE",
-                                    color = Color.White,
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.ExtraBold
+                        // Full-bleed Backdrop Artwork
+                        SubcomposeAsyncImage(
+                            model = ImageRequest.Builder(LocalContext.current)
+                                .data(media.backdropUrl.ifBlank { media.posterUrl })
+                                .crossfade(true)
+                                .build(),
+                            contentDescription = media.title,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize(),
+                            error = {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(
+                                            Brush.linearGradient(
+                                                colors = listOf(Color(0xFF3B1278), Color(0xFF1E073E))
+                                            )
+                                        )
                                 )
                             }
+                        )
 
-                            if (media.narrated && media.narrationLanguage.isNotBlank()) {
-                                Row(
+                        // Multi-stop cinema gradient overlay for legibility
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(
+                                    Brush.verticalGradient(
+                                        colors = listOf(
+                                            Color(0x3314052B),
+                                            Color(0xAA14052B),
+                                            Color(0xF514052B)
+                                        )
+                                    )
+                                )
+                        )
+
+                        // Content Overlay inside Banner
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(16.dp),
+                            verticalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            // Top Badges Row
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Box(
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(8.dp))
-                                        .background(Color(0xDD10B981))
-                                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        .background(NeliMagenta)
+                                        .padding(horizontal = 8.dp, vertical = 4.dp)
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Default.GraphicEq,
-                                        contentDescription = null,
-                                        tint = Color.White,
-                                        modifier = Modifier.size(11.dp)
-                                    )
                                     Text(
-                                        text = media.narrationLanguage.uppercase(),
+                                        text = if (media.isSeries) "FEATURED SERIES" else "FEATURED MOVIE",
                                         color = Color.White,
                                         fontSize = 9.sp,
                                         fontWeight = FontWeight.ExtraBold
                                     )
                                 }
-                            }
 
-                            Row(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(Color(0xAA2B1055))
-                                    .padding(horizontal = 8.dp, vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(3.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Star,
-                                    contentDescription = null,
-                                    tint = Color(0xFFFBBF24),
-                                    modifier = Modifier.size(11.dp)
-                                )
-                                Text(
-                                    text = media.rating,
-                                    color = Color.White,
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
-
-                        // Bottom Title, Metadata & Action Buttons
-                        Column(
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Text(
-                                text = media.title,
-                                color = Color.White,
-                                fontSize = 21.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-
-                            Text(
-                                text = "${media.genre} • ${media.duration} • ${media.releaseYear}",
-                                color = NeliGenreCyan,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .background(NeliMagenta)
-                                        .clickable { onPlayMedia(media) }
-                                        .padding(horizontal = 16.dp, vertical = 9.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.PlayArrow,
-                                        contentDescription = null,
-                                        tint = Color.White,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Text(
-                                        text = "Watch Now",
-                                        color = Color.White,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.ExtraBold
-                                    )
+                                if (media.narrated && media.narrationLanguage.isNotBlank()) {
+                                    Row(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(Color(0xDD10B981))
+                                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.GraphicEq,
+                                            contentDescription = null,
+                                            tint = Color.White,
+                                            modifier = Modifier.size(11.dp)
+                                        )
+                                        Text(
+                                            text = media.narrationLanguage.uppercase(),
+                                            color = Color.White,
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.ExtraBold
+                                        )
+                                    }
                                 }
 
                                 Row(
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .background(Color(0xBB2B1055))
-                                        .border(1.dp, Color(0x55FFFFFF), RoundedCornerShape(12.dp))
-                                        .clickable { onOpenDetails(media) }
-                                        .padding(horizontal = 14.dp, vertical = 9.dp),
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(Color(0xAA2B1055))
+                                        .padding(horizontal = 8.dp, vertical = 4.dp),
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(3.dp)
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Default.Info,
+                                        imageVector = Icons.Default.Star,
                                         contentDescription = null,
-                                        tint = Color.White,
-                                        modifier = Modifier.size(16.dp)
+                                        tint = Color(0xFFFBBF24),
+                                        modifier = Modifier.size(11.dp)
                                     )
                                     Text(
-                                        text = "Details",
+                                        text = media.rating,
                                         color = Color.White,
-                                        fontSize = 12.sp,
+                                        fontSize = 10.sp,
                                         fontWeight = FontWeight.Bold
                                     )
+                                }
+                            }
+
+                            // Bottom Title, Metadata & Action Buttons
+                            Column(
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = media.title,
+                                    color = Color.White,
+                                    fontSize = 21.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+
+                                Text(
+                                    text = "${media.genre} • ${media.duration} • ${media.releaseYear}",
+                                    color = NeliGenreCyan,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(NeliMagenta)
+                                            .clickable { onPlayMedia(media) }
+                                            .padding(horizontal = 16.dp, vertical = 9.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.PlayArrow,
+                                            contentDescription = null,
+                                            tint = Color.White,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Text(
+                                            text = "Watch Now",
+                                            color = Color.White,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.ExtraBold
+                                        )
+                                    }
+
+                                    Row(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(Color(0xBB2B1055))
+                                            .border(1.dp, Color(0x55FFFFFF), RoundedCornerShape(12.dp))
+                                            .clickable { onOpenDetails(media) }
+                                            .padding(horizontal = 14.dp, vertical = 9.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Info,
+                                            contentDescription = null,
+                                            tint = Color.White,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Text(
+                                            text = "Details",
+                                            color = Color.White,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
                 }
+
+                // Interactive Previous & Next Slide Arrow Buttons
+                if (heroMediaList.size > 1) {
+                    IconButton(
+                        onClick = {
+                            coroutineScope.launch {
+                                val prev = if (pagerState.currentPage - 1 < 0) {
+                                    heroMediaList.size - 1
+                                } else {
+                                    pagerState.currentPage - 1
+                                }
+                                pagerState.animateScrollToPage(prev)
+                            }
+                        },
+                        modifier = Modifier
+                            .align(Alignment.CenterStart)
+                            .padding(start = 20.dp)
+                            .size(34.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xAA14052B))
+                            .border(1.dp, Color(0x55FFFFFF), CircleShape)
+                            .testTag("hero_slider_prev_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                            contentDescription = "Previous Slide",
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
+                    IconButton(
+                        onClick = {
+                            coroutineScope.launch {
+                                val next = (pagerState.currentPage + 1) % heroMediaList.size
+                                pagerState.animateScrollToPage(next)
+                            }
+                        },
+                        modifier = Modifier
+                            .align(Alignment.CenterEnd)
+                            .padding(end = 20.dp)
+                            .size(34.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xAA14052B))
+                            .border(1.dp, Color(0x55FFFFFF), CircleShape)
+                            .testTag("hero_slider_next_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            contentDescription = "Next Slide",
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
             }
 
-            // Pager Indicator Dots
+            // Interactive Pager Indicator Dots
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -967,10 +1084,16 @@ private fun ResponsiveCinemaHeroBanner(
                     Box(
                         modifier = Modifier
                             .padding(horizontal = 3.dp)
-                            .height(6.dp)
-                            .width(if (isSelected) 18.dp else 6.dp)
+                            .height(8.dp)
+                            .width(if (isSelected) 22.dp else 8.dp)
                             .clip(CircleShape)
                             .background(if (isSelected) NeliMagenta else NeliSurfaceVariant)
+                            .clickable {
+                                coroutineScope.launch {
+                                    pagerState.animateScrollToPage(i)
+                                }
+                            }
+                            .testTag("hero_slider_dot_$i")
                     )
                 }
             }

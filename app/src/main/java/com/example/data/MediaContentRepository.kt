@@ -845,13 +845,18 @@ object MediaContentRepository {
             }
         }
 
-        val isDash = normalizedUrl.contains(".mpd", ignoreCase = true)
+        val isMp4 = normalizedUrl.substringBefore("?").endsWith(".mp4", ignoreCase = true)
+        val isDash = !isMp4 && normalizedUrl.contains(".mpd", ignoreCase = true)
         return LiveChannel(
             id = id,
             name = name,
             description = if (country.isNotBlank()) "$category • $country" else category,
             streamUrl = normalizedUrl,
-            streamFormat = if (isDash) "dash" else "hls",
+            streamFormat = when {
+                isMp4 -> "mp4"
+                isDash -> "dash"
+                else -> "hls"
+            },
             thumbnailUrl = logo,
             categories = categoriesList,
             language = if (country.equals("Tanzania", ignoreCase = true)) "sw" else "en",
@@ -1021,6 +1026,16 @@ object MediaContentRepository {
         val parsedMedia = mutableListOf<MediaContent>()
         val parsedEpisodes = mutableListOf<EpisodeItem>()
         val parsedChannels = mutableListOf<LiveChannel>()
+
+        if (root.has("token") && root.optString("token").isNotBlank()) {
+            ChannelRepository.updateCdnAuthorizationToken(root.toString())
+        } else {
+            listOf("cdnToken", "cdn_token", "cdn_auth", "azamToken").forEach { tokenKey ->
+                root.optJSONObject(tokenKey)?.let { tokenObj ->
+                    ChannelRepository.updateCdnAuthorizationToken(tokenObj.toString())
+                }
+            }
+        }
 
         listOf("movies", "series", "content", "items").forEach { key ->
             if (root.has(key)) {
@@ -1217,26 +1232,29 @@ object MediaContentRepository {
         if (!enabled || !published || name.isEmpty() || rawUrl.isEmpty()) return null
 
         val normalizedUrl = ChannelRepository.normalizeDashStreamUrl(rawUrl)
-        val isDash = normalizedUrl.contains(".mpd", ignoreCase = true) ||
-                obj.optString("streamFormat").equals("dash", ignoreCase = true)
+        val isMp4 = normalizedUrl.substringBefore("?").endsWith(".mp4", ignoreCase = true)
+        val isDash = !isMp4 && (normalizedUrl.contains(".mpd", ignoreCase = true) ||
+                obj.optString("streamFormat").equals("dash", ignoreCase = true))
 
         val category = obj.optString("category", "entertainment")
         val country = obj.optString("country", "")
         val featured = obj.optBoolean("featured", false)
 
         val clearKeysMap = mutableMapOf<String, String>()
-        val clearKeysObj = obj.optJSONObject("clearKeys")
-        if (clearKeysObj != null) {
-            val kIter = clearKeysObj.keys()
-            while (kIter.hasNext()) {
-                val kid = kIter.next()
-                clearKeysMap[kid] = clearKeysObj.optString(kid, "")
-            }
-        } else {
-            val kid = obj.optString("clearKeyId", obj.optString("kid", ""))
-            val key = obj.optString("clearKey", obj.optString("key", ""))
-            if (kid.isNotEmpty() && key.isNotEmpty()) {
-                clearKeysMap[kid] = key
+        if (isDash) {
+            val clearKeysObj = obj.optJSONObject("clearKeys")
+            if (clearKeysObj != null) {
+                val kIter = clearKeysObj.keys()
+                while (kIter.hasNext()) {
+                    val kid = kIter.next()
+                    clearKeysMap[kid] = clearKeysObj.optString(kid, "")
+                }
+            } else {
+                val kid = obj.optString("clearKeyId", obj.optString("kid", ""))
+                val key = obj.optString("clearKey", obj.optString("key", ""))
+                if (kid.isNotEmpty() && key.isNotEmpty()) {
+                    clearKeysMap[kid] = key
+                }
             }
         }
 
@@ -1245,7 +1263,11 @@ object MediaContentRepository {
             name = name,
             description = if (country.isNotBlank()) "$category • $country" else obj.optString("description", category),
             streamUrl = normalizedUrl,
-            streamFormat = if (isDash) "dash" else "hls",
+            streamFormat = when {
+                isMp4 -> "mp4"
+                isDash -> "dash"
+                else -> "hls"
+            },
             thumbnailUrl = obj.optString("logo", obj.optString("thumbnailUrl", "")),
             categories = buildList {
                 add(category.lowercase())

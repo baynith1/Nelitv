@@ -19,16 +19,22 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.GraphicEq
@@ -57,11 +63,16 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -472,7 +483,8 @@ fun LiveTvTabContent(
     onChannelSelected: (LiveChannel) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val allFiltered = remember(selectedCategory) {
+    val liveChannels by ChannelRepository.liveChannelsFlow.collectAsState()
+    val allFiltered = remember(selectedCategory, liveChannels) {
         ChannelRepository.filterChannels("", selectedCategory)
     }
 
@@ -484,6 +496,10 @@ fun LiveTvTabContent(
     }
     val otherChannels = remember(allFiltered) {
         allFiltered.filter { it.priorityTier < 2 }
+    }
+
+    val sliderChannels = remember(azamChannels, allFiltered) {
+        azamChannels.ifEmpty { allFiltered }.take(10)
     }
 
     Column(
@@ -516,7 +532,7 @@ fun LiveTvTabContent(
                         fontWeight = FontWeight.ExtraBold
                     )
                     Text(
-                        text = "Tanzania & Azam Priority • Continuous Live Streaming",
+                        text = "Azam TV & Tanzania CDN • Unblocked High-Speed Streaming",
                         color = NeliGenreCyan,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold
@@ -547,6 +563,15 @@ fun LiveTvTabContent(
                 .fillMaxSize()
                 .testTag("channels_grid")
         ) {
+            if (sliderChannels.isNotEmpty()) {
+                item(span = { GridItemSpan(maxLineSpan) }, key = "live_tv_azam_hero_slider") {
+                    AzamLiveTvHeroSlider(
+                        channels = sliderChannels,
+                        onChannelSelected = onChannelSelected
+                    )
+                }
+            }
+
             items(azamChannels, key = { "azam_${it.id}" }) { channel ->
                 ChannelCard(
                     channel = channel,
@@ -565,6 +590,247 @@ fun LiveTvTabContent(
                 ChannelCard(
                     channel = channel,
                     onClick = { onChannelSelected(channel) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AzamLiveTvHeroSlider(
+    channels: List<LiveChannel>,
+    onChannelSelected: (LiveChannel) -> Unit
+) {
+    val pagerState = rememberPagerState(pageCount = { channels.size })
+    val coroutineScope = rememberCoroutineScope()
+
+    LaunchedEffect(channels.size) {
+        if (channels.size > 1) {
+            while (true) {
+                delay(4000L)
+                if (!pagerState.isScrollInProgress && channels.size > 1) {
+                    val nextPage = (pagerState.currentPage + 1) % channels.size
+                    runCatching {
+                        pagerState.animateScrollToPage(nextPage)
+                    }
+                }
+            }
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 6.dp)
+            .testTag("live_tv_azam_slider")
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(176.dp)
+        ) {
+            HorizontalPager(
+                state = pagerState,
+                pageSpacing = 12.dp,
+                beyondViewportPageCount = 1,
+                modifier = Modifier.fillMaxSize()
+            ) { page ->
+                val ch = channels[page]
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(
+                            Brush.linearGradient(
+                                colors = listOf(Color(0xFF280B54), Color(0xFF0E172A))
+                            )
+                        )
+                        .border(
+                            width = 1.dp,
+                            brush = Brush.horizontalGradient(
+                                colors = listOf(NeliMagenta, NeliGenreCyan)
+                            ),
+                            shape = RoundedCornerShape(20.dp)
+                        )
+                        .clickable { onChannelSelected(ch) }
+                        .padding(16.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(110.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(Color(0xFF090D16))
+                                .border(1.dp, Color(0x33FFFFFF), RoundedCornerShape(16.dp))
+                                .padding(10.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            SubcomposeAsyncImage(
+                                model = ImageRequest.Builder(LocalContext.current)
+                                    .data(ch.thumbnailUrl)
+                                    .crossfade(true)
+                                    .build(),
+                                contentDescription = ch.name,
+                                contentScale = ContentScale.Fit,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(NeliMagenta)
+                                        .padding(horizontal = 8.dp, vertical = 3.dp)
+                                ) {
+                                    Text(
+                                        text = "AZAM TV • CDN MP4",
+                                        color = Color.White,
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.ExtraBold
+                                    )
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(Color(0xDD10B981))
+                                        .padding(horizontal = 7.dp, vertical = 3.dp)
+                                ) {
+                                    Text(
+                                        text = "LIVE HD",
+                                        color = Color.White,
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.ExtraBold
+                                    )
+                                }
+                            }
+
+                            Text(
+                                text = ch.name,
+                                color = Color.White,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+
+                            Text(
+                                text = ch.description.ifBlank { "Azam TV Live Broadcast" },
+                                color = NeliGenreCyan,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+
+                            Row(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(NeliMagenta)
+                                    .padding(horizontal = 14.dp, vertical = 7.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.PlayArrow,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Text(
+                                    text = "Watch Live Now",
+                                    color = Color.White,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.ExtraBold
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (channels.size > 1) {
+                IconButton(
+                    onClick = {
+                        coroutineScope.launch {
+                            val prev = if (pagerState.currentPage - 1 < 0) channels.size - 1 else pagerState.currentPage - 1
+                            pagerState.animateScrollToPage(prev)
+                        }
+                    },
+                    modifier = Modifier
+                        .align(Alignment.CenterStart)
+                        .padding(start = 6.dp)
+                        .size(30.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xAA14052B))
+                        .border(1.dp, Color(0x44FFFFFF), CircleShape)
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                        contentDescription = "Previous Azam Channel",
+                        tint = Color.White,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+
+                IconButton(
+                    onClick = {
+                        coroutineScope.launch {
+                            val next = (pagerState.currentPage + 1) % channels.size
+                            pagerState.animateScrollToPage(next)
+                        }
+                    },
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .padding(end = 6.dp)
+                        .size(30.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xAA14052B))
+                        .border(1.dp, Color(0x44FFFFFF), CircleShape)
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = "Next Azam Channel",
+                        tint = Color.White,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 8.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            val dotCount = minOf(channels.size, 10)
+            for (i in 0 until dotCount) {
+                val isSelected = pagerState.currentPage == i
+                Box(
+                    modifier = Modifier
+                        .padding(horizontal = 3.dp)
+                        .height(7.dp)
+                        .width(if (isSelected) 20.dp else 7.dp)
+                        .clip(CircleShape)
+                        .background(if (isSelected) NeliMagenta else NeliSurfaceVariant)
+                        .clickable {
+                            coroutineScope.launch {
+                                pagerState.animateScrollToPage(i)
+                            }
+                        }
                 )
             }
         }

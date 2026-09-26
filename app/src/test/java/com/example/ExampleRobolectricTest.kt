@@ -143,4 +143,46 @@ class ExampleRobolectricTest {
         assertEquals("Juma Bakari", signInRes.getOrNull()?.realName)
         db.close()
     }
+
+    @Test
+    fun `azam tv channels use mpd streams with cdn authorization token and m3u8 streams remain m3u8`() {
+        val allChannels = com.example.data.ChannelRepository.channels
+        val azamChannels = com.example.data.ChannelRepository.azamPriorityChannels
+
+        // Ensure extra Azam TV channels were added (17 Azam TV priority channels total)
+        assertTrue(azamChannels.size >= 16)
+        assertTrue(azamChannels.any { it.name.equals("Azam Xtra HD", ignoreCase = true) })
+        assertTrue(azamChannels.any { it.name.equals("Azam Movies HD", ignoreCase = true) })
+        assertTrue(azamChannels.any { it.name.equals("Clouds TV HD", ignoreCase = true) })
+        assertTrue(azamChannels.any { it.name.equals("ITV Tanzania HD", ignoreCase = true) })
+
+        // Ensure Azam Sports 1-4, Azam One, Azam Two, Sinema Zetu use .mpd links with cdntoken and clearkey
+        val azamSports1 = allChannels.first { it.name.contains("Azam Sports 1", ignoreCase = true) }
+        assertTrue(azamSports1.isDash)
+        assertTrue(azamSports1.isClearKey)
+        assertTrue(azamSports1.streamUrl.contains(".mpd?cdntoken="))
+        assertTrue(azamSports1.streamUrl.startsWith(com.example.data.ChannelRepository.DEFAULT_AZAM_CDN_HOST))
+
+        // Ensure CDN token JSON payload updates token & host properly
+        val tokenJson = """
+            {
+              "token": "${com.example.data.ChannelRepository.DEFAULT_AZAM_CDN_TOKEN}",
+              "exp": 1790412582,
+              "cdnHost": "https://cdnedgch2.azamtvltd.co.tz",
+              "source": "cache"
+            }
+        """.trimIndent()
+        assertTrue(com.example.data.ChannelRepository.updateCdnAuthorizationToken(tokenJson))
+        assertEquals(1790412582L, com.example.data.ChannelRepository.AZAM_CDN_EXP)
+
+        // Ensure .m3u8 channels remain .m3u8 untouched
+        val hlsChannels = allChannels.filter { it.streamUrl.contains(".m3u8", ignoreCase = true) }
+        assertTrue(hlsChannels.isNotEmpty())
+        hlsChannels.forEach { ch ->
+            assertEquals(
+                ch.streamUrl,
+                com.example.data.ChannelRepository.normalizeDashStreamUrl(ch.streamUrl)
+            )
+        }
+    }
 }

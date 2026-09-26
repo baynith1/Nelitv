@@ -78,6 +78,8 @@ class ClearKeyDecryptingDataSource(
 
         val processedBytes = if (isMpd) {
             val xml = String(rawBytes, Charsets.UTF_8)
+                .replace("http://cdnblncr.azamtvltd.co.tz", com.example.data.ChannelRepository.AZAM_CDN_HOST, ignoreCase = true)
+                .replace("https://cdnblncr.azamtvltd.co.tz", com.example.data.ChannelRepository.AZAM_CDN_HOST, ignoreCase = true)
             decryptor.stripMpdContentProtection(xml).toByteArray(Charsets.UTF_8)
         } else {
             decryptor.processMp4Segment(rawBytes)
@@ -149,18 +151,33 @@ class ClearKeyDecryptingDataSource(
     }
 
     private fun resolveDataSpecToken(dataSpec: DataSpec): DataSpec {
-        if (encodedManifestQuery.isNullOrBlank()) return dataSpec
-        val currentUriStr = dataSpec.uri.toString()
-        if (currentUriStr.contains("cdntoken=")) return dataSpec
+        val rawUriStr = dataSpec.uri.toString()
+        val normalizedStr = com.example.data.ChannelRepository.normalizeDashStreamUrl(rawUriStr)
+        val normalizedUri = Uri.parse(normalizedStr)
 
-        val currentEncodedQuery = dataSpec.uri.encodedQuery
-        val mergedEncodedQuery = if (currentEncodedQuery.isNullOrBlank()) {
-            encodedManifestQuery
-        } else {
-            "$currentEncodedQuery&$encodedManifestQuery"
+        if (normalizedUri.toString().contains("cdntoken=", ignoreCase = true)) {
+            return if (normalizedStr != rawUriStr) dataSpec.withUri(normalizedUri) else dataSpec
         }
 
-        val resolvedUri = dataSpec.uri.buildUpon()
+        val fallbackQuery = encodedManifestQuery?.takeIf { it.isNotBlank() }
+            ?: if (normalizedStr.contains("azamtvltd.co.tz", ignoreCase = true)) {
+                "cdntoken=${com.example.data.ChannelRepository.AZAM_CDN_TOKEN}"
+            } else {
+                null
+            }
+
+        if (fallbackQuery.isNullOrBlank()) {
+            return if (normalizedStr != rawUriStr) dataSpec.withUri(normalizedUri) else dataSpec
+        }
+
+        val currentEncodedQuery = normalizedUri.encodedQuery
+        val mergedEncodedQuery = if (currentEncodedQuery.isNullOrBlank()) {
+            fallbackQuery
+        } else {
+            "$currentEncodedQuery&$fallbackQuery"
+        }
+
+        val resolvedUri = normalizedUri.buildUpon()
             .encodedQuery(mergedEncodedQuery)
             .build()
         return dataSpec.withUri(resolvedUri)

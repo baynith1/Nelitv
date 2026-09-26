@@ -98,9 +98,7 @@ class LivePlayerController(
         const val SWAHILI_MOVIE_INTRO_SKIP_MS = 330_000L
 
         init {
-            try {
-                androidx.media3.common.util.Log.setLogLevel(androidx.media3.common.util.Log.LOG_LEVEL_OFF)
-            } catch (_: Throwable) {}
+            NativeLogSuppressor.suppressNonFatalNativeLogs()
         }
     }
 
@@ -144,7 +142,7 @@ class LivePlayerController(
             if (channel.isLiveBroadcast) {
                 // Ensure Live TV always stays playing unless user exits
                 if (!player.isPlaying && player.playbackState == Player.STATE_READY) {
-                    player.seekToDefaultPosition()
+                    player.playWhenReady = true
                     player.play()
                 }
             } else {
@@ -166,12 +164,20 @@ class LivePlayerController(
                 Player.STATE_READY -> {
                     autoReconnectAttempts = 0
                     val player = exoPlayer
-                    if (player != null && !hasAppliedSwahiliMovieIntroSkip && channel.shouldAutoSkipSwahiliMovieIntro) {
-                        hasAppliedSwahiliMovieIntroSkip = true
+                    if (player != null) {
                         val dur = player.duration
-                        val canSkipTo530 = dur == C.TIME_UNSET || dur > (SWAHILI_MOVIE_INTRO_SKIP_MS + 10_000L)
-                        if (canSkipTo530 && player.currentPosition < SWAHILI_MOVIE_INTRO_SKIP_MS - 3_000L) {
-                            player.seekTo(SWAHILI_MOVIE_INTRO_SKIP_MS)
+                        if (channel.shouldAutoSkipSwahiliMovieIntro && dur != C.TIME_UNSET && dur in 1..(SWAHILI_MOVIE_INTRO_SKIP_MS + 5_000L)) {
+                            // Stream is shorter than the 5:30 intro skip window; start at 0:00 so it plays normally
+                            if (player.currentPosition >= dur - 2_000L || player.currentPosition >= SWAHILI_MOVIE_INTRO_SKIP_MS) {
+                                lastKnownVodPositionMs = 0L
+                                player.seekTo(0L)
+                            }
+                        } else if (!hasAppliedSwahiliMovieIntroSkip && channel.shouldAutoSkipSwahiliMovieIntro) {
+                            hasAppliedSwahiliMovieIntroSkip = true
+                            val canSkipTo530 = dur == C.TIME_UNSET || dur > (SWAHILI_MOVIE_INTRO_SKIP_MS + 10_000L)
+                            if (canSkipTo530 && player.currentPosition < SWAHILI_MOVIE_INTRO_SKIP_MS - 3_000L) {
+                                player.seekTo(SWAHILI_MOVIE_INTRO_SKIP_MS)
+                            }
                         }
                     }
                     _uiState.value = PlayerUiState.Ready
@@ -180,9 +186,21 @@ class LivePlayerController(
                     mainHandler.post(positionUpdateRunnable)
                 }
                 Player.STATE_ENDED -> {
+                    val player = exoPlayer
+                    val dur = player?.duration ?: C.TIME_UNSET
                     if (channel.isLiveBroadcast) {
-                        // Live TV never ends; automatically re-sync to live broadcast edge
-                        syncToLiveEdge()
+                        // Live TV never ends; restart or re-sync seamlessly
+                        player?.let { p ->
+                            p.seekTo(0L)
+                            p.playWhenReady = true
+                            p.play()
+                        }
+                    } else if (player != null && channel.shouldAutoSkipSwahiliMovieIntro && dur != C.TIME_UNSET && dur in 1..(SWAHILI_MOVIE_INTRO_SKIP_MS + 5_000L) && lastKnownVodPositionMs >= SWAHILI_MOVIE_INTRO_SKIP_MS) {
+                        // Recover if initial 5:30 seek jumped past the end of a shorter movie clip
+                        lastKnownVodPositionMs = 0L
+                        player.seekTo(0L)
+                        player.playWhenReady = true
+                        player.play()
                     } else {
                         // Check if there is a Next Episode in Series VOD to auto-advance to
                         val nextEpChannel = onEpisodeEndedAutoNext?.invoke()
@@ -235,22 +253,30 @@ class LivePlayerController(
             }
 
             val httpCode = extractHttpErrorCode(error)
-            if (autoReconnectAttempts < 2 && httpCode != 401 && httpCode != 403 && httpCode != 404) {
+            if (autoReconnectAttempts < 2) {
                 autoReconnectAttempts++
                 _uiState.value = PlayerUiState.Buffering
-                applyNetworkQualityMode(NetworkQualityMode.WEAK_NETWORK_SAVER)
+                if (autoReconnectAttempts >= 2) {
+                    applyNetworkQualityMode(NetworkQualityMode.WEAK_NETWORK_SAVER)
+                }
                 val resumePos = lastKnownVodPositionMs
                 mainHandler.postDelayed({
                     exoPlayer?.let { p ->
                         if (channel.isLiveBroadcast) {
-                            p.seekToDefaultPosition()
-                        } else if (resumePos > 0L) {
-                            p.seekTo(resumePos)
+                            channel = channel.copy(
+                                streamUrl = com.example.data.ChannelRepository.normalizeDashStreamUrl(channel.streamUrl)
+                            )
+                            _currentChannel.value = channel
+                            loadChannelStream(p, preserveVodPosition = false)
+                        } else {
+                            if (resumePos > 0L) {
+                                p.seekTo(resumePos)
+                            }
+                            p.prepare()
+                            p.play()
                         }
-                        p.prepare()
-                        p.play()
                     }
-                }, 500L)
+                }, 450L)
                 return
             }
 
@@ -301,6 +327,7 @@ class LivePlayerController(
     }
 
     fun initializePlayer(): ExoPlayer {
+        NativeLogSuppressor.suppressNonFatalNativeLogs()
         exoPlayer?.let { return it }
         autoReconnectAttempts = 0
         _uiState.value = PlayerUiState.Loading
@@ -488,7 +515,9 @@ class LivePlayerController(
      */
     fun syncToLiveEdge() {
         exoPlayer?.let { player ->
-            player.seekToDefaultPosition()
+            if (player.isCurrentMediaItemLive) {
+                player.seekToDefaultPosition()
+            }
             player.playWhenReady = true
             player.play()
         }
@@ -497,6 +526,7 @@ class LivePlayerController(
     private fun loadChannelStream(player: ExoPlayer, preserveVodPosition: Boolean = false) {
         try {
             val mediaSource = createMediaSource(channel)
+            player.repeatMode = if (channel.isLiveBroadcast) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
             val startPositionMs = when {
                 channel.isLiveBroadcast -> C.TIME_UNSET
                 preserveVodPosition && lastKnownVodPositionMs > 0L -> lastKnownVodPositionMs
@@ -519,7 +549,7 @@ class LivePlayerController(
             }
 
             player.prepare()
-            if (channel.isLiveBroadcast) {
+            if (channel.isLiveBroadcast && !channel.isMp4) {
                 player.seekToDefaultPosition()
             }
             player.playWhenReady = true
@@ -555,12 +585,12 @@ class LivePlayerController(
                 )
             )
 
-        // Only use ClearKeyDecryptingDataSource when ClearKey DRM or Azam cdntoken propagation is needed.
-        // For all Movies, Adult, Series, and standard HLS/MP4 streams, use native DefaultHttpDataSource
-        // directly so HTTP 206 Range seeking is instantaneous and unthrottled.
+        // Use ClearKeyDecryptingDataSource when ClearKey DRM or Azam cdntoken propagation is needed
+        // (for DASH .mpd manifests, fragmented .mp4 CDN segments, and any CDN .mp4 stream using cdntoken).
         val needsClearKeyOrTokenWrapper =
             (channel.isClearKey && channel.clearKeys.isNotEmpty()) ||
-                    effectiveStreamUrl.contains("cdntoken=", ignoreCase = true)
+                    effectiveStreamUrl.contains("cdntoken=", ignoreCase = true) ||
+                    effectiveStreamUrl.contains("azamtvltd.co.tz", ignoreCase = true)
 
         val upstreamDataSourceFactory = if (needsClearKeyOrTokenWrapper) {
             val decryptor = if (channel.isClearKey && channel.clearKeys.isNotEmpty()) {
@@ -590,11 +620,11 @@ class LivePlayerController(
             )
 
         val liveConfiguration = MediaItem.LiveConfiguration.Builder()
-            .setTargetOffsetMs(2_500L)
-            .setMinOffsetMs(1_200L)
-            .setMaxOffsetMs(6_000L)
-            .setMinPlaybackSpeed(0.97f)
-            .setMaxPlaybackSpeed(1.04f)
+            .setTargetOffsetMs(10_000L)
+            .setMinOffsetMs(4_000L)
+            .setMaxOffsetMs(25_000L)
+            .setMinPlaybackSpeed(0.98f)
+            .setMaxPlaybackSpeed(1.02f)
             .build()
 
         val isLocalOfflineFile = effectiveStreamUrl.startsWith("file:", ignoreCase = true) ||
@@ -749,8 +779,8 @@ class LivePlayerController(
 
     fun play() {
         exoPlayer?.let { player ->
-            if (channel.isLiveBroadcast) {
-                // Returning to Live TV always jumps to the live edge, never rewinding back
+            if (channel.isLiveBroadcast && player.isCurrentMediaItemLive) {
+                // Returning to Live HLS/DASH TV jumps to the live edge, while progressive CDN MP4 continues smoothly
                 player.seekToDefaultPosition()
             }
             player.playWhenReady = true
@@ -851,12 +881,12 @@ class LivePlayerController(
             val responseCode = (ex as? HttpDataSource.InvalidResponseCodeException)?.responseCode
                 ?: (ex.cause as? HttpDataSource.InvalidResponseCodeException)?.responseCode
 
-            if (responseCode == 401 || responseCode == 403 || responseCode == 404 || responseCode == 410) {
+            if ((responseCode == 401 || responseCode == 403 || responseCode == 410) && loadErrorInfo.errorCount > 2) {
                 return C.TIME_UNSET
             }
-            return minOf(loadErrorInfo.errorCount * 600L, 2400L)
+            return minOf(loadErrorInfo.errorCount * 500L, 2000L)
         }
 
-        override fun getMinimumLoadableRetryCount(dataType: Int): Int = 3
+        override fun getMinimumLoadableRetryCount(dataType: Int): Int = 4
     }
 }

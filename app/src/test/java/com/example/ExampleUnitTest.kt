@@ -14,48 +14,44 @@ import java.net.URL
 class ExampleUnitTest {
 
     @Test
-    fun `channel repository contains all 32 channels with 13 Azam token streams and Tanzania priority`() {
-        assertEquals(32, ChannelRepository.channels.size)
-        val first13 = ChannelRepository.channels.take(13)
-        assertTrue(first13.all { it.streamUrl.contains("cdnedgch2.azamtvltd.co.tz") })
-        assertTrue(first13.all { it.streamUrl.contains("cdntoken=") })
-        assertTrue(first13.all { it.isDash && it.isClearKey })
+    fun `channel repository contains all 36 channels with 17 Azam DASH MPD streams and Tanzania priority`() {
+        assertEquals(36, ChannelRepository.channels.size)
+        val first17 = ChannelRepository.channels.take(17)
+        assertTrue(first17.all {
+            it.isDash &&
+                    it.streamUrl.startsWith(ChannelRepository.DEFAULT_AZAM_CDN_HOST) &&
+                    it.streamUrl.contains(".mpd?cdntoken=") &&
+                    it.isClearKey
+        })
 
         val popTz = ChannelRepository.getChannelById("tv_1788953482934_twaqe")
         assertNotNull(popTz)
         assertEquals("POP Animation Network", popTz!!.name)
         assertEquals("Tanzania", popTz.country)
         assertEquals(2, popTz.priorityTier)
+        assertTrue(popTz.streamUrl.endsWith(".m3u8", ignoreCase = true))
     }
 
     @Test
-    fun `normalizeDashStreamUrl converts segment mp4 urls to master mpd urls with token`() {
-        val rawAzam1 = "https://cdnedgch2.azamtvltd.co.tz/live/eds/AzamSport1/DASH/AzamSport1-mp4a_160000_swa=20000-p=363288493000000-3702860930173333.mp4?cdntoken=${ChannelRepository.AZAM_CDN_TOKEN}"
-        val normalized1 = ChannelRepository.normalizeDashStreamUrl(rawAzam1)
-        assertEquals(
-            "https://cdnedgch2.azamtvltd.co.tz/live/eds/AzamSport1/DASH/AzamSport1.mpd?cdntoken=${ChannelRepository.AZAM_CDN_TOKEN}",
-            normalized1
-        )
+    fun `normalizeDashStreamUrl rewrites cdnblncr to cdnedgch2 and attaches cdntoken for mpd and mp4 cdn urls`() {
+        val rawAzamMpd = "https://cdnblncr.azamtvltd.co.tz/live/eds/AzamSport1/DASH/AzamSport1.mpd"
+        val normalizedMpd = ChannelRepository.normalizeDashStreamUrl(rawAzamMpd)
+        assertTrue(normalizedMpd.startsWith("https://cdnedgch2.azamtvltd.co.tz/live/eds/AzamSport1/DASH/AzamSport1.mpd?cdntoken="))
+        assertTrue(normalizedMpd.endsWith(ChannelRepository.AZAM_CDN_TOKEN))
 
-        val rawZbc2 = "https://cdnedgch2.azamtvltd.co.tz/live/eds/ZBC2/DASH/ZBC2-mp4a_160000=20000-p=363288647000000-init.mp4?cdntoken=${ChannelRepository.AZAM_CDN_TOKEN}"
-        val normalizedZbc2 = ChannelRepository.normalizeDashStreamUrl(rawZbc2)
-        assertEquals(
-            "https://cdnedgch2.azamtvltd.co.tz/live/eds/ZBC2/DASH/ZBC2.mpd?cdntoken=${ChannelRepository.AZAM_CDN_TOKEN}",
-            normalizedZbc2
-        )
+        val rawAzamMp4Seg = "https://cdnblncr.azamtvltd.co.tz/live/eds/AzamSport1/DASH/AzamSport1-init.mp4"
+        val normalizedMp4 = ChannelRepository.normalizeDashStreamUrl(rawAzamMp4Seg)
+        assertTrue(normalizedMp4.startsWith("https://cdnedgch2.azamtvltd.co.tz/live/eds/AzamSport1/DASH/AzamSport1-init.mp4?cdntoken="))
+        assertTrue(normalizedMp4.endsWith(ChannelRepository.AZAM_CDN_TOKEN))
 
-        val rawWasafi = "https://cdnedgch2.azamtvltd.co.tz/live/eds/WasafiTV/DASH/WasafiTV-mp4a_160000=20000-p=363288641000000-init.mp4?cdntoken=${ChannelRepository.AZAM_CDN_TOKEN}"
-        val normalizedWasafi = ChannelRepository.normalizeDashStreamUrl(rawWasafi)
-        assertEquals(
-            "https://cdnedgch2.azamtvltd.co.tz/live/eds/WasafiTV/DASH/WasafiTV.mpd?cdntoken=${ChannelRepository.AZAM_CDN_TOKEN}",
-            normalizedWasafi
-        )
+        val m3u8Stream = "https://cdn4.skygo.mn/live/disk1/Cartoon_Network/HLSv3-FTA/Cartoon_Network.m3u8"
+        assertEquals(m3u8Stream, ChannelRepository.normalizeDashStreamUrl(m3u8Stream))
     }
 
     @Test
     fun `all category returns all channels`() {
         val result = ChannelRepository.filterChannels(query = "", category = "All")
-        assertEquals(32, result.size)
+        assertEquals(36, result.size)
         // Verify priority order: Azam (3) -> Tanzania (2) -> Others (0)
         assertEquals(3, result.first().priorityTier)
         assertEquals(0, result.last().priorityTier)
@@ -231,12 +227,14 @@ class ExampleUnitTest {
     }
 
     @Test
-    fun `dash channels have clearkey configured`() {
+    fun `azam channels have valid clearkey pairs and cdn token`() {
         val azam1 = ChannelRepository.getChannelById("R17JUvbCEzu2eTbjnE74")
         assertNotNull(azam1)
         assertTrue(azam1!!.isDash)
         assertTrue(azam1.isClearKey)
-        assertEquals("dd2101530e222f545997d4c553787f85", azam1.clearKeys["c31df1600afc33799ecac543331803f2"])
+        assertEquals("c31df1600afc33799ecac543331803f2", azam1.clearKeyId)
+        assertEquals("dd2101530e222f545997d4c553787f85", azam1.clearKey)
+        assertTrue(azam1.streamUrl.contains("cdntoken=${ChannelRepository.DEFAULT_AZAM_CDN_TOKEN}"))
     }
 
     @Test
@@ -268,15 +266,19 @@ class ExampleUnitTest {
     }
 
     @Test
-    fun `homepage featured live tv channels contain only Azam Sports 1 and 2 Azam One and Two Sinema Zetu KIX and WWE`() {
+    fun `homepage featured live tv channels contain expanded Azam TV bouquet KIX and WWE`() {
         val homeChannels = ChannelRepository.homePageFeaturedChannels
-        assertEquals(7, homeChannels.size)
+        assertEquals(14, homeChannels.size)
         val names = homeChannels.map { it.name }
         assertTrue(names.any { it.contains("Azam Sports 1", ignoreCase = true) })
         assertTrue(names.any { it.contains("Azam Sports 2", ignoreCase = true) })
         assertTrue(names.any { it.equals("Azam One", ignoreCase = true) })
         assertTrue(names.any { it.equals("Azam Two", ignoreCase = true) })
         assertTrue(names.any { it.equals("Sinema Zetu", ignoreCase = true) })
+        assertTrue(names.any { it.equals("Azam Xtra HD", ignoreCase = true) })
+        assertTrue(names.any { it.equals("Azam Movies HD", ignoreCase = true) })
+        assertTrue(names.any { it.equals("Clouds TV HD", ignoreCase = true) })
+        assertTrue(names.any { it.equals("ITV Tanzania HD", ignoreCase = true) })
         assertTrue(names.any { it.equals("KIX", ignoreCase = true) })
         assertTrue(names.any { it.equals("WWE", ignoreCase = true) })
     }

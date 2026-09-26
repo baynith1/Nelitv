@@ -202,7 +202,6 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
      * Runs in a persistent background scope so it continues even when the user exits the app.
      */
     fun addDownload(media: MediaContent) {
-        if (!media.downloadEnabled) return
         val item = DownloadedItemEntity(
             id = media.id,
             title = if (media.narrated && media.narrationLanguage.isNotBlank()) {
@@ -213,7 +212,7 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
             type = media.type,
             posterUrl = media.posterUrl,
             backdropUrl = media.backdropUrl,
-            streamUrl = media.streamUrl,
+            streamUrl = ChannelRepository.normalizeDashStreamUrl(media.streamUrl),
             genre = media.genre,
             duration = media.duration,
             rating = media.rating,
@@ -237,14 +236,13 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
         seriesTitle: String,
         seriesPoster: String
     ) {
-        if (!episode.downloadEnabled) return
         val item = DownloadedItemEntity(
             id = episode.id,
             title = "$seriesTitle • S${episode.seasonNumber}E${episode.episodeNumber}: ${episode.name}",
             type = "series",
             posterUrl = episode.stillPath.ifBlank { seriesPoster },
             backdropUrl = episode.stillPath.ifBlank { seriesPoster },
-            streamUrl = episode.streamUrl,
+            streamUrl = ChannelRepository.normalizeDashStreamUrl(episode.streamUrl),
             genre = if (episode.narrated) "Series • ${episode.narrationLanguage}" else "Series",
             duration = episode.durationLabel,
             rating = "HD",
