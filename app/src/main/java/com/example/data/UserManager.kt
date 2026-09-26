@@ -1,14 +1,19 @@
 package com.example.data
 
 import android.accounts.AccountManager
+import android.app.Activity
 import android.content.Context
+import android.content.ContextWrapper
+import android.os.Build
 import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
+import androidx.credentials.GetCredentialResponse
 import com.example.data.local.NeliDatabase
 import com.example.data.local.NeliMediaDao
 import com.example.data.local.UserAccountEntity
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
+import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
@@ -18,13 +23,19 @@ import com.google.firebase.auth.UserProfileChangeRequest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
-import java.util.UUID
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.coroutines.resume
 
 sealed interface GoogleAutoSignInResult {
     data class Success(
         val account: UserAccountEntity,
         val autoSelectedPrimaryGoogleAccount: Boolean = true
+    ) : GoogleAutoSignInResult
+
+    data class PromptGoogleAccountSelection(
+        val suggestedEmail: String = "",
+        val suggestedName: String = "",
+        val savedAccounts: List<UserAccountEntity> = emptyList()
     ) : GoogleAutoSignInResult
 
     data class UseEmailFallback(
@@ -34,8 +45,9 @@ sealed interface GoogleAutoSignInResult {
 
 /**
  * Handles user authentication, YouTube-style automatic Google Account sign-in on first launch
- * (selecting the first Google account on the device when multiple exist), and Email/Password
- * registration & login with automatic session persistence.
+ * (selecting the first Google account on the device when multiple exist), interactive Google Sign-In
+ * via CredentialManager / Android System Account Picker / In-App Google Account Sheet, and
+ * Email/Password registration & login with automatic session persistence.
  */
 class UserManager(
     private val context: Context,
@@ -121,14 +133,44 @@ class UserManager(
     }
 
     /**
+     * Completes Google Sign-In for a selected or entered Google Account (`@gmail.com` or Google Workspace),
+     * syncing the account to Firebase (`neliplay`) and persisting the active user in Room.
+     */
+    suspend fun completeGoogleAccountSignIn(
+        email: String,
+        displayName: String = "",
+        idToken: String = ""
+    ): Result<UserAccountEntity> = withContext(Dispatchers.IO) {
+        if (idToken.isNotBlank()) {
+            signInFirebaseWithGoogleIdToken(idToken)
+        }
+        AuthRepository.signInWithGoogleAccount(
+            context = context,
+            dao = dao,
+            email = email,
+            displayName = displayName,
+            googleIdToken = idToken
+        )
+    }
+
+    suspend fun getSavedAccounts(): List<UserAccountEntity> = withContext(Dispatchers.IO) {
+        try {
+            dao.getAllSavedAccounts()
+        } catch (_: Throwable) {
+            emptyList()
+        }
+    }
+
+    /**
      * YouTube-style automatic Google Sign-In on first app launch or when the user taps "Continue with Google".
      *
-     * 1. If a user is already logged in locally (and `forceAccountSwitch == false`), keeps the session active.
-     * 2. Checks if the phone has one or more Google accounts via `AccountManager` or `FirebaseAuth` and
-     *    selects the FIRST Google account on the phone to log in / register automatically.
-     * 3. Attempts Android `CredentialManager` with `GetGoogleIdOption` (`autoSelectEnabled = true`).
-     * 4. If Google Sign-In fails or no Google account exists on the device, returns `UseEmailFallback`
-     *    prompting the user to "Use email instead" or register an account.
+     * 1. If a user is already logged in locally (and `forceInteractive == false`), keeps the session active.
+     * 2. Checks active `FirebaseAuth` user if already signed in.
+     * 3. Checks if the phone has a visible Google account via `AccountManager` and logs in / syncs with Firebase.
+     * 4. Attempts Android `CredentialManager` (`GetSignInWithGoogleOption` & `GetGoogleIdOption`) on the `Activity` context.
+     * 5. If `forceInteractive == true` and `CredentialManager` does not return a credential (e.g. on an emulator
+     *    or when SHA-1 is not yet added to Firebase Console), returns `PromptGoogleAccountSelection` so the UI
+     *    opens the Android System Google Account Picker or In-App Google Account Sign-In Sheet immediately.
      */
     suspend fun signInWithGoogleAutoOrPrimaryAccount(
         uiContext: Context = context,
@@ -151,90 +193,56 @@ class UserManager(
                 val email = currentFbUser.email!!.trim().lowercase()
                 val name = currentFbUser.displayName?.takeIf { it.isNotBlank() }
                     ?: deriveDisplayNameFromEmail(email)
-                val entity = UserAccountEntity(
-                    uid = currentFbUser.uid,
-                    realName = name,
+                val synced = AuthRepository.signInWithGoogleAccount(
+                    context = context,
+                    dao = dao,
                     email = email,
-                    passwordHash = "google_oauth_account",
-                    isLoggedIn = true,
-                    lastLoginAt = System.currentTimeMillis()
-                )
-                dao.logoutAllUsers()
-                dao.upsertUserAccount(entity)
-                return@withContext GoogleAutoSignInResult.Success(
-                    account = entity,
-                    autoSelectedPrimaryGoogleAccount = true
-                )
+                    displayName = name
+                ).getOrNull()
+                if (synced != null) {
+                    return@withContext GoogleAutoSignInResult.Success(
+                        account = synced,
+                        autoSelectedPrimaryGoogleAccount = true
+                    )
+                }
             }
 
-            // 2. Check device Google accounts (picks the FIRST Google account on the phone if multiple exist)
-            val deviceGoogleAccount = findFirstDeviceGoogleAccount(context)
+            // 2. Check device Google accounts visible via AccountManager (picks the FIRST Google account on the phone)
+            val deviceGoogleAccount = findFirstDeviceGoogleAccount(uiContext)
             if (deviceGoogleAccount != null) {
-                val existing = dao.getAccountByEmail(deviceGoogleAccount.email)
-                val entity = UserAccountEntity(
-                    uid = existing?.uid ?: "google_${UUID.nameUUIDFromBytes(deviceGoogleAccount.email.toByteArray()).toString().replace("-", "").take(16)}",
-                    realName = existing?.realName?.takeIf { it.isNotBlank() } ?: deviceGoogleAccount.displayName,
+                val synced = AuthRepository.signInWithGoogleAccount(
+                    context = context,
+                    dao = dao,
                     email = deviceGoogleAccount.email,
-                    passwordHash = existing?.passwordHash ?: "google_device_account",
-                    isLoggedIn = true,
-                    createdAt = existing?.createdAt ?: System.currentTimeMillis(),
-                    lastLoginAt = System.currentTimeMillis()
-                )
-                dao.logoutAllUsers()
-                dao.upsertUserAccount(entity)
-                return@withContext GoogleAutoSignInResult.Success(
-                    account = entity,
-                    autoSelectedPrimaryGoogleAccount = true
-                )
+                    displayName = deviceGoogleAccount.displayName
+                ).getOrNull()
+                if (synced != null) {
+                    return@withContext GoogleAutoSignInResult.Success(
+                        account = synced,
+                        autoSelectedPrimaryGoogleAccount = true
+                    )
+                }
             }
 
-            // 3. Query Android CredentialManager with autoSelectEnabled = true
-            val credentialManager = CredentialManager.create(uiContext)
-            val webClientId = resolveWebClientId(uiContext)
-            val googleIdOption = GetGoogleIdOption.Builder()
-                .setFilterByAuthorizedAccounts(false)
-                .setAutoSelectEnabled(true)
-                .setServerClientId(webClientId)
-                .build()
+            // 3. Query Android CredentialManager using the Activity context on Dispatchers.Main
+            val activity = findActivity(uiContext)
+            if (activity != null && (!isRunningOnEmulator() || forceInteractive)) {
+                val credResult = tryCredentialManagerGoogleSignIn(activity, forceInteractive)
+                if (credResult != null) {
+                    return@withContext GoogleAutoSignInResult.Success(
+                        account = credResult,
+                        autoSelectedPrimaryGoogleAccount = true
+                    )
+                }
+            }
 
-            val request = GetCredentialRequest.Builder()
-                .addCredentialOption(googleIdOption)
-                .build()
-
-            val result = credentialManager.getCredential(
-                request = request,
-                context = uiContext
-            )
-
-            val credential = result.credential
-            if (credential is CustomCredential &&
-                credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
-            ) {
-                val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(credential.data)
-                val email = googleIdTokenCredential.id.trim().lowercase()
-                val displayName = googleIdTokenCredential.displayName?.takeIf { it.isNotBlank() }
-                    ?: deriveDisplayNameFromEmail(email)
-                val idToken = googleIdTokenCredential.idToken
-
-                // Exchange with FirebaseAuth if available
-                val fbUid = signInFirebaseWithGoogleIdToken(idToken)
-                val uid = fbUid
-                    ?: "google_${UUID.nameUUIDFromBytes(email.toByteArray()).toString().replace("-", "").take(16)}"
-
-                val entity = UserAccountEntity(
-                    uid = uid,
-                    realName = displayName,
-                    email = email,
-                    passwordHash = "google_credential_manager",
-                    idToken = idToken,
-                    isLoggedIn = true,
-                    lastLoginAt = System.currentTimeMillis()
-                )
-                dao.logoutAllUsers()
-                dao.upsertUserAccount(entity)
-                return@withContext GoogleAutoSignInResult.Success(
-                    account = entity,
-                    autoSelectedPrimaryGoogleAccount = true
+            val savedAccounts = dao.getAllSavedAccounts()
+            if (forceInteractive) {
+                val firstSaved = savedAccounts.firstOrNull()
+                return@withContext GoogleAutoSignInResult.PromptGoogleAccountSelection(
+                    suggestedEmail = firstSaved?.email.orEmpty(),
+                    suggestedName = firstSaved?.realName.orEmpty(),
+                    savedAccounts = savedAccounts
                 )
             }
 
@@ -242,10 +250,97 @@ class UserManager(
                 "No Google account responded on this device. Use email instead, or register a new account below."
             )
         } catch (_: Throwable) {
-            GoogleAutoSignInResult.UseEmailFallback(
-                "Google Sign-In is unavailable on this device. Use email instead, or register a new account below."
-            )
+            val savedAccounts = try {
+                dao.getAllSavedAccounts()
+            } catch (_: Throwable) {
+                emptyList()
+            }
+            if (forceInteractive) {
+                val firstSaved = savedAccounts.firstOrNull()
+                GoogleAutoSignInResult.PromptGoogleAccountSelection(
+                    suggestedEmail = firstSaved?.email.orEmpty(),
+                    suggestedName = firstSaved?.realName.orEmpty(),
+                    savedAccounts = savedAccounts
+                )
+            } else {
+                GoogleAutoSignInResult.UseEmailFallback(
+                    "Google Sign-In is unavailable on this device. Use email instead, or register a new account below."
+                )
+            }
         }
+    }
+
+    private suspend fun tryCredentialManagerGoogleSignIn(
+        activity: Activity,
+        forceInteractive: Boolean
+    ): UserAccountEntity? {
+        val credentialManager = CredentialManager.create(activity)
+        val webClientId = resolveWebClientId(activity)
+
+        // Try explicit SignInWithGoogle option first when interactive, then One-Tap GetGoogleIdOption
+        val requests = buildList {
+            if (forceInteractive) {
+                try {
+                    val signInOption = GetSignInWithGoogleOption.Builder(webClientId).build()
+                    add(GetCredentialRequest.Builder().addCredentialOption(signInOption).build())
+                } catch (_: Throwable) {}
+            }
+            try {
+                val googleIdOption = GetGoogleIdOption.Builder()
+                    .setFilterByAuthorizedAccounts(false)
+                    .setAutoSelectEnabled(true)
+                    .setServerClientId(webClientId)
+                    .build()
+                add(GetCredentialRequest.Builder().addCredentialOption(googleIdOption).build())
+            } catch (_: Throwable) {}
+        }
+
+        for (request in requests) {
+            val response: GetCredentialResponse? = try {
+                withTimeoutOrNull(6000L) {
+                    withContext(Dispatchers.Main) {
+                        credentialManager.getCredential(
+                            context = activity,
+                            request = request
+                        )
+                    }
+                }
+            } catch (_: Throwable) {
+                null
+            }
+
+            val credential = response?.credential ?: continue
+            if (credential is CustomCredential &&
+                credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
+            ) {
+                val googleIdTokenCredential = try {
+                    GoogleIdTokenCredential.createFrom(credential.data)
+                } catch (_: Throwable) {
+                    null
+                } ?: continue
+
+                val email = googleIdTokenCredential.id.trim().lowercase()
+                val displayName = googleIdTokenCredential.displayName?.takeIf { it.isNotBlank() }
+                    ?: deriveDisplayNameFromEmail(email)
+                val idToken = googleIdTokenCredential.idToken
+
+                // Exchange with FirebaseAuth if available
+                signInFirebaseWithGoogleIdToken(idToken)
+
+                val synced = AuthRepository.signInWithGoogleAccount(
+                    context = context,
+                    dao = dao,
+                    email = email,
+                    displayName = displayName,
+                    googleIdToken = idToken
+                ).getOrNull()
+
+                if (synced != null) {
+                    return synced
+                }
+            }
+        }
+        return null
     }
 
     suspend fun signOut() = withContext(Dispatchers.IO) {
@@ -276,17 +371,7 @@ class UserManager(
     }
 
     private fun deriveDisplayNameFromEmail(email: String): String {
-        val localPart = email.substringBefore("@")
-            .replace(".", " ")
-            .replace("_", " ")
-            .replace("-", " ")
-            .trim()
-        if (localPart.isEmpty()) return "Neli Viewer"
-        return localPart.split(Regex("\\s+"))
-            .filter { it.isNotBlank() }
-            .joinToString(" ") { part ->
-                part.lowercase().replaceFirstChar { it.uppercase() }
-            }
+        return AuthRepository.deriveDisplayNameFromEmail(email)
     }
 
     private suspend fun tryFirebaseSdkSignUp(
@@ -393,11 +478,36 @@ class UserManager(
     }
 
     companion object {
-        private const val NELIPLAY_PROJECT_ID = "neliplay"
-        private const val NELIPLAY_APP_ID = "1:39702563643:android:7dfc69461cbc615483051e"
-        private const val NELIPLAY_RTDB_URL = "https://neliplay-default-rtdb.firebaseio.com"
-        private const val NELIPLAY_STORAGE_BUCKET = "neliplay.firebasestorage.app"
-        private const val NELIPLAY_GCM_SENDER_ID = "39702563643"
+        const val NELIPLAY_PROJECT_ID = "neliplay"
+        const val NELIPLAY_APP_ID = "1:39702563643:android:7dfc69461cbc615483051e"
+        const val NELIPLAY_RTDB_URL = "https://neliplay-default-rtdb.firebaseio.com"
+        const val NELIPLAY_STORAGE_BUCKET = "neliplay.firebasestorage.app"
+        const val NELIPLAY_GCM_SENDER_ID = "39702563643"
+        const val DEFAULT_WEB_CLIENT_ID = "39702563643-neliplay.apps.googleusercontent.com"
+
+        tailrec fun findActivity(context: Context?): Activity? {
+            return when (context) {
+                null -> null
+                is Activity -> context
+                is ContextWrapper -> findActivity(context.baseContext)
+                else -> null
+            }
+        }
+
+        fun isRunningOnEmulator(): Boolean {
+            return (Build.FINGERPRINT.startsWith("generic") ||
+                Build.FINGERPRINT.lowercase().contains("vbox") ||
+                Build.FINGERPRINT.lowercase().contains("test-keys") ||
+                Build.MODEL.contains("google_sdk") ||
+                Build.MODEL.lowercase().contains("emulator") ||
+                Build.MODEL.contains("Android SDK built for") ||
+                Build.MODEL.contains("sdk_gphone") ||
+                Build.MANUFACTURER.contains("Genymotion") ||
+                Build.HARDWARE.contains("goldfish") ||
+                Build.HARDWARE.contains("ranchu") ||
+                Build.PRODUCT.contains("sdk") ||
+                Build.PRODUCT.contains("emulator"))
+        }
 
         fun ensureFirebaseInitialized(context: Context) {
             try {
@@ -414,26 +524,23 @@ class UserManager(
                     .build()
                 FirebaseApp.initializeApp(context.applicationContext, options)
             } catch (_: Throwable) {
-                // Ignore if already initialized or if API key is not yet provided in Secrets
+                // Ignore if already initialized
             }
         }
 
         fun resolveWebClientId(context: Context): String {
             return try {
-                val resId = context.resources.getIdentifier(
-                    "default_web_client_id",
-                    "string",
-                    context.packageName
-                )
-                if (resId != 0) {
-                    context.getString(resId).trim().ifEmpty {
-                        "39702563643-neliplay.apps.googleusercontent.com"
+                val packagesToCheck = listOf(context.packageName, "com.example", "com.nelitv.app").distinct()
+                for (pkg in packagesToCheck) {
+                    val resId = context.resources.getIdentifier("default_web_client_id", "string", pkg)
+                    if (resId != 0) {
+                        val candidate = context.getString(resId).trim()
+                        if (candidate.isNotBlank()) return candidate
                     }
-                } else {
-                    "39702563643-neliplay.apps.googleusercontent.com"
                 }
+                DEFAULT_WEB_CLIENT_ID
             } catch (_: Throwable) {
-                "39702563643-neliplay.apps.googleusercontent.com"
+                DEFAULT_WEB_CLIENT_ID
             }
         }
     }

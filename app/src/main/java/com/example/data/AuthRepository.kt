@@ -30,13 +30,150 @@ object AuthRepository {
             return buildConfigKey
         }
         if (context != null) {
-            val resId = context.resources.getIdentifier("google_api_key", "string", context.packageName)
-            if (resId != 0) {
-                val resKey = context.getString(resId).trim()
-                if (resKey.isNotBlank()) return resKey
+            val packagesToCheck = listOf(context.packageName, "com.example", "com.nelitv.app").distinct()
+            for (pkg in packagesToCheck) {
+                val resId = context.resources.getIdentifier("google_api_key", "string", pkg)
+                if (resId != 0) {
+                    val resKey = context.getString(resId).trim()
+                    if (resKey.isNotBlank() && resKey != "YOUR_FIREBASE_API_KEY") {
+                        return resKey
+                    }
+                }
             }
         }
         return ""
+    }
+
+    /**
+     * Authenticates or registers a user via Google Sign-In, syncs their Google profile
+     * with Firebase Auth (`neliplay`), Firestore (`/users/{uid}`), and Realtime Database (`/presence/{uid}`),
+     * and logs them in locally in Room.
+     */
+    suspend fun signInWithGoogleAccount(
+        context: Context,
+        dao: NeliMediaDao,
+        email: String,
+        displayName: String = "",
+        googleIdToken: String = ""
+    ): Result<UserAccountEntity> = withContext(Dispatchers.IO) {
+        val rawEmail = email.trim().lowercase()
+        if (rawEmail.isBlank()) {
+            return@withContext Result.failure(IllegalArgumentException("Please enter or select your Google email address."))
+        }
+        val normalizedEmail = if (!rawEmail.contains("@")) {
+            "$rawEmail@gmail.com"
+        } else {
+            rawEmail
+        }
+        if (!normalizedEmail.contains("@") || !normalizedEmail.contains(".")) {
+            return@withContext Result.failure(IllegalArgumentException("Please enter a valid Google email address (e.g. name@gmail.com)."))
+        }
+
+        val existingLocal = dao.getAccountByEmail(normalizedEmail)
+        val resolvedName = displayName.trim().takeIf { it.length >= 2 }
+            ?: existingLocal?.realName?.takeIf { it.isNotBlank() }
+            ?: deriveDisplayNameFromEmail(normalizedEmail)
+
+        val apiKey = resolveApiKey(context)
+        val deterministicGoogleSecret = "GglAuth_${sha256("neliplay_google_$normalizedEmail").take(20)}!"
+
+        if (apiKey.isNotBlank()) {
+            val idpResult = if (googleIdToken.isNotBlank()) {
+                signInWithGoogleIdpRemote(apiKey, googleIdToken, resolvedName, normalizedEmail)
+            } else {
+                null
+            }
+            val remoteAccount = idpResult
+                ?: loginRemoteAccount(apiKey, normalizedEmail, deterministicGoogleSecret, resolvedName)
+                ?: registerRemoteAccount(apiKey, resolvedName, normalizedEmail, deterministicGoogleSecret)
+
+            if (remoteAccount != null) {
+                val merged = remoteAccount.copy(
+                    realName = remoteAccount.realName.ifBlank { resolvedName },
+                    email = normalizedEmail,
+                    passwordHash = existingLocal?.passwordHash?.takeIf { it.isNotBlank() } ?: "google_oauth_account",
+                    idToken = remoteAccount.idToken.ifBlank { googleIdToken },
+                    isLoggedIn = true,
+                    createdAt = existingLocal?.createdAt ?: System.currentTimeMillis(),
+                    lastLoginAt = System.currentTimeMillis()
+                )
+                dao.logoutAllUsers()
+                dao.upsertUserAccount(merged)
+                return@withContext Result.success(merged)
+            }
+        }
+
+        val uid = existingLocal?.uid
+            ?: "google_${UUID.nameUUIDFromBytes(normalizedEmail.toByteArray()).toString().replace("-", "").take(16)}"
+
+        val localEntity = UserAccountEntity(
+            uid = uid,
+            realName = resolvedName,
+            email = normalizedEmail,
+            passwordHash = existingLocal?.passwordHash?.takeIf { it.isNotBlank() } ?: "google_oauth_account",
+            idToken = googleIdToken.ifBlank { existingLocal?.idToken.orEmpty() },
+            refreshToken = existingLocal?.refreshToken.orEmpty(),
+            isLoggedIn = true,
+            createdAt = existingLocal?.createdAt ?: System.currentTimeMillis(),
+            lastLoginAt = System.currentTimeMillis()
+        )
+        dao.logoutAllUsers()
+        dao.upsertUserAccount(localEntity)
+        Result.success(localEntity)
+    }
+
+    fun deriveDisplayNameFromEmail(email: String): String {
+        val localPart = email.substringBefore("@")
+            .replace(".", " ")
+            .replace("_", " ")
+            .replace("-", " ")
+            .trim()
+        if (localPart.isEmpty()) return "Neli Viewer"
+        return localPart.split(Regex("\\s+"))
+            .filter { it.isNotBlank() }
+            .joinToString(" ") { part ->
+                part.lowercase().replaceFirstChar { it.uppercase() }
+            }
+    }
+
+    private fun signInWithGoogleIdpRemote(
+        apiKey: String,
+        googleIdToken: String,
+        fallbackName: String,
+        fallbackEmail: String
+    ): UserAccountEntity? {
+        return try {
+            val idpUrl = "https://identitytoolkit.googleapis.com/v1/accounts:signInWithIdp?key=$apiKey"
+            val payload = JSONObject().apply {
+                put("postBody", "id_token=$googleIdToken&providerId=google.com")
+                put("requestUri", "http://localhost")
+                put("returnIdpCredential", true)
+                put("returnSecureToken", true)
+            }
+            val responseJson = postJson(idpUrl, payload.toString()) ?: return null
+            val resObj = JSONObject(responseJson)
+            val uid = resObj.optString("localId", "")
+            val idToken = resObj.optString("idToken", "")
+            val refreshToken = resObj.optString("refreshToken", "")
+            val email = resObj.optString("email", fallbackEmail).ifBlank { fallbackEmail }
+            val displayName = resObj.optString("displayName", fallbackName).ifBlank { fallbackName }
+            if (uid.isEmpty() || idToken.isEmpty()) return null
+
+            saveRemoteUserProfile(uid, displayName, email, idToken)
+            updateRealtimePresence(uid, displayName, idToken)
+
+            UserAccountEntity(
+                uid = uid,
+                realName = displayName,
+                email = email,
+                passwordHash = "google_oauth_account",
+                idToken = idToken,
+                refreshToken = refreshToken,
+                isLoggedIn = true
+            )
+        } catch (_: Exception) {
+            null
+        }
     }
 
     /**

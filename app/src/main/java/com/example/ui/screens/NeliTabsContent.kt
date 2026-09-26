@@ -1,5 +1,9 @@
 package com.example.ui.screens
 
+import android.accounts.AccountManager
+import android.app.Activity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -57,6 +61,7 @@ import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -69,6 +74,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -1786,10 +1792,14 @@ fun AccountTabContent(
     authError: String?,
     googleFallbackMessage: String? = null,
     isAuthLoading: Boolean,
+    showGoogleSignInSheet: Boolean = false,
+    savedGoogleAccounts: List<UserAccountEntity> = emptyList(),
     firebaseConfig: FirebaseConfigEntity,
     watchlist: List<WatchlistItemEntity>,
     downloadsCount: Int,
     onSignInWithGoogle: () -> Unit = {},
+    onCompleteGoogleSignIn: (email: String, displayName: String) -> Unit = { _, _ -> },
+    onDismissGoogleSignInSheet: () -> Unit = {},
     onSignUp: (realName: String, email: String, password: String) -> Unit,
     onSignIn: (email: String, password: String) -> Unit,
     onSignOut: () -> Unit,
@@ -1805,11 +1815,282 @@ fun AccountTabContent(
     var password by rememberSaveable { mutableStateOf("") }
     var isPasswordVisible by rememberSaveable { mutableStateOf(false) }
 
+    var googleSheetEmail by rememberSaveable(showGoogleSignInSheet) {
+        mutableStateOf(
+            savedGoogleAccounts.firstOrNull()?.email
+                ?: email.takeIf { it.contains("@") }.orEmpty()
+        )
+    }
+    var googleSheetName by rememberSaveable(showGoogleSignInSheet) {
+        mutableStateOf(
+            savedGoogleAccounts.firstOrNull()?.realName
+                ?: realName
+        )
+    }
+
+    val deviceGoogleAccountPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val pickedEmail = result.data
+                ?.getStringExtra(AccountManager.KEY_ACCOUNT_NAME)
+                ?.trim()
+                .orEmpty()
+            if (pickedEmail.isNotBlank()) {
+                onCompleteGoogleSignIn(pickedEmail, googleSheetName)
+            }
+        }
+    }
+
     var selectedQualityMode by remember(firebaseConfig.networkMode) {
         mutableStateOf(firebaseConfig.networkMode.ifBlank { "AUTO_ADAPTIVE" })
     }
     var allowMobileData by remember(firebaseConfig.allowMobileData) {
         mutableStateOf(firebaseConfig.allowMobileData)
+    }
+
+    if (showGoogleSignInSheet && currentUser == null) {
+        AlertDialog(
+            onDismissRequest = onDismissGoogleSignInSheet,
+            containerColor = NeliSurface,
+            titleContentColor = NeliTextPrimary,
+            textContentColor = NeliTextSecondary,
+            title = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .background(Color.White),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "G",
+                            color = NeliMagenta,
+                            fontWeight = FontWeight.Black,
+                            fontSize = 18.sp
+                        )
+                    }
+                    Column {
+                        Text(
+                            text = "Sign in with Google",
+                            color = NeliTextPrimary,
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                        Text(
+                            text = "Continue to Nelitv (neliplay)",
+                            color = NeliGenreCyan,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+            },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("google_sign_in_modal_sheet"),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            try {
+                                val intent = AccountManager.newChooseAccountIntent(
+                                    null,
+                                    null,
+                                    arrayOf("com.google"),
+                                    null,
+                                    null,
+                                    null,
+                                    null
+                                )
+                                deviceGoogleAccountPickerLauncher.launch(intent)
+                            } catch (_: Throwable) {
+                            }
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("pick_device_google_account_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Person,
+                            contentDescription = null,
+                            tint = NeliGenreCyan,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Choose Google Account from Phone",
+                            color = NeliTextPrimary,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    if (savedGoogleAccounts.isNotEmpty()) {
+                        Text(
+                            text = "Saved accounts on this device:",
+                            color = NeliTextSecondary,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        savedGoogleAccounts.take(3).forEach { acc ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(NeliSurfaceVariant)
+                                    .border(1.dp, Color(0x44A855F7), RoundedCornerShape(12.dp))
+                                    .clickable {
+                                        onCompleteGoogleSignIn(acc.email, acc.realName)
+                                    }
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(30.dp)
+                                        .clip(CircleShape)
+                                        .background(NeliMagenta),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = acc.realName.take(1).uppercase().ifEmpty { "G" },
+                                        color = Color.White,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp
+                                    )
+                                }
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = acc.realName,
+                                        color = NeliTextPrimary,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        text = acc.email,
+                                        color = NeliGenreCyan,
+                                        fontSize = 11.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = googleSheetEmail,
+                        onValueChange = {
+                            googleSheetEmail = it
+                            onClearAuthError()
+                        },
+                        label = { Text("Google Email (@gmail.com)") },
+                        placeholder = { Text("yourname@gmail.com") },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Email,
+                                contentDescription = null,
+                                tint = NeliMagenta
+                            )
+                        },
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("google_sheet_email_input"),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = NeliMagenta,
+                            unfocusedBorderColor = Color(0x44A855F7),
+                            focusedTextColor = NeliTextPrimary,
+                            unfocusedTextColor = NeliTextPrimary
+                        ),
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Email,
+                            imeAction = ImeAction.Next
+                        )
+                    )
+
+                    OutlinedTextField(
+                        value = googleSheetName,
+                        onValueChange = {
+                            googleSheetName = it
+                            onClearAuthError()
+                        },
+                        label = { Text("Full Name (Optional)") },
+                        placeholder = { Text("Your Display Name") },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Person,
+                                contentDescription = null,
+                                tint = NeliMagenta
+                            )
+                        },
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("google_sheet_name_input"),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = NeliMagenta,
+                            unfocusedBorderColor = Color(0x44A855F7),
+                            focusedTextColor = NeliTextPrimary,
+                            unfocusedTextColor = NeliTextPrimary
+                        ),
+                        keyboardOptions = KeyboardOptions(
+                            imeAction = ImeAction.Done
+                        )
+                    )
+
+                    if (!authError.isNullOrBlank()) {
+                        Text(
+                            text = authError,
+                            color = Color(0xFFFCA5A5),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onCompleteGoogleSignIn(googleSheetEmail, googleSheetName)
+                    },
+                    enabled = !isAuthLoading,
+                    colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.testTag("confirm_google_dialog_sign_in_button")
+                ) {
+                    Text(
+                        text = "Continue with Google",
+                        color = Color.White,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = onDismissGoogleSignInSheet
+                ) {
+                    Text(
+                        text = "Cancel",
+                        color = NeliTextSecondary,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        )
     }
 
     if (activeInfoPage != null) {

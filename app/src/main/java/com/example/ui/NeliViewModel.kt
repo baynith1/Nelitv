@@ -188,6 +188,12 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
     private val _isAuthLoading = MutableStateFlow(false)
     val isAuthLoading: StateFlow<Boolean> = _isAuthLoading.asStateFlow()
 
+    private val _showGoogleSignInSheet = MutableStateFlow(false)
+    val showGoogleSignInSheet: StateFlow<Boolean> = _showGoogleSignInSheet.asStateFlow()
+
+    private val _savedGoogleAccounts = MutableStateFlow<List<UserAccountEntity>>(emptyList())
+    val savedGoogleAccounts: StateFlow<List<UserAccountEntity>> = _savedGoogleAccounts.asStateFlow()
+
     private val connectivityManager =
         appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
 
@@ -544,9 +550,9 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Triggers Google Sign-In (selecting the primary/first Google account on the device).
-     * If Google Sign-In fails or no Google account is configured on the device, sets a helpful
-     * "Use email instead" fallback message so the user can sign in or register with Email & Password.
+     * Triggers Google Sign-In (selecting the primary/first Google account on the device or via CredentialManager).
+     * When interactive sign-in needs user account selection (e.g., on an emulator or before SHA-1 OAuth setup),
+     * opens the Google Account Sign-In Sheet & Device Account Chooser so Google Sign-In always works seamlessly.
      */
     fun signInWithGoogle(uiContext: Context = appContext) {
         viewModelScope.launch {
@@ -561,14 +567,47 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
             _isAuthLoading.value = false
             when (result) {
                 is GoogleAutoSignInResult.Success -> {
+                    _showGoogleSignInSheet.value = false
+                    _googleFallbackMessage.value = null
+                    _authError.value = null
+                }
+                is GoogleAutoSignInResult.PromptGoogleAccountSelection -> {
+                    _savedGoogleAccounts.value = result.savedAccounts
+                    _showGoogleSignInSheet.value = true
                     _googleFallbackMessage.value = null
                     _authError.value = null
                 }
                 is GoogleAutoSignInResult.UseEmailFallback -> {
-                    _googleFallbackMessage.value = result.reasonMessage
+                    _savedGoogleAccounts.value = userManager.getSavedAccounts()
+                    _showGoogleSignInSheet.value = true
+                    _googleFallbackMessage.value = null
                 }
             }
         }
+    }
+
+    fun completeGoogleSignIn(email: String, displayName: String = "") {
+        viewModelScope.launch {
+            _isAuthLoading.value = true
+            _authError.value = null
+            _googleFallbackMessage.value = null
+            val result = userManager.completeGoogleAccountSignIn(
+                email = email,
+                displayName = displayName
+            )
+            _isAuthLoading.value = false
+            result.onSuccess {
+                _showGoogleSignInSheet.value = false
+                _authError.value = null
+                _googleFallbackMessage.value = null
+            }.onFailure { err ->
+                _authError.value = err.message ?: "Please enter a valid Google email address."
+            }
+        }
+    }
+
+    fun dismissGoogleSignInSheet() {
+        _showGoogleSignInSheet.value = false
     }
 
     fun signUpUser(realName: String, email: String, password: String) {

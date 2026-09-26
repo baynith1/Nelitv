@@ -142,6 +142,26 @@ class ExampleRobolectricTest {
         )
         assertTrue(signInRes.isSuccess)
         assertEquals("Juma Bakari", signInRes.getOrNull()?.realName)
+
+        // Verify Google Sign-In flow and google-services.json key resolution
+        val resolvedFirebaseKey = com.example.data.AuthRepository.resolveApiKey(context)
+        assertTrue("Expected non-blank Firebase API key from google-services.json or BuildConfig", resolvedFirebaseKey.isNotBlank())
+        val resolvedWebClientId = com.example.data.UserManager.resolveWebClientId(context)
+        assertTrue(resolvedWebClientId.contains("39702563643"))
+
+        dao.logoutAllUsers()
+        val googleSignInRes = com.example.data.AuthRepository.signInWithGoogleAccount(
+            context = context,
+            dao = dao,
+            email = "aibaynith@gmail.com",
+            displayName = "Alex Michael Baineth"
+        )
+        assertTrue(googleSignInRes.isSuccess)
+        val googleUser = googleSignInRes.getOrNull()
+        assertNotNull(googleUser)
+        assertEquals("aibaynith@gmail.com", googleUser!!.email)
+        assertEquals("Alex Michael Baineth", googleUser.realName)
+        assertTrue(googleUser.isLoggedIn)
         db.close()
     }
 

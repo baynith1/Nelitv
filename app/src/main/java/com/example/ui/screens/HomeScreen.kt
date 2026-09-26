@@ -123,6 +123,8 @@ fun HomeScreen(
     val authError by neliViewModel.authError.collectAsState()
     val googleFallbackMessage by neliViewModel.googleFallbackMessage.collectAsState()
     val isAuthLoading by neliViewModel.isAuthLoading.collectAsState()
+    val showGoogleSignInSheet by neliViewModel.showGoogleSignInSheet.collectAsState()
+    val savedGoogleAccounts by neliViewModel.savedGoogleAccounts.collectAsState()
 
     // Automatic Google Sign-In on first launch using the Activity context
     LaunchedEffect(Unit) {
@@ -445,11 +447,19 @@ fun HomeScreen(
                         authError = authError,
                         googleFallbackMessage = googleFallbackMessage,
                         isAuthLoading = isAuthLoading,
+                        showGoogleSignInSheet = showGoogleSignInSheet,
+                        savedGoogleAccounts = savedGoogleAccounts,
                         firebaseConfig = firebaseConfig,
                         watchlist = watchlist,
                         downloadsCount = downloads.size,
                         onSignInWithGoogle = {
                             neliViewModel.signInWithGoogle(context)
+                        },
+                        onCompleteGoogleSignIn = { googleEmail, googleName ->
+                            neliViewModel.completeGoogleSignIn(googleEmail, googleName)
+                        },
+                        onDismissGoogleSignInSheet = {
+                            neliViewModel.dismissGoogleSignInSheet()
                         },
                         onSignUp = { realName, email, password ->
                             neliViewModel.signUpUser(realName, email, password)
