@@ -153,6 +153,8 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         registerConnectivityMonitor()
+        com.example.notifications.NeliNotificationScheduler.scheduleAllDailyNotifications(appContext)
+        com.example.widget.NeliHomeWidgetProvider.updateAllWidgets(appContext)
 
         // 1. YouTube-style automatic Google Sign-In on first launch if no account is signed in yet
         viewModelScope.launch {
@@ -170,6 +172,7 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
                 apiKey = apiKey,
                 projectId = MediaContentRepository.DEFAULT_PROJECT_ID
             )
+            com.example.widget.NeliHomeWidgetProvider.updateAllWidgets(appContext)
         }
     }
 
@@ -254,6 +257,37 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
             context = appContext,
             dao = dao,
             item = item
+        )
+    }
+
+    /**
+     * Enqueues multiple Series episodes for simultaneous background multi-download.
+     */
+    fun addMultipleEpisodeDownloads(
+        episodes: List<EpisodeItem>,
+        seriesTitle: String,
+        seriesPoster: String
+    ) {
+        val entities = episodes.map { episode ->
+            DownloadedItemEntity(
+                id = episode.id,
+                title = "$seriesTitle • S${episode.seasonNumber}E${episode.episodeNumber}: ${episode.name}",
+                type = "series",
+                posterUrl = episode.stillPath.ifBlank { seriesPoster },
+                backdropUrl = episode.stillPath.ifBlank { seriesPoster },
+                streamUrl = ChannelRepository.normalizeDashStreamUrl(episode.streamUrl),
+                genre = if (episode.narrated) "Series • ${episode.narrationLanguage}" else "Series",
+                duration = episode.durationLabel,
+                rating = "HD",
+                fileSizeLabel = "Starting download • 1%",
+                downloadStatus = "DOWNLOADING",
+                progressPercent = 1
+            )
+        }
+        OfflineDownloadManager.enqueueMultipleBackgroundDownloads(
+            context = appContext,
+            dao = dao,
+            items = entities
         )
     }
 

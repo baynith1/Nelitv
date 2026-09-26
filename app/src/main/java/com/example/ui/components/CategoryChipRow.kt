@@ -27,7 +27,6 @@ import androidx.compose.material.icons.filled.SportsSoccer
 import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -40,10 +39,9 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.ui.theme.NeliCyan
-import com.example.ui.theme.NeliSurface
+import com.example.ui.theme.NeliBorder
+import com.example.ui.theme.NeliMagenta
 import com.example.ui.theme.NeliSurfaceVariant
-import com.example.ui.theme.NeliTextPrimary
 import com.example.ui.theme.NeliTextSecondary
 
 @Composable
@@ -79,24 +77,24 @@ fun CategoryChip(
     modifier: Modifier = Modifier
 ) {
     val bgColor by animateColorAsState(
-        targetValue = if (isSelected) NeliCyan else NeliSurfaceVariant,
+        targetValue = if (isSelected) NeliMagenta else NeliSurfaceVariant,
         label = "chip_bg"
     )
     val contentColor by animateColorAsState(
-        targetValue = if (isSelected) Color(0xFF030712) else NeliTextSecondary,
+        targetValue = if (isSelected) Color.White else NeliTextSecondary,
         label = "chip_content"
     )
-    val borderColor = if (isSelected) NeliCyan else Color(0xFF334155)
+    val borderColor = if (isSelected) NeliMagenta else NeliBorder
 
     Box(
         modifier = modifier
             .testTag("category_chip_$title")
-            .height(48.dp)
-            .clip(RoundedCornerShape(24.dp))
+            .height(44.dp)
+            .clip(RoundedCornerShape(22.dp))
             .background(bgColor)
-            .border(1.dp, borderColor, RoundedCornerShape(24.dp))
+            .border(1.dp, borderColor, RoundedCornerShape(22.dp))
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp),
+            .padding(horizontal = 15.dp),
         contentAlignment = Alignment.Center
     ) {
         Row(
@@ -107,13 +105,13 @@ fun CategoryChip(
                 imageVector = icon,
                 contentDescription = null,
                 tint = contentColor,
-                modifier = Modifier.size(18.dp)
+                modifier = Modifier.size(16.dp)
             )
             Text(
                 text = title,
                 color = contentColor,
-                fontSize = 14.sp,
-                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                fontSize = 13.sp,
+                fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium
             )
         }
     }
@@ -122,6 +120,7 @@ fun CategoryChip(
 private fun getCategoryIcon(category: String): ImageVector {
     return when (category.lowercase()) {
         "all" -> Icons.Default.Layers
+        "azam tv", "azam" -> Icons.Default.Tv
         "sports" -> Icons.Default.SportsSoccer
         "entertainment" -> Icons.Default.Tv
         "movies" -> Icons.Default.Movie

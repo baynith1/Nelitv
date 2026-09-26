@@ -23,7 +23,6 @@ import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -41,8 +40,10 @@ import androidx.compose.ui.unit.sp
 import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
 import com.example.model.LiveChannel
-import com.example.ui.theme.NeliCyan
+import com.example.ui.theme.NeliBorder
+import com.example.ui.theme.NeliGenreCyan
 import com.example.ui.theme.NeliLiveRed
+import com.example.ui.theme.NeliMagenta
 import com.example.ui.theme.NeliSurface
 import com.example.ui.theme.NeliSurfaceVariant
 import com.example.ui.theme.NeliTextPrimary
@@ -60,20 +61,24 @@ fun ChannelCard(
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .clickable(onClick = onClick)
-            .border(1.dp, Color(0xFF1E293B), RoundedCornerShape(16.dp)),
+            .border(1.dp, NeliBorder, RoundedCornerShape(16.dp)),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
             containerColor = NeliSurface
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
-            // Thumbnail container with overlays
+            // Dedicated Dark Broadcast Stage for Channel Logo
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(16f / 9f)
-                    .background(Color(0xFF0B132B))
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(Color(0xFF0A0D16), Color(0xFF121726))
+                        )
+                    )
             ) {
                 SubcomposeAsyncImage(
                     model = ImageRequest.Builder(LocalContext.current)
@@ -84,7 +89,7 @@ fun ChannelCard(
                     contentScale = ContentScale.Fit,
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(12.dp),
+                        .padding(14.dp),
                     loading = {
                         Box(
                             modifier = Modifier.fillMaxSize(),
@@ -93,8 +98,8 @@ fun ChannelCard(
                             Icon(
                                 imageVector = Icons.Default.Tv,
                                 contentDescription = null,
-                                tint = Color(0xFF334155),
-                                modifier = Modifier.size(36.dp)
+                                tint = NeliTextSecondary.copy(alpha = 0.4f),
+                                modifier = Modifier.size(34.dp)
                             )
                         }
                     },
@@ -110,8 +115,8 @@ fun ChannelCard(
                                 Icon(
                                     imageVector = Icons.Default.Tv,
                                     contentDescription = null,
-                                    tint = NeliCyan.copy(alpha = 0.6f),
-                                    modifier = Modifier.size(36.dp)
+                                    tint = NeliMagenta.copy(alpha = 0.7f),
+                                    modifier = Modifier.size(34.dp)
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
@@ -125,40 +130,27 @@ fun ChannelCard(
                     }
                 )
 
-                // Subtle gradient overlay at bottom
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(36.dp)
-                        .align(Alignment.BottomCenter)
-                        .background(
-                            Brush.verticalGradient(
-                                colors = listOf(Color.Transparent, Color(0x99080C15))
-                            )
-                        )
-                )
-
                 // Format badge (DASH / HLS) at top-left
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopStart)
                         .padding(8.dp)
                         .clip(RoundedCornerShape(6.dp))
-                        .background(Color(0xCC030712))
-                        .border(0.5.dp, Color(0xFF334155), RoundedCornerShape(6.dp))
+                        .background(Color(0xCC090A0F))
+                        .border(0.5.dp, NeliBorder, RoundedCornerShape(6.dp))
                         .padding(horizontal = 6.dp, vertical = 3.dp)
                 ) {
                     val formatLabel = when {
                         channel.isMp4 -> "CDN • MP4"
-                        channel.isDash -> if (channel.isClearKey) "DASH • DRM" else "DASH"
-                        else -> "HLS"
+                        channel.isDash -> if (channel.isClearKey) "AZAM HD" else "DASH"
+                        else -> "LIVE HD"
                     }
 
                     Text(
                         text = formatLabel,
-                        color = NeliCyan,
+                        color = NeliGenreCyan,
                         fontSize = 9.sp,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.ExtraBold
                     )
                 }
 
@@ -176,63 +168,48 @@ fun ChannelCard(
                     .fillMaxWidth()
                     .padding(12.dp)
             ) {
-                // Channel Name
-                Text(
-                    text = channel.name,
-                    color = NeliTextPrimary,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-
-                Spacer(modifier = Modifier.height(4.dp))
-
-                // Category and Language
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = channel.category,
-                        color = NeliCyan,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium
-                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = channel.name,
+                            color = NeliTextPrimary,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "${channel.category} • ${channel.language.uppercase()}",
+                            color = NeliTextSecondary,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
 
-                    Text(
-                        text = channel.language,
-                        color = NeliTextSecondary,
-                        fontSize = 11.sp
-                    )
-                }
+                    Spacer(modifier = Modifier.width(8.dp))
 
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // Tap to watch bar
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(NeliSurfaceVariant)
-                        .padding(horizontal = 10.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.PlayArrow,
-                        contentDescription = "Watch",
-                        tint = NeliCyan,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = "Tap to watch",
-                        color = NeliTextPrimary,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .background(NeliSurfaceVariant)
+                            .border(1.dp, NeliBorder, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PlayArrow,
+                            contentDescription = "Watch ${channel.name}",
+                            tint = NeliMagenta,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
                 }
             }
         }

@@ -2,6 +2,7 @@ package com.example
 
 import android.Manifest
 import android.app.PictureInPictureParams
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.os.Build
@@ -28,15 +29,25 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
+import com.example.data.ChannelRepository
+import com.example.data.MediaContentRepository
 import com.example.model.LiveChannel
+import com.example.notifications.NeliNotificationScheduler
 import com.example.player.LivePlayerController
 import com.example.player.NativeLogSuppressor
 import com.example.ui.components.FloatingPipPlayerOverlay
 import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.PlayerScreen
 import com.example.ui.theme.NeliTVTheme
+import com.example.widget.NeliHomeWidgetProvider
 
 class MainActivity : ComponentActivity() {
+
+    companion object {
+        const val EXTRA_LAUNCH_CHANNEL_ID = "extra_launch_channel_id"
+        const val EXTRA_LAUNCH_MEDIA_ID = "extra_launch_media_id"
+        const val EXTRA_LAUNCH_TAB = "extra_launch_tab"
+    }
 
     init {
         NativeLogSuppressor.suppressNonFatalNativeLogs()
@@ -44,22 +55,60 @@ class MainActivity : ComponentActivity() {
 
     private var isSystemInPipMode by mutableStateOf(false)
     private var hasActivePlaybackForPip by mutableStateOf(false)
+    private var pendingLaunchChannelId by mutableStateOf<String?>(null)
+    private var pendingLaunchMovieId by mutableStateOf<String?>(null)
+    private var pendingLaunchTab by mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         NativeLogSuppressor.suppressNonFatalNativeLogs()
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        NeliNotificationScheduler.scheduleAllDailyNotifications(this)
+        NeliHomeWidgetProvider.updateAllWidgets(this)
+        extractDeepLinkFromIntent(intent)
+
         setContent {
             NeliTVTheme {
                 NeliApp(
                     isSystemInPipMode = isSystemInPipMode,
+                    pendingChannelId = pendingLaunchChannelId,
+                    pendingMovieId = pendingLaunchMovieId,
+                    pendingTab = pendingLaunchTab,
+                    onConsumeDeepLink = {
+                        pendingLaunchChannelId = null
+                        pendingLaunchMovieId = null
+                        pendingLaunchTab = null
+                    },
                     onActivePlaybackChanged = { isActive ->
                         hasActivePlaybackForPip = isActive
                         updateSystemPipParams(isActive)
+                    },
+                    onRequestSystemPipOutsideApp = {
+                        enterSystemPipIfSupported()
                     }
                 )
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        extractDeepLinkFromIntent(intent)
+    }
+
+    private fun extractDeepLinkFromIntent(intent: Intent?) {
+        if (intent == null) return
+        val channelId = intent.getStringExtra(EXTRA_LAUNCH_CHANNEL_ID)
+            ?.takeIf { it.isNotBlank() }
+        val movieId = intent.getStringExtra(EXTRA_LAUNCH_MEDIA_ID)
+            ?.takeIf { it.isNotBlank() }
+        val tab = intent.getStringExtra(EXTRA_LAUNCH_TAB)
+            ?.takeIf { it.isNotBlank() }
+
+        if (channelId != null) pendingLaunchChannelId = channelId
+        if (movieId != null) pendingLaunchMovieId = movieId
+        if (tab != null) pendingLaunchTab = tab
     }
 
     private fun updateSystemPipParams(isActive: Boolean) {
@@ -96,8 +145,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        // Automatically enter Picture-in-Picture mode when user presses Home while watching a movie, series, or live TV
-        if (hasActivePlaybackForPip && !isInPictureInPictureMode) {
+        // Automatically enter OS Picture-in-Picture mode ONLY when user leaves the app via Home button
+        // or switches to another app (such as opening an incoming SMS or WhatsApp message notification).
+        // Never triggered by the Back button and never shown as an in-app overlay inside NeliPlay!
+        if (hasActivePlaybackForPip && !isInPictureInPictureMode && !isFinishing) {
             enterSystemPipIfSupported()
         }
     }
@@ -114,11 +165,16 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun NeliApp(
     isSystemInPipMode: Boolean = false,
-    onActivePlaybackChanged: (Boolean) -> Unit = {}
+    pendingChannelId: String? = null,
+    pendingMovieId: String? = null,
+    pendingTab: String? = null,
+    onConsumeDeepLink: () -> Unit = {},
+    onActivePlaybackChanged: (Boolean) -> Unit = {},
+    onRequestSystemPipOutsideApp: () -> Unit = {}
 ) {
     val context = LocalContext.current
 
-    // Request notification permission on Android 13+ so background downloads display live progress bar notifications outside the app
+    // Request notification permission on Android 13+ so daily EAT notifications & background downloads work reliably
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
         onResult = { }
@@ -136,12 +192,10 @@ fun NeliApp(
         }
     }
 
-    // Active channel currently playing (either full-screen or in floating PiP)
+    // Active channel currently playing in full-screen PlayerScreen or outside-app OS PiP
     var activeChannel by remember { mutableStateOf<LiveChannel?>(null) }
-    // Whether the player is minimized into the in-app draggable & corner-resizable floating PiP overlay
-    var isFloatingPipMinimized by remember { mutableStateOf(false) }
 
-    // Shared LivePlayerController persists across Full-Screen PlayerScreen, In-App Floating PiP, and System Home PiP
+    // Shared LivePlayerController persists across Full-Screen PlayerScreen and Outside-App System PiP
     var sharedPlayerController by remember { mutableStateOf<LivePlayerController?>(null) }
 
     DisposableEffect(Unit) {
@@ -165,25 +219,45 @@ fun NeliApp(
             existing.switchChannel(selected)
         }
         activeChannel = selected
-        isFloatingPipMinimized = false
     }
 
     val closeAndReleasePlayback: () -> Unit = {
+        // Immediately disable system PiP auto-enter before closing so Back navigation never triggers PiP
+        onActivePlaybackChanged(false)
         sharedPlayerController?.release()
         sharedPlayerController = null
         activeChannel = null
-        isFloatingPipMinimized = false
     }
 
-    // If Android System PiP is active (e.g. user pressed Home button to watch over other apps),
-    // render the dedicated PiP surface with content-specific controls
+    // Handle deep links from Home Screen Widget or Daily Notification taps
+    LaunchedEffect(pendingChannelId, pendingMovieId) {
+        if (!pendingChannelId.isNullOrBlank()) {
+            val matchedChannel = ChannelRepository.getChannelById(pendingChannelId)
+                ?: ChannelRepository.liveChannelsFlow.value.firstOrNull { ch ->
+                    ch.id.equals(pendingChannelId, ignoreCase = true) ||
+                        ch.name.contains(pendingChannelId.replace("-", " "), ignoreCase = true)
+                }
+            if (matchedChannel != null) {
+                startOrSwitchChannel(matchedChannel)
+                onConsumeDeepLink()
+            }
+        } else if (!pendingMovieId.isNullOrBlank()) {
+            val matchedMovie = MediaContentRepository.getMediaById(pendingMovieId)
+                ?: MediaContentRepository.getLatest2026NonAdultMovies(3).firstOrNull()
+            if (matchedMovie != null && matchedMovie.streamUrl.isNotBlank()) {
+                startOrSwitchChannel(matchedMovie.toPlayableChannel())
+                onConsumeDeepLink()
+            }
+        }
+    }
+
+    // PiP is strictly ONLY supported OUTSIDE the app via Android System PiP (when user presses Home or switches to SMS/WhatsApp).
+    // Never render a floating PiP overlay inside the NeliPlay app UI!
     val controller = sharedPlayerController
     if (isSystemInPipMode && activeChannel != null && controller != null) {
         FloatingPipPlayerOverlay(
             playerController = controller,
-            onExpandToFullScreen = {
-                isFloatingPipMinimized = false
-            },
+            onExpandToFullScreen = {},
             onClosePip = closeAndReleasePlayback,
             isSystemPipMode = true
         )
@@ -191,7 +265,7 @@ fun NeliApp(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        val showFullPlayer = activeChannel != null && !isFloatingPipMinimized && controller != null
+        val showFullPlayer = activeChannel != null && controller != null
 
         AnimatedContent(
             targetState = showFullPlayer,
@@ -204,18 +278,13 @@ fun NeliApp(
                 PlayerScreen(
                     channel = currentChan,
                     onBack = {
-                        // Live TV stops when user explicitly backs out of the watch page (unless they tapped PiP)
-                        if (currentChan.isLiveBroadcast) {
-                            closeAndReleasePlayback()
-                        } else {
-                            // Minimize Movies/Series/Adult into the floating draggable & corner-resizable PiP player
-                            isFloatingPipMinimized = true
-                        }
+                        // Back button NEVER triggers PiP; it cleanly stops playback and returns to the previous screen.
+                        closeAndReleasePlayback()
                     },
                     sharedController = currentCtrl,
                     onEnterPipMode = {
-                        // Switch any stream (including Live TV, Movies, Series, Adult) into floating PiP mode
-                        isFloatingPipMinimized = true
+                        // Enters Android OS Picture-in-Picture mode OUTSIDE the app (never inside the app)
+                        onRequestSystemPipOutsideApp()
                     }
                 )
             } else {
@@ -225,18 +294,6 @@ fun NeliApp(
                     }
                 )
             }
-        }
-
-        // Draggable & Corner-Resizable Floating PiP Player when minimized inside the app
-        if (activeChannel != null && isFloatingPipMinimized && controller != null) {
-            FloatingPipPlayerOverlay(
-                playerController = controller,
-                onExpandToFullScreen = {
-                    isFloatingPipMinimized = false
-                },
-                onClosePip = closeAndReleasePlayback,
-                isSystemPipMode = false
-            )
         }
     }
 }

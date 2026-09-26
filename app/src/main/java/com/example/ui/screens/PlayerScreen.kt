@@ -239,7 +239,7 @@ fun PlayerScreen(
             }
             window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             insetsController?.show(WindowInsetsCompat.Type.systemBars())
-            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         }
     }
 
@@ -291,7 +291,7 @@ fun PlayerScreen(
             activity?.window?.let { win ->
                 WindowCompat.getInsetsController(win, view).show(WindowInsetsCompat.Type.systemBars())
             }
-            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
             onBack()
         }
     }
@@ -515,20 +515,15 @@ fun PlayerScreen(
                             }
                         }
 
-                        // Floating PiP Mode Button
+                        // Outside-App System PiP Mode Button
                         if (onEnterPipMode != null) {
                             Box(
                                 modifier = Modifier
                                     .testTag("player_pip_button")
                                     .clip(RoundedCornerShape(20.dp))
-                                    .background(Color(0xAA2B1055))
+                                    .background(Color(0xCC121520))
                                     .border(1.dp, NeliGenreCyan.copy(alpha = 0.7f), RoundedCornerShape(20.dp))
                                     .clickable {
-                                        activity?.window?.let { win ->
-                                            WindowCompat.getInsetsController(win, view)
-                                                .show(WindowInsetsCompat.Type.systemBars())
-                                        }
-                                        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
                                         onEnterPipMode()
                                     }
                                     .padding(horizontal = 12.dp, vertical = 8.dp)
@@ -539,7 +534,7 @@ fun PlayerScreen(
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.PictureInPictureAlt,
-                                        contentDescription = "PiP Mode",
+                                        contentDescription = "Outside App PiP Mode",
                                         tint = NeliGenreCyan,
                                         modifier = Modifier.size(16.dp)
                                     )

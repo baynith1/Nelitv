@@ -5,6 +5,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -604,31 +605,21 @@ private fun AzamLiveTvHeroSlider(
     val pagerState = rememberPagerState(pageCount = { channels.size })
     val coroutineScope = rememberCoroutineScope()
 
-    LaunchedEffect(channels.size) {
-        if (channels.size > 1) {
-            while (true) {
-                delay(4000L)
-                if (!pagerState.isScrollInProgress && channels.size > 1) {
-                    val nextPage = (pagerState.currentPage + 1) % channels.size
-                    runCatching {
-                        pagerState.animateScrollToPage(nextPage)
-                    }
-                }
-            }
-        }
-    }
-
-    Column(
+    // Keep the Live TV hero slider stable without timer-forced BringIntoView jumps while scrolling.
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
             .padding(bottom = 6.dp)
             .testTag("live_tv_azam_slider")
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(176.dp)
-        ) {
+        val isTablet = maxWidth >= 600.dp
+        val sliderHeight = if (isTablet) 220.dp else 176.dp
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(sliderHeight)
+            ) {
             HorizontalPager(
                 state = pagerState,
                 pageSpacing = 12.dp,
@@ -642,14 +633,12 @@ private fun AzamLiveTvHeroSlider(
                         .clip(RoundedCornerShape(20.dp))
                         .background(
                             Brush.linearGradient(
-                                colors = listOf(Color(0xFF280B54), Color(0xFF0E172A))
+                                colors = listOf(Color(0xFF141824), Color(0xFF0A0D14))
                             )
                         )
                         .border(
                             width = 1.dp,
-                            brush = Brush.horizontalGradient(
-                                colors = listOf(NeliMagenta, NeliGenreCyan)
-                            ),
+                            color = Color(0x28FFFFFF),
                             shape = RoundedCornerShape(20.dp)
                         )
                         .clickable { onChannelSelected(ch) }
@@ -662,11 +651,11 @@ private fun AzamLiveTvHeroSlider(
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(110.dp)
+                                .size(106.dp)
                                 .clip(RoundedCornerShape(16.dp))
-                                .background(Color(0xFF090D16))
-                                .border(1.dp, Color(0x33FFFFFF), RoundedCornerShape(16.dp))
-                                .padding(10.dp),
+                                .background(Color(0xFF080A10))
+                                .border(1.dp, Color(0x24FFFFFF), RoundedCornerShape(16.dp))
+                                .padding(12.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             SubcomposeAsyncImage(
@@ -833,6 +822,7 @@ private fun AzamLiveTvHeroSlider(
                         }
                 )
             }
+        }
         }
     }
 }
@@ -1603,11 +1593,12 @@ fun AccountTabContent(
                     }
                 }
 
-                // Quality options row
+                // Quality options row (including Low Bando Saver)
                 val qualityModes = listOf(
-                    "AUTO_ADAPTIVE" to "Auto Quality",
-                    "LOW_DATA" to "Data Saver (360p)",
-                    "HIGH_HD" to "Full HD (720p/1080p)"
+                    "AUTO_ADAPTIVE" to "Auto",
+                    "ULTRA_LOW_BANDO_SAVER" to "Low Bando",
+                    "LOW_DATA" to "360p Saver",
+                    "HIGH_HD" to "Full HD"
                 )
 
                 Row(
@@ -1687,6 +1678,103 @@ fun AccountTabContent(
                             checkedTrackColor = NeliMagenta
                         )
                     )
+                }
+            }
+        }
+
+        // Firestore config/azam_token Status & Daily Notifications Preview Card
+        item {
+            val context = LocalContext.current
+            val scope = rememberCoroutineScope()
+            var syncStatusMessage by remember { mutableStateOf<String?>(null) }
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(NeliSurface)
+                    .border(1.dp, Color(0x26FFFFFF), RoundedCornerShape(20.dp))
+                    .padding(16.dp)
+                    .testTag("azam_token_and_notifications_card"),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    text = "Azam TV Cloud Token & Daily Alerts (EAT)",
+                    color = NeliTextPrimary,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.ExtraBold
+                )
+                Text(
+                    text = "Firestore: collection 'config' → document 'azam_token'. Even when 'exp' is null or a Date/Timestamp in Firebase, the app automatically reads the expiration inside your JWT token string.",
+                    color = NeliTextSecondary,
+                    fontSize = 11.sp,
+                    lineHeight = 15.sp
+                )
+                Text(
+                    text = "Active Host: ${ChannelRepository.AZAM_CDN_HOST} • Exp Epoch: ${ChannelRepository.AZAM_CDN_EXP}",
+                    color = NeliGenreCyan,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+
+                if (!syncStatusMessage.isNullOrBlank()) {
+                    Text(
+                        text = syncStatusMessage!!,
+                        color = Color(0xFF10B981),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            scope.launch {
+                                val ok = com.example.data.MediaContentRepository.syncCdnTokenFromFirebase()
+                                syncStatusMessage = if (ok) {
+                                    "Synced config/azam_token from Firebase! (Exp: ${ChannelRepository.AZAM_CDN_EXP})"
+                                } else {
+                                    "Using active JWT token (Exp: ${ChannelRepository.AZAM_CDN_EXP})"
+                                }
+                            }
+                        },
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("sync_azam_token_now_button")
+                    ) {
+                        Text(
+                            text = "Sync Token Now",
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    Button(
+                        onClick = {
+                            com.example.notifications.NeliNotificationScheduler.dispatchNotificationForSlot(
+                                context,
+                                com.example.notifications.NeliNotificationScheduler.SLOT_AFTERNOON_AZAM_LIVE
+                            )
+                            syncStatusMessage = "Sent Saa 10 (16:00 EAT) Azam Sports 1 HD & ZBC2 notifications!"
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("test_live_tv_notification_button")
+                    ) {
+                        Text(
+                            text = "Test Saa 10 Alert",
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
         }

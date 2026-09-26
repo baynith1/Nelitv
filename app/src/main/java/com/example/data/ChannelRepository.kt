@@ -583,16 +583,76 @@ object ChannelRepository {
             .sortedByDescending { it.priorityTier }
 
     /**
+     * Automatically extracts the `exp` (expiration epoch seconds) embedded inside an Azam TV JWT token
+     * (`eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJleHAiOiIxNzkwNDEyNTgyIi...`), so even if `exp` is `null`
+     * or omitted in Firestore (`config/azam_token`), the exact expiration is decoded automatically.
+     */
+    fun extractJwtExpSeconds(jwtToken: String): Long? {
+        return try {
+            val parts = jwtToken.trim().split(".")
+            if (parts.size < 2) return null
+            val payloadPart = parts[1]
+            val padded = payloadPart
+                .replace('-', '+')
+                .replace('_', '/')
+                .let { s ->
+                    val mod = s.length % 4
+                    if (mod == 0) s else s + "=".repeat(4 - mod)
+                }
+            val decodedBytes = java.util.Base64.getDecoder().decode(padded)
+            val payloadJson = JSONObject(String(decodedBytes, Charsets.UTF_8))
+            val expStr = payloadJson.optString("exp", "").trim()
+            expStr.toLongOrNull() ?: payloadJson.optLong("exp", 0L).takeIf { it > 0L }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Parses `exp` flexibly whether it is `null`, a Unix epoch number, a numeric string,
+     * a Firestore ISO-8601 `timestamp` (date/time picker), or missing (auto-extracted from JWT).
+     */
+    fun parseFlexibleExpiration(rawExp: Any?, jwtToken: String, fallbackExp: Long = AZAM_CDN_EXP): Long {
+        val jwtExp = extractJwtExpSeconds(jwtToken)
+        if (rawExp == null || rawExp == JSONObject.NULL) {
+            return jwtExp ?: fallbackExp
+        }
+        when (rawExp) {
+            is Number -> {
+                val num = rawExp.toLong()
+                if (num > 0L) return if (num > 10_000_000_000L) num / 1000L else num
+            }
+            is String -> {
+                val clean = rawExp.trim()
+                if (clean.isEmpty() || clean.equals("null", ignoreCase = true)) {
+                    return jwtExp ?: fallbackExp
+                }
+                clean.toLongOrNull()?.let { num ->
+                    if (num > 0L) return if (num > 10_000_000_000L) num / 1000L else num
+                }
+                // Try parsing ISO-8601 date/time from Firestore timestamp picker (e.g. "2026-10-25T18:00:00Z")
+                try {
+                    val instant = java.time.Instant.parse(clean)
+                    if (instant.epochSecond > 0L) return instant.epochSecond
+                } catch (_: Exception) {
+                }
+            }
+        }
+        return jwtExp ?: fallbackExp
+    }
+
+    /**
      * Updates the active CDN authorization token and edge host from a JSON payload:
-     * `{"token": "...", "exp": 1790412582, "cdnHost": "https://cdnedgch2.azamtvltd.co.tz", "source": "cache"}`
+     * `{"token": "...", "exp": null | 1790412582 | "2026-10-25T00:00:00Z", "cdnHost": "https://cdnedgch2.azamtvltd.co.tz", "source": "cache"}`
      */
     fun updateCdnAuthorizationToken(jsonStr: String): Boolean {
         return try {
             val obj = JSONObject(jsonStr)
-            val newToken = obj.optString("token", "").trim()
+            val newToken = obj.optString("token", obj.optString("cdntoken", "")).trim()
             val newHost = obj.optString("cdnHost", "").trim().removeSuffix("/")
-            val newExp = obj.optLong("exp", AZAM_CDN_EXP)
-            val newSource = obj.optString("source", AZAM_CDN_SOURCE)
+            val rawExp = if (obj.has("exp") && !obj.isNull("exp")) obj.opt("exp") else null
+            val newExp = parseFlexibleExpiration(rawExp, newToken, AZAM_CDN_EXP)
+            val newSource = obj.optString("source", AZAM_CDN_SOURCE).ifBlank { DEFAULT_AZAM_CDN_SOURCE }
             if (newToken.isNotEmpty()) {
                 AZAM_CDN_TOKEN = newToken
                 if (newHost.startsWith("http", ignoreCase = true)) {

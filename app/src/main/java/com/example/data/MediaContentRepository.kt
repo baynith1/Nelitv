@@ -251,6 +251,93 @@ object MediaContentRepository {
                     posterPath = "https://image.tmdb.org/t/p/w500/okJESjE3wqN4qDNFOM8TecUVfHX.jpg"
                 )
             )
+        ),
+        MediaContent(
+            id = "mov_2026_shadow_protocol",
+            title = "Shadow Protocol",
+            originalTitle = "Shadow Protocol",
+            originalLanguage = "en",
+            type = "movie",
+            posterUrl = "https://image.tmdb.org/t/p/w500/ui5Ujx256vAI5JbXzeTGVwMkVhs.jpg",
+            backdropUrl = "https://image.tmdb.org/t/p/original/vuq5EfA9ED9vnxQgEV4zWEAFmKJ.jpg",
+            streamUrl = "https://vz-1bb50f2e-8ea.b-cdn.net/9d14eb59-d3a0-4b01-9010-ba9bc5492865/play_480p.mp4",
+            streamFormat = "mp4",
+            genre = "Action",
+            subGenres = listOf("Popular", "Action", "Thriller", "Movies", "Swahili"),
+            duration = "2h 04m",
+            rating = "8.7",
+            director = "Action Cinema",
+            screenplay = "Swahili Narrated",
+            production = "International Cinema",
+            synopsis = "An elite tactical unit uncovers a global cyber-syndicate operating across borders and races against the clock in a high-stakes 2026 action thriller.",
+            isTrending = true,
+            isComingSoon = false,
+            isKids = false,
+            releaseYear = "2026",
+            narrated = true,
+            narrationLanguage = "Swahili",
+            downloadEnabled = true,
+            featured = true,
+            published = true,
+            runtimeMinutes = 124
+        ),
+        MediaContent(
+            id = "mov_2026_crimson_horizon",
+            title = "Crimson Horizon",
+            originalTitle = "Crimson Horizon",
+            originalLanguage = "en",
+            type = "movie",
+            posterUrl = "https://image.tmdb.org/t/p/w500/3sUdP791SMnEQuJNIpRCT49pkxe.jpg",
+            backdropUrl = "https://image.tmdb.org/t/p/original/2meX1nMdScFOoV4370rqHWKmXhY.jpg",
+            streamUrl = "https://vz-1bb50f2e-8ea.b-cdn.net/9d14eb59-d3a0-4b01-9010-ba9bc5492865/play_480p.mp4",
+            streamFormat = "mp4",
+            genre = "Thriller",
+            subGenres = listOf("Popular", "Thriller", "Crime", "Movies", "Swahili"),
+            duration = "1h 58m",
+            rating = "8.4",
+            director = "Cinema Studios",
+            screenplay = "Swahili Narrated",
+            production = "Action Studios",
+            synopsis = "Stranded in a locked-down metropolis, a former operative must escort a key witness through relentless pursuit before dawn.",
+            isTrending = true,
+            isComingSoon = false,
+            isKids = false,
+            releaseYear = "2026",
+            narrated = true,
+            narrationLanguage = "Swahili",
+            downloadEnabled = true,
+            featured = true,
+            published = true,
+            runtimeMinutes = 118
+        ),
+        MediaContent(
+            id = "mov_2026_dar_express",
+            title = "Operation East Africa",
+            originalTitle = "Operation East Africa",
+            originalLanguage = "sw",
+            type = "movie",
+            posterUrl = "https://image.tmdb.org/t/p/w500/yEB6bMYgNu6qEQWoBvlkg6Ea5P.jpg",
+            backdropUrl = "https://image.tmdb.org/t/p/original/vuq5EfA9ED9vnxQgEV4zWEAFmKJ.jpg",
+            streamUrl = "https://vz-1bb50f2e-8ea.b-cdn.net/9d14eb59-d3a0-4b01-9010-ba9bc5492865/play_480p.mp4",
+            streamFormat = "mp4",
+            genre = "Crime",
+            subGenres = listOf("Popular", "Crime", "Action", "Movies", "Swahili"),
+            duration = "2h 10m",
+            rating = "8.9",
+            director = "East Africa Cinema",
+            screenplay = "Swahili Narrated",
+            production = "Tanzania • International",
+            synopsis = "A fast-paced 2026 crime action blockbuster following a special investigation team tracking a high-value diamond heist across the Indian Ocean coast.",
+            isTrending = true,
+            isComingSoon = false,
+            isKids = false,
+            releaseYear = "2026",
+            narrated = true,
+            narrationLanguage = "Swahili",
+            downloadEnabled = true,
+            featured = true,
+            published = true,
+            runtimeMinutes = 130
         )
     )
 
@@ -262,6 +349,19 @@ object MediaContentRepository {
 
     private val _firebaseSyncStatus = MutableStateFlow("Online • Live & On-Demand Catalog Ready")
     val firebaseSyncStatus: StateFlow<String> = _firebaseSyncStatus.asStateFlow()
+
+    /**
+     * Returns the top [limit] New 2026 Movies from the catalog, strictly excluding any adult content (`!it.isAdultContent`).
+     */
+    fun getLatest2026NonAdultMovies(limit: Int = 3): List<MediaContent> {
+        val nonAdultMovies = _mediaCatalog.value.filter {
+            it.published && it.isMovie && !it.isAdultContent
+        }
+        val movies2026 = nonAdultMovies.filter { it.releaseYear.trim() == "2026" }
+        val remaining = nonAdultMovies.filter { it.releaseYear.trim() != "2026" }
+            .sortedByDescending { it.releaseYear }
+        return (movies2026 + remaining).take(limit)
+    }
 
     fun getMediaById(id: String): MediaContent? {
         return _mediaCatalog.value.find { it.id == id }
@@ -464,6 +564,16 @@ object MediaContentRepository {
             val seriesDeferred = async { fetchUrlText("$baseFirestoreUrl/series?pageSize=200$keyParam") }
             val episodesDeferred = async { fetchUrlText("$baseFirestoreUrl/episodes?pageSize=300$keyParam") }
             val tvChannelsDeferred = async { fetchUrlText("$baseFirestoreUrl/tvChannels?pageSize=200$keyParam") }
+            val azamTokenDocDeferred = async {
+                val docKeyParam = if (apiKey.isNotEmpty()) "?key=$apiKey" else ""
+                fetchUrlText("$baseFirestoreUrl/config/azam_token$docKeyParam")
+            }
+            val configDeferred = async { fetchUrlText("$baseFirestoreUrl/config?pageSize=50$keyParam") }
+            val settingsDeferred = async { fetchUrlText("$baseFirestoreUrl/settings?pageSize=50$keyParam") }
+
+            parseFirestoreCdnTokenDocs(azamTokenDocDeferred.await())
+            parseFirestoreCdnTokenDocs(configDeferred.await())
+            parseFirestoreCdnTokenDocs(settingsDeferred.await())
 
             val totalSynced = parseFirestoreCollections(
                 moviesJson = moviesDeferred.await(),
@@ -474,6 +584,120 @@ object MediaContentRepository {
             Result.success(totalSynced)
         } catch (e: Exception) {
             Result.failure(e)
+        }
+    }
+
+    /**
+     * Parses Firestore `config/azam_token` (either as a single document `{"fields": ...}` or a collection `{"documents": [...]}`).
+     * Supports `exp` as `null` (`nullValue`), `timestampValue` (date picker), `stringValue`, `integerValue`, or `doubleValue`,
+     * and automatically extracts the expiration from the JWT `token` when `exp` is `null` or missing.
+     */
+    fun parseFirestoreCdnTokenDocs(collectionOrDocJson: String?): Boolean {
+        if (collectionOrDocJson.isNullOrBlank()) return false
+        return try {
+            val root = JSONObject(collectionOrDocJson)
+            val docList = mutableListOf<JSONObject>()
+            val docsArray = root.optJSONArray("documents")
+            if (docsArray != null) {
+                for (i in 0 until docsArray.length()) {
+                    docsArray.optJSONObject(i)?.let { docList.add(it) }
+                }
+            } else if (root.has("fields")) {
+                docList.add(root)
+            }
+
+            var updatedAny = false
+            for (doc in docList) {
+                val fields = doc.optJSONObject("fields") ?: continue
+                val tokenVal = fields.fsString("token").ifEmpty { fields.fsString("cdntoken") }.trim()
+                val cdnHostVal = fields.fsString("cdnHost", ChannelRepository.AZAM_CDN_HOST).trim()
+                val rawExp = fields.fsFlexibleExp("exp")
+                val resolvedExp = ChannelRepository.parseFlexibleExpiration(
+                    rawExp = rawExp,
+                    jwtToken = tokenVal,
+                    fallbackExp = ChannelRepository.AZAM_CDN_EXP
+                )
+                val sourceVal = fields.fsString("source", ChannelRepository.AZAM_CDN_SOURCE)
+                val endpointUrl = fields.fsString("tokenEndpointUrl").ifEmpty { fields.fsString("apiUrl") }
+
+                if (tokenVal.isNotBlank()) {
+                    val tokenJson = JSONObject().apply {
+                        put("token", tokenVal)
+                        put("cdnHost", cdnHostVal)
+                        put("exp", resolvedExp)
+                        put("source", sourceVal)
+                    }
+                    if (ChannelRepository.updateCdnAuthorizationToken(tokenJson.toString())) {
+                        updatedAny = true
+                    }
+                } else if (endpointUrl.startsWith("http", ignoreCase = true)) {
+                    fetchUrlText(endpointUrl)?.let { responseText ->
+                        if (ChannelRepository.updateCdnAuthorizationToken(responseText)) {
+                            updatedAny = true
+                        }
+                    }
+                }
+            }
+            updatedAny
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun JSONObject.fsFlexibleExp(key: String): Any? {
+        val field = optJSONObject(key) ?: return null
+        if (field.has("nullValue")) return null
+        if (field.has("integerValue")) return field.optString("integerValue")
+        if (field.has("doubleValue")) return field.optDouble("doubleValue").toLong()
+        if (field.has("timestampValue")) return field.optString("timestampValue")
+        if (field.has("stringValue")) return field.optString("stringValue")
+        return null
+    }
+
+    /**
+     * Quickly fetches and applies the latest Azam TV CDN token from Firebase (both Realtime Database `/cdn_token` or `/azam_token`
+     * and Cloud Firestore `config/azam_token` or `settings/azam_token`).
+     */
+    suspend fun syncCdnTokenFromFirebase(
+        databaseUrl: String = DEFAULT_DATABASE_URL,
+        apiKey: String = "",
+        projectId: String = DEFAULT_PROJECT_ID
+    ): Boolean = withContext(Dispatchers.IO) {
+        val cleanUrl = databaseUrl.trim().removeSuffix("/").ifEmpty { DEFAULT_DATABASE_URL }
+        val cleanProjectId = projectId.trim().ifEmpty { DEFAULT_PROJECT_ID }
+        val cleanKey = if (apiKey.trim() == "YOUR_FIREBASE_API_KEY") "" else apiKey.trim()
+        val authQuery = if (cleanKey.isNotBlank()) "?auth=$cleanKey" else ""
+        val keyParam = if (cleanKey.isNotEmpty()) "&key=$cleanKey" else ""
+        val docKeyParam = if (cleanKey.isNotEmpty()) "?key=$cleanKey" else ""
+
+        return@withContext try {
+            coroutineScope {
+                val rtdbCdnDeferred = async { fetchUrlText("$cleanUrl/cdn_token.json$authQuery") }
+                val rtdbAzamDeferred = async { fetchUrlText("$cleanUrl/azam_token.json$authQuery") }
+                val fsAzamDocDeferred = async {
+                    fetchUrlText("https://firestore.googleapis.com/v1/projects/$cleanProjectId/databases/(default)/documents/config/azam_token$docKeyParam")
+                }
+                val fsConfigDeferred = async {
+                    fetchUrlText("https://firestore.googleapis.com/v1/projects/$cleanProjectId/databases/(default)/documents/config?pageSize=20$keyParam")
+                }
+
+                var updated = false
+                rtdbCdnDeferred.await()?.takeIf { it.contains("token") }?.let {
+                    if (ChannelRepository.updateCdnAuthorizationToken(it)) updated = true
+                }
+                rtdbAzamDeferred.await()?.takeIf { it.contains("token") }?.let {
+                    if (ChannelRepository.updateCdnAuthorizationToken(it)) updated = true
+                }
+                fsAzamDocDeferred.await()?.let {
+                    if (parseFirestoreCdnTokenDocs(it)) updated = true
+                }
+                fsConfigDeferred.await()?.let {
+                    if (parseFirestoreCdnTokenDocs(it)) updated = true
+                }
+                updated
+            }
+        } catch (_: Exception) {
+            false
         }
     }
 
@@ -492,9 +716,18 @@ object MediaContentRepository {
                 return@coroutineScope Result.success(count)
             }
 
-            // Fallback to individual public RTDB nodes (`channels`, `live_streams`) per rules
+            // Fallback to individual public RTDB nodes (`channels`, `live_streams`, `cdn_token`, `azam_token`) per rules
             val channelsDeferred = async { fetchUrlText("$cleanUrl/channels.json$authQuery") }
             val liveStreamsDeferred = async { fetchUrlText("$cleanUrl/live_streams.json$authQuery") }
+            val cdnTokenDeferred = async { fetchUrlText("$cleanUrl/cdn_token.json$authQuery") }
+            val azamTokenDeferred = async { fetchUrlText("$cleanUrl/azam_token.json$authQuery") }
+
+            cdnTokenDeferred.await()?.trim()?.takeIf { it.startsWith("{") }?.let {
+                ChannelRepository.updateCdnAuthorizationToken(it)
+            }
+            azamTokenDeferred.await()?.trim()?.takeIf { it.startsWith("{") }?.let {
+                ChannelRepository.updateCdnAuthorizationToken(it)
+            }
 
             val combinedObj = JSONObject()
             channelsDeferred.await()?.trim()?.let { chText ->

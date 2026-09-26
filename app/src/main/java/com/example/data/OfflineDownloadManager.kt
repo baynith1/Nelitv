@@ -46,12 +46,14 @@ object OfflineDownloadManager {
     private const val NOTIFICATION_CHANNEL_NAME = "Neli TV Background Downloads"
     private const val MIN_VALID_VIDEO_BYTES = 64 * 1024L // At least 64 KB of real media data
     private const val HLS_PARALLEL_SEGMENT_WORKERS = 8
+    private const val MAX_CONCURRENT_MULTI_DOWNLOADS = 4
 
     /**
      * Application-scoped background coroutine scope so downloads continue automatically
      * with live progress even when the user switches screens or exits the app via Home button.
      */
     private val backgroundScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val multiDownloadSemaphore = Semaphore(MAX_CONCURRENT_MULTI_DOWNLOADS)
 
     private val activeDownloadIds = ConcurrentHashMap.newKeySet<String>()
     private val activeDownloadJobs = ConcurrentHashMap<String, Job>()
@@ -67,7 +69,7 @@ object OfflineDownloadManager {
     val downloadBannerMessage: StateFlow<String?> = _downloadBannerMessage.asStateFlow()
 
     fun isCurrentlyDownloading(id: String): Boolean {
-        if (activeDownloadIds.contains(id)) return true
+        if (activeDownloadIds.contains(id) || _downloadProgress.value.containsKey(id)) return true
         val completedAt = recentlyCompletedTimestamps[id] ?: return false
         return (System.currentTimeMillis() - completedAt) < 15_000L
     }
@@ -124,7 +126,8 @@ object OfflineDownloadManager {
 
     /**
      * Enqueues a background download using the streaming link's native quality directly.
-     * Continues running in the background even when the user leaves the app.
+     * Supports concurrent Multi-Download and runs inside a Foreground Service so downloads
+     * continue even when the user leaves the app.
      */
     fun enqueueBackgroundDownload(
         context: Context,
@@ -138,20 +141,67 @@ object OfflineDownloadManager {
         }
         setActiveTitle(item.id, item.title)
         updateProgress(item.id, 1)
-        _downloadBannerMessage.value = "Downloading \"${item.title}\" (1%)..."
+        val totalActive = _downloadProgress.value.size
+        _downloadBannerMessage.value = if (totalActive > 1) {
+            "Multi-Download Active ($totalActive videos) • Added \"${item.title}\"..."
+        } else {
+            "Downloading \"${item.title}\" (1%)..."
+        }
+
+        syncForegroundServiceState(appContext)
 
         val job = backgroundScope.launch {
-            downloadMediaOffline(
-                context = appContext,
-                dao = dao,
-                item = item
-            )
+            multiDownloadSemaphore.withPermit {
+                downloadMediaOffline(
+                    context = appContext,
+                    dao = dao,
+                    item = item
+                )
+            }
         }
         activeDownloadJobs[item.id] = job
     }
 
     /**
-     * Checks whether the device currently has an active internet connection (Wi-Fi or Mobile Data).
+     * Enqueues multiple movies or episodes for simultaneous background downloading.
+     */
+    fun enqueueMultipleBackgroundDownloads(
+        context: Context,
+        dao: NeliMediaDao,
+        items: List<DownloadedItemEntity>
+    ) {
+        items.forEach { item ->
+            enqueueBackgroundDownload(context, dao, item)
+        }
+    }
+
+    private fun syncForegroundServiceState(appContext: Context) {
+        val currentMap = _downloadProgress.value
+        val activeCount = currentMap.size
+        if (activeCount <= 0 && activeDownloadIds.isEmpty()) {
+            NeliDownloadService.stopIfIdle(appContext)
+            return
+        }
+        val avgPct = if (currentMap.isNotEmpty()) {
+            currentMap.values.average().toInt().coerceIn(1, 99)
+        } else 1
+        val titles = _activeDownloadTitles.value.values.toList()
+        val summaryTitle = when {
+            activeCount > 1 -> "Multi-Download ($activeCount videos) • $avgPct%"
+            titles.isNotEmpty() -> "Downloading ${titles.first()}"
+            else -> "Background Download Active"
+        }
+        NeliDownloadService.startOrUpdate(
+            context = appContext,
+            activeCount = activeCount.coerceAtLeast(1),
+            summaryTitle = summaryTitle,
+            avgProgress = avgPct
+        )
+    }
+
+    /**
+     * Checks whether the device currently has an active network interface (Wi-Fi or Mobile Data),
+     * including low-credit/zero-rated mobile data bundles ("low internet credit bando") so Live TV is never blocked.
      */
     fun isDeviceOnline(context: Context): Boolean {
         return try {
@@ -159,11 +209,11 @@ object OfflineDownloadManager {
                 ?: return true
             val activeNet = cm.activeNetwork ?: return false
             val caps = cm.getNetworkCapabilities(activeNet) ?: return false
-            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
-                (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
-                    caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) ||
-                    caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) ||
-                    caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN))
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) ||
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) ||
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) ||
+                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
         } catch (_: Exception) {
             true
         }
@@ -336,6 +386,7 @@ object OfflineDownloadManager {
             activeDownloadJobs.remove(item.id)
             removeActiveTitle(item.id)
             clearProgress(item.id)
+            syncForegroundServiceState(appContext)
         }
     }
 
@@ -754,13 +805,25 @@ object OfflineDownloadManager {
             mbSoFar
         )
         updateProgress(initialEntity.id, pct)
-        _downloadBannerMessage.value = String.format(
-            Locale.US,
-            "Downloading \"%s\" • %d%% (%.1f MB)",
-            initialEntity.title,
-            pct,
-            mbSoFar
-        )
+        val totalActive = _downloadProgress.value.size
+        _downloadBannerMessage.value = if (totalActive > 1) {
+            String.format(
+                Locale.US,
+                "Multi-Download (%d videos) • \"%s\" %d%% (%.1f MB)",
+                totalActive,
+                initialEntity.title,
+                pct,
+                mbSoFar
+            )
+        } else {
+            String.format(
+                Locale.US,
+                "Downloading \"%s\" • %d%% (%.1f MB)",
+                initialEntity.title,
+                pct,
+                mbSoFar
+            )
+        }
         dao.upsertDownload(
             initialEntity.copy(
                 localFilePath = localPath,
@@ -776,6 +839,7 @@ object OfflineDownloadManager {
             progressPct = pct,
             isCompleted = false
         )
+        syncForegroundServiceState(appContext)
     }
 
     /**

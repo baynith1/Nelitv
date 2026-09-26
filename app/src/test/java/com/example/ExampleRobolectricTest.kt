@@ -185,4 +185,123 @@ class ExampleRobolectricTest {
             )
         }
     }
+
+    @Test
+    fun `daily east africa time notifications and home widget 2026 non-adult movies and azam channels are configured`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+
+        // 1. Verify all 4 daily EAT notification slots (7:00, 13:00, 16:00, 19:30 Africa/Dar_es_Salaam)
+        val slots = com.example.notifications.NeliNotificationScheduler.dailySlots
+        assertEquals(4, slots.size)
+        assertEquals(7, slots[0].hour24Eat)
+        assertEquals(0, slots[0].minuteEat)
+        assertEquals(13, slots[1].hour24Eat)
+        assertEquals(0, slots[1].minuteEat)
+        assertEquals(16, slots[2].hour24Eat)
+        assertEquals(0, slots[2].minuteEat)
+        assertEquals(19, slots[3].hour24Eat)
+        assertEquals(30, slots[3].minuteEat)
+
+        com.example.notifications.NeliNotificationScheduler.scheduleAllDailyNotifications(context)
+
+        // 2. Verify top 3 2026 non-adult movies for Home Widget bottom row
+        val movies2026 = MediaContentRepository.getLatest2026NonAdultMovies(3)
+        assertEquals(3, movies2026.size)
+        movies2026.forEach { movie ->
+            assertEquals("2026", movie.releaseYear)
+            org.junit.Assert.assertFalse(movie.isAdultContent)
+            org.junit.Assert.assertFalse(movie.genre.contains("Adult", ignoreCase = true))
+        }
+
+        // 3. Verify Low Bando Saver mode exists in NetworkQualityMode
+        val lowBandoMode = com.example.player.NetworkQualityMode.ULTRA_LOW_BANDO_SAVER
+        assertTrue(lowBandoMode.label.contains("Low Bando", ignoreCase = true))
+
+        // 4. Verify widget update executes cleanly without throwing
+        com.example.widget.NeliHomeWidgetProvider.updateAllWidgets(context)
+    }
+
+    @Test
+    fun `firestore config azam_token with null exp or timestampValue automatically extracts jwt exp and updates streams`() {
+        // Exact structure from user's Firestore screenshot:
+        // collection: config, document: azam_token, fields: cdnHost, exp: null, source: "cache", token: "eyJ..."
+        val singleDocNullExpJson = """
+            {
+              "name": "projects/neli-tv/databases/(default)/documents/config/azam_token",
+              "fields": {
+                "cdnHost": { "stringValue": "https://cdnedgch2.azamtvltd.co.tz" },
+                "exp": { "nullValue": null },
+                "source": { "stringValue": "cache" },
+                "token": { "stringValue": "${com.example.data.ChannelRepository.DEFAULT_AZAM_CDN_TOKEN}" }
+              }
+            }
+        """.trimIndent()
+
+        val updatedWithNullExp = MediaContentRepository.parseFirestoreCdnTokenDocs(singleDocNullExpJson)
+        assertTrue(updatedWithNullExp)
+        // Must extract exp = 1790412582 directly from inside the JWT payload even though Firestore exp is null!
+        assertEquals(1790412582L, com.example.data.ChannelRepository.AZAM_CDN_EXP)
+        assertEquals("https://cdnedgch2.azamtvltd.co.tz", com.example.data.ChannelRepository.AZAM_CDN_HOST)
+
+        // Also verify Firestore Timestamp / Date picker format ("timestampValue": "2026-09-26T08:49:42Z")
+        val timestampDocJson = """
+            {
+              "documents": [
+                {
+                  "name": "projects/neli-tv/databases/(default)/documents/config/azam_token",
+                  "fields": {
+                    "cdnHost": { "stringValue": "https://cdnedgch2.azamtvltd.co.tz" },
+                    "exp": { "timestampValue": "2026-09-26T08:49:42Z" },
+                    "source": { "stringValue": "cache" },
+                    "token": { "stringValue": "${com.example.data.ChannelRepository.DEFAULT_AZAM_CDN_TOKEN}" }
+                  }
+                }
+              ]
+            }
+        """.trimIndent()
+        assertTrue(MediaContentRepository.parseFirestoreCdnTokenDocs(timestampDocJson))
+        assertEquals(1790412582L, com.example.data.ChannelRepository.AZAM_CDN_EXP)
+    }
+
+    @Test
+    fun `six live tv channel logos and zbc2 16_00 eat international match notifications are configured`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val logos = com.example.notifications.NeliNotificationScheduler.liveChannelLogoSpecs
+        assertEquals(6, logos.size)
+
+        // 1st: Azam Sports 1 HD, 2nd: Sinema Zetu, 3rd: Azam Two, 4th: Crown TV, 5th: Wasafi TV, 6th: ZBC2
+        assertEquals(1, logos[0].imageOrder)
+        assertTrue(logos[0].channelName.contains("Azam Sports 1", ignoreCase = true))
+        assertEquals(2, logos[1].imageOrder)
+        assertTrue(logos[1].channelName.contains("Sinema Zetu", ignoreCase = true))
+        assertEquals(3, logos[2].imageOrder)
+        assertTrue(logos[2].channelName.contains("Azam Two", ignoreCase = true))
+        assertEquals(4, logos[3].imageOrder)
+        assertTrue(logos[3].channelName.contains("Crown", ignoreCase = true))
+        assertEquals(5, logos[4].imageOrder)
+        assertTrue(logos[4].channelName.contains("Wasafi", ignoreCase = true))
+        assertEquals(6, logos[5].imageOrder)
+        assertTrue(logos[5].channelName.contains("ZBC2", ignoreCase = true))
+        logos.forEach { entry ->
+            assertTrue(entry.logoUrl.startsWith("https://"))
+        }
+
+        // Trigger all 4 notification slots (including 16:00 EAT which posts both Azam Sports 1 HD and ZBC2 International Match)
+        com.example.notifications.NeliNotificationScheduler.dispatchNotificationForSlot(
+            context,
+            com.example.notifications.NeliNotificationScheduler.SLOT_MORNING_MOVIE_SERIES
+        )
+        com.example.notifications.NeliNotificationScheduler.dispatchNotificationForSlot(
+            context,
+            com.example.notifications.NeliNotificationScheduler.SLOT_MIDDAY_AZAM_LIVE
+        )
+        com.example.notifications.NeliNotificationScheduler.dispatchNotificationForSlot(
+            context,
+            com.example.notifications.NeliNotificationScheduler.SLOT_AFTERNOON_AZAM_LIVE
+        )
+        com.example.notifications.NeliNotificationScheduler.dispatchNotificationForSlot(
+            context,
+            com.example.notifications.NeliNotificationScheduler.SLOT_EVENING_AZAM_TWO_SINEMA
+        )
+    }
 }

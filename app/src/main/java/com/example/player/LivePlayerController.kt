@@ -1,12 +1,14 @@
 package com.example.player
 
 import android.content.Context
+import android.media.AudioManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import androidx.annotation.OptIn
+import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
@@ -50,6 +52,7 @@ sealed interface PlayerUiState {
 
 enum class NetworkQualityMode(val label: String) {
     AUTO_ADAPTIVE("Auto Quality"),
+    ULTRA_LOW_BANDO_SAVER("Low Bando Saver (240p)"),
     WEAK_NETWORK_SAVER("Data Saver (360p)"),
     STANDARD_480P("Standard (480p)"),
     STRONG_NETWORK_HD("Full HD (720p/1080p)")
@@ -120,6 +123,24 @@ class LivePlayerController(
     private var forcedContainerMode = ForcedContainerMode.NONE
     private var hasAppliedSwahiliMovieIntroSkip = false
     private var lastKnownVodPositionMs = 0L
+    private var pausedByCallOrExternalAudio: Boolean = false
+    private var pausedSpecificallyByPhoneCall: Boolean = false
+
+    private val audioManager: AudioManager? by lazy {
+        context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+    }
+
+    private fun isPhoneCallActiveOrRinging(): Boolean {
+        val mode = try {
+            audioManager?.mode ?: AudioManager.MODE_NORMAL
+        } catch (_: Exception) {
+            AudioManager.MODE_NORMAL
+        }
+        return mode == AudioManager.MODE_RINGTONE ||
+                mode == AudioManager.MODE_IN_CALL ||
+                mode == AudioManager.MODE_IN_COMMUNICATION ||
+                mode == AudioManager.MODE_CALL_SCREENING
+    }
 
     private val _uiState = MutableStateFlow<PlayerUiState>(PlayerUiState.Loading)
     val uiState: StateFlow<PlayerUiState> = _uiState.asStateFlow()
@@ -139,12 +160,36 @@ class LivePlayerController(
     private val positionUpdateRunnable = object : Runnable {
         override fun run() {
             val player = exoPlayer ?: return
+            val callActive = isPhoneCallActiveOrRinging()
+            if (callActive) {
+                if (player.isPlaying || player.playWhenReady) {
+                    // Auto-pause and stop immediately when phone rings or user is in any cellular/WhatsApp/VoIP call
+                    pausedByCallOrExternalAudio = true
+                    pausedSpecificallyByPhoneCall = true
+                    player.playWhenReady = false
+                    player.pause()
+                    updatePlaybackInfo()
+                }
+                mainHandler.postDelayed(this, 450L)
+                return
+            } else if (pausedSpecificallyByPhoneCall) {
+                // Call ended: automatically clear call flag and resume cleanly
+                pausedSpecificallyByPhoneCall = false
+                pausedByCallOrExternalAudio = false
+                if (channel.isLiveBroadcast && player.isCurrentMediaItemLive) {
+                    player.seekToDefaultPosition()
+                }
+                player.playWhenReady = true
+                player.play()
+            }
+
             if (channel.isLiveBroadcast) {
-                // Ensure Live TV always stays playing unless user exits
-                if (!player.isPlaying && player.playbackState == Player.STATE_READY) {
+                // Ensure Live TV stays playing unless paused by phone call or external music player
+                if (!pausedByCallOrExternalAudio && !player.isPlaying && player.playbackState == Player.STATE_READY) {
                     player.playWhenReady = true
                     player.play()
                 }
+                mainHandler.postDelayed(this, 600L)
             } else {
                 updatePlaybackInfo()
                 mainHandler.postDelayed(this, 300L)
@@ -165,6 +210,12 @@ class LivePlayerController(
                     autoReconnectAttempts = 0
                     val player = exoPlayer
                     if (player != null) {
+                        if (isPhoneCallActiveOrRinging()) {
+                            pausedByCallOrExternalAudio = true
+                            pausedSpecificallyByPhoneCall = true
+                            player.playWhenReady = false
+                            player.pause()
+                        }
                         val dur = player.duration
                         if (channel.shouldAutoSkipSwahiliMovieIntro && dur != C.TIME_UNSET && dur in 1..(SWAHILI_MOVIE_INTRO_SKIP_MS + 5_000L)) {
                             // Stream is shorter than the 5:30 intro skip window; start at 0:00 so it plays normally
@@ -192,8 +243,10 @@ class LivePlayerController(
                         // Live TV never ends; restart or re-sync seamlessly
                         player?.let { p ->
                             p.seekTo(0L)
-                            p.playWhenReady = true
-                            p.play()
+                            if (!pausedByCallOrExternalAudio) {
+                                p.playWhenReady = true
+                                p.play()
+                            }
                         }
                     } else if (player != null && channel.shouldAutoSkipSwahiliMovieIntro && dur != C.TIME_UNSET && dur in 1..(SWAHILI_MOVIE_INTRO_SKIP_MS + 5_000L) && lastKnownVodPositionMs >= SWAHILI_MOVIE_INTRO_SKIP_MS) {
                         // Recover if initial 5:30 seek jumped past the end of a shorter movie clip
@@ -217,15 +270,34 @@ class LivePlayerController(
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
+            if (isPlaying && isPhoneCallActiveOrRinging()) {
+                pausedByCallOrExternalAudio = true
+                pausedSpecificallyByPhoneCall = true
+                exoPlayer?.playWhenReady = false
+                exoPlayer?.pause()
+                return
+            }
+            if (isPlaying) {
+                pausedByCallOrExternalAudio = false
+            }
             _playbackInfo.value = _playbackInfo.value.copy(
                 isPlaying = isPlaying,
                 connectionLabel = detectConnectionLabel()
             )
-            if (!channel.isLiveBroadcast) {
-                mainHandler.removeCallbacks(positionUpdateRunnable)
-                if (isPlaying) {
-                    mainHandler.post(positionUpdateRunnable)
-                }
+            mainHandler.removeCallbacks(positionUpdateRunnable)
+            mainHandler.post(positionUpdateRunnable)
+        }
+
+        override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+            if (!playWhenReady && (
+                        reason == Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS ||
+                        reason == Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_BECOMING_NOISY
+                    )
+            ) {
+                // Auto-stop/pause when user plays music on another app or receives/makes a call
+                pausedByCallOrExternalAudio = true
+                exoPlayer?.pause()
+                updatePlaybackInfo()
             }
         }
 
@@ -257,7 +329,7 @@ class LivePlayerController(
                 autoReconnectAttempts++
                 _uiState.value = PlayerUiState.Buffering
                 if (autoReconnectAttempts >= 2) {
-                    applyNetworkQualityMode(NetworkQualityMode.WEAK_NETWORK_SAVER)
+                    applyNetworkQualityMode(NetworkQualityMode.ULTRA_LOW_BANDO_SAVER)
                 }
                 val resumePos = lastKnownVodPositionMs
                 mainHandler.postDelayed({
@@ -295,13 +367,30 @@ class LivePlayerController(
         }
     }
 
+    private fun isLowBandoNetworkDetected(): Boolean {
+        return try {
+            val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            val net = cm?.activeNetwork ?: return true
+            val caps = cm.getNetworkCapabilities(net) ?: return true
+            val downKbps = caps.linkDownstreamBandwidthKbps
+            val isUnvalidatedCellular = caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) &&
+                    !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+            isUnvalidatedCellular || (downKbps in 1..600)
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     private fun detectConnectionLabel(): String {
         return try {
             val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
             val net = cm?.activeNetwork
             val caps = net?.let { cm.getNetworkCapabilities(it) }
             when {
-                caps == null -> "Offline Mode"
+                caps == null -> "Low Bando / Zero-Rated Mode"
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) &&
+                        (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) || caps.linkDownstreamBandwidthKbps in 1..600) ->
+                    "Low Bando Data Saver"
                 caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "Mobile Data"
                 caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "Wi-Fi"
                 else -> "Online"
@@ -315,14 +404,16 @@ class LivePlayerController(
         return try {
             val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
             val caps = cm?.activeNetwork?.let { cm.getNetworkCapabilities(it) }
-            val downKbps = caps?.linkDownstreamBandwidthKbps ?: 2000
+            val downKbps = caps?.linkDownstreamBandwidthKbps ?: 1200
+            val isLowBando = isLowBandoNetworkDetected()
             when {
+                isLowBando -> 195_000L
                 downKbps <= 800 -> 420_000L
                 downKbps <= 2500 -> 950_000L
                 else -> 1_800_000L
             }
         } catch (_: Exception) {
-            1_000_000L
+            420_000L
         }
     }
 
@@ -362,26 +453,40 @@ class LivePlayerController(
             .setEnableDecoderFallback(true)
 
         val initialBitrate = detectInitialBitrateEstimate()
+        val lowBandoActive = isLowBandoNetworkDetected()
         val bandwidthMeter = DefaultBandwidthMeter.Builder(context)
             .setInitialBitrateEstimate(initialBitrate)
             .build()
 
         val adaptiveTrackSelectionFactory = AdaptiveTrackSelection.Factory(
             /* minDurationForQualityIncreaseMs = */ 4000,
-            /* maxDurationForQualityDecreaseMs = */ 1500,
+            /* maxDurationForQualityDecreaseMs = */ 1200,
             /* minDurationToRetainAfterDiscardMs = */ 4000,
             /* bandwidthFraction = */ 0.75f
         )
 
-        val maxInitialWidth = if (initialBitrate < 500_000L) 640 else 1280
-        val maxInitialHeight = if (initialBitrate < 500_000L) 360 else 720
-        val maxInitialVideoBitrate = if (initialBitrate < 500_000L) 650_000 else 2_400_000
+        val maxInitialWidth = when {
+            lowBandoActive -> 426
+            initialBitrate < 500_000L -> 640
+            else -> 1280
+        }
+        val maxInitialHeight = when {
+            lowBandoActive -> 240
+            initialBitrate < 500_000L -> 360
+            else -> 720
+        }
+        val maxInitialVideoBitrate = when {
+            lowBandoActive -> 240_000
+            initialBitrate < 500_000L -> 650_000
+            else -> 2_400_000
+        }
 
         val trackSelector = DefaultTrackSelector(context, adaptiveTrackSelectionFactory).apply {
             setParameters(
                 buildUponParameters()
                     .setMaxVideoSize(maxInitialWidth, maxInitialHeight)
                     .setMaxVideoBitrate(maxInitialVideoBitrate)
+                    .setForceLowestBitrate(lowBandoActive)
                     .setExceedVideoConstraintsIfNecessary(true)
                     .setExceedRendererCapabilitiesIfNecessary(true)
             )
@@ -389,10 +494,10 @@ class LivePlayerController(
 
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                /* minBufferMs = */ 6_000,
-                /* maxBufferMs = */ 50_000,
-                /* bufferForPlaybackMs = */ 500,
-                /* bufferForPlaybackAfterRebufferMs = */ 1_000
+                /* minBufferMs = */ if (lowBandoActive) 4_000 else 6_000,
+                /* maxBufferMs = */ if (lowBandoActive) 28_000 else 50_000,
+                /* bufferForPlaybackMs = */ if (lowBandoActive) 350 else 500,
+                /* bufferForPlaybackAfterRebufferMs = */ if (lowBandoActive) 850 else 1_000
             )
             .setBackBuffer(
                 /* backBufferDurationMs = */ 15_000,
@@ -401,14 +506,21 @@ class LivePlayerController(
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
 
+        val mediaAudioAttributes = AudioAttributes.Builder()
+            .setUsage(C.USAGE_MEDIA)
+            .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+            .build()
+
         val player = ExoPlayer.Builder(context, renderersFactory)
             .setTrackSelector(trackSelector)
             .setBandwidthMeter(bandwidthMeter)
             .setLoadControl(loadControl)
+            .setAudioAttributes(mediaAudioAttributes, /* handleAudioFocus = */ true)
+            .setHandleAudioBecomingNoisy(true)
             .setSeekParameters(SeekParameters.CLOSEST_SYNC)
             .build()
             .apply {
-                playWhenReady = true
+                playWhenReady = !isPhoneCallActiveOrRinging()
                 addListener(playerListener)
             }
 
@@ -464,6 +576,14 @@ class LivePlayerController(
         )
         val player = exoPlayer ?: return
         player.trackSelectionParameters = when (mode) {
+            NetworkQualityMode.ULTRA_LOW_BANDO_SAVER -> {
+                player.trackSelectionParameters
+                    .buildUpon()
+                    .setMaxVideoSize(426, 240)
+                    .setMaxVideoBitrate(220_000)
+                    .setForceLowestBitrate(true)
+                    .build()
+            }
             NetworkQualityMode.WEAK_NETWORK_SAVER -> {
                 player.trackSelectionParameters
                     .buildUpon()
@@ -482,11 +602,29 @@ class LivePlayerController(
             }
             NetworkQualityMode.AUTO_ADAPTIVE -> {
                 val est = detectInitialBitrateEstimate()
+                val lowBando = isLowBandoNetworkDetected()
                 player.trackSelectionParameters
                     .buildUpon()
-                    .setMaxVideoSize(if (est < 500_000L) 640 else 1280, if (est < 500_000L) 360 else 720)
-                    .setMaxVideoBitrate(if (est < 500_000L) 650_000 else 2_400_000)
-                    .setForceLowestBitrate(false)
+                    .setMaxVideoSize(
+                        when {
+                            lowBando -> 426
+                            est < 500_000L -> 640
+                            else -> 1280
+                        },
+                        when {
+                            lowBando -> 240
+                            est < 500_000L -> 360
+                            else -> 720
+                        }
+                    )
+                    .setMaxVideoBitrate(
+                        when {
+                            lowBando -> 220_000
+                            est < 500_000L -> 650_000
+                            else -> 2_400_000
+                        }
+                    )
+                    .setForceLowestBitrate(lowBando)
                     .build()
             }
             NetworkQualityMode.STRONG_NETWORK_HD -> {
@@ -502,7 +640,8 @@ class LivePlayerController(
 
     fun cycleNetworkQualityMode() {
         val next = when (_playbackInfo.value.networkMode) {
-            NetworkQualityMode.AUTO_ADAPTIVE -> NetworkQualityMode.WEAK_NETWORK_SAVER
+            NetworkQualityMode.AUTO_ADAPTIVE -> NetworkQualityMode.ULTRA_LOW_BANDO_SAVER
+            NetworkQualityMode.ULTRA_LOW_BANDO_SAVER -> NetworkQualityMode.WEAK_NETWORK_SAVER
             NetworkQualityMode.WEAK_NETWORK_SAVER -> NetworkQualityMode.STANDARD_480P
             NetworkQualityMode.STANDARD_480P -> NetworkQualityMode.STRONG_NETWORK_HD
             NetworkQualityMode.STRONG_NETWORK_HD -> NetworkQualityMode.AUTO_ADAPTIVE
@@ -704,18 +843,27 @@ class LivePlayerController(
      * Live TV always continues playing at the live broadcast edge.
      */
     fun togglePlayPause() {
-        if (channel.isLiveBroadcast) {
-            syncToLiveEdge()
-            return
-        }
         exoPlayer?.let { player ->
+            if (channel.isLiveBroadcast) {
+                if (!player.isPlaying) {
+                    pausedByCallOrExternalAudio = false
+                    pausedSpecificallyByPhoneCall = false
+                    syncToLiveEdge()
+                } else {
+                    syncToLiveEdge()
+                }
+                return
+            }
             if (player.isPlaying) {
                 player.pause()
             } else {
+                pausedByCallOrExternalAudio = false
+                pausedSpecificallyByPhoneCall = false
                 if (player.playbackState == Player.STATE_ENDED) {
                     val restartPos = if (channel.shouldAutoSkipSwahiliMovieIntro) SWAHILI_MOVIE_INTRO_SKIP_MS else 0L
                     player.seekTo(restartPos)
                 }
+                player.playWhenReady = true
                 player.play()
             }
             updatePlaybackInfo()
