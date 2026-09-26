@@ -48,6 +48,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.Sensors
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.VideoLibrary
@@ -67,6 +68,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -109,9 +111,13 @@ import com.example.ui.components.DoubleTapZone
 import com.example.ui.components.GestureControlFeedback
 import com.example.ui.components.GestureControlType
 import com.example.ui.components.LiveIndicatorBadge
+import com.example.ui.components.OrientationLockStatusBadge
 import com.example.ui.components.PlayerGestureHelper
 import com.example.ui.components.PlayerGestureQuickBar
 import com.example.ui.components.PlayerGestureTouchSurface
+import com.example.ui.components.PlayerOrientationMode
+import com.example.ui.components.PlayerSettingsDrawer
+import com.example.ui.components.resolveOrientationModeIcon
 import com.example.ui.theme.NeliCardPurple
 import com.example.ui.theme.NeliGenreCyan
 import com.example.ui.theme.NeliMagenta
@@ -212,8 +218,28 @@ fun PlayerScreen(
 
     var areControlsVisible by remember { mutableStateOf(true) }
     var isEpisodeDrawerOpen by remember { mutableStateOf(false) }
+    var isSettingsDrawerOpen by remember { mutableStateOf(false) }
     var resizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FILL) }
+    var orientationMode by remember {
+        mutableStateOf(PlayerGestureHelper.readSavedOrientationMode(context))
+    }
+    var showOrientationStatusBadge by remember { mutableStateOf(false) }
+    var orientationBadgeTriggerToken by remember { mutableLongStateOf(0L) }
     val activeExoPlayer = remember(playerController) { playerController.initializePlayer() }
+
+    val updateOrientationMode: (PlayerOrientationMode) -> Unit = { newMode ->
+        orientationMode = newMode
+        PlayerGestureHelper.saveAndApplyOrientationMode(context, activity, newMode)
+        showOrientationStatusBadge = true
+        orientationBadgeTriggerToken = System.nanoTime()
+    }
+
+    LaunchedEffect(orientationBadgeTriggerToken, showOrientationStatusBadge) {
+        if (showOrientationStatusBadge) {
+            delay(1800L)
+            showOrientationStatusBadge = false
+        }
+    }
 
     // Smooth timeline scrubbing state for Movies, Adult & Series
     var isScrubbing by remember { mutableStateOf(false) }
@@ -358,10 +384,10 @@ fun PlayerScreen(
         }
     }
 
-    DisposableEffect(playerController) {
+    DisposableEffect(playerController, orientationMode) {
         val window = activity?.window
         window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        activity?.requestedOrientation = orientationMode.activityOrientationConstant
 
         val insetsController = window?.let { WindowCompat.getInsetsController(it, view) }
         insetsController?.systemBarsBehavior =
@@ -380,12 +406,16 @@ fun PlayerScreen(
                 win.attributes = attrs
             }
             window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            window?.decorView?.let { decor ->
+                decor.scrollTo(0, 0)
+                decor.translationY = 0f
+            }
             insetsController?.show(WindowInsetsCompat.Type.systemBars())
-            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         }
     }
 
-    DisposableEffect(lifecycleOwner, playerController) {
+    DisposableEffect(lifecycleOwner, playerController, orientationMode) {
         var wasPausedByLifecycle = false
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
@@ -398,7 +428,7 @@ fun PlayerScreen(
                 }
                 Lifecycle.Event.ON_RESUME -> {
                     if (activity?.isInPictureInPictureMode != true) {
-                        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                        activity?.requestedOrientation = orientationMode.activityOrientationConstant
                     }
                     if (wasPausedByLifecycle) {
                         wasPausedByLifecycle = false
@@ -424,24 +454,41 @@ fun PlayerScreen(
     }
 
     val handleExit: () -> Unit = {
-        if (isEpisodeDrawerOpen) {
-            isEpisodeDrawerOpen = false
-        } else {
-            if (ownsController) {
-                playerController.release()
+        when {
+            isSettingsDrawerOpen -> isSettingsDrawerOpen = false
+            isEpisodeDrawerOpen -> isEpisodeDrawerOpen = false
+            else -> {
+                if (ownsController) {
+                    playerController.release()
+                }
+                activity?.window?.let { win ->
+                    win.decorView.scrollTo(0, 0)
+                    win.decorView.translationY = 0f
+                    WindowCompat.getInsetsController(win, view).show(WindowInsetsCompat.Type.systemBars())
+                }
+                activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                onBack()
             }
-            activity?.window?.let { win ->
-                WindowCompat.getInsetsController(win, view).show(WindowInsetsCompat.Type.systemBars())
-            }
-            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-            onBack()
         }
     }
 
     BackHandler(onBack = handleExit)
 
-    LaunchedEffect(areControlsVisible, playbackInfo.isPlaying, uiState, isScrubbing, isEpisodeDrawerOpen) {
-        if (areControlsVisible && !isScrubbing && !isEpisodeDrawerOpen && playbackInfo.isPlaying && uiState is PlayerUiState.Ready) {
+    LaunchedEffect(
+        areControlsVisible,
+        playbackInfo.isPlaying,
+        uiState,
+        isScrubbing,
+        isEpisodeDrawerOpen,
+        isSettingsDrawerOpen
+    ) {
+        if (areControlsVisible &&
+            !isScrubbing &&
+            !isEpisodeDrawerOpen &&
+            !isSettingsDrawerOpen &&
+            playbackInfo.isPlaying &&
+            uiState is PlayerUiState.Ready
+        ) {
             delay(4000)
             areControlsVisible = false
         }
@@ -490,17 +537,17 @@ fun PlayerScreen(
             isLiveBroadcast = activeChannel.isLiveBroadcast,
             activeSeekFeedback = doubleTapSeekFeedback,
             onSingleTapToggleControls = {
-                if (isEpisodeDrawerOpen) {
-                    isEpisodeDrawerOpen = false
-                } else {
-                    areControlsVisible = !areControlsVisible
+                when {
+                    isSettingsDrawerOpen -> isSettingsDrawerOpen = false
+                    isEpisodeDrawerOpen -> isEpisodeDrawerOpen = false
+                    else -> areControlsVisible = !areControlsVisible
                 }
             },
             onDoubleTapSeek = { zone, normX, normY ->
-                if (isEpisodeDrawerOpen) {
-                    isEpisodeDrawerOpen = false
-                } else {
-                    triggerDoubleTapSeek(zone, normX, normY)
+                when {
+                    isSettingsDrawerOpen -> isSettingsDrawerOpen = false
+                    isEpisodeDrawerOpen -> isEpisodeDrawerOpen = false
+                    else -> triggerDoubleTapSeek(zone, normX, normY)
                 }
             },
             onVerticalGestureStart = { gestureType ->
@@ -764,6 +811,44 @@ fun PlayerScreen(
 
                         if (activeChannel.isLiveBroadcast) {
                             LiveIndicatorBadge()
+                        }
+
+                        // Video Player Settings Button (Screen Orientation Lock, Fit & Audio/Display)
+                        Box(
+                            modifier = Modifier
+                                .testTag("player_settings_button")
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(
+                                    if (isSettingsDrawerOpen) NeliMagenta else Color(0xAA2B1055)
+                                )
+                                .border(
+                                    1.dp,
+                                    if (orientationMode.isLandscapeLocked) NeliGenreCyan else Color(0x66FFFFFF),
+                                    RoundedCornerShape(20.dp)
+                                )
+                                .clickable {
+                                    isEpisodeDrawerOpen = false
+                                    isSettingsDrawerOpen = !isSettingsDrawerOpen
+                                }
+                                .padding(horizontal = 12.dp, vertical = 8.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Settings,
+                                    contentDescription = "Video Player Settings",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Text(
+                                    text = "Settings",
+                                    color = Color.White,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.ExtraBold
+                                )
+                            }
                         }
                     }
                 }
@@ -1345,10 +1430,10 @@ fun PlayerScreen(
                             }
                         }
 
-                        // Right: Volume & Full Screen Fill/Fit Ratio Toggle
+                        // Right: Volume, Screen Orientation Lock Toggle & Full Screen Fill/Fit Ratio Toggle
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             IconButton(
                                 onClick = { playerController.toggleMute() },
@@ -1363,6 +1448,46 @@ fun PlayerScreen(
                                     contentDescription = if (playbackInfo.isMuted) "Unmute" else "Mute",
                                     tint = if (playbackInfo.isMuted) NeliMagenta else Color.White
                                 )
+                            }
+
+                            // Screen Orientation Lock / Toggle Button (Forces Landscape to prevent accidental rotation)
+                            Box(
+                                modifier = Modifier
+                                    .testTag("orientation_lock_toggle_button")
+                                    .height(48.dp)
+                                    .clip(RoundedCornerShape(24.dp))
+                                    .background(
+                                        if (orientationMode.isLandscapeLocked) Color(0xCC1B0A3A) else Color(0x882B1055)
+                                    )
+                                    .border(
+                                        1.dp,
+                                        if (orientationMode.isLandscapeLocked) NeliGenreCyan else Color(0x55FFFFFF),
+                                        RoundedCornerShape(24.dp)
+                                    )
+                                    .clickable {
+                                        val nextMode = PlayerGestureHelper.toggleLandscapeLock(orientationMode)
+                                        updateOrientationMode(nextMode)
+                                    }
+                                    .padding(horizontal = 14.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = resolveOrientationModeIcon(orientationMode),
+                                        contentDescription = "Screen Orientation Lock",
+                                        tint = if (orientationMode.isLandscapeLocked) NeliGenreCyan else Color.White,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Text(
+                                        text = orientationMode.shortBadgeLabel,
+                                        color = if (orientationMode.isLandscapeLocked) NeliGenreCyan else Color.White,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
                             }
 
                             // Aspect Ratio Full Mode / Fit Toggle
@@ -1420,6 +1545,60 @@ fun PlayerScreen(
         BrightnessVolumeGestureOverlay(
             feedback = gestureControlFeedback
         )
+
+        // Floating Orientation Lock Status Pill
+        OrientationLockStatusBadge(
+            visible = showOrientationStatusBadge && gestureControlFeedback == null,
+            orientationMode = orientationMode,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 28.dp)
+        )
+
+        // In-Player Video Settings Drawer (Screen Orientation Lock, Aspect Ratio, Quality & Audio/Display)
+        AnimatedVisibility(
+            visible = isSettingsDrawerOpen,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.align(Alignment.CenterEnd)
+        ) {
+            val resizeModeLabel = when (resizeMode) {
+                AspectRatioFrameLayout.RESIZE_MODE_FILL -> "Full Screen"
+                AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> "Zoom"
+                else -> "Fit"
+            }
+            PlayerSettingsDrawer(
+                orientationMode = orientationMode,
+                onSelectOrientationMode = { selectedMode ->
+                    updateOrientationMode(selectedMode)
+                },
+                onToggleForceLandscapeLock = { forceLocked ->
+                    val nextMode = PlayerGestureHelper.setForceLandscapeLocked(forceLocked)
+                    updateOrientationMode(nextMode)
+                },
+                resizeModeLabel = resizeModeLabel,
+                onCycleResizeMode = {
+                    resizeMode = when (resizeMode) {
+                        AspectRatioFrameLayout.RESIZE_MODE_FILL -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+                        AspectRatioFrameLayout.RESIZE_MODE_FIT -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                        else -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+                    }
+                },
+                networkQualityMode = playbackInfo.networkMode,
+                onSelectNetworkQualityMode = { mode ->
+                    playerController.applyNetworkQualityMode(mode)
+                },
+                brightnessLevel = brightnessLevel,
+                onBrightnessChange = { newBrightness ->
+                    applyBrightnessGestureLevel(newBrightness, false)
+                },
+                volumeLevel = volumeLevel,
+                onVolumeChange = { newVolume ->
+                    applyVolumeGestureLevel(newVolume, false)
+                },
+                onClose = { isSettingsDrawerOpen = false }
+            )
+        }
 
         // In-Player VOD Episode & Season Selector Overlay Drawer (for Series)
         AnimatedVisibility(

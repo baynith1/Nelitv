@@ -2,6 +2,7 @@ package com.example.ui.components
 
 import android.app.Activity
 import android.content.Context
+import android.content.pm.ActivityInfo
 import android.media.AudioManager
 import android.provider.Settings
 import androidx.compose.animation.AnimatedVisibility
@@ -21,6 +22,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -33,24 +35,42 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.VolumeDown
 import androidx.compose.material.icons.automirrored.filled.VolumeMute
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.filled.AspectRatio
 import androidx.compose.material.icons.filled.BrightnessHigh
 import androidx.compose.material.icons.filled.BrightnessLow
 import androidx.compose.material.icons.filled.BrightnessMedium
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.FastRewind
 import androidx.compose.material.icons.filled.Forward10
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.NetworkCell
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay10
+import androidx.compose.material.icons.filled.ScreenLockLandscape
+import androidx.compose.material.icons.filled.ScreenLockPortrait
+import androidx.compose.material.icons.filled.ScreenRotation
 import androidx.compose.material.icons.filled.Sensors
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.StayCurrentLandscape
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -70,13 +90,66 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.player.NetworkQualityMode
+import com.example.ui.theme.NeliCardPurple
 import com.example.ui.theme.NeliGenreCyan
 import com.example.ui.theme.NeliMagenta
+import com.example.ui.theme.NeliSurface
+import com.example.ui.theme.NeliTextPrimary
 import com.example.ui.theme.NeliTextSecondary
 import kotlin.math.abs
 import kotlin.math.roundToInt
+
+enum class PlayerOrientationMode(
+    val id: String,
+    val label: String,
+    val shortBadgeLabel: String,
+    val subtitle: String,
+    val activityOrientationConstant: Int,
+    val isLandscapeLocked: Boolean
+) {
+    LOCKED_LANDSCAPE(
+        id = "locked_landscape",
+        label = "Force Landscape (Locked)",
+        shortBadgeLabel = "Landscape Locked",
+        subtitle = "Forces fixed landscape & prevents any accidental rotation",
+        activityOrientationConstant = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE,
+        isLandscapeLocked = true
+    ),
+    SENSOR_LANDSCAPE(
+        id = "sensor_landscape",
+        label = "Auto-Landscape (Sensor)",
+        shortBadgeLabel = "Auto-Landscape",
+        subtitle = "Stays in landscape and flips between left & right sides",
+        activityOrientationConstant = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE,
+        isLandscapeLocked = false
+    ),
+    PORTRAIT(
+        id = "portrait",
+        label = "Portrait Mode",
+        shortBadgeLabel = "Portrait",
+        subtitle = "Vertical handheld viewing orientation",
+        activityOrientationConstant = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT,
+        isLandscapeLocked = false
+    ),
+    AUTO_ROTATE(
+        id = "auto_rotate",
+        label = "Unlocked (Auto-Rotate)",
+        shortBadgeLabel = "Unlocked",
+        subtitle = "Follows device rotation sensor freely",
+        activityOrientationConstant = ActivityInfo.SCREEN_ORIENTATION_USER,
+        isLandscapeLocked = false
+    );
+
+    companion object {
+        fun fromId(id: String?): PlayerOrientationMode {
+            return entries.find { it.id.equals(id, ignoreCase = true) } ?: LOCKED_LANDSCAPE
+        }
+    }
+}
 
 enum class DoubleTapZone {
     LEFT_REWIND,
@@ -227,6 +300,50 @@ object PlayerGestureHelper {
             am.setStreamVolume(AudioManager.STREAM_MUSIC, target, 0)
         } catch (_: Exception) {
             // Ignore security or fixed-volume device restrictions; ExoPlayer volume still updates
+        }
+    }
+
+    private const val PLAYER_SETTINGS_PREFS = "neli_player_settings_prefs"
+    private const val KEY_ORIENTATION_MODE = "player_orientation_mode"
+
+    fun readSavedOrientationMode(context: Context): PlayerOrientationMode {
+        return try {
+            val prefs = context.getSharedPreferences(PLAYER_SETTINGS_PREFS, Context.MODE_PRIVATE)
+            val raw = prefs.getString(KEY_ORIENTATION_MODE, PlayerOrientationMode.LOCKED_LANDSCAPE.id)
+            PlayerOrientationMode.fromId(raw)
+        } catch (_: Exception) {
+            PlayerOrientationMode.LOCKED_LANDSCAPE
+        }
+    }
+
+    fun saveAndApplyOrientationMode(
+        context: Context,
+        activity: Activity?,
+        mode: PlayerOrientationMode
+    ) {
+        try {
+            context.getSharedPreferences(PLAYER_SETTINGS_PREFS, Context.MODE_PRIVATE)
+                .edit()
+                .putString(KEY_ORIENTATION_MODE, mode.id)
+                .apply()
+        } catch (_: Exception) {
+        }
+        activity?.requestedOrientation = mode.activityOrientationConstant
+    }
+
+    fun toggleLandscapeLock(currentMode: PlayerOrientationMode): PlayerOrientationMode {
+        return if (currentMode.isLandscapeLocked) {
+            PlayerOrientationMode.AUTO_ROTATE
+        } else {
+            PlayerOrientationMode.LOCKED_LANDSCAPE
+        }
+    }
+
+    fun setForceLandscapeLocked(forceLocked: Boolean): PlayerOrientationMode {
+        return if (forceLocked) {
+            PlayerOrientationMode.LOCKED_LANDSCAPE
+        } else {
+            PlayerOrientationMode.AUTO_ROTATE
         }
     }
 }
@@ -911,5 +1028,539 @@ private fun resolveGestureIcon(type: GestureControlType, percentage: Int): Image
             percentage < 70 -> Icons.AutoMirrored.Filled.VolumeDown
             else -> Icons.AutoMirrored.Filled.VolumeUp
         }
+    }
+}
+
+/**
+ * Floating status pill shown temporarily when the user toggles Screen Orientation Lock
+ * or changes the orientation mode in Video Player Settings.
+ */
+@Composable
+fun OrientationLockStatusBadge(
+    visible: Boolean,
+    orientationMode: PlayerOrientationMode,
+    modifier: Modifier = Modifier
+) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(tween(140)) + scaleIn(initialScale = 0.92f, animationSpec = tween(160)),
+        exit = fadeOut(tween(240)) + scaleOut(targetScale = 0.95f, animationSpec = tween(200)),
+        modifier = modifier
+    ) {
+        val accentColor = if (orientationMode.isLandscapeLocked) NeliGenreCyan else NeliMagenta
+        Row(
+            modifier = Modifier
+                .clip(RoundedCornerShape(22.dp))
+                .background(Color(0xEB120426))
+                .border(1.5.dp, accentColor.copy(alpha = 0.85f), RoundedCornerShape(22.dp))
+                .padding(horizontal = 16.dp, vertical = 10.dp)
+                .testTag("orientation_status_toast_badge"),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(CircleShape)
+                    .background(accentColor.copy(alpha = 0.22f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = resolveOrientationModeIcon(orientationMode),
+                    contentDescription = null,
+                    tint = accentColor,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+
+            Column {
+                Text(
+                    text = orientationMode.label,
+                    color = Color.White,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.ExtraBold
+                )
+                Text(
+                    text = orientationMode.subtitle,
+                    color = accentColor,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
+    }
+}
+
+/**
+ * In-Player Video Settings Drawer allowing the user to:
+ * 1. Toggle "Force Landscape Lock" (prevents accidental rotation while watching)
+ * 2. Choose from 4 Screen Orientation modes (Force Landscape Locked, Auto-Landscape, Portrait, Unlocked Auto-Rotate)
+ * 3. Adjust Video Aspect Ratio / Screen Fit and Network Quality Mode
+ * 4. Fine-tune Screen Brightness and Audio Volume via sliders
+ */
+@Composable
+fun PlayerSettingsDrawer(
+    orientationMode: PlayerOrientationMode,
+    onSelectOrientationMode: (PlayerOrientationMode) -> Unit,
+    onToggleForceLandscapeLock: (Boolean) -> Unit,
+    resizeModeLabel: String,
+    onCycleResizeMode: () -> Unit,
+    networkQualityMode: NetworkQualityMode,
+    onSelectNetworkQualityMode: (NetworkQualityMode) -> Unit,
+    brightnessLevel: Float,
+    onBrightnessChange: (Float) -> Unit,
+    volumeLevel: Float,
+    onVolumeChange: (Float) -> Unit,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .fillMaxHeight()
+            .width(370.dp)
+            .background(Color(0xF5120426))
+            .border(
+                1.dp,
+                NeliGenreCyan.copy(alpha = 0.55f),
+                RoundedCornerShape(topStart = 22.dp, bottomStart = 22.dp)
+            )
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            ) { /* consume clicks inside settings drawer */ }
+            .padding(16.dp)
+            .testTag("player_settings_drawer")
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            // Drawer Header
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(NeliMagenta.copy(alpha = 0.22f))
+                            .border(1.dp, NeliMagenta, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    Column {
+                        Text(
+                            text = "Video Player Settings",
+                            color = Color.White,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = "Orientation Lock, Display & Audio",
+                            color = NeliGenreCyan,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+
+                IconButton(
+                    onClick = onClose,
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(NeliCardPurple)
+                        .testTag("close_player_settings_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Close Settings",
+                        tint = Color.White,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+
+            // Primary Feature Card: Force Landscape Lock Toggle Switch
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(
+                        if (orientationMode.isLandscapeLocked) Color(0xFF1F0B3D) else NeliSurface
+                    )
+                    .border(
+                        width = 1.5.dp,
+                        color = if (orientationMode.isLandscapeLocked) NeliGenreCyan else Color(0x44A855F7),
+                        shape = RoundedCornerShape(16.dp)
+                    )
+                    .clickable {
+                        onToggleForceLandscapeLock(!orientationMode.isLandscapeLocked)
+                    }
+                    .padding(horizontal = 14.dp, vertical = 12.dp)
+                    .testTag("force_landscape_lock_card"),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(42.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (orientationMode.isLandscapeLocked) {
+                                    NeliGenreCyan.copy(alpha = 0.22f)
+                                } else {
+                                    Color(0x552B1055)
+                                }
+                            )
+                            .border(
+                                1.dp,
+                                if (orientationMode.isLandscapeLocked) NeliGenreCyan else Color(0x55FFFFFF),
+                                CircleShape
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = if (orientationMode.isLandscapeLocked) {
+                                Icons.Default.ScreenLockLandscape
+                            } else {
+                                Icons.Default.ScreenRotation
+                            },
+                            contentDescription = null,
+                            tint = if (orientationMode.isLandscapeLocked) NeliGenreCyan else Color.White,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = "Force Landscape Lock",
+                                color = Color.White,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.ExtraBold
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(
+                                        if (orientationMode.isLandscapeLocked) Color(0xFF10B981) else Color(0x55FFFFFF)
+                                    )
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = if (orientationMode.isLandscapeLocked) "LOCKED" else "OFF",
+                                    color = Color.White,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.ExtraBold
+                                )
+                            }
+                        }
+                        Text(
+                            text = "Prevents accidental screen rotation while watching content",
+                            color = NeliTextSecondary,
+                            fontSize = 11.sp
+                        )
+                    }
+                }
+
+                Switch(
+                    checked = orientationMode.isLandscapeLocked,
+                    onCheckedChange = { checked ->
+                        onToggleForceLandscapeLock(checked)
+                    },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Color.White,
+                        checkedTrackColor = NeliGenreCyan,
+                        uncheckedThumbColor = Color.White,
+                        uncheckedTrackColor = Color(0x552B1055)
+                    ),
+                    modifier = Modifier.testTag("force_landscape_lock_switch")
+                )
+            }
+
+            // Screen Orientation Mode Options
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "SCREEN ORIENTATION MODE",
+                    color = NeliGenreCyan,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.ExtraBold
+                )
+
+                PlayerOrientationMode.entries.forEach { mode ->
+                    val isSelected = mode == orientationMode
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(if (isSelected) NeliCardPurple else NeliSurface)
+                            .border(
+                                width = 1.dp,
+                                color = if (isSelected) NeliMagenta else Color(0x33A855F7),
+                                shape = RoundedCornerShape(14.dp)
+                            )
+                            .clickable { onSelectOrientationMode(mode) }
+                            .padding(horizontal = 12.dp, vertical = 10.dp)
+                            .testTag("orientation_option_${mode.id}"),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                imageVector = resolveOrientationModeIcon(mode),
+                                contentDescription = null,
+                                tint = if (isSelected) NeliMagenta else NeliGenreCyan,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Column {
+                                Text(
+                                    text = mode.label,
+                                    color = NeliTextPrimary,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = mode.subtitle,
+                                    color = NeliTextSecondary,
+                                    fontSize = 10.sp
+                                )
+                            }
+                        }
+
+                        if (isSelected) {
+                            Icon(
+                                imageVector = Icons.Default.CheckCircle,
+                                contentDescription = "Selected",
+                                tint = NeliMagenta,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Brightness & Volume Sliders in Settings
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(NeliSurface)
+                    .border(1.dp, Color(0x33A855F7), RoundedCornerShape(14.dp))
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                val bPct = (brightnessLevel.coerceIn(0f, 1f) * 100f).roundToInt()
+                val vPct = (volumeLevel.coerceIn(0f, 1f) * 100f).roundToInt()
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = resolveGestureIcon(GestureControlType.BRIGHTNESS, bPct),
+                            contentDescription = null,
+                            tint = NeliGenreCyan,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = "Screen Brightness",
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    Text(
+                        text = "$bPct%",
+                        color = NeliGenreCyan,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                }
+
+                Slider(
+                    value = brightnessLevel.coerceIn(0f, 1f),
+                    onValueChange = onBrightnessChange,
+                    colors = SliderDefaults.colors(
+                        thumbColor = NeliGenreCyan,
+                        activeTrackColor = NeliGenreCyan,
+                        inactiveTrackColor = Color(0x44FFFFFF)
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(26.dp)
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = resolveGestureIcon(GestureControlType.VOLUME, vPct),
+                            contentDescription = null,
+                            tint = NeliMagenta,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = "Player Volume",
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    Text(
+                        text = if (vPct == 0) "Muted" else "$vPct%",
+                        color = NeliMagenta,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                }
+
+                Slider(
+                    value = volumeLevel.coerceIn(0f, 1f),
+                    onValueChange = onVolumeChange,
+                    colors = SliderDefaults.colors(
+                        thumbColor = NeliMagenta,
+                        activeTrackColor = NeliMagenta,
+                        inactiveTrackColor = Color(0x44FFFFFF)
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(26.dp)
+                )
+            }
+
+            // Video Aspect Ratio & Stream Quality Quick Settings
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(NeliSurface)
+                        .border(1.dp, Color(0x33A855F7), RoundedCornerShape(14.dp))
+                        .clickable { onCycleResizeMode() }
+                        .padding(12.dp)
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AspectRatio,
+                                contentDescription = null,
+                                tint = NeliGenreCyan,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                text = "Screen Fit",
+                                color = NeliTextSecondary,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                        Text(
+                            text = resizeModeLabel,
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                    }
+                }
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(NeliSurface)
+                        .border(1.dp, Color(0x33A855F7), RoundedCornerShape(14.dp))
+                        .clickable {
+                            val entries = NetworkQualityMode.entries
+                            val nextIdx = (entries.indexOf(networkQualityMode) + 1) % entries.size
+                            onSelectNetworkQualityMode(entries[nextIdx])
+                        }
+                        .padding(12.dp)
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.NetworkCell,
+                                contentDescription = null,
+                                tint = NeliMagenta,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                text = "Stream Quality",
+                                color = NeliTextSecondary,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                        Text(
+                            text = networkQualityMode.label,
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+fun resolveOrientationModeIcon(mode: PlayerOrientationMode): ImageVector {
+    return when (mode) {
+        PlayerOrientationMode.LOCKED_LANDSCAPE -> Icons.Default.ScreenLockLandscape
+        PlayerOrientationMode.SENSOR_LANDSCAPE -> Icons.Default.StayCurrentLandscape
+        PlayerOrientationMode.PORTRAIT -> Icons.Default.ScreenLockPortrait
+        PlayerOrientationMode.AUTO_ROTATE -> Icons.Default.ScreenRotation
     }
 }

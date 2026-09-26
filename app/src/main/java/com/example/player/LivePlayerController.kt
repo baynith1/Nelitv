@@ -125,21 +125,29 @@ class LivePlayerController(
     private var lastKnownVodPositionMs = 0L
     private var pausedByCallOrExternalAudio: Boolean = false
     private var pausedSpecificallyByPhoneCall: Boolean = false
+    private var lastSystemStatusPollTimeMs = 0L
+    private var cachedPhoneCallActive = false
+    private var cachedConnectionLabel: String = "Mobile Data / Wi-Fi"
 
     private val audioManager: AudioManager? by lazy {
         context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
     }
 
-    private fun isPhoneCallActiveOrRinging(): Boolean {
+    private fun isPhoneCallActiveOrRinging(forceRefresh: Boolean = false): Boolean {
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (!forceRefresh && now - lastSystemStatusPollTimeMs < 2500L) {
+            return cachedPhoneCallActive
+        }
         val mode = try {
             audioManager?.mode ?: AudioManager.MODE_NORMAL
         } catch (_: Exception) {
             AudioManager.MODE_NORMAL
         }
-        return mode == AudioManager.MODE_RINGTONE ||
+        cachedPhoneCallActive = mode == AudioManager.MODE_RINGTONE ||
                 mode == AudioManager.MODE_IN_CALL ||
                 mode == AudioManager.MODE_IN_COMMUNICATION ||
                 mode == AudioManager.MODE_CALL_SCREENING
+        return cachedPhoneCallActive
     }
 
     private val _uiState = MutableStateFlow<PlayerUiState>(PlayerUiState.Loading)
@@ -381,8 +389,13 @@ class LivePlayerController(
         }
     }
 
-    private fun detectConnectionLabel(): String {
-        return try {
+    private fun detectConnectionLabel(forceRefresh: Boolean = false): String {
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (!forceRefresh && now - lastSystemStatusPollTimeMs < 2500L) {
+            return cachedConnectionLabel
+        }
+        lastSystemStatusPollTimeMs = now
+        cachedConnectionLabel = try {
             val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
             val net = cm?.activeNetwork
             val caps = net?.let { cm.getNetworkCapabilities(it) }
@@ -398,6 +411,7 @@ class LivePlayerController(
         } catch (_: Exception) {
             "Mobile Data / Wi-Fi"
         }
+        return cachedConnectionLabel
     }
 
     private fun detectInitialBitrateEstimate(): Long {

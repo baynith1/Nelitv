@@ -1,8 +1,10 @@
 package com.example
 
 import android.Manifest
+import android.app.Activity
 import android.app.PictureInPictureParams
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.os.Build
@@ -13,10 +15,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -30,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.Dispatchers
@@ -327,8 +326,27 @@ fun NeliApp(
         val currentCtrl = sharedPlayerController
         val showFullPlayer = currentChan != null && currentCtrl != null
 
-        LaunchedEffect(showFullPlayer) {
+        LaunchedEffect(showFullPlayer, isSystemInPipMode) {
             NeliAdMobManager.updatePlaybackActiveState(showFullPlayer)
+            if (!showFullPlayer && !isSystemInPipMode) {
+                val act = context as? Activity
+                act?.let { a ->
+                    try {
+                        a.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                        a.window?.decorView?.let { decor ->
+                            decor.scrollTo(0, 0)
+                            decor.translationY = 0f
+                            WindowCompat.getInsetsController(a.window, decor).apply {
+                                show(WindowInsetsCompat.Type.systemBars())
+                                val isLight = NeliThemeManager.isLightMode
+                                isAppearanceLightStatusBars = isLight
+                                isAppearanceLightNavigationBars = isLight
+                            }
+                        }
+                    } catch (_: Exception) {
+                    }
+                }
+            }
         }
 
         if (currentChan != null && currentCtrl != null) {

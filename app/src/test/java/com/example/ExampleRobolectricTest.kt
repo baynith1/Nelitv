@@ -759,5 +759,43 @@ class ExampleRobolectricTest {
         assertTrue(initBrightness in 0.05f..1.0f)
         val initVolume = com.example.ui.components.PlayerGestureHelper.readInitialAudioVolume(context, 0.8f)
         assertTrue(initVolume in 0.0f..1.0f)
+
+        // 6. Verify Screen Orientation Lock & Force Landscape Mode in Video Player Settings
+        val defaultMode = com.example.ui.components.PlayerGestureHelper.readSavedOrientationMode(context)
+        assertEquals(com.example.ui.components.PlayerOrientationMode.LOCKED_LANDSCAPE, defaultMode)
+        assertTrue(defaultMode.isLandscapeLocked)
+        assertEquals(
+            android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE,
+            defaultMode.activityOrientationConstant
+        )
+
+        // Toggle Landscape Lock -> Unlocked (Auto-Rotate)
+        val unlockedMode = com.example.ui.components.PlayerGestureHelper.toggleLandscapeLock(defaultMode)
+        assertEquals(com.example.ui.components.PlayerOrientationMode.AUTO_ROTATE, unlockedMode)
+        org.junit.Assert.assertFalse(unlockedMode.isLandscapeLocked)
+
+        // Toggle back -> Locked Landscape
+        val relockedMode = com.example.ui.components.PlayerGestureHelper.toggleLandscapeLock(unlockedMode)
+        assertEquals(com.example.ui.components.PlayerOrientationMode.LOCKED_LANDSCAPE, relockedMode)
+        assertTrue(relockedMode.isLandscapeLocked)
+
+        // Persist and read back custom orientation modes
+        com.example.ui.components.PlayerGestureHelper.saveAndApplyOrientationMode(
+            context,
+            null,
+            com.example.ui.components.PlayerOrientationMode.PORTRAIT
+        )
+        assertEquals(
+            com.example.ui.components.PlayerOrientationMode.PORTRAIT,
+            com.example.ui.components.PlayerGestureHelper.readSavedOrientationMode(context)
+        )
+
+        // Restore Force Landscape Lock via setForceLandscapeLocked(true)
+        val forcedLandscape = com.example.ui.components.PlayerGestureHelper.setForceLandscapeLocked(true)
+        com.example.ui.components.PlayerGestureHelper.saveAndApplyOrientationMode(context, null, forcedLandscape)
+        assertEquals(
+            com.example.ui.components.PlayerOrientationMode.LOCKED_LANDSCAPE,
+            com.example.ui.components.PlayerGestureHelper.readSavedOrientationMode(context)
+        )
     }
 }

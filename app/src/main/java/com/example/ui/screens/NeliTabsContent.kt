@@ -628,14 +628,16 @@ fun DiscoveryTabContent(
                         }
                     }
 
-                    // Discovery: Banner in every movie genre category section
-                    NeliAdaptiveBannerAd(
-                        placementKey = if (index == 0) {
-                            "discovery_after_genre_section"
-                        } else {
-                            "discovery_after_genre_${firstGenreName.lowercase().replace(" ", "_")}"
-                        }
-                    )
+                    // Discovery: Banner after primary genre sections without overloading WebView instances
+                    if (index == 0 || index == 3) {
+                        NeliAdaptiveBannerAd(
+                            placementKey = if (index == 0) {
+                                "discovery_after_genre_section"
+                            } else {
+                                "discovery_after_genre_${firstGenreName.lowercase().replace(" ", "_")}"
+                            }
+                        )
+                    }
                 }
             }
         }

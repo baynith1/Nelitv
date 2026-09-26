@@ -92,8 +92,20 @@ fun TopNavBar(
     val headerBgColor = if (isLightMode) Color(0xFFFFFFFF) else Color(0xFF0B0D14)
 
     // Guaranteed status bar top safe padding so header never collides with mobile status banner
+    // even immediately after returning from fullscreen video when WindowInsets.statusBars is transiently 0.dp
+    val systemStatusBarResDp = remember(context) {
+        val resId = context.resources.getIdentifier("status_bar_height", "dimen", "android")
+        if (resId > 0) {
+            val px = context.resources.getDimensionPixelSize(resId)
+            val density = context.resources.displayMetrics.density.coerceAtLeast(1f)
+            (px / density).dp
+        } else {
+            32.dp
+        }
+    }
     val systemStatusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-    val safeTopPadding = if (systemStatusBarTop < 30.dp) 30.dp else systemStatusBarTop
+    val minSafeTop = if (systemStatusBarResDp < 32.dp) 32.dp else systemStatusBarResDp
+    val safeTopPadding = if (systemStatusBarTop < minSafeTop) minSafeTop else systemStatusBarTop
 
     LaunchedEffect(isSearchOpen) {
         if (isSearchOpen) {

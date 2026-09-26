@@ -727,7 +727,7 @@ private fun LiveTvHomeTab(
 
                     if (catIndex == 0) {
                         NeliAdaptiveBannerAd(placementKey = "home_after_category_section")
-                    } else if ((catIndex + 1) % 3 == 0) {
+                    } else if (catIndex == 3) {
                         NeliAdaptiveBannerAd(
                             placementKey = "home_after_category_${categoryTitle.lowercase().replace(" ", "_")}"
                         )
@@ -814,8 +814,8 @@ private fun LiveTvHomeTab(
                     }
                 }
 
-                // Embed Muted Video Ad after every 6 channels in All Channels vertical view
-                if (sixChannels.size == 6 || blockIndex == sixChannelBlocks.lastIndex) {
+                // Embed Muted Video Ad after primary 6-channel blocks without overloading WebView/MediaView memory
+                if (blockIndex <= 1 && (sixChannels.size == 6 || blockIndex == sixChannelBlocks.lastIndex)) {
                     NeliMutedInlineVideoAdCard(
                         placementKey = "all_channels_after_${(blockIndex + 1) * 6}"
                     )

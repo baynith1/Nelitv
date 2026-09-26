@@ -11,13 +11,15 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -160,6 +162,24 @@ fun MediaDetailScreen(
         isDownloaded || downloadedIds.contains(media.id)
     }
 
+    val detailContext = LocalContext.current
+    val guaranteedStatusBarTop = remember(detailContext) {
+        val resId = detailContext.resources.getIdentifier("status_bar_height", "dimen", "android")
+        if (resId > 0) {
+            val px = detailContext.resources.getDimensionPixelSize(resId)
+            val density = detailContext.resources.displayMetrics.density.coerceAtLeast(1f)
+            (px / density).dp.coerceAtLeast(32.dp)
+        } else {
+            32.dp
+        }
+    }
+    val systemStatusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val safeDetailTopPadding = if (systemStatusBarTop < guaranteedStatusBarTop) {
+        guaranteedStatusBarTop
+    } else {
+        systemStatusBarTop
+    }
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -171,7 +191,7 @@ fun MediaDetailScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(Color(0xFF120426))
-                .statusBarsPadding()
+                .padding(top = safeDetailTopPadding)
                 .padding(horizontal = 16.dp, vertical = 10.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically

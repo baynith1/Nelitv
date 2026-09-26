@@ -84,7 +84,7 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
             val existing = mergedById[dbItem.id]
             if (existing == null) {
                 val isCompletedValid = dbItem.downloadStatus == "COMPLETED" &&
-                    OfflineDownloadManager.isDownloadFileValidOnDisk(dbItem)
+                    dbItem.localFilePath.isNotBlank()
                 val isActivelyDownloading = OfflineDownloadManager.isCurrentlyDownloading(dbItem.id)
                 val isPausedOrRetryable = dbItem.downloadStatus == "PAUSED_ERROR" ||
                     (dbItem.downloadStatus == "DOWNLOADING" && !isActivelyDownloading)
@@ -110,9 +110,9 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
         initialValue = emptyList()
     )
 
-    val downloadedIds: StateFlow<Set<String>> = downloads
+    val downloadedIds: StateFlow<Set<String>> = dao.getAllDownloads()
         .map { list ->
-            list.filter { it.downloadStatus == "COMPLETED" && OfflineDownloadManager.isDownloadFileValidOnDisk(it) }
+            list.filter { it.downloadStatus == "COMPLETED" && it.localFilePath.isNotBlank() }
                 .map { it.id }
                 .toSet()
         }

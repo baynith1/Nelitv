@@ -7,6 +7,7 @@ import android.util.TypedValue
 import android.view.Gravity
 import android.view.ViewGroup
 import android.widget.Button as AndroidButton
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.compose.foundation.background
@@ -28,7 +29,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
@@ -59,12 +59,12 @@ import kotlinx.coroutines.delay
  *
  * Performance & UX Rules enforced:
  * - Avoids `BoxWithConstraints` subcomposition inside `LazyColumn` so scrolling stays 60/120fps.
- * - Defers WebView / `AdView` instantiation by 220ms via `LaunchedEffect` so initial screen
+ * - Wraps `AdView` in a non-focusable `FrameLayout` with `FOCUS_BLOCK_DESCENDANTS` so internal
+ *   AdMob Chromium WebViews NEVER steal focus or force the `LazyColumn` / Window to scroll/climb up!
+ * - Defers WebView / `AdView` instantiation via `LaunchedEffect` so initial screen
  *   rendering and fast flinging never stall the main UI thread.
- * - Uses anchored adaptive banner size fitted to available width (never huge).
- * - Keeps generous spacing between surrounding content and the banner.
  * - If an ad fails to load (or while loading / when offline), hides the ad container completely
- *   so it never leaves a large empty space.
+ *   so it never leaves a large empty space or causes layout thrashing.
  */
 @Composable
 fun NeliAdaptiveBannerAd(
@@ -91,12 +91,15 @@ fun NeliAdaptiveBannerAd(
         (configuration.screenWidthDp - 32).coerceAtLeast(300)
     }
 
-    // Defer AdView creation & loading slightly so UI frames render smoothly first
+    // Defer AdView creation & loading so UI frames and scrolling render smoothly first
     LaunchedEffect(placementKey, adWidthDp) {
         if (adViewInstance == null && !isAdFailed) {
-            delay(220L)
+            delay(450L)
             try {
                 val createdView = AdView(context).apply {
+                    isFocusable = false
+                    isFocusableInTouchMode = false
+                    descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
                     setAdSize(
                         AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(
                             context,
@@ -138,33 +141,35 @@ fun NeliAdaptiveBannerAd(
     }
 
     val activeAdView = adViewInstance
-    if (activeAdView != null && !isAdFailed) {
-        val containerModifier = if (isAdLoaded) {
-            modifier
+    if (activeAdView != null && !isAdFailed && isAdLoaded) {
+        Box(
+            modifier = modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 10.dp)
+                .padding(horizontal = 16.dp, vertical = 8.dp)
                 .clip(RoundedCornerShape(12.dp))
                 .background(NeliSurface)
                 .border(0.5.dp, Color(0x33A855F7), RoundedCornerShape(12.dp))
                 .padding(vertical = 4.dp)
-                .heightIn(max = 76.dp)
-                .testTag("admob_banner_$placementKey")
-        } else {
-            modifier
-                .fillMaxWidth()
-                .height(0.dp)
-                .alpha(0f)
-                .testTag("admob_banner_$placementKey")
-        }
-
-        Box(
-            modifier = containerModifier,
+                .heightIn(min = 50.dp, max = 72.dp)
+                .testTag("admob_banner_$placementKey"),
             contentAlignment = Alignment.Center
         ) {
             AndroidView(
-                factory = {
-                    (activeAdView.parent as? ViewGroup)?.removeView(activeAdView)
-                    activeAdView
+                factory = { ctx ->
+                    FrameLayout(ctx).apply {
+                        isFocusable = false
+                        isFocusableInTouchMode = false
+                        descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
+                        (activeAdView.parent as? ViewGroup)?.removeView(activeAdView)
+                        addView(
+                            activeAdView,
+                            FrameLayout.LayoutParams(
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.WRAP_CONTENT,
+                                Gravity.CENTER
+                            )
+                        )
+                    }
                 },
                 modifier = Modifier.fillMaxWidth()
             )
@@ -250,6 +255,9 @@ fun NeliNativeSearchAd(
         AndroidView(
             factory = { ctx ->
                 NativeAdView(ctx).apply {
+                    isFocusable = false
+                    isFocusableInTouchMode = false
+                    descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
                     val rootRow = LinearLayout(ctx).apply {
                         orientation = LinearLayout.HORIZONTAL
                         gravity = Gravity.CENTER_VERTICAL
@@ -462,6 +470,9 @@ fun NeliMutedInlineVideoAdCard(
         AndroidView(
             factory = { ctx ->
                 NativeAdView(ctx).apply {
+                    isFocusable = false
+                    isFocusableInTouchMode = false
+                    descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
                     val containerCol = LinearLayout(ctx).apply {
                         orientation = LinearLayout.VERTICAL
                         layoutParams = ViewGroup.LayoutParams(
