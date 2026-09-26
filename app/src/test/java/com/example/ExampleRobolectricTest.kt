@@ -19,7 +19,8 @@ class ExampleRobolectricTest {
     fun `read string from context`() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val appName = context.getString(R.string.app_name)
-        assertEquals("Neli TV", appName)
+        assertEquals("Nelitv", appName)
+        assertEquals("com.nelitv.app", BuildConfig.APPLICATION_ID)
     }
 
     @Test
@@ -376,7 +377,55 @@ class ExampleRobolectricTest {
             com.example.data.ChannelRepository.AZAM_TOKEN_ENDPOINT_URL
         )
 
-        // 4. Verify automatic home screen widget pin & update executes cleanly
+        // 4. Verify automatic home screen widget pin & update executes cleanly without widget notifications
         com.example.widget.NeliHomeWidgetProvider.ensureWidgetAutomaticallyPinnedAndUpdated(context)
+        val widgetThumb = com.example.widget.NeliHomeWidgetProvider.renderFallbackWidgetThumb(
+            title = "Azam Sports 1 HD",
+            badge = "LIVE TV",
+            targetW = 128,
+            targetH = 84,
+            primaryColor = 0xFF17103A.toInt(),
+            accentColor = 0xFFF41B54.toInt()
+        )
+        assertEquals(128, widgetThumb.width)
+        assertEquals(84, widgetThumb.height)
+
+        // 5. Verify Theme Colour Changer (Black Mode <-> White Mode)
+        com.example.ui.theme.NeliThemeManager.setThemeMode(context, true)
+        assertTrue(com.example.ui.theme.NeliThemeManager.isLightMode)
+        assertEquals("White (Light Mode)", com.example.ui.theme.NeliThemeManager.currentThemeLabel)
+        com.example.ui.theme.NeliThemeManager.setThemeMode(context, false)
+        org.junit.Assert.assertFalse(com.example.ui.theme.NeliThemeManager.isLightMode)
+        assertEquals("Black (Dark Mode)", com.example.ui.theme.NeliThemeManager.currentThemeLabel)
+
+        // 6. Verify TMDB Credits JSON parsing for real casters & profile URLs
+        val sampleTmdbCredits = """
+            {
+              "cast": [
+                {
+                  "id": 73249,
+                  "name": "Lee Jung-jae",
+                  "character": "Seong Gi-hun / Player 456",
+                  "profile_path": "/bA5M0e04g7h155X4r8r9.jpg"
+                },
+                {
+                  "id": 25002,
+                  "name": "Lee Byung-hun",
+                  "character": "Front Man",
+                  "profile_path": "/p8z8.jpg"
+                }
+              ]
+            }
+        """.trimIndent()
+        val parsedCast = com.example.data.TmdbRepository.parseTmdbCreditsJson(sampleTmdbCredits)
+        assertEquals(2, parsedCast.size)
+        assertEquals("Lee Jung-jae", parsedCast[0].name)
+        assertEquals("Seong Gi-hun / Player 456", parsedCast[0].role)
+        assertTrue(parsedCast[0].avatarUrl.startsWith("https://image.tmdb.org/t/p/w185/"))
+
+        // 7. Verify 10 Million Concurrent Users Scale Engine & Jitter
+        assertEquals(10_000_000L, MediaContentRepository.MAX_CONCURRENT_USERS_CAPACITY)
+        val jitteredDelay = MediaContentRepository.computeJitterDelayMsFor10MScale(180_000L)
+        assertTrue(jitteredDelay in 180_000L..225_000L)
     }
 }

@@ -37,9 +37,11 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.DownloadDone
+import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.HighQuality
+import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Movie
@@ -111,6 +113,7 @@ import com.example.ui.theme.NeliSurface
 import com.example.ui.theme.NeliSurfaceVariant
 import com.example.ui.theme.NeliTextPrimary
 import com.example.ui.theme.NeliTextSecondary
+import com.example.ui.theme.NeliThemeManager
 
 @Composable
 fun MediaPosterCard(
@@ -373,69 +376,7 @@ fun SearchTabContent(
             onCategorySelected = onCategorySelected
         )
 
-        if (filteredMedia.isNotEmpty()) {
-            Text(
-                text = "Movies & Series (${filteredMedia.size})",
-                color = NeliTextPrimary,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
-            )
-            LazyRow(
-                contentPadding = PaddingValues(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                items(filteredMedia, key = { it.id }) { media ->
-                    MediaPosterCard(
-                        media = media,
-                        onClick = { onMediaSelected(media) }
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.height(10.dp))
-        }
-
-        if (filteredEpisodes.isNotEmpty()) {
-            Text(
-                text = "Matching Episodes (${filteredEpisodes.size})",
-                color = NeliGenreCyan,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-            )
-            LazyRow(
-                contentPadding = PaddingValues(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                items(filteredEpisodes, key = { it.id }) { ep ->
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(NeliCardPurple)
-                            .clickable { onChannelSelected(ep.toPlayableChannel()) }
-                            .padding(horizontal = 12.dp, vertical = 8.dp)
-                    ) {
-                        Text(
-                            text = "S${ep.seasonNumber}E${ep.episodeNumber} • ${ep.name}",
-                            color = Color.White,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-            }
-            Spacer(modifier = Modifier.height(8.dp))
-        }
-
-        Text(
-            text = "Live TV Channels (${filteredChannels.size})",
-            color = NeliTextPrimary,
-            fontSize = 15.sp,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
-        )
-
-        if (filteredChannels.isEmpty()) {
+        if (filteredMedia.isEmpty() && filteredEpisodes.isEmpty() && filteredChannels.isEmpty()) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -451,22 +392,103 @@ fun SearchTabContent(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "No matching channels found",
+                        text = "No matching channels or movies found",
                         color = NeliTextPrimary,
                         fontWeight = FontWeight.Bold
                     )
                 }
             }
         } else {
+            // Vertical multi-column layout only — no horizontal scrolling for search content
             LazyVerticalGrid(
                 columns = GridCells.Adaptive(minSize = 155.dp),
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 100.dp),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 110.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier
                     .fillMaxSize()
                     .testTag("channels_grid")
             ) {
+                if (filteredMedia.isNotEmpty()) {
+                    item(
+                        span = { GridItemSpan(maxLineSpan) },
+                        key = "search_header_media"
+                    ) {
+                        Text(
+                            text = "Movies & Series (${filteredMedia.size})",
+                            color = NeliTextPrimary,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            modifier = Modifier.padding(top = 4.dp, bottom = 2.dp)
+                        )
+                    }
+
+                    items(filteredMedia, key = { "search_media_${it.id}" }) { media ->
+                        MediaPosterCard(
+                            media = media,
+                            onClick = { onMediaSelected(media) },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+
+                if (filteredEpisodes.isNotEmpty()) {
+                    item(
+                        span = { GridItemSpan(maxLineSpan) },
+                        key = "search_header_episodes"
+                    ) {
+                        Text(
+                            text = "Matching Episodes (${filteredEpisodes.size})",
+                            color = NeliGenreCyan,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            modifier = Modifier.padding(top = 6.dp, bottom = 2.dp)
+                        )
+                    }
+
+                    items(filteredEpisodes, key = { "search_ep_${it.id}" }) { ep ->
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(NeliCardPurple)
+                                .border(1.dp, NeliMagenta.copy(alpha = 0.45f), RoundedCornerShape(12.dp))
+                                .clickable { onChannelSelected(ep.toPlayableChannel()) }
+                                .padding(horizontal = 12.dp, vertical = 10.dp)
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Text(
+                                    text = "S${ep.seasonNumber}E${ep.episodeNumber} • ${ep.name}",
+                                    color = NeliTextPrimary,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = "${ep.runtime} min • ${if (ep.narrated) ep.narrationLanguage else "HD"}",
+                                    color = NeliGenreCyan,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+                    }
+                }
+
+                item(
+                    span = { GridItemSpan(maxLineSpan) },
+                    key = "search_header_channels"
+                ) {
+                    Text(
+                        text = "Live TV Channels (${filteredChannels.size})",
+                        color = NeliTextPrimary,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        modifier = Modifier.padding(top = 6.dp, bottom = 2.dp)
+                    )
+                }
+
                 items(filteredChannels, key = { it.id }) { channel ->
                     ChannelCard(
                         channel = channel,
@@ -1248,10 +1270,16 @@ fun AccountTabContent(
 
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = if (isRegisterMode) "Create Your Account" else "Sign In to Neli TV",
+                                text = if (isRegisterMode) "Create Your Nelitv Account" else "Sign In to Nelitv",
                                 color = NeliTextPrimary,
                                 fontSize = 18.sp,
                                 fontWeight = FontWeight.ExtraBold
+                            )
+                            Text(
+                                text = "Nelitv (com.nelitv.app) • Powered by Neliplay (Mother Company)",
+                                color = NeliGenreCyan,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
                             )
                             Text(
                                 text = "Automatic sign-in with your phone's primary Google account, or use Email & Password below",
@@ -1562,6 +1590,142 @@ fun AccountTabContent(
                                 color = Color.White,
                                 fontWeight = FontWeight.ExtraBold,
                                 fontSize = 15.sp
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Theme Colour Changer Card (Black Mode <-> White Mode)
+        item {
+            val context = LocalContext.current
+            val isLightWhiteMode = NeliThemeManager.isLightMode
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(NeliSurface)
+                    .border(1.dp, Color(0x44A855F7), RoundedCornerShape(20.dp))
+                    .padding(16.dp)
+                    .testTag("account_theme_changer_card"),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(
+                            imageVector = if (isLightWhiteMode) Icons.Default.LightMode else Icons.Default.DarkMode,
+                            contentDescription = null,
+                            tint = NeliMagenta
+                        )
+                        Column {
+                            Text(
+                                text = "Theme Colour Changer (Black / White)",
+                                color = NeliTextPrimary,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.ExtraBold
+                            )
+                            Text(
+                                text = "Current Theme: ${NeliThemeManager.currentThemeLabel} • Badili rangi ya app kuwa Nyeusi (Black) au Nyeupe (White)",
+                                color = NeliTextSecondary,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+
+                    Switch(
+                        checked = isLightWhiteMode,
+                        onCheckedChange = { whiteMode ->
+                            NeliThemeManager.setThemeMode(context, whiteMode)
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = NeliMagenta
+                        ),
+                        modifier = Modifier.testTag("account_theme_switch")
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(if (!isLightWhiteMode) NeliMagenta else NeliSurfaceVariant)
+                            .border(
+                                1.dp,
+                                if (!isLightWhiteMode) NeliMagenta else Color(0x44A855F7),
+                                RoundedCornerShape(12.dp)
+                            )
+                            .clickable {
+                                NeliThemeManager.setThemeMode(context, false)
+                            }
+                            .padding(vertical = 10.dp)
+                            .testTag("theme_black_mode_button"),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.DarkMode,
+                                contentDescription = null,
+                                tint = if (!isLightWhiteMode) Color.White else NeliTextPrimary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                text = "Black Theme",
+                                color = if (!isLightWhiteMode) Color.White else NeliTextPrimary,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.ExtraBold
+                            )
+                        }
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(if (isLightWhiteMode) NeliMagenta else NeliSurfaceVariant)
+                            .border(
+                                1.dp,
+                                if (isLightWhiteMode) NeliMagenta else Color(0x44A855F7),
+                                RoundedCornerShape(12.dp)
+                            )
+                            .clickable {
+                                NeliThemeManager.setThemeMode(context, true)
+                            }
+                            .padding(vertical = 10.dp)
+                            .testTag("theme_white_mode_button"),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.LightMode,
+                                contentDescription = null,
+                                tint = if (isLightWhiteMode) Color.White else NeliTextPrimary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                text = "White Theme",
+                                color = if (isLightWhiteMode) Color.White else NeliTextPrimary,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.ExtraBold
                             )
                         }
                     }

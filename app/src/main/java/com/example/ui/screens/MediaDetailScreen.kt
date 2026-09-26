@@ -51,6 +51,7 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -72,6 +73,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
+import com.example.data.MediaContentRepository
+import com.example.data.TmdbRepository
 import com.example.model.CastMember
 import com.example.model.DownloadQualityOption
 import com.example.model.EpisodeItem
@@ -108,6 +111,17 @@ fun MediaDetailScreen(
     modifier: Modifier = Modifier
 ) {
     BackHandler(onBack = onBack)
+
+    var tmdbEnrichedMedia by remember(media) { mutableStateOf(media) }
+    LaunchedEffect(media.id) {
+        val enriched = TmdbRepository.enrichMediaContent(media)
+        if (enriched != media) {
+            tmdbEnrichedMedia = enriched
+            MediaContentRepository.updateSingleEnrichedMedia(enriched)
+        }
+    }
+    @Suppress("NAME_SHADOWING")
+    val media = tmdbEnrichedMedia
 
     val availableSeasons = remember(media.seasons, episodes) {
         if (media.seasons.isNotEmpty()) {

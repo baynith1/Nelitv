@@ -5,7 +5,7 @@
     android:layout_height="match_parent"
     android:background="@drawable/widget_bg_surface"
     android:orientation="vertical"
-    android:padding="12dp">
+    android:padding="10dp">
 
     <!-- Header Row -->
     <LinearLayout
@@ -13,16 +13,16 @@
         android:layout_height="wrap_content"
         android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:paddingBottom="8dp">
+        android:paddingBottom="6dp">
 
         <TextView
             android:id="@+id/widget_brand_title"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="Neli TV • Live &amp; 2026 Cinema"
+            android:text="Nelitv (by Neliplay) • Live &amp; 2026 Cinema"
             android:textColor="#FFFFFFFF"
-            android:textSize="13sp"
+            android:textSize="12sp"
             android:textStyle="bold" />
 
         <TextView
@@ -40,14 +40,14 @@
             android:textStyle="bold" />
     </LinearLayout>
 
-    <!-- TOP SECTION (JUU): 3 Live TV Channels (Azam Sports 1, Azam Two, WWE) -->
+    <!-- TOP SECTION (JUU): 3 Live TV Channels with Channel Logo Images -->
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:paddingBottom="4dp"
+        android:paddingBottom="3dp"
         android:text="LIVE TV • AZAM SPORTS 1, AZAM TWO &amp; WWE"
         android:textColor="#FFFF1E8E"
-        android:textSize="10sp"
+        android:textSize="9sp"
         android:textStyle="bold" />
 
     <LinearLayout
@@ -57,7 +57,7 @@
         android:layout_weight="1"
         android:baselineAligned="false"
         android:orientation="horizontal"
-        android:paddingBottom="6dp">
+        android:paddingBottom="5dp">
 
         <!-- Channel 1: Azam Sports 1 HD -->
         <LinearLayout
@@ -67,22 +67,29 @@
             android:layout_marginEnd="4dp"
             android:layout_weight="1"
             android:background="@drawable/widget_card_bg"
-            android:gravity="center_vertical"
+            android:gravity="center_horizontal"
             android:orientation="vertical"
-            android:padding="8dp">
+            android:padding="6dp">
+
+            <ImageView
+                android:id="@+id/widget_channel_img_1"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:contentDescription="Azam Sports 1 HD Logo"
+                android:scaleType="fitCenter" />
 
             <TextView
                 android:id="@+id/widget_channel_badge_1"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
                 android:background="@drawable/widget_badge_live_bg"
-                android:paddingLeft="5dp"
-                android:paddingTop="1dp"
-                android:paddingRight="5dp"
-                android:paddingBottom="1dp"
+                android:paddingLeft="4dp"
+                android:paddingRight="4dp"
                 android:text="LIVE • MPIRA"
                 android:textColor="#FFFFFFFF"
-                android:textSize="8sp"
+                android:textSize="7sp"
                 android:textStyle="bold" />
 
             <TextView
@@ -90,11 +97,12 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:ellipsize="end"
+                android:gravity="center"
                 android:maxLines="1"
-                android:paddingTop="4dp"
+                android:paddingTop="2dp"
                 android:text="Azam Sports 1 HD"
                 android:textColor="#FFFFFFFF"
-                android:textSize="11sp"
+                android:textSize="10sp"
                 android:textStyle="bold" />
 
             <TextView
@@ -102,10 +110,11 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:ellipsize="end"
+                android:gravity="center"
                 android:maxLines="1"
-                android:text="Watch Live ▶"
+                android:text="Mpira Live ▶"
                 android:textColor="#FF06B6D4"
-                android:textSize="9sp" />
+                android:textSize="8sp" />
         </LinearLayout>
 
         <!-- Channel 2: Azam Two -->
@@ -117,22 +126,29 @@
             android:layout_marginEnd="2dp"
             android:layout_weight="1"
             android:background="@drawable/widget_card_bg"
-            android:gravity="center_vertical"
+            android:gravity="center_horizontal"
             android:orientation="vertical"
-            android:padding="8dp">
+            android:padding="6dp">
+
+            <ImageView
+                android:id="@+id/widget_channel_img_2"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:contentDescription="Azam Two Logo"
+                android:scaleType="fitCenter" />
 
             <TextView
                 android:id="@+id/widget_channel_badge_2"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
                 android:background="@drawable/widget_badge_live_bg"
-                android:paddingLeft="5dp"
-                android:paddingTop="1dp"
-                android:paddingRight="5dp"
-                android:paddingBottom="1dp"
+                android:paddingLeft="4dp"
+                android:paddingRight="4dp"
                 android:text="LIVE • SERIES"
                 android:textColor="#FFFFFFFF"
-                android:textSize="8sp"
+                android:textSize="7sp"
                 android:textStyle="bold" />
 
             <TextView
@@ -140,11 +156,12 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:ellipsize="end"
+                android:gravity="center"
                 android:maxLines="1"
-                android:paddingTop="4dp"
+                android:paddingTop="2dp"
                 android:text="Azam Two"
                 android:textColor="#FFFFFFFF"
-                android:textSize="11sp"
+                android:textSize="10sp"
                 android:textStyle="bold" />
 
             <TextView
@@ -152,10 +169,11 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:ellipsize="end"
+                android:gravity="center"
                 android:maxLines="1"
-                android:text="Tamthilia Live ▶"
+                android:text="Tamthilia ▶"
                 android:textColor="#FF06B6D4"
-                android:textSize="9sp" />
+                android:textSize="8sp" />
         </LinearLayout>
 
         <!-- Channel 3: WWE -->
@@ -166,22 +184,29 @@
             android:layout_marginStart="4dp"
             android:layout_weight="1"
             android:background="@drawable/widget_card_bg"
-            android:gravity="center_vertical"
+            android:gravity="center_horizontal"
             android:orientation="vertical"
-            android:padding="8dp">
+            android:padding="6dp">
+
+            <ImageView
+                android:id="@+id/widget_channel_img_3"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:contentDescription="WWE Logo"
+                android:scaleType="fitCenter" />
 
             <TextView
                 android:id="@+id/widget_channel_badge_3"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
                 android:background="@drawable/widget_badge_live_bg"
-                android:paddingLeft="5dp"
-                android:paddingTop="1dp"
-                android:paddingRight="5dp"
-                android:paddingBottom="1dp"
+                android:paddingLeft="4dp"
+                android:paddingRight="4dp"
                 android:text="LIVE • 24/7"
                 android:textColor="#FFFFFFFF"
-                android:textSize="8sp"
+                android:textSize="7sp"
                 android:textStyle="bold" />
 
             <TextView
@@ -189,11 +214,12 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:ellipsize="end"
+                android:gravity="center"
                 android:maxLines="1"
-                android:paddingTop="4dp"
+                android:paddingTop="2dp"
                 android:text="WWE"
                 android:textColor="#FFFFFFFF"
-                android:textSize="11sp"
+                android:textSize="10sp"
                 android:textStyle="bold" />
 
             <TextView
@@ -201,21 +227,22 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:ellipsize="end"
+                android:gravity="center"
                 android:maxLines="1"
-                android:text="Wrestling HD ▶"
+                android:text="Live 24/7 ▶"
                 android:textColor="#FF06B6D4"
-                android:textSize="9sp" />
+                android:textSize="8sp" />
         </LinearLayout>
     </LinearLayout>
 
-    <!-- BOTTOM SECTION (CHINI): 3 New 2026 Non-Adult Movies -->
+    <!-- BOTTOM SECTION (CHINI): 3 New 2026 Non-Adult Movies with TMDB Poster Images -->
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:paddingBottom="4dp"
-        android:text="NEW 2026 MOVIES • TRENDING NOW"
+        android:paddingBottom="3dp"
+        android:text="NEW 2026 MOVIES • TMDB POSTERS"
         android:textColor="#FF06B6D4"
-        android:textSize="10sp"
+        android:textSize="9sp"
         android:textStyle="bold" />
 
     <LinearLayout
@@ -234,22 +261,29 @@
             android:layout_marginEnd="4dp"
             android:layout_weight="1"
             android:background="@drawable/widget_card_bg"
-            android:gravity="center_vertical"
+            android:gravity="center_horizontal"
             android:orientation="vertical"
-            android:padding="8dp">
+            android:padding="6dp">
+
+            <ImageView
+                android:id="@+id/widget_movie_img_1"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:contentDescription="Movie 1 Poster"
+                android:scaleType="centerCrop" />
 
             <TextView
                 android:id="@+id/widget_movie_badge_1"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
                 android:background="@drawable/widget_badge_2026_bg"
-                android:paddingLeft="5dp"
-                android:paddingTop="1dp"
-                android:paddingRight="5dp"
-                android:paddingBottom="1dp"
+                android:paddingLeft="4dp"
+                android:paddingRight="4dp"
                 android:text="2026 • NEW"
                 android:textColor="#FFFFFFFF"
-                android:textSize="8sp"
+                android:textSize="7sp"
                 android:textStyle="bold" />
 
             <TextView
@@ -257,11 +291,12 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:ellipsize="end"
+                android:gravity="center"
                 android:maxLines="1"
-                android:paddingTop="4dp"
+                android:paddingTop="2dp"
                 android:text="Movie 1"
                 android:textColor="#FFFFFFFF"
-                android:textSize="11sp"
+                android:textSize="10sp"
                 android:textStyle="bold" />
 
             <TextView
@@ -269,10 +304,11 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:ellipsize="end"
+                android:gravity="center"
                 android:maxLines="1"
                 android:text="Action • 2026"
                 android:textColor="#FFD8B4FE"
-                android:textSize="9sp" />
+                android:textSize="8sp" />
         </LinearLayout>
 
         <!-- 2026 Movie 2 -->
@@ -284,22 +320,29 @@
             android:layout_marginEnd="2dp"
             android:layout_weight="1"
             android:background="@drawable/widget_card_bg"
-            android:gravity="center_vertical"
+            android:gravity="center_horizontal"
             android:orientation="vertical"
-            android:padding="8dp">
+            android:padding="6dp">
+
+            <ImageView
+                android:id="@+id/widget_movie_img_2"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:contentDescription="Movie 2 Poster"
+                android:scaleType="centerCrop" />
 
             <TextView
                 android:id="@+id/widget_movie_badge_2"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
                 android:background="@drawable/widget_badge_2026_bg"
-                android:paddingLeft="5dp"
-                android:paddingTop="1dp"
-                android:paddingRight="5dp"
-                android:paddingBottom="1dp"
+                android:paddingLeft="4dp"
+                android:paddingRight="4dp"
                 android:text="2026 • NEW"
                 android:textColor="#FFFFFFFF"
-                android:textSize="8sp"
+                android:textSize="7sp"
                 android:textStyle="bold" />
 
             <TextView
@@ -307,11 +350,12 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:ellipsize="end"
+                android:gravity="center"
                 android:maxLines="1"
-                android:paddingTop="4dp"
+                android:paddingTop="2dp"
                 android:text="Movie 2"
                 android:textColor="#FFFFFFFF"
-                android:textSize="11sp"
+                android:textSize="10sp"
                 android:textStyle="bold" />
 
             <TextView
@@ -319,10 +363,11 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:ellipsize="end"
+                android:gravity="center"
                 android:maxLines="1"
                 android:text="Thriller • 2026"
                 android:textColor="#FFD8B4FE"
-                android:textSize="9sp" />
+                android:textSize="8sp" />
         </LinearLayout>
 
         <!-- 2026 Movie 3 -->
@@ -333,22 +378,29 @@
             android:layout_marginStart="4dp"
             android:layout_weight="1"
             android:background="@drawable/widget_card_bg"
-            android:gravity="center_vertical"
+            android:gravity="center_horizontal"
             android:orientation="vertical"
-            android:padding="8dp">
+            android:padding="6dp">
+
+            <ImageView
+                android:id="@+id/widget_movie_img_3"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:contentDescription="Movie 3 Poster"
+                android:scaleType="centerCrop" />
 
             <TextView
                 android:id="@+id/widget_movie_badge_3"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
                 android:background="@drawable/widget_badge_2026_bg"
-                android:paddingLeft="5dp"
-                android:paddingTop="1dp"
-                android:paddingRight="5dp"
-                android:paddingBottom="1dp"
+                android:paddingLeft="4dp"
+                android:paddingRight="4dp"
                 android:text="2026 • NEW"
                 android:textColor="#FFFFFFFF"
-                android:textSize="8sp"
+                android:textSize="7sp"
                 android:textStyle="bold" />
 
             <TextView
@@ -356,11 +408,12 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:ellipsize="end"
+                android:gravity="center"
                 android:maxLines="1"
-                android:paddingTop="4dp"
+                android:paddingTop="2dp"
                 android:text="Movie 3"
                 android:textColor="#FFFFFFFF"
-                android:textSize="11sp"
+                android:textSize="10sp"
                 android:textStyle="bold" />
 
             <TextView
@@ -368,10 +421,11 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:ellipsize="end"
+                android:gravity="center"
                 android:maxLines="1"
                 android:text="Crime • 2026"
                 android:textColor="#FFD8B4FE"
-                android:textSize="9sp" />
+                android:textSize="8sp" />
         </LinearLayout>
     </LinearLayout>
 </LinearLayout>

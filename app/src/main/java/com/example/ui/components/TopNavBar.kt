@@ -7,7 +7,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -29,6 +28,8 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.HorizontalDivider
@@ -48,6 +49,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -55,11 +57,13 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ui.theme.NeliBorder
+import com.example.ui.theme.NeliGenreCyan
 import com.example.ui.theme.NeliMagenta
 import com.example.ui.theme.NeliSurface
 import com.example.ui.theme.NeliSurfaceVariant
 import com.example.ui.theme.NeliTextPrimary
 import com.example.ui.theme.NeliTextSecondary
+import com.example.ui.theme.NeliThemeManager
 
 @Composable
 fun TopNavBar(
@@ -69,8 +73,11 @@ fun TopNavBar(
     onToggleSearch: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     val focusManager = LocalFocusManager.current
     val focusRequester = remember { FocusRequester() }
+    val isLightMode = NeliThemeManager.isLightMode
+    val headerBgColor = if (isLightMode) Color(0xFFFFFFFF) else Color(0xFF0B0D14)
 
     LaunchedEffect(isSearchOpen) {
         if (isSearchOpen) {
@@ -79,7 +86,7 @@ fun TopNavBar(
     }
 
     Surface(
-        color = Color(0xFF0B0D14),
+        color = headerBgColor,
         tonalElevation = 4.dp,
         shadowElevation = 6.dp,
         modifier = modifier
@@ -89,7 +96,7 @@ fun TopNavBar(
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(Color(0xFF0B0D14))
+                .background(headerBgColor)
                 .windowInsetsPadding(WindowInsets.statusBars)
                 // Extra top breathing space below the phone's battery percentage, clock & network status bar
                 .padding(top = 12.dp, bottom = 4.dp)
@@ -108,7 +115,7 @@ fun TopNavBar(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    // Brand Logo and Title
+                    // Brand Logo and Title: NELITV (Mother Company: Neliplay)
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -127,7 +134,7 @@ fun TopNavBar(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.LiveTv,
-                                contentDescription = "Neli TV Logo",
+                                contentDescription = "Nelitv Logo",
                                 tint = Color.White,
                                 modifier = Modifier.size(20.dp)
                             )
@@ -142,9 +149,9 @@ fun TopNavBar(
                                     fontWeight = FontWeight.Black,
                                     letterSpacing = 0.8.sp
                                 )
-                                Spacer(modifier = Modifier.width(4.dp))
+                                Spacer(modifier = Modifier.width(2.dp))
                                 Text(
-                                    text = "PLAY",
+                                    text = "TV",
                                     color = NeliMagenta,
                                     fontSize = if (isTablet) 20.sp else 18.sp,
                                     fontWeight = FontWeight.Black,
@@ -152,7 +159,7 @@ fun TopNavBar(
                                 )
                             }
                             Text(
-                                text = "Azam TV • Cinema • Low Bando",
+                                text = "By Neliplay • Live TV & Cinema",
                                 color = NeliTextSecondary,
                                 fontSize = if (isTablet) 11.sp else 10.sp,
                                 fontWeight = FontWeight.Medium
@@ -160,11 +167,28 @@ fun TopNavBar(
                         }
                     }
 
-                    // Right side action: Search Button only
+                    // Right side actions: Theme Colour Changer (Black <-> White) & Search Button
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
+                        IconButton(
+                            onClick = { NeliThemeManager.toggleTheme(context) },
+                            modifier = Modifier
+                                .testTag("theme_toggle_icon_button")
+                                .size(48.dp)
+                                .clip(CircleShape)
+                                .background(NeliSurfaceVariant)
+                                .border(1.dp, NeliBorder, CircleShape)
+                        ) {
+                            Icon(
+                                imageVector = if (isLightMode) Icons.Default.DarkMode else Icons.Default.LightMode,
+                                contentDescription = if (isLightMode) "Switch to Black Theme" else "Switch to White Theme",
+                                tint = if (isLightMode) Color(0xFF0F172A) else NeliGenreCyan,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+
                         IconButton(
                             onClick = onToggleSearch,
                             modifier = Modifier

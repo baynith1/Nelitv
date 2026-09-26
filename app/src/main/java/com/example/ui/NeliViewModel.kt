@@ -174,7 +174,7 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             while (isActive) {
                 performAutomaticSyncCycle()
-                delay(10 * 60 * 1000L) // Re-sync automatically every 10 minutes
+                delay(MediaContentRepository.computeJitterDelayMsFor10MScale(10 * 60 * 1000L))
             }
         }
     }

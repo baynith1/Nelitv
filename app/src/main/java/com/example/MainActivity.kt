@@ -40,6 +40,7 @@ import com.example.ui.components.FloatingPipPlayerOverlay
 import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.PlayerScreen
 import com.example.ui.theme.NeliTVTheme
+import com.example.ui.theme.NeliThemeManager
 import com.example.widget.NeliHomeWidgetProvider
 
 class MainActivity : ComponentActivity() {
@@ -63,11 +64,13 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         NativeLogSuppressor.suppressNonFatalNativeLogs()
         super.onCreate(savedInstanceState)
+        NeliThemeManager.initialize(this)
         enableEdgeToEdge()
         try {
+            val isLight = NeliThemeManager.isLightMode
             WindowCompat.getInsetsController(window, window.decorView).apply {
-                isAppearanceLightStatusBars = false
-                isAppearanceLightNavigationBars = false
+                isAppearanceLightStatusBars = isLight
+                isAppearanceLightNavigationBars = isLight
             }
         } catch (_: Exception) {
         }
@@ -76,6 +79,16 @@ class MainActivity : ComponentActivity() {
         extractDeepLinkFromIntent(intent)
 
         setContent {
+            val isLightMode = NeliThemeManager.isLightMode
+            LaunchedEffect(isLightMode) {
+                try {
+                    WindowCompat.getInsetsController(window, window.decorView).apply {
+                        isAppearanceLightStatusBars = isLightMode
+                        isAppearanceLightNavigationBars = isLightMode
+                    }
+                } catch (_: Exception) {
+                }
+            }
             NeliTVTheme {
                 NeliApp(
                     isSystemInPipMode = isSystemInPipMode,

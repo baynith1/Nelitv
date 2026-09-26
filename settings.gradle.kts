@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "Neli TV"
+rootProject.name = "Nelitv"
 
 include(":app")

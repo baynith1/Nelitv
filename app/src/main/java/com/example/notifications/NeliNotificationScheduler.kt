@@ -21,6 +21,7 @@ import androidx.core.app.NotificationCompat
 import com.example.MainActivity
 import com.example.data.ChannelRepository
 import com.example.data.MediaContentRepository
+import com.example.data.TmdbRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -544,13 +545,24 @@ object NeliNotificationScheduler {
 
             nm.notify(notificationId, initialNotification)
 
-            // 2. Asynchronously fetch the real TMDB poster or Channel Logo image from URL and upgrade the notification
-            if (primaryImageUrl.startsWith("http", ignoreCase = true)) {
+            // 2. Asynchronously fetch the real TMDB poster or Channel Logo image from URL (or TMDB API) and upgrade the notification
+            if (primaryImageUrl.startsWith("http", ignoreCase = true) || !launchMediaId.isNullOrBlank()) {
                 notificationScope.launch {
                     try {
-                        val downloadedPrimary = downloadBitmap(primaryImageUrl) ?: return@launch
-                        val downloadedBackdrop = if (backdropImageUrl.isNotBlank() && backdropImageUrl != primaryImageUrl) {
-                            downloadBitmap(backdropImageUrl) ?: downloadedPrimary
+                        var resolvedPrimaryUrl = primaryImageUrl
+                        var resolvedBackdropUrl = backdropImageUrl
+                        if (!resolvedPrimaryUrl.startsWith("http", ignoreCase = true) && !launchMediaId.isNullOrBlank()) {
+                            MediaContentRepository.getMediaById(launchMediaId)?.let { media ->
+                                val enriched = TmdbRepository.enrichMediaContent(media)
+                                resolvedPrimaryUrl = enriched.posterUrl.ifBlank { enriched.backdropUrl }
+                                resolvedBackdropUrl = enriched.backdropUrl.ifBlank { resolvedPrimaryUrl }
+                            }
+                        }
+                        if (!resolvedPrimaryUrl.startsWith("http", ignoreCase = true)) return@launch
+
+                        val downloadedPrimary = downloadBitmap(resolvedPrimaryUrl) ?: return@launch
+                        val downloadedBackdrop = if (resolvedBackdropUrl.isNotBlank() && resolvedBackdropUrl != resolvedPrimaryUrl) {
+                            downloadBitmap(resolvedBackdropUrl) ?: downloadedPrimary
                         } else {
                             downloadedPrimary
                         }

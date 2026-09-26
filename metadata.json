@@ -1,6 +1,6 @@
 {
-  "name": "Neli TV",
-  "description": "Live TV streaming application supporting MPEG-DASH with ClearKey DRM and HLS live streams.",
+  "name": "Nelitv",
+  "description": "Nelitv (by Neliplay) - Official Live TV, Azam TV Sports, Swahili Cinema, and Offline Streaming App.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
