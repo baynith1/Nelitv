@@ -4,8 +4,10 @@ import android.app.Activity
 import android.app.Application
 import android.content.Context
 import android.content.ContextWrapper
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import java.lang.ref.WeakReference
 import com.example.BuildConfig
 import com.example.data.OfflineDownloadManager
 import com.google.android.gms.ads.AdError
@@ -119,6 +121,11 @@ object NeliAdMobManager {
     private var appOpenAd: AppOpenAd? = null
     private var appOpenAdLoadedAtMs: Long = 0L
     private var isLoadingAppOpenAd: Boolean = false
+    private val hasAttemptedInitialAppOpenShow = AtomicBoolean(false)
+    private val lifecycleCallbacksRegistered = AtomicBoolean(false)
+
+    @Volatile
+    private var currentForegroundActivityRef: WeakReference<Activity>? = null
 
     private var interstitialAd: InterstitialAd? = null
     private var isLoadingInterstitialAd: Boolean = false
@@ -181,15 +188,39 @@ object NeliAdMobManager {
         val appContext = application.applicationContext ?: application
         isApplicationInitialized = true
         configureTestDeviceIdsForDevelopment()
+        if (lifecycleCallbacksRegistered.compareAndSet(false, true)) {
+            application.registerActivityLifecycleCallbacks(object : Application.ActivityLifecycleCallbacks {
+                override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {}
+                override fun onActivityStarted(activity: Activity) {
+                    if (!isShowingFullScreenAd) {
+                        currentForegroundActivityRef = WeakReference(activity)
+                    }
+                }
+                override fun onActivityResumed(activity: Activity) {
+                    if (!isShowingFullScreenAd) {
+                        currentForegroundActivityRef = WeakReference(activity)
+                    }
+                }
+                override fun onActivityPaused(activity: Activity) {}
+                override fun onActivityStopped(activity: Activity) {}
+                override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) {}
+                override fun onActivityDestroyed(activity: Activity) {
+                    if (currentForegroundActivityRef?.get() === activity) {
+                        currentForegroundActivityRef = null
+                    }
+                }
+            })
+        }
         if (isInitialized.compareAndSet(false, true)) {
             adInitScope.launch {
                 try {
                     MobileAds.initialize(appContext) {
-                        // Defer preloading slightly on the main looper so startup frames render smoothly first
+                        mainHandler.post {
+                            preloadAppOpenAd(appContext)
+                        }
                         mainHandler.postDelayed({
                             preloadInterstitialAd(appContext)
-                            preloadAppOpenAd(appContext)
-                        }, 1500L)
+                        }, 1200L)
                     }
                 } catch (_: Throwable) {
                 }
@@ -202,6 +233,9 @@ object NeliAdMobManager {
      */
     fun initialize(context: Context) {
         val appContext = context.applicationContext ?: context
+        (context.findActivity())?.let { activity ->
+            currentForegroundActivityRef = WeakReference(activity)
+        }
         if (configuredTestDeviceIds.isEmpty()) {
             configureTestDeviceIdsForDevelopment()
         }
@@ -209,10 +243,12 @@ object NeliAdMobManager {
             adInitScope.launch {
                 try {
                     MobileAds.initialize(appContext) {
+                        mainHandler.post {
+                            preloadAppOpenAd(appContext)
+                        }
                         mainHandler.postDelayed({
                             preloadInterstitialAd(appContext)
-                            preloadAppOpenAd(appContext)
-                        }, 1500L)
+                        }, 1200L)
                     }
                 } catch (_: Throwable) {
                 }
@@ -382,6 +418,14 @@ object NeliAdMobManager {
                             appOpenAd = ad
                             appOpenAdLoadedAtMs = System.currentTimeMillis()
                             isLoadingAppOpenAd = false
+                            // On initial app launch (cold start), show the App Open Ad once if the user is on the
+                            // foreground browse screen and has not started playing any Live TV, Movie, or Series.
+                            if (hasAttemptedInitialAppOpenShow.compareAndSet(false, true)) {
+                                val fgActivity = currentForegroundActivityRef?.get()
+                                if (fgActivity != null && !fgActivity.isFinishing && !isPlaybackActive) {
+                                    showAppOpenAdOnForegroundIfEligible(fgActivity)
+                                }
+                            }
                         }
 
                         override fun onAdFailedToLoad(loadAdError: LoadAdError) {
@@ -526,6 +570,7 @@ object NeliAdMobManager {
         lastInterstitialShownAtMs = 0L
         lastAppOpenShownAtMs = 0L
         lastAnyFullScreenAdDismissedAtMs = 0L
+        hasAttemptedInitialAppOpenShow.set(false)
         appOpenAd = null
         interstitialAd = null
     }

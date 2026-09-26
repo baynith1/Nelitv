@@ -102,7 +102,16 @@ import com.example.model.EpisodeItem
 import com.example.model.LiveChannel
 import com.example.player.LivePlayerController
 import com.example.player.PlayerUiState
+import com.example.ui.components.BrightnessVolumeGestureOverlay
+import com.example.ui.components.DoubleTapSeekFeedback
+import com.example.ui.components.DoubleTapSeekOverlay
+import com.example.ui.components.DoubleTapZone
+import com.example.ui.components.GestureControlFeedback
+import com.example.ui.components.GestureControlType
 import com.example.ui.components.LiveIndicatorBadge
+import com.example.ui.components.PlayerGestureHelper
+import com.example.ui.components.PlayerGestureQuickBar
+import com.example.ui.components.PlayerGestureTouchSurface
 import com.example.ui.theme.NeliCardPurple
 import com.example.ui.theme.NeliGenreCyan
 import com.example.ui.theme.NeliMagenta
@@ -210,6 +219,134 @@ fun PlayerScreen(
     var isScrubbing by remember { mutableStateOf(false) }
     var scrubFraction by remember { mutableFloatStateOf(0f) }
 
+    // Custom Mobile Gesture States: Double-Tap 10s Seek + Vertical Swipe Brightness & Volume
+    var brightnessLevel by remember {
+        mutableFloatStateOf(PlayerGestureHelper.readInitialScreenBrightness(activity, context))
+    }
+    var volumeLevel by remember {
+        mutableFloatStateOf(PlayerGestureHelper.readInitialAudioVolume(context, playbackInfo.volume))
+    }
+    var doubleTapSeekFeedback by remember { mutableStateOf<DoubleTapSeekFeedback?>(null) }
+    var gestureControlFeedback by remember { mutableStateOf<GestureControlFeedback?>(null) }
+
+    LaunchedEffect(playbackInfo.isMuted, playbackInfo.volume) {
+        if (gestureControlFeedback?.isDragging != true) {
+            volumeLevel = if (playbackInfo.isMuted) 0f else playbackInfo.volume.coerceIn(0f, 1f)
+        }
+    }
+
+    LaunchedEffect(doubleTapSeekFeedback?.triggerToken) {
+        if (doubleTapSeekFeedback != null) {
+            delay(880L)
+            doubleTapSeekFeedback = null
+        }
+    }
+
+    LaunchedEffect(gestureControlFeedback?.triggerToken, gestureControlFeedback?.isDragging) {
+        val current = gestureControlFeedback
+        if (current != null && !current.isDragging) {
+            delay(1150L)
+            gestureControlFeedback = null
+        }
+    }
+
+    val triggerDoubleTapSeek: (DoubleTapZone, Float, Float) -> Unit = { zone, normX, normY ->
+        if (activeChannel.isLiveBroadcast) {
+            playerController.syncToLiveEdge()
+            doubleTapSeekFeedback = DoubleTapSeekFeedback(
+                zone = DoubleTapZone.CENTER_TOGGLE,
+                cumulativeSeconds = 0,
+                tapNormalizedX = normX,
+                tapNormalizedY = normY,
+                isLiveSyncPulse = true
+            )
+        } else {
+            when (zone) {
+                DoubleTapZone.LEFT_REWIND -> {
+                    val existing = doubleTapSeekFeedback
+                    val nextCumulative = PlayerGestureHelper.computeCumulativeSeekSeconds(
+                        existingZone = existing?.zone,
+                        existingSeconds = existing?.cumulativeSeconds ?: 0,
+                        newZone = DoubleTapZone.LEFT_REWIND
+                    )
+                    val nextTapCount = if (existing?.zone == DoubleTapZone.LEFT_REWIND) {
+                        existing.tapCount + 1
+                    } else 1
+                    val targetMs = (playbackInfo.currentPosition - PlayerGestureHelper.DEFAULT_SEEK_STEP_MS)
+                        .coerceAtLeast(0L)
+                    playerController.seekRelative(-PlayerGestureHelper.DEFAULT_SEEK_STEP_MS)
+                    doubleTapSeekFeedback = DoubleTapSeekFeedback(
+                        zone = DoubleTapZone.LEFT_REWIND,
+                        cumulativeSeconds = nextCumulative,
+                        tapCount = nextTapCount,
+                        tapNormalizedX = normX,
+                        tapNormalizedY = normY,
+                        targetPositionLabel = formatDurationMs(targetMs)
+                    )
+                }
+
+                DoubleTapZone.RIGHT_FORWARD -> {
+                    val existing = doubleTapSeekFeedback
+                    val nextCumulative = PlayerGestureHelper.computeCumulativeSeekSeconds(
+                        existingZone = existing?.zone,
+                        existingSeconds = existing?.cumulativeSeconds ?: 0,
+                        newZone = DoubleTapZone.RIGHT_FORWARD
+                    )
+                    val nextTapCount = if (existing?.zone == DoubleTapZone.RIGHT_FORWARD) {
+                        existing.tapCount + 1
+                    } else 1
+                    val knownDur = playbackInfo.duration.takeIf { it != C.TIME_UNSET && it > 0L }
+                    val rawTargetMs = playbackInfo.currentPosition + PlayerGestureHelper.DEFAULT_SEEK_STEP_MS
+                    val targetMs = if (knownDur != null) rawTargetMs.coerceIn(0L, knownDur) else rawTargetMs
+                    playerController.seekRelative(PlayerGestureHelper.DEFAULT_SEEK_STEP_MS)
+                    doubleTapSeekFeedback = DoubleTapSeekFeedback(
+                        zone = DoubleTapZone.RIGHT_FORWARD,
+                        cumulativeSeconds = nextCumulative,
+                        tapCount = nextTapCount,
+                        tapNormalizedX = normX,
+                        tapNormalizedY = normY,
+                        targetPositionLabel = formatDurationMs(targetMs)
+                    )
+                }
+
+                DoubleTapZone.CENTER_TOGGLE -> {
+                    val willBePlaying = !playbackInfo.isPlaying
+                    playerController.togglePlayPause()
+                    doubleTapSeekFeedback = DoubleTapSeekFeedback(
+                        zone = DoubleTapZone.CENTER_TOGGLE,
+                        cumulativeSeconds = 0,
+                        tapNormalizedX = normX,
+                        tapNormalizedY = normY,
+                        isPlayingAfterToggle = willBePlaying
+                    )
+                }
+            }
+        }
+    }
+
+    val applyBrightnessGestureLevel: (Float, Boolean) -> Unit = { newLevel, isDragging ->
+        val clamped = newLevel.coerceIn(0f, 1f)
+        brightnessLevel = clamped
+        PlayerGestureHelper.applyWindowBrightness(activity, clamped)
+        gestureControlFeedback = GestureControlFeedback(
+            type = GestureControlType.BRIGHTNESS,
+            level = clamped,
+            isDragging = isDragging
+        )
+    }
+
+    val applyVolumeGestureLevel: (Float, Boolean) -> Unit = { newLevel, isDragging ->
+        val clamped = newLevel.coerceIn(0f, 1f)
+        volumeLevel = clamped
+        playerController.setVolume(clamped)
+        PlayerGestureHelper.applyDeviceMusicVolume(context, clamped)
+        gestureControlFeedback = GestureControlFeedback(
+            type = GestureControlType.VOLUME,
+            level = clamped,
+            isDragging = isDragging
+        )
+    }
+
     // Show temporary badge when 5m 30s Swahili Movie intro skip is applied
     var showSwahiliSkipBadge by remember(activeChannel.id) {
         mutableStateOf(activeChannel.shouldAutoSkipSwahiliMovieIntro)
@@ -236,6 +373,11 @@ fun PlayerScreen(
         onDispose {
             if (ownsController) {
                 playerController.release()
+            }
+            window?.let { win ->
+                val attrs = win.attributes
+                attrs.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+                win.attributes = attrs
             }
             window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             insetsController?.show(WindowInsetsCompat.Type.systemBars())
@@ -339,20 +481,63 @@ fun PlayerScreen(
             modifier = Modifier.fillMaxSize()
         )
 
-        // Tap surface to toggle overlay controls
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null
-                ) {
-                    if (isEpisodeDrawerOpen) {
-                        isEpisodeDrawerOpen = false
-                    } else {
-                        areControlsVisible = !areControlsVisible
-                    }
+        // Interactive Gesture Surface:
+        // - Single Tap: Toggle overlay controls
+        // - Double Tap Left / Right: Custom 10s backward / forward seek with cumulative multi-tap counter
+        // - Double Tap Center: Toggle Play/Pause (or sync live edge)
+        // - Vertical Drag Left / Right: Brightness (left) and Volume (right) HUD control
+        PlayerGestureTouchSurface(
+            isLiveBroadcast = activeChannel.isLiveBroadcast,
+            activeSeekFeedback = doubleTapSeekFeedback,
+            onSingleTapToggleControls = {
+                if (isEpisodeDrawerOpen) {
+                    isEpisodeDrawerOpen = false
+                } else {
+                    areControlsVisible = !areControlsVisible
                 }
+            },
+            onDoubleTapSeek = { zone, normX, normY ->
+                if (isEpisodeDrawerOpen) {
+                    isEpisodeDrawerOpen = false
+                } else {
+                    triggerDoubleTapSeek(zone, normX, normY)
+                }
+            },
+            onVerticalGestureStart = { gestureType ->
+                val startLvl = if (gestureType == GestureControlType.BRIGHTNESS) {
+                    brightnessLevel
+                } else {
+                    volumeLevel
+                }
+                gestureControlFeedback = GestureControlFeedback(
+                    type = gestureType,
+                    level = startLvl,
+                    isDragging = true
+                )
+            },
+            onVerticalGestureDelta = { gestureType, dragDeltaPx, containerHeightPx ->
+                if (gestureType == GestureControlType.BRIGHTNESS) {
+                    val updated = PlayerGestureHelper.computeUpdatedGestureLevel(
+                        currentLevel = brightnessLevel,
+                        verticalDragDeltaPx = dragDeltaPx,
+                        containerHeightPx = containerHeightPx
+                    )
+                    applyBrightnessGestureLevel(updated, true)
+                } else {
+                    val updated = PlayerGestureHelper.computeUpdatedGestureLevel(
+                        currentLevel = volumeLevel,
+                        verticalDragDeltaPx = dragDeltaPx,
+                        containerHeightPx = containerHeightPx
+                    )
+                    applyVolumeGestureLevel(updated, true)
+                }
+            },
+            onVerticalGestureEnd = {
+                gestureControlFeedback = gestureControlFeedback?.copy(
+                    isDragging = false,
+                    triggerToken = System.nanoTime()
+                )
+            }
         )
 
         // Swahili Narrated Movie 5:30 Auto-Skip Notification Pill
@@ -803,7 +988,9 @@ fun PlayerScreen(
                                     }
 
                                     IconButton(
-                                        onClick = { playerController.seekRelative(-10_000L) },
+                                        onClick = {
+                                            triggerDoubleTapSeek(DoubleTapZone.LEFT_REWIND, 0.22f, 0.5f)
+                                        },
                                         modifier = Modifier
                                             .testTag("seek_rewind_button")
                                             .size(56.dp)
@@ -836,7 +1023,9 @@ fun PlayerScreen(
                                     }
 
                                     IconButton(
-                                        onClick = { playerController.seekRelative(10_000L) },
+                                        onClick = {
+                                            triggerDoubleTapSeek(DoubleTapZone.RIGHT_FORWARD, 0.78f, 0.5f)
+                                        },
                                         modifier = Modifier
                                             .testTag("seek_forward_button")
                                             .size(56.dp)
@@ -902,6 +1091,30 @@ fun PlayerScreen(
                         )
                         .padding(horizontal = 20.dp, vertical = 14.dp)
                 ) {
+                    // Quick Gesture Status & Interactive Controls Pill (Brightness • Double-Tap ±10s • Volume)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 6.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        PlayerGestureQuickBar(
+                            brightnessLevel = brightnessLevel,
+                            volumeLevel = volumeLevel,
+                            isLiveBroadcast = activeChannel.isLiveBroadcast,
+                            onStepBrightness = { nextBrightness ->
+                                applyBrightnessGestureLevel(nextBrightness, false)
+                            },
+                            onStepVolume = { nextVolume ->
+                                applyVolumeGestureLevel(nextVolume, false)
+                            },
+                            onQuickSeekRelative = { seekZone ->
+                                val normX = if (seekZone == DoubleTapZone.LEFT_REWIND) 0.22f else 0.78f
+                                triggerDoubleTapSeek(seekZone, normX, 0.5f)
+                            }
+                        )
+                    }
+
                     if (!activeChannel.isLiveBroadcast) {
                         val hasKnownDuration = playbackInfo.duration != C.TIME_UNSET && playbackInfo.duration > 0L
                         val durationMs = if (hasKnownDuration) {
@@ -1038,7 +1251,9 @@ fun PlayerScreen(
                                     )
                                 }
                                 IconButton(
-                                    onClick = { playerController.seekRelative(-10_000L) },
+                                    onClick = {
+                                        triggerDoubleTapSeek(DoubleTapZone.LEFT_REWIND, 0.22f, 0.5f)
+                                    },
                                     modifier = Modifier
                                         .size(48.dp)
                                         .clip(CircleShape)
@@ -1051,7 +1266,9 @@ fun PlayerScreen(
                                     )
                                 }
                                 IconButton(
-                                    onClick = { playerController.seekRelative(10_000L) },
+                                    onClick = {
+                                        triggerDoubleTapSeek(DoubleTapZone.RIGHT_FORWARD, 0.78f, 0.5f)
+                                    },
                                     modifier = Modifier
                                         .size(48.dp)
                                         .clip(CircleShape)
@@ -1193,6 +1410,16 @@ fun PlayerScreen(
                 }
             }
         }
+
+        // Custom Double-Tap 10s Seek Ripple & Arc Overlay
+        DoubleTapSeekOverlay(
+            feedback = doubleTapSeekFeedback
+        )
+
+        // Custom Vertical Swipe Brightness & Volume HUD Overlay
+        BrightnessVolumeGestureOverlay(
+            feedback = gestureControlFeedback
+        )
 
         // In-Player VOD Episode & Season Selector Overlay Drawer (for Series)
         AnimatedVisibility(

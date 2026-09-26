@@ -64,7 +64,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
-import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
 import com.example.ads.NeliAdMobManager
 import com.example.data.ChannelRepository
@@ -868,6 +867,26 @@ private fun LiveTvHeroBanner(
                     modifier = Modifier.fillMaxSize()
                 ) { page ->
                     val channel = heroChannels[page]
+                    val context = LocalContext.current
+                    val primaryHeroLogo = remember(channel.id, channel.thumbnailUrl) {
+                        ChannelRepository.resolveGuaranteedChannelLogoUrl(channel)
+                    }
+                    val fallbackHeroLogo = remember(channel.id, channel.name) {
+                        ChannelRepository.resolveFallbackChannelLogoUrl(channel)
+                    }
+                    var activeHeroLogo by remember(channel.id, primaryHeroLogo) {
+                        mutableStateOf(primaryHeroLogo)
+                    }
+                    var isHeroLogoLoaded by remember(channel.id, activeHeroLogo) {
+                        mutableStateOf(false)
+                    }
+                    val heroLogoRequest = remember(channel.id, activeHeroLogo) {
+                        ImageRequest.Builder(context)
+                            .data(activeHeroLogo)
+                            .size(280, 280)
+                            .crossfade(false)
+                            .build()
+                    }
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -899,28 +918,40 @@ private fun LiveTvHeroBanner(
                                 modifier = Modifier
                                     .size(if (isTablet) 132.dp else 102.dp)
                                     .clip(RoundedCornerShape(18.dp))
-                                    .background(Color(0xFF070910))
+                                    .background(Color(0xFF141B2D))
                                     .border(1.dp, Color(0xFF28324B), RoundedCornerShape(18.dp))
-                                    .padding(12.dp),
+                                    .padding(8.dp),
                                 contentAlignment = Alignment.Center
                             ) {
-                                SubcomposeAsyncImage(
-                                    model = ImageRequest.Builder(LocalContext.current)
-                                        .data(channel.thumbnailUrl)
-                                        .crossfade(true)
-                                        .build(),
-                                    contentDescription = channel.name,
-                                    contentScale = ContentScale.Fit,
-                                    modifier = Modifier.fillMaxSize(),
-                                    error = {
-                                        Icon(
-                                            imageVector = Icons.Default.Tv,
-                                            contentDescription = null,
-                                            tint = NeliLiveRed,
-                                            modifier = Modifier.size(40.dp)
-                                        )
-                                    }
-                                )
+                                if (!isHeroLogoLoaded) {
+                                    Icon(
+                                        imageVector = Icons.Default.Tv,
+                                        contentDescription = null,
+                                        tint = NeliLiveRed.copy(alpha = 0.7f),
+                                        modifier = Modifier.size(36.dp)
+                                    )
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(Color.White.copy(alpha = 0.08f))
+                                        .padding(6.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    AsyncImage(
+                                        model = heroLogoRequest,
+                                        contentDescription = channel.name,
+                                        contentScale = ContentScale.Fit,
+                                        onSuccess = { isHeroLogoLoaded = true },
+                                        onError = {
+                                            if (activeHeroLogo != fallbackHeroLogo && fallbackHeroLogo.isNotBlank()) {
+                                                activeHeroLogo = fallbackHeroLogo
+                                            }
+                                        },
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                }
                             }
 
                             Column(

@@ -681,4 +681,83 @@ class ExampleRobolectricTest {
         assertNotNull(syncedChannel)
         assertEquals("https://i.ibb.co/8gtr1n42/1000221072.jpg", syncedChannel!!.thumbnailUrl)
     }
+
+    @Test
+    fun `player double tap 10s seek zones cumulative seek and brightness volume vertical gestures work properly`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+
+        // 1. Verify Double-Tap Seek Zone detection (Left < 38% = Rewind 10s, Right > 62% = Forward 10s, Center = Toggle)
+        assertEquals(
+            com.example.ui.components.DoubleTapZone.LEFT_REWIND,
+            com.example.ui.components.PlayerGestureHelper.resolveDoubleTapZone(150f, 1000f)
+        )
+        assertEquals(
+            com.example.ui.components.DoubleTapZone.CENTER_TOGGLE,
+            com.example.ui.components.PlayerGestureHelper.resolveDoubleTapZone(500f, 1000f)
+        )
+        assertEquals(
+            com.example.ui.components.DoubleTapZone.RIGHT_FORWARD,
+            com.example.ui.components.PlayerGestureHelper.resolveDoubleTapZone(820f, 1000f)
+        )
+
+        // 2. Verify Cumulative Multi-Tap Seek (-10s -> -20s -> -30s and +10s -> +20s -> +30s)
+        val firstRewind = com.example.ui.components.PlayerGestureHelper.computeCumulativeSeekSeconds(
+            existingZone = null,
+            existingSeconds = 0,
+            newZone = com.example.ui.components.DoubleTapZone.LEFT_REWIND
+        )
+        assertEquals(-10, firstRewind)
+
+        val secondRewind = com.example.ui.components.PlayerGestureHelper.computeCumulativeSeekSeconds(
+            existingZone = com.example.ui.components.DoubleTapZone.LEFT_REWIND,
+            existingSeconds = firstRewind,
+            newZone = com.example.ui.components.DoubleTapZone.LEFT_REWIND
+        )
+        assertEquals(-20, secondRewind)
+
+        val firstForward = com.example.ui.components.PlayerGestureHelper.computeCumulativeSeekSeconds(
+            existingZone = com.example.ui.components.DoubleTapZone.LEFT_REWIND,
+            existingSeconds = secondRewind,
+            newZone = com.example.ui.components.DoubleTapZone.RIGHT_FORWARD
+        )
+        assertEquals(10, firstForward)
+
+        val secondForward = com.example.ui.components.PlayerGestureHelper.computeCumulativeSeekSeconds(
+            existingZone = com.example.ui.components.DoubleTapZone.RIGHT_FORWARD,
+            existingSeconds = firstForward,
+            newZone = com.example.ui.components.DoubleTapZone.RIGHT_FORWARD
+        )
+        assertEquals(20, secondForward)
+
+        // 3. Verify Vertical Swipe Gesture Type (Left half = Brightness, Right half = Volume)
+        assertEquals(
+            com.example.ui.components.GestureControlType.BRIGHTNESS,
+            com.example.ui.components.PlayerGestureHelper.resolveVerticalGestureType(250f, 1000f)
+        )
+        assertEquals(
+            com.example.ui.components.GestureControlType.VOLUME,
+            com.example.ui.components.PlayerGestureHelper.resolveVerticalGestureType(750f, 1000f)
+        )
+
+        // 4. Verify Vertical Swipe Delta calculation (Swiping UP increases level, swiping DOWN decreases level)
+        val increasedLevel = com.example.ui.components.PlayerGestureHelper.computeUpdatedGestureLevel(
+            currentLevel = 0.50f,
+            verticalDragDeltaPx = -130f, // Swipe UP
+            containerHeightPx = 1000f
+        )
+        assertEquals(0.70f, increasedLevel, 0.01f)
+
+        val decreasedLevel = com.example.ui.components.PlayerGestureHelper.computeUpdatedGestureLevel(
+            currentLevel = increasedLevel,
+            verticalDragDeltaPx = 195f, // Swipe DOWN
+            containerHeightPx = 1000f
+        )
+        assertEquals(0.40f, decreasedLevel, 0.01f)
+
+        // 5. Verify initial brightness & volume helpers run safely
+        val initBrightness = com.example.ui.components.PlayerGestureHelper.readInitialScreenBrightness(null, context)
+        assertTrue(initBrightness in 0.05f..1.0f)
+        val initVolume = com.example.ui.components.PlayerGestureHelper.readInitialAudioVolume(context, 0.8f)
+        assertTrue(initVolume in 0.0f..1.0f)
+    }
 }

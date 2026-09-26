@@ -71,7 +71,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
-import coil.compose.SubcomposeAsyncImage
+import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.data.MediaContentRepository
 import com.example.data.TmdbRepository
@@ -232,34 +232,39 @@ fun MediaDetailScreen(
                 ) {
                     val isTablet = maxWidth >= 600.dp
                     val headerHeight = if (isTablet) 300.dp else (maxWidth * 0.56f).coerceIn(210.dp, 260.dp)
+                    val context = LocalContext.current
+                    val heroBackdropUrl = remember(media.id, media.backdropUrl, media.posterUrl, media.streamUrl) {
+                        MediaContentRepository.resolveGuaranteedMediaImageUrl(
+                            media.backdropUrl,
+                            media.posterUrl,
+                            media.streamUrl
+                        )
+                    }
+                    val heroRequest = remember(media.id, heroBackdropUrl) {
+                        ImageRequest.Builder(context)
+                            .data(heroBackdropUrl)
+                            .crossfade(false)
+                            .build()
+                    }
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(headerHeight)
+                            .background(NeliSurfaceVariant)
                     ) {
-                        SubcomposeAsyncImage(
-                            model = ImageRequest.Builder(LocalContext.current)
-                                .data(media.backdropUrl.ifBlank { media.posterUrl })
-                                .crossfade(true)
-                                .build(),
+                        Icon(
+                            imageVector = Icons.Default.Movie,
+                            contentDescription = null,
+                            tint = NeliMagenta.copy(alpha = 0.45f),
+                            modifier = Modifier
+                                .align(Alignment.Center)
+                                .size(56.dp)
+                        )
+                        AsyncImage(
+                            model = heroRequest,
                             contentDescription = media.title,
                             contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize(),
-                            error = {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .background(NeliSurfaceVariant),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Movie,
-                                        contentDescription = null,
-                                        tint = NeliMagenta,
-                                        modifier = Modifier.size(56.dp)
-                                    )
-                                }
-                            }
+                            modifier = Modifier.fillMaxSize()
                         )
 
                         Box(
@@ -767,6 +772,21 @@ fun MediaDetailScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
+                    val epContext = LocalContext.current
+                    val epThumbUrl = remember(ep.id, ep.stillPath, media.backdropUrl, ep.streamUrl) {
+                        MediaContentRepository.resolveGuaranteedMediaImageUrl(
+                            ep.stillPath,
+                            media.backdropUrl,
+                            ep.streamUrl
+                        )
+                    }
+                    val epThumbRequest = remember(ep.id, epThumbUrl) {
+                        ImageRequest.Builder(epContext)
+                            .data(epThumbUrl)
+                            .size(320, 180)
+                            .crossfade(false)
+                            .build()
+                    }
                     Box(
                         modifier = Modifier
                             .width(120.dp)
@@ -775,11 +795,8 @@ fun MediaDetailScreen(
                             .background(NeliSurfaceVariant),
                         contentAlignment = Alignment.Center
                     ) {
-                        SubcomposeAsyncImage(
-                            model = ImageRequest.Builder(LocalContext.current)
-                                .data(ep.stillPath.ifBlank { media.backdropUrl })
-                                .crossfade(true)
-                                .build(),
+                        AsyncImage(
+                            model = epThumbRequest,
                             contentDescription = ep.name,
                             contentScale = ContentScale.Crop,
                             modifier = Modifier.fillMaxSize()
@@ -956,30 +973,26 @@ private fun CastMemberCard(member: CastMember) {
                 .border(1.5.dp, NeliMagenta.copy(alpha = 0.7f), CircleShape),
             contentAlignment = Alignment.Center
         ) {
+            Text(
+                text = member.name.take(1).uppercase(),
+                color = Color.White,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.ExtraBold
+            )
             if (member.avatarUrl.isNotBlank()) {
-                SubcomposeAsyncImage(
-                    model = ImageRequest.Builder(LocalContext.current)
+                val castContext = LocalContext.current
+                val avatarReq = remember(member.id, member.avatarUrl) {
+                    ImageRequest.Builder(castContext)
                         .data(member.avatarUrl)
-                        .crossfade(true)
-                        .build(),
+                        .size(160, 160)
+                        .crossfade(false)
+                        .build()
+                }
+                AsyncImage(
+                    model = avatarReq,
                     contentDescription = member.name,
                     contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                    error = {
-                        Icon(
-                            imageVector = Icons.Default.Person,
-                            contentDescription = null,
-                            tint = NeliMagenta,
-                            modifier = Modifier.size(28.dp)
-                        )
-                    }
-                )
-            } else {
-                Text(
-                    text = member.name.take(1).uppercase(),
-                    color = Color.White,
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.ExtraBold
+                    modifier = Modifier.fillMaxSize()
                 )
             }
         }

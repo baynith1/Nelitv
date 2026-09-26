@@ -157,7 +157,7 @@ abstract class NeliDatabase : RoomDatabase() {
                     NeliDatabase::class.java,
                     "neli_tv_media.db"
                 )
-                    .fallbackToDestructiveMigration()
+                    .fallbackToDestructiveMigration(true)
                     .build()
                     .also { INSTANCE = it }
             }

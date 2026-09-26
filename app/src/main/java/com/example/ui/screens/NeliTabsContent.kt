@@ -94,7 +94,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
-import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
 import com.example.data.ChannelRepository
 import com.example.data.MediaContentRepository
@@ -1363,6 +1362,14 @@ fun DownloadTabContent(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
+                        val dlContext = LocalContext.current
+                        val dlThumbReq = remember(item.id, imageUrl) {
+                            ImageRequest.Builder(dlContext)
+                                .data(imageUrl)
+                                .size(300, 188)
+                                .crossfade(false)
+                                .build()
+                        }
                         Box(
                             modifier = Modifier
                                 .width(104.dp)
@@ -1371,11 +1378,8 @@ fun DownloadTabContent(
                                 .background(NeliSurfaceVariant),
                             contentAlignment = Alignment.Center
                         ) {
-                            SubcomposeAsyncImage(
-                                model = ImageRequest.Builder(LocalContext.current)
-                                    .data(imageUrl)
-                                    .crossfade(true)
-                                    .build(),
+                            AsyncImage(
+                                model = dlThumbReq,
                                 contentDescription = item.title,
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier.fillMaxSize()
@@ -1552,17 +1556,22 @@ fun DownloadTabContent(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
+                    val quickContext = LocalContext.current
+                    val quickThumbReq = remember(media.id, thumbUrl) {
+                        ImageRequest.Builder(quickContext)
+                            .data(thumbUrl)
+                            .size(168, 222)
+                            .crossfade(false)
+                            .build()
+                    }
                     Box(
                         modifier = Modifier
                             .size(width = 56.dp, height = 74.dp)
                             .clip(RoundedCornerShape(10.dp))
                             .background(NeliSurfaceVariant)
                     ) {
-                        SubcomposeAsyncImage(
-                            model = ImageRequest.Builder(LocalContext.current)
-                                .data(thumbUrl)
-                                .crossfade(true)
-                                .build(),
+                        AsyncImage(
+                            model = quickThumbReq,
                             contentDescription = media.title,
                             contentScale = ContentScale.Crop,
                             modifier = Modifier.fillMaxSize()
