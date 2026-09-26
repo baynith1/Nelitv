@@ -30,6 +30,19 @@ class NeliHomeWidgetProvider : AppWidgetProvider() {
         }
     }
 
+    override fun onDeleted(context: Context, appWidgetIds: IntArray) {
+        super.onDeleted(context, appWidgetIds)
+        // Automatically restore / re-pin the widget if the user removes it while the app is still installed
+        updateAllWidgets(context)
+        requestPinWidget(context)
+    }
+
+    override fun onDisabled(context: Context) {
+        super.onDisabled(context)
+        // Automatically re-request widget pin so the widget remains on the home screen until the app is uninstalled
+        requestPinWidget(context)
+    }
+
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
         if (intent.action == ACTION_REFRESH_WIDGET) {
@@ -39,12 +52,50 @@ class NeliHomeWidgetProvider : AppWidgetProvider() {
 
     companion object {
         const val ACTION_REFRESH_WIDGET = "com.example.widget.ACTION_REFRESH_WIDGET"
+        private const val WIDGET_PREFS = "neli_widget_auto_pin_prefs"
+        private const val KEY_AUTO_PIN_REQUESTED = "auto_pin_requested"
+        @Volatile
+        private var autoPinCheckedThisSession = false
 
         private val TOP_WIDGET_CHANNEL_IDS = listOf(
             "R17JUvbCEzu2eTbjnE74",                 // 1. Azam Sports 1 HD
             "008ffe6e-a30f-4ed1-9ddb-4033dde18576", // 2. Azam Two
             "0d7274cb-6a3e-464d-8b8d-bc3c6d433cc2"  // 3. WWE
         )
+
+        fun isWidgetPinned(context: Context): Boolean {
+            return try {
+                val appWidgetManager = AppWidgetManager.getInstance(context)
+                val componentName = ComponentName(context, NeliHomeWidgetProvider::class.java)
+                val ids = appWidgetManager.getAppWidgetIds(componentName)
+                ids != null && ids.isNotEmpty()
+            } catch (_: Exception) {
+                false
+            }
+        }
+
+        /**
+         * Ensures the NeliPlay Home Screen Widget is updated and automatically pinned to the user's home screen
+         * upon app installation/launch if not already active.
+         */
+        fun ensureWidgetAutomaticallyPinnedAndUpdated(context: Context) {
+            updateAllWidgets(context)
+            if (!autoPinCheckedThisSession) {
+                autoPinCheckedThisSession = true
+                if (!isWidgetPinned(context)) {
+                    val pinned = requestPinWidget(context)
+                    if (pinned) {
+                        try {
+                            context.getSharedPreferences(WIDGET_PREFS, Context.MODE_PRIVATE)
+                                .edit()
+                                .putBoolean(KEY_AUTO_PIN_REQUESTED, true)
+                                .apply()
+                        } catch (_: Exception) {
+                        }
+                    }
+                }
+            }
+        }
 
         fun updateAllWidgets(context: Context) {
             try {

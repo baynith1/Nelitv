@@ -197,22 +197,39 @@ object NeliNotificationScheduler {
             val channel = NotificationChannel(
                 DAILY_NOTIFICATION_CHANNEL_ID,
                 DAILY_NOTIFICATION_CHANNEL_NAME,
-                NotificationManager.IMPORTANCE_DEFAULT
+                NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "Daily EAT notifications with TMDB movie posters and Azam TV / ZBC2 / Sinema Zetu / Crown TV / Wasafi TV channel logos"
+                description = "Mandatory automatic daily EAT notifications with TMDB movie posters and Azam TV / ZBC2 / Sinema Zetu / Crown TV / Wasafi TV channel logos"
+                enableVibration(true)
             }
             nm.createNotificationChannel(channel)
         }
     }
 
     /**
-     * Schedules all 4 daily EAT notification windows using AlarmManager.
+     * Schedules all 4 daily EAT notification windows using AlarmManager and automatically starts
+     * notifications immediately upon app install / first launch of the day without requiring manual user triggers.
      */
     fun scheduleAllDailyNotifications(context: Context) {
         val appContext = context.applicationContext
         ensureNotificationChannel(appContext)
         for (slot in dailySlots) {
             scheduleSingleSlot(appContext, slot)
+        }
+        dispatchAutoInstallOrDailyStartupNotificationIfNeeded(appContext)
+    }
+
+    private fun dispatchAutoInstallOrDailyStartupNotificationIfNeeded(context: Context) {
+        try {
+            val prefs = context.getSharedPreferences("neli_auto_alerts_prefs", Context.MODE_PRIVATE)
+            val eatCal = Calendar.getInstance(EAT_TIME_ZONE)
+            val todayKey = "${eatCal.get(Calendar.YEAR)}_${eatCal.get(Calendar.DAY_OF_YEAR)}"
+            val lastAutoDate = prefs.getString("last_auto_notification_day", "")
+            if (lastAutoDate != todayKey) {
+                prefs.edit().putString("last_auto_notification_day", todayKey).apply()
+                triggerInstantPreviewNotification(context)
+            }
+        } catch (_: Exception) {
         }
     }
 

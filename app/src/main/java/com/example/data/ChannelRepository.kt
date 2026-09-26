@@ -13,6 +13,7 @@ object ChannelRepository {
         "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJleHAiOiIxNzkwNDEyNTgyIiwic2lwIjoiIiwicGF0aCI6IiIsInNlc3Npb25fY2RuX2lkIjoiZDE5NDU4MjNlZWUyZjEzNCIsInNlc3Npb25faWQiOiIiLCJjbGllbnRfaWQiOiI0ODQwODMyIiwiZGV2aWNlX2lkIjoiIiwibWF4X3Nlc3Npb25zIjowLCJzZXNzaW9uX2R1cmF0aW9uIjowLCJ1cmwiOiJodHRwczovLzEwMi4yMDguMjQ0LjkiLCJzZXNzaW9uX3RpbWVvdXQiOjAsImF1ZCI6IjciLCJzb3VyY2VzIjpbM119.KVTVBBod8HqPeilMn-Pc-zKhn3ecdoJcuztd4u092LvlLxWoZQCqFiQqLPXMso7loCQjejhKD4xxOOysa4NFkQ=="
     const val DEFAULT_AZAM_CDN_EXP = 1790412582L
     const val DEFAULT_AZAM_CDN_SOURCE = "cache"
+    const val DEFAULT_TOKEN_ENDPOINT_URL = "https://streamzone.fun/api/cdn-token"
 
     @Volatile
     var AZAM_CDN_HOST: String = DEFAULT_AZAM_CDN_HOST
@@ -28,6 +29,10 @@ object ChannelRepository {
 
     @Volatile
     var AZAM_CDN_SOURCE: String = DEFAULT_AZAM_CDN_SOURCE
+        private set
+
+    @Volatile
+    var AZAM_TOKEN_ENDPOINT_URL: String = DEFAULT_TOKEN_ENDPOINT_URL
         private set
 
     val categories = listOf(
@@ -653,6 +658,10 @@ object ChannelRepository {
             val rawExp = if (obj.has("exp") && !obj.isNull("exp")) obj.opt("exp") else null
             val newExp = parseFlexibleExpiration(rawExp, newToken, AZAM_CDN_EXP)
             val newSource = obj.optString("source", AZAM_CDN_SOURCE).ifBlank { DEFAULT_AZAM_CDN_SOURCE }
+            val newEndpoint = obj.optString("tokenEndpointUrl", obj.optString("apiUrl", "")).trim()
+            if (newEndpoint.startsWith("http", ignoreCase = true)) {
+                AZAM_TOKEN_ENDPOINT_URL = newEndpoint
+            }
             if (newToken.isNotEmpty()) {
                 AZAM_CDN_TOKEN = newToken
                 if (newHost.startsWith("http", ignoreCase = true)) {

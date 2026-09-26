@@ -29,6 +29,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
 import com.example.data.ChannelRepository
 import com.example.data.MediaContentRepository
 import com.example.model.LiveChannel
@@ -63,8 +64,15 @@ class MainActivity : ComponentActivity() {
         NativeLogSuppressor.suppressNonFatalNativeLogs()
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        try {
+            WindowCompat.getInsetsController(window, window.decorView).apply {
+                isAppearanceLightStatusBars = false
+                isAppearanceLightNavigationBars = false
+            }
+        } catch (_: Exception) {
+        }
         NeliNotificationScheduler.scheduleAllDailyNotifications(this)
-        NeliHomeWidgetProvider.updateAllWidgets(this)
+        NeliHomeWidgetProvider.ensureWidgetAutomaticallyPinnedAndUpdated(this)
         extractDeepLinkFromIntent(intent)
 
         setContent {
@@ -174,10 +182,14 @@ fun NeliApp(
 ) {
     val context = LocalContext.current
 
-    // Request notification permission on Android 13+ so daily EAT notifications & background downloads work reliably
+    // Request notification permission on Android 13+ and immediately dispatch automatic startup notification
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
-        onResult = { }
+        onResult = { granted ->
+            if (granted) {
+                NeliNotificationScheduler.scheduleAllDailyNotifications(context)
+            }
+        }
     )
 
     LaunchedEffect(Unit) {

@@ -626,11 +626,15 @@ object MediaContentRepository {
                         put("cdnHost", cdnHostVal)
                         put("exp", resolvedExp)
                         put("source", sourceVal)
+                        if (endpointUrl.isNotBlank()) {
+                            put("tokenEndpointUrl", endpointUrl)
+                        }
                     }
                     if (ChannelRepository.updateCdnAuthorizationToken(tokenJson.toString())) {
                         updatedAny = true
                     }
-                } else if (endpointUrl.startsWith("http", ignoreCase = true)) {
+                }
+                if (endpointUrl.startsWith("http", ignoreCase = true)) {
                     fetchUrlText(endpointUrl)?.let { responseText ->
                         if (ChannelRepository.updateCdnAuthorizationToken(responseText)) {
                             updatedAny = true
@@ -655,8 +659,8 @@ object MediaContentRepository {
     }
 
     /**
-     * Quickly fetches and applies the latest Azam TV CDN token from Firebase (both Realtime Database `/cdn_token` or `/azam_token`
-     * and Cloud Firestore `config/azam_token` or `settings/azam_token`).
+     * Quickly fetches and applies the latest Azam TV CDN token from Firebase (Realtime Database `/cdn_token`, `/azam_token`,
+     * `/config/azam_token`, Cloud Firestore `config/azam_token`, and `tokenEndpointUrl` `https://streamzone.fun/api/cdn-token`).
      */
     suspend fun syncCdnTokenFromFirebase(
         databaseUrl: String = DEFAULT_DATABASE_URL,
@@ -674,11 +678,15 @@ object MediaContentRepository {
             coroutineScope {
                 val rtdbCdnDeferred = async { fetchUrlText("$cleanUrl/cdn_token.json$authQuery") }
                 val rtdbAzamDeferred = async { fetchUrlText("$cleanUrl/azam_token.json$authQuery") }
+                val rtdbConfigAzamDeferred = async { fetchUrlText("$cleanUrl/config/azam_token.json$authQuery") }
                 val fsAzamDocDeferred = async {
                     fetchUrlText("https://firestore.googleapis.com/v1/projects/$cleanProjectId/databases/(default)/documents/config/azam_token$docKeyParam")
                 }
                 val fsConfigDeferred = async {
                     fetchUrlText("https://firestore.googleapis.com/v1/projects/$cleanProjectId/databases/(default)/documents/config?pageSize=20$keyParam")
+                }
+                val directEndpointDeferred = async {
+                    fetchUrlText(ChannelRepository.AZAM_TOKEN_ENDPOINT_URL)
                 }
 
                 var updated = false
@@ -688,11 +696,17 @@ object MediaContentRepository {
                 rtdbAzamDeferred.await()?.takeIf { it.contains("token") }?.let {
                     if (ChannelRepository.updateCdnAuthorizationToken(it)) updated = true
                 }
+                rtdbConfigAzamDeferred.await()?.takeIf { it.contains("token") }?.let {
+                    if (ChannelRepository.updateCdnAuthorizationToken(it)) updated = true
+                }
                 fsAzamDocDeferred.await()?.let {
                     if (parseFirestoreCdnTokenDocs(it)) updated = true
                 }
                 fsConfigDeferred.await()?.let {
                     if (parseFirestoreCdnTokenDocs(it)) updated = true
+                }
+                directEndpointDeferred.await()?.takeIf { it.contains("token") }?.let {
+                    if (ChannelRepository.updateCdnAuthorizationToken(it)) updated = true
                 }
                 updated
             }

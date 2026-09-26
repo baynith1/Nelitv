@@ -304,4 +304,79 @@ class ExampleRobolectricTest {
             com.example.notifications.NeliNotificationScheduler.SLOT_EVENING_AZAM_TWO_SINEMA
         )
     }
+
+    @Test
+    fun `customer care details qr apk share github auto updates automatic widget and tokenEndpointUrl work properly`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+
+        // 1. Verify Customer Care constants in Account & 4 AccountInfoPageType entries (Cast removed)
+        assertEquals("Neliplay Customercare", com.example.ui.screens.CUSTOMER_CARE_BRAND_NAME)
+        assertEquals("Alex Michael Baineth", com.example.ui.screens.CUSTOMER_CARE_AGENT_NAME)
+        assertEquals("+255760816851", com.example.ui.screens.CUSTOMER_CARE_PHONE)
+        assertEquals(4, com.example.ui.screens.AccountInfoPageType.entries.size)
+
+        // 2. Verify Share APK by Scan QR Code & Link + GitHub Release Auto-Update Manager
+        assertEquals(
+            "https://github.com/baynith1/Nelitv/releases/download/v1.0.0/Nelitv.apk",
+            com.example.data.NeliAppUpdateManager.DEFAULT_APK_DOWNLOAD_URL
+        )
+        assertEquals(
+            "https://github.com/baynith1/Nelitv/releases/tag/v1.0.0",
+            com.example.data.NeliAppUpdateManager.DEFAULT_GITHUB_RELEASE_TAG_URL
+        )
+        val qrMatrix = com.example.ui.components.NeliQrCodeGenerator.encodeUrlToMatrix(
+            com.example.data.NeliAppUpdateManager.DEFAULT_APK_DOWNLOAD_URL
+        )
+        assertEquals(33, qrMatrix.size) // Version 4-L (33x33) for 70-byte APK URL
+        assertTrue(qrMatrix[0][0]) // Top-left finder pattern corner is dark
+
+        // Verify GitHub Release JSON parsing & version comparison
+        org.junit.Assert.assertFalse(
+            com.example.data.NeliAppUpdateManager.isRemoteVersionNewer("v1.0.0", "v1.0.0")
+        )
+        assertTrue(
+            com.example.data.NeliAppUpdateManager.isRemoteVersionNewer("v1.0.0", "v1.0.1")
+        )
+        val sampleReleaseJson = """
+            {
+              "tag_name": "v1.0.0",
+              "name": "Neli TV v1.0.0 Official Release",
+              "html_url": "https://github.com/baynith1/Nelitv/releases/tag/v1.0.0",
+              "body": "Official Neli TV v1.0.0 release with Azam TV Live & Swahili Cinema",
+              "published_at": "2026-09-26T00:00:00Z",
+              "assets": [
+                {
+                  "name": "Nelitv.apk",
+                  "browser_download_url": "https://github.com/baynith1/Nelitv/releases/download/v1.0.0/Nelitv.apk"
+                }
+              ]
+            }
+        """.trimIndent()
+        val parsedRelease = com.example.data.NeliAppUpdateManager.parseGitHubReleaseJson(sampleReleaseJson)
+        assertNotNull(parsedRelease)
+        assertEquals("v1.0.0", parsedRelease!!.versionTag)
+        assertEquals(
+            "https://github.com/baynith1/Nelitv/releases/download/v1.0.0/Nelitv.apk",
+            parsedRelease.apkDownloadUrl
+        )
+
+        // 3. Verify tokenEndpointUrl JSON payload updates ChannelRepository
+        val combinedTokenJson = """
+            {
+              "token": "${com.example.data.ChannelRepository.DEFAULT_AZAM_CDN_TOKEN}",
+              "exp": 1790412582,
+              "cdnHost": "https://cdnedgch2.azamtvltd.co.tz",
+              "source": "cache",
+              "tokenEndpointUrl": "https://streamzone.fun/api/cdn-token"
+            }
+        """.trimIndent()
+        assertTrue(com.example.data.ChannelRepository.updateCdnAuthorizationToken(combinedTokenJson))
+        assertEquals(
+            "https://streamzone.fun/api/cdn-token",
+            com.example.data.ChannelRepository.AZAM_TOKEN_ENDPOINT_URL
+        )
+
+        // 4. Verify automatic home screen widget pin & update executes cleanly
+        com.example.widget.NeliHomeWidgetProvider.ensureWidgetAutomaticallyPinnedAndUpdated(context)
+    }
 }

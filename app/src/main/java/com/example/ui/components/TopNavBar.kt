@@ -7,6 +7,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -29,7 +30,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.LiveTv
-import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -55,8 +55,6 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ui.theme.NeliBorder
-import com.example.ui.theme.NeliGenreCyan
-import com.example.ui.theme.NeliLiveRed
 import com.example.ui.theme.NeliMagenta
 import com.example.ui.theme.NeliSurface
 import com.example.ui.theme.NeliSurfaceVariant
@@ -69,8 +67,6 @@ fun TopNavBar(
     onSearchQueryChange: (String) -> Unit,
     isSearchOpen: Boolean,
     onToggleSearch: () -> Unit,
-    totalChannels: Int,
-    onTriggerNotificationPreview: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val focusManager = LocalFocusManager.current
@@ -95,6 +91,8 @@ fun TopNavBar(
                 .fillMaxWidth()
                 .background(Color(0xFF0B0D14))
                 .windowInsetsPadding(WindowInsets.statusBars)
+                // Extra top breathing space below the phone's battery percentage, clock & network status bar
+                .padding(top = 12.dp, bottom = 4.dp)
         ) {
             val isTablet = maxWidth >= 600.dp
             val horizontalPad = if (isTablet) 24.dp else 16.dp
@@ -113,7 +111,8 @@ fun TopNavBar(
                     // Brand Logo and Title
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.testTag("header_brand_logo")
                     ) {
                         Box(
                             modifier = Modifier
@@ -161,61 +160,16 @@ fun TopNavBar(
                         }
                     }
 
-                    // Right side actions: Live count badge, Daily Notification Preview Bell, and Search
+                    // Right side action: Search Button only
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(16.dp))
-                                .background(NeliSurfaceVariant)
-                                .border(1.dp, NeliBorder, RoundedCornerShape(16.dp))
-                                .padding(horizontal = 10.dp, vertical = 5.dp)
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(5.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(6.dp)
-                                        .clip(CircleShape)
-                                        .background(NeliLiveRed)
-                                )
-                                Text(
-                                    text = "$totalChannels Live",
-                                    color = NeliTextPrimary,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
-
-                        if (onTriggerNotificationPreview != null) {
-                            IconButton(
-                                onClick = onTriggerNotificationPreview,
-                                modifier = Modifier
-                                    .testTag("notification_bell_button")
-                                    .size(42.dp)
-                                    .clip(CircleShape)
-                                    .background(NeliSurfaceVariant)
-                                    .border(1.dp, NeliBorder, CircleShape)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.NotificationsActive,
-                                    contentDescription = "Daily EAT Alerts",
-                                    tint = NeliGenreCyan,
-                                    modifier = Modifier.size(19.dp)
-                                )
-                            }
-                        }
-
                         IconButton(
                             onClick = onToggleSearch,
                             modifier = Modifier
                                 .testTag("search_icon_button")
-                                .size(42.dp)
+                                .size(48.dp)
                                 .clip(CircleShape)
                                 .background(NeliSurfaceVariant)
                                 .border(1.dp, NeliBorder, CircleShape)
@@ -224,7 +178,7 @@ fun TopNavBar(
                                 imageVector = if (isSearchOpen) Icons.Default.Clear else Icons.Default.Search,
                                 contentDescription = if (isSearchOpen) "Close search" else "Search",
                                 tint = if (isSearchOpen) NeliMagenta else NeliTextPrimary,
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier.size(21.dp)
                             )
                         }
                     }

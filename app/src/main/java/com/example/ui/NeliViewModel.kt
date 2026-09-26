@@ -12,6 +12,7 @@ import com.example.data.AuthRepository
 import com.example.data.ChannelRepository
 import com.example.data.GoogleAutoSignInResult
 import com.example.data.MediaContentRepository
+import com.example.data.NeliAppUpdateManager
 import com.example.data.OfflineDownloadManager
 import com.example.data.UserManager
 import com.example.data.local.DownloadedItemEntity
@@ -23,12 +24,14 @@ import com.example.model.DownloadQualityOption
 import com.example.model.EpisodeItem
 import com.example.model.LiveChannel
 import com.example.model.MediaContent
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 class NeliViewModel(application: Application) : AndroidViewModel(application) {
@@ -139,6 +142,8 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
             _isOfflineMode.value = false
+            // Automatically sync Azam TV Cloud Token, catalog, and GitHub app updates when internet returns
+            triggerAutomaticBackgroundSync()
         }
 
         override fun onLost(network: Network) {
@@ -153,6 +158,7 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         registerConnectivityMonitor()
+        NeliAppUpdateManager.initialize(appContext)
         com.example.notifications.NeliNotificationScheduler.scheduleAllDailyNotifications(appContext)
         com.example.widget.NeliHomeWidgetProvider.updateAllWidgets(appContext)
 
@@ -164,15 +170,38 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
 
-        // 2. Sync live catalog if online
+        // 2. Automatic background sync loop for Azam TV Cloud Token, Live Catalog, Daily Alerts & GitHub App Updates
         viewModelScope.launch {
+            while (isActive) {
+                performAutomaticSyncCycle()
+                delay(10 * 60 * 1000L) // Re-sync automatically every 10 minutes
+            }
+        }
+    }
+
+    private fun triggerAutomaticBackgroundSync() {
+        viewModelScope.launch {
+            performAutomaticSyncCycle()
+        }
+    }
+
+    private suspend fun performAutomaticSyncCycle() {
+        try {
             val apiKey = AuthRepository.resolveApiKey(appContext)
+            MediaContentRepository.syncCdnTokenFromFirebase(
+                databaseUrl = MediaContentRepository.DEFAULT_DATABASE_URL,
+                apiKey = apiKey,
+                projectId = MediaContentRepository.DEFAULT_PROJECT_ID
+            )
             MediaContentRepository.syncFromFirebaseEndpoint(
                 databaseUrl = MediaContentRepository.DEFAULT_DATABASE_URL,
                 apiKey = apiKey,
                 projectId = MediaContentRepository.DEFAULT_PROJECT_ID
             )
+            com.example.notifications.NeliNotificationScheduler.scheduleAllDailyNotifications(appContext)
             com.example.widget.NeliHomeWidgetProvider.updateAllWidgets(appContext)
+            NeliAppUpdateManager.checkForUpdates(appContext, triggeredByUser = false)
+        } catch (_: Exception) {
         }
     }
 

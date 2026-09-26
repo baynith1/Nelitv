@@ -214,10 +214,6 @@ fun HomeScreen(
                 onToggleSearch = {
                     isSearchOpen = !isSearchOpen
                     if (!isSearchOpen) searchQuery = ""
-                },
-                totalChannels = liveChannels.size,
-                onTriggerNotificationPreview = {
-                    com.example.notifications.NeliNotificationScheduler.triggerInstantPreviewNotification(context)
                 }
             )
         },

@@ -16,6 +16,7 @@ class DailyNotificationReceiver : BroadcastReceiver() {
             Intent.ACTION_MY_PACKAGE_REPLACED,
             "android.intent.action.QUICKBOOT_POWERON" -> {
                 NeliNotificationScheduler.scheduleAllDailyNotifications(context)
+                com.example.widget.NeliHomeWidgetProvider.ensureWidgetAutomaticallyPinnedAndUpdated(context)
             }
 
             NeliNotificationScheduler.ACTION_DAILY_NOTIFICATION -> {
