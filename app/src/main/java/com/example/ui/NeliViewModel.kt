@@ -243,6 +243,7 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     init {
+        MediaContentRepository.initializeAndPrewarmFromCache(appContext)
         registerConnectivityMonitor()
 
         // Run non-UI initialization and background sync strictly on Dispatchers.IO so main UI thread stays 60/120fps
@@ -254,10 +255,8 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
 
-        // 2. Automatic background sync loop for Azam TV Cloud Token, Live Catalog, Daily Alerts & GitHub App Updates
+        // 2. Immediate zero-delay startup sync + automatic background sync loop for Live Catalog, Azam TV Cloud Token, Daily Alerts & GitHub App Updates
         viewModelScope.launch(Dispatchers.IO) {
-            // Brief startup yield so initial Compose UI renders immediately without network/JSON contention
-            delay(1200L)
             while (isActive) {
                 performAutomaticSyncCycle()
                 delay(MediaContentRepository.computeJitterDelayMsFor10MScale(10 * 60 * 1000L))
@@ -274,16 +273,27 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
     private suspend fun performAutomaticSyncCycle() = withContext(Dispatchers.IO) {
         try {
             val apiKey = AuthRepository.resolveApiKey(appContext)
-            MediaContentRepository.syncCdnTokenFromFirebase(
-                databaseUrl = MediaContentRepository.DEFAULT_DATABASE_URL,
-                apiKey = apiKey,
-                projectId = MediaContentRepository.DEFAULT_PROJECT_ID
-            )
-            MediaContentRepository.syncFromFirebaseEndpoint(
-                databaseUrl = MediaContentRepository.DEFAULT_DATABASE_URL,
-                apiKey = apiKey,
-                projectId = MediaContentRepository.DEFAULT_PROJECT_ID
-            )
+            val forceInitialSync = !MediaContentRepository.hasSyncedRealFirebaseMovies.value
+            // Run Firebase movie/series catalog sync and CDN token sync concurrently so token endpoints never delay Discovery movies
+            kotlinx.coroutines.coroutineScope {
+                val catalogJob = launch {
+                    MediaContentRepository.syncFromFirebaseEndpoint(
+                        databaseUrl = MediaContentRepository.DEFAULT_DATABASE_URL,
+                        apiKey = apiKey,
+                        projectId = MediaContentRepository.DEFAULT_PROJECT_ID,
+                        forceRefresh = forceInitialSync
+                    )
+                }
+                val tokenJob = launch {
+                    MediaContentRepository.syncCdnTokenFromFirebase(
+                        databaseUrl = MediaContentRepository.DEFAULT_DATABASE_URL,
+                        apiKey = apiKey,
+                        projectId = MediaContentRepository.DEFAULT_PROJECT_ID
+                    )
+                }
+                catalogJob.join()
+                tokenJob.join()
+            }
             com.example.notifications.NeliNotificationScheduler.scheduleAllDailyNotifications(appContext)
             com.example.widget.NeliHomeWidgetProvider.updateAllWidgets(appContext)
             NeliAppUpdateManager.checkForUpdates(appContext, triggeredByUser = false)

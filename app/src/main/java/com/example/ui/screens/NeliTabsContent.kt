@@ -519,10 +519,26 @@ fun DiscoveryTabContent(
     onRefreshDiscovery: () -> Unit = { MediaContentRepository.rotateMovieCatalogOrder() },
     onRotateMovies: () -> Unit = { MediaContentRepository.rotateMovieCatalogOrder() }
 ) {
+    val context = LocalContext.current
     val discoverySections = listOf("All", "Movies", "Series", "Adults")
     val liveRotationSeed by MediaContentRepository.catalogRotationSeed.collectAsState()
+    val hasSyncedRealMovies by MediaContentRepository.hasSyncedRealFirebaseMovies.collectAsState()
     val effectiveSeed = if (catalogRotationSeed != 0L) catalogRotationSeed else liveRotationSeed
     val pullToRefreshState = rememberPullToRefreshState()
+
+    // Ensure real Firebase movies are synced immediately when entering Discovery for the first time
+    LaunchedEffect(hasSyncedRealMovies) {
+        if (!hasSyncedRealMovies) {
+            MediaContentRepository.initializeAndPrewarmFromCache(context)
+            val apiKey = com.example.data.AuthRepository.resolveApiKey(context)
+            MediaContentRepository.syncFromFirebaseEndpoint(
+                databaseUrl = MediaContentRepository.DEFAULT_DATABASE_URL,
+                apiKey = apiKey,
+                projectId = MediaContentRepository.DEFAULT_PROJECT_ID,
+                forceRefresh = true
+            )
+        }
+    }
 
     // Automatic periodic rotation while browsing Discovery so movies feel alive and varied ("zibadilike badilike")
     LaunchedEffect(selectedFilter) {
@@ -532,19 +548,25 @@ fun DiscoveryTabContent(
         }
     }
 
+    // Exclude synthetic demo fallback movies from Discovery so users only see real movies from Firebase
+    val discoveryCatalog = remember(mediaCatalog, hasSyncedRealMovies) {
+        val withoutDemo = mediaCatalog.filter { it.id !in MediaContentRepository.DEMO_FALLBACK_MOVIE_IDS }
+        withoutDemo.ifEmpty { mediaCatalog }
+    }
+
     // Rotating spotlight mix (Studio Admin new additions + rotated catalog picks)
-    val rotatingSpotlightMovies = remember(mediaCatalog, effectiveSeed) {
+    val rotatingSpotlightMovies = remember(discoveryCatalog, effectiveSeed, hasSyncedRealMovies) {
         MediaContentRepository.getRotatingSpotlightMovies(
-            catalog = mediaCatalog,
+            catalog = discoveryCatalog,
             rotationSeed = effectiveSeed,
             limit = 12
         )
     }
 
     // Strictly deduplicated movies grouped ONLY by their first genre, rotated dynamically by effectiveSeed
-    val moviesByFirstGenre = remember(mediaCatalog, effectiveSeed) {
+    val moviesByFirstGenre = remember(discoveryCatalog, effectiveSeed, hasSyncedRealMovies) {
         MediaContentRepository.getMoviesStrictlyByFirstGenre(
-            catalog = mediaCatalog,
+            catalog = discoveryCatalog,
             rotationSeed = effectiveSeed
         )
     }

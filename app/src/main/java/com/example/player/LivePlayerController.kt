@@ -61,8 +61,8 @@ sealed interface PlayerUiState {
 }
 
 enum class NetworkQualityMode(val label: String) {
-    AUTO_ADAPTIVE("Auto Quality"),
-    ULTRA_LOW_BANDO_SAVER("Low Bando Saver (240p)"),
+    AUTO_ADAPTIVE("Auto Full HD"),
+    ULTRA_LOW_BANDO_SAVER("Low Data / Low Bando (240p)"),
     WEAK_NETWORK_SAVER("Data Saver (360p)"),
     STANDARD_480P("Standard (480p)"),
     STRONG_NETWORK_HD("Full HD (720p/1080p)")
@@ -454,7 +454,13 @@ class LivePlayerController(
     private var hasReachedReadyForCurrentStream: Boolean = false
     private var consecutiveRebufferCount: Int = 0
     private var bufferingEnteredAtRealtimeMs: Long = 0L
+    private var totalBufferingStartedAtRealtimeMs: Long = 0L
     private var healthyPlaybackSinceRealtimeMs: Long = 0L
+    private var lastQualitySwitchRealtimeMs: Long = 0L
+    private var lastLiveAutoReloadRealtimeMs: Long = 0L
+    private var lastObservedLivePositionMs: Long = C.TIME_UNSET
+    private var lastLivePositionChangedRealtimeMs: Long = 0L
+    private var isDownscaledToLowDataByNetwork: Boolean = false
     private var currentAdaptiveTier: AdaptiveQualityTier = AdaptiveQualityTier.FULL_HD_1080P
     private var activeTrackResolutionLabel: String = AdaptiveQualityTier.FULL_HD_1080P.badgeLabel
     private var lastAppliedTrackSelectorKey: String = ""
@@ -507,13 +513,10 @@ class LivePlayerController(
     private val bandwidthEventListener = BandwidthMeter.EventListener { _, _, bitrateEstimate ->
         if (bitrateEstimate > 0L) {
             latestEstimatedBandwidthBps = bitrateEstimate
-            if (_playbackInfo.value.networkMode == NetworkQualityMode.AUTO_ADAPTIVE) {
-                evaluateAndApplyAdaptiveTrackSelection(
-                    forceBufferingState = _uiState.value is PlayerUiState.Buffering
-                )
-            } else {
-                updatePlaybackInfo()
-            }
+            // Update bandwidth telemetry without resetting TrackSelector on every HTTP chunk transfer.
+            // Adaptive quality transitions between Auto Full HD and Low Data are governed with
+            // hysteresis in positionUpdateRunnable and onPlaybackStateChanged to prevent oscillation.
+            updatePlaybackInfo()
         }
     }
 
@@ -710,13 +713,16 @@ class LivePlayerController(
             // Refresh device battery & background power profile
             val activePowerProfile = resolveActiveBatteryPowerProfile(forceRefreshBattery = false)
 
-            // Dynamic buffering, bandwidth & battery-aware adaptation during active playback/buffering
+            // Dynamic buffering, bandwidth & battery-aware adaptation during active playback/buffering:
+            // Starts in Auto Full HD (1080p), drops directly to Low Data (240p) when there is a network/buffering issue,
+            // and returns cleanly to Auto Full HD only after the internet has been continuously stable.
             if (_playbackInfo.value.networkMode == NetworkQualityMode.AUTO_ADAPTIVE) {
                 if (player.playbackState == Player.STATE_BUFFERING) {
-                    if (bufferingEnteredAtRealtimeMs > 0L && now - bufferingEnteredAtRealtimeMs >= 2_200L) {
-                        // Prolonged buffering stall -> step down another quality tier dynamically
+                    if (bufferingEnteredAtRealtimeMs > 0L && now - bufferingEnteredAtRealtimeMs >= 1_800L) {
+                        // Buffering stall detected -> drop directly to Low Data so stream loads immediately
                         consecutiveRebufferCount = (consecutiveRebufferCount + 1).coerceAtMost(4)
                         bufferingEnteredAtRealtimeMs = now
+                        lastQualitySwitchRealtimeMs = now
                         evaluateAndApplyAdaptiveTrackSelection(forceBufferingState = true)
                     }
                 } else if (player.playbackState == Player.STATE_READY && player.isPlaying) {
@@ -724,15 +730,28 @@ class LivePlayerController(
                     if (healthyPlaybackSinceRealtimeMs == 0L) {
                         healthyPlaybackSinceRealtimeMs = now
                     }
-                    // When buffer cushion is healthy (>= 6s) and playback has been steady, recover toward HD
+                    // Only restore from Low Data back to Auto Full HD when internet has been continuously stable
+                    // for at least 8 seconds with >= 6.5s buffer cushion and >= 1.8 Mbps bandwidth.
+                    val stableDurationMs = now - healthyPlaybackSinceRealtimeMs
+                    val sinceLastSwitchMs = now - lastQualitySwitchRealtimeMs
                     if (consecutiveRebufferCount > 0 &&
-                        bufferedAheadMs >= 6_000L &&
-                        now - healthyPlaybackSinceRealtimeMs >= 5_000L
+                        bufferedAheadMs >= 6_500L &&
+                        latestEstimatedBandwidthBps >= 1_800_000L &&
+                        stableDurationMs >= 8_000L &&
+                        sinceLastSwitchMs >= 10_000L
                     ) {
-                        consecutiveRebufferCount = (consecutiveRebufferCount - 1).coerceAtLeast(0)
+                        consecutiveRebufferCount = 0
                         healthyPlaybackSinceRealtimeMs = now
+                        lastQualitySwitchRealtimeMs = now
                         evaluateAndApplyAdaptiveTrackSelection(forceBufferingState = false)
-                    } else {
+                    } else if (currentAdaptiveTier == AdaptiveQualityTier.LOW_BANDO_240P &&
+                        consecutiveRebufferCount == 0 &&
+                        bufferedAheadMs >= 6_500L &&
+                        latestEstimatedBandwidthBps >= 1_800_000L &&
+                        stableDurationMs >= 8_000L &&
+                        sinceLastSwitchMs >= 10_000L
+                    ) {
+                        lastQualitySwitchRealtimeMs = now
                         evaluateAndApplyAdaptiveTrackSelection(forceBufferingState = false)
                     }
                 }
@@ -747,12 +766,52 @@ class LivePlayerController(
             }
 
             if (channel.isLiveBroadcast) {
-                // Ensure Live TV stays playing unless paused by phone call, external music player, or off-screen background
-                if (!pausedByCallOrExternalAudio && !isBackgroundLoadingActive &&
-                    !player.isPlaying && player.playbackState == Player.STATE_READY
-                ) {
-                    player.playWhenReady = true
-                    player.play()
+                if (!pausedSpecificallyByPhoneCall && !isBackgroundLoadingActive) {
+                    when (player.playbackState) {
+                        Player.STATE_IDLE, Player.STATE_ENDED -> {
+                            // Live TV stopped unexpectedly -> auto-reload and continue playing automatically
+                            if (now - lastLiveAutoReloadRealtimeMs >= 2_500L) {
+                                autoRecoverLiveStream(player, forceReload = true)
+                            }
+                        }
+                        Player.STATE_BUFFERING -> {
+                            // If Live TV is stuck buffering for > 5.5s, switch to Low Data and auto-re-sync/reload live edge
+                            val totalBufferingMs = if (totalBufferingStartedAtRealtimeMs > 0L) {
+                                now - totalBufferingStartedAtRealtimeMs
+                            } else {
+                                0L
+                            }
+                            if (totalBufferingMs >= 5_500L && now - lastLiveAutoReloadRealtimeMs >= 5_500L) {
+                                if (_playbackInfo.value.networkMode == NetworkQualityMode.AUTO_ADAPTIVE) {
+                                    consecutiveRebufferCount = maxOf(consecutiveRebufferCount, 1)
+                                    evaluateAndApplyAdaptiveTrackSelection(forceBufferingState = true)
+                                }
+                                autoRecoverLiveStream(player, forceReload = totalBufferingMs >= 9_000L)
+                            }
+                        }
+                        Player.STATE_READY -> {
+                            pausedByCallOrExternalAudio = false
+                            if (!player.isPlaying || !player.playWhenReady) {
+                                player.playWhenReady = true
+                                player.play()
+                            } else {
+                                val currentPos = player.currentPosition
+                                if (currentPos > 0L) {
+                                    if (currentPos != lastObservedLivePositionMs) {
+                                        lastObservedLivePositionMs = currentPos
+                                        lastLivePositionChangedRealtimeMs = now
+                                    } else if (lastLivePositionChangedRealtimeMs > 0L &&
+                                        now - lastLivePositionChangedRealtimeMs >= 6_500L &&
+                                        now - lastLiveAutoReloadRealtimeMs >= 7_000L
+                                    ) {
+                                        // Live stream position frozen for > 6.5s -> auto-resync & reload live stream
+                                        lastLivePositionChangedRealtimeMs = now
+                                        autoRecoverLiveStream(player, forceReload = true)
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
                 updatePlaybackInfo()
                 mainHandler.postDelayed(this, activePowerProfile.telemetryPollIntervalLiveMs)
@@ -770,13 +829,17 @@ class LivePlayerController(
                 Player.STATE_BUFFERING -> {
                     _uiState.value = PlayerUiState.Buffering
                     bufferingEnteredAtRealtimeMs = now
+                    if (totalBufferingStartedAtRealtimeMs == 0L) {
+                        totalBufferingStartedAtRealtimeMs = now
+                    }
                     healthyPlaybackSinceRealtimeMs = 0L
                     if (hasReachedReadyForCurrentStream) {
-                        // Mid-stream rebuffer detected: dynamically step down quality tier immediately
+                        // Mid-stream rebuffer detected: drop directly to Low Data in Auto mode for fast recovery
                         consecutiveRebufferCount = (consecutiveRebufferCount + 1).coerceAtMost(4)
-                    }
-                    if (_playbackInfo.value.networkMode == NetworkQualityMode.AUTO_ADAPTIVE) {
-                        evaluateAndApplyAdaptiveTrackSelection(forceBufferingState = true)
+                        lastQualitySwitchRealtimeMs = now
+                        if (_playbackInfo.value.networkMode == NetworkQualityMode.AUTO_ADAPTIVE) {
+                            evaluateAndApplyAdaptiveTrackSelection(forceBufferingState = true)
+                        }
                     }
                     updatePlaybackInfo()
                     mainHandler.removeCallbacks(positionUpdateRunnable)
@@ -786,9 +849,11 @@ class LivePlayerController(
                     autoReconnectAttempts = 0
                     hasReachedReadyForCurrentStream = true
                     bufferingEnteredAtRealtimeMs = 0L
+                    totalBufferingStartedAtRealtimeMs = 0L
                     if (healthyPlaybackSinceRealtimeMs == 0L) {
                         healthyPlaybackSinceRealtimeMs = now
                     }
+                    lastLivePositionChangedRealtimeMs = now
                     val player = exoPlayer
                     if (player != null) {
                         if (isPhoneCallActiveOrRinging()) {
@@ -796,6 +861,12 @@ class LivePlayerController(
                             pausedSpecificallyByPhoneCall = true
                             player.playWhenReady = false
                             player.pause()
+                        } else if (channel.isLiveBroadcast && !isBackgroundLoadingActive) {
+                            pausedByCallOrExternalAudio = false
+                            if (!player.playWhenReady || !player.isPlaying) {
+                                player.playWhenReady = true
+                                player.play()
+                            }
                         }
                         val dur = player.duration
                         if (channel.shouldAutoSkipSwahiliMovieIntro && dur != C.TIME_UNSET && dur in 1..(SWAHILI_MOVIE_INTRO_SKIP_MS + 5_000L)) {
@@ -812,9 +883,6 @@ class LivePlayerController(
                             }
                         }
                     }
-                    if (_playbackInfo.value.networkMode == NetworkQualityMode.AUTO_ADAPTIVE) {
-                        evaluateAndApplyAdaptiveTrackSelection(forceBufferingState = false)
-                    }
                     _uiState.value = PlayerUiState.Ready
                     updatePlaybackInfo()
                     mainHandler.removeCallbacks(positionUpdateRunnable)
@@ -824,13 +892,9 @@ class LivePlayerController(
                     val player = exoPlayer
                     val dur = player?.duration ?: C.TIME_UNSET
                     if (channel.isLiveBroadcast) {
-                        // Live TV never ends; restart or re-sync seamlessly
+                        // Live TV never ends; automatically reload & sync to the live edge so playback continues without user tapping
                         player?.let { p ->
-                            p.seekTo(0L)
-                            if (!pausedByCallOrExternalAudio) {
-                                p.playWhenReady = true
-                                p.play()
-                            }
+                            autoRecoverLiveStream(p, forceReload = true)
                         }
                     } else if (player != null && channel.shouldAutoSkipSwahiliMovieIntro && dur != C.TIME_UNSET && dur in 1..(SWAHILI_MOVIE_INTRO_SKIP_MS + 5_000L) && lastKnownVodPositionMs >= SWAHILI_MOVIE_INTRO_SKIP_MS) {
                         // Recover if initial 5:30 seek jumped past the end of a shorter movie clip
@@ -849,7 +913,13 @@ class LivePlayerController(
                         }
                     }
                 }
-                Player.STATE_IDLE -> {}
+                Player.STATE_IDLE -> {
+                    if (channel.isLiveBroadcast && !pausedSpecificallyByPhoneCall && !isBackgroundLoadingActive) {
+                        exoPlayer?.let { p ->
+                            autoRecoverLiveStream(p, forceReload = true)
+                        }
+                    }
+                }
             }
         }
 
@@ -897,15 +967,28 @@ class LivePlayerController(
         }
 
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
-            if (!playWhenReady && (
-                        reason == Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS ||
-                        reason == Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_BECOMING_NOISY
-                    )
-            ) {
-                // Auto-stop/pause when user plays music on another app or receives/makes a call
-                pausedByCallOrExternalAudio = true
-                exoPlayer?.pause()
-                updatePlaybackInfo()
+            if (!playWhenReady) {
+                if (isPhoneCallActiveOrRinging(forceRefresh = true)) {
+                    pausedByCallOrExternalAudio = true
+                    pausedSpecificallyByPhoneCall = true
+                    exoPlayer?.pause()
+                    updatePlaybackInfo()
+                } else if (channel.isLiveBroadcast && !isBackgroundLoadingActive) {
+                    // Never allow Live TV to stop on its own from transient audio focus or stream state notifications
+                    pausedByCallOrExternalAudio = false
+                    exoPlayer?.let { p ->
+                        p.playWhenReady = true
+                        p.play()
+                    }
+                    updatePlaybackInfo()
+                } else if (
+                    reason == Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS ||
+                    reason == Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_BECOMING_NOISY
+                ) {
+                    pausedByCallOrExternalAudio = true
+                    exoPlayer?.pause()
+                    updatePlaybackInfo()
+                }
             }
         }
 
@@ -933,17 +1016,24 @@ class LivePlayerController(
             }
 
             val httpCode = extractHttpErrorCode(error)
-            if (autoReconnectAttempts < 2) {
+            val maxAutoRetries = if (channel.isLiveBroadcast) 10 else 3
+            if (autoReconnectAttempts < maxAutoRetries) {
                 autoReconnectAttempts++
                 _uiState.value = PlayerUiState.Buffering
-                // Dynamically downscale on transient network errors to ensure seamless recovery
+                // Drop to Low Data on transient network errors to ensure immediate recovery
                 consecutiveRebufferCount = (consecutiveRebufferCount + 1).coerceAtMost(4)
+                lastQualitySwitchRealtimeMs = android.os.SystemClock.elapsedRealtime()
                 if (_playbackInfo.value.networkMode == NetworkQualityMode.AUTO_ADAPTIVE) {
                     evaluateAndApplyAdaptiveTrackSelection(forceBufferingState = true)
                 } else if (autoReconnectAttempts >= 2) {
                     applyNetworkQualityMode(NetworkQualityMode.ULTRA_LOW_BANDO_SAVER)
                 }
                 val resumePos = lastKnownVodPositionMs
+                val retryDelayMs = if (channel.isLiveBroadcast) {
+                    (autoReconnectAttempts * 500L).coerceIn(450L, 2_500L)
+                } else {
+                    450L
+                }
                 mainHandler.postDelayed({
                     exoPlayer?.let { p ->
                         if (channel.isLiveBroadcast) {
@@ -960,7 +1050,22 @@ class LivePlayerController(
                             p.play()
                         }
                     }
-                }, 450L)
+                }, retryDelayMs)
+                return
+            }
+
+            // Even if max retries were reached on Live TV, keep auto-recovering every 3.5s so the user
+            // never has to manually press the bottom "Live stream • Continuous real-time playback" button.
+            if (channel.isLiveBroadcast && !isBackgroundLoadingActive && !pausedSpecificallyByPhoneCall) {
+                _uiState.value = PlayerUiState.Buffering
+                mainHandler.postDelayed({
+                    exoPlayer?.let { p ->
+                        if (channel.isLiveBroadcast && !isBackgroundLoadingActive && !pausedSpecificallyByPhoneCall) {
+                            autoReconnectAttempts = 0
+                            autoRecoverLiveStream(p, forceReload = true)
+                        }
+                    }
+                }, 3_500L)
                 return
             }
 
@@ -1167,7 +1272,7 @@ class LivePlayerController(
         currentBatteryProfile = activePowerProfile
         val disableOffscreenVideoTrack = isBackgroundLoadingActive && !isPictureInPictureActive
 
-        val resolvedTier = computeAdaptiveQualityTier(
+        val rawTier = computeAdaptiveQualityTier(
             estimatedBitrateBps = latestEstimatedBandwidthBps,
             bufferedDurationMs = bufferedDurationMs,
             isBuffering = forceBufferingState,
@@ -1175,9 +1280,36 @@ class LivePlayerController(
             isLowBandoNetwork = isLowBandoNetworkDetected() && estimatedBitrateBps < 350_000L,
             batteryPowerProfile = activePowerProfile
         )
+        // Stabilized 2-State Auto Full HD <-> Low Data policy in AUTO_ADAPTIVE mode:
+        // Starts in FULL_HD_1080P ("Auto Full HD"), drops directly to LOW_BANDO_240P ("Low Data") only when
+        // there is a network/buffering issue, and returns directly to FULL_HD_1080P when the internet is stable.
+        val hasNetworkIssue = (forceBufferingState && (bufferedDurationMs < 2_200L || consecutiveRebufferCount >= 1 || latestEstimatedBandwidthBps < 1_500_000L)) ||
+                consecutiveRebufferCount >= 1 ||
+                rawTier == AdaptiveQualityTier.LOW_BANDO_240P ||
+                (latestEstimatedBandwidthBps < 700_000L && bufferedDurationMs < 2_500L)
+        val isInternetStableForAutoHd = !forceBufferingState &&
+                consecutiveRebufferCount == 0 &&
+                latestEstimatedBandwidthBps >= 1_800_000L &&
+                (bufferedDurationMs >= 4_500L || exoPlayer == null)
+        if (hasNetworkIssue) {
+            isDownscaledToLowDataByNetwork = true
+        } else if (isInternetStableForAutoHd) {
+            isDownscaledToLowDataByNetwork = false
+        }
+        val stabilizedAutoTier = when {
+            hasNetworkIssue -> AdaptiveQualityTier.LOW_BANDO_240P
+            isDownscaledToLowDataByNetwork && !isInternetStableForAutoHd -> AdaptiveQualityTier.LOW_BANDO_240P
+            else -> AdaptiveQualityTier.FULL_HD_1080P
+        }
+        val cappedOrdinal = maxOf(stabilizedAutoTier.ordinal, activePowerProfile.maxQualityTierCap.ordinal)
+            .coerceIn(0, AdaptiveQualityTier.entries.lastIndex)
+        val resolvedTier = AdaptiveQualityTier.entries[cappedOrdinal]
+
         currentAdaptiveTier = resolvedTier
         activeTrackResolutionLabel = if (activePowerProfile.isCpuSavingActive) {
             "${resolvedTier.badgeLabel} • ${activePowerProfile.maxFrameRate}fps Eco"
+        } else if (_playbackInfo.value.networkMode == NetworkQualityMode.AUTO_ADAPTIVE) {
+            if (resolvedTier == AdaptiveQualityTier.LOW_BANDO_240P) "Low Data (240p)" else "Auto Full HD (1080p)"
         } else {
             resolvedTier.badgeLabel
         }
@@ -1187,11 +1319,14 @@ class LivePlayerController(
             val maxW = if (isOfflineLocalFile) Int.MAX_VALUE else resolvedTier.maxWidth
             val maxH = if (isOfflineLocalFile) Int.MAX_VALUE else resolvedTier.maxHeight
             val maxBr = if (isOfflineLocalFile) Int.MAX_VALUE else resolvedTier.maxBitrateBps
-            // Use 0 for minW/minH/minBr in AUTO_ADAPTIVE so ExoPlayer starts video immediately on the fastest
-            // keyframe without stalling for a heavy 1080p segment, then smoothly scales up to maxW/maxH
-            val minW = 0
-            val minH = 0
-            val minBr = 0
+            // Lock minimum preferred HD resolution when in Auto Full HD state so ExoPlayer's internal
+            // AdaptiveTrackSelection does not oscillate down and up across intermediate tracks on its own.
+            val lockFullHd = !isOfflineLocalFile &&
+                    resolvedTier == AdaptiveQualityTier.FULL_HD_1080P &&
+                    !activePowerProfile.isCpuSavingActive
+            val minW = if (lockFullHd) 1280 else 0
+            val minH = if (lockFullHd) 720 else 0
+            val minBr = if (lockFullHd) 1_200_000 else 0
             val forceLowest = if (isOfflineLocalFile) {
                 false
             } else {
@@ -1199,7 +1334,7 @@ class LivePlayerController(
                     activePowerProfile == BatteryPowerProfile.CRITICAL_BATTERY_SAVER ||
                     activePowerProfile == BatteryPowerProfile.BACKGROUND_LOADING_SAVER
             }
-            val selectorKey = "AUTO_${maxW}x${maxH}_${maxBr}_${activePowerProfile.maxFrameRate}_${forceLowest}_${disableOffscreenVideoTrack}_${activePowerProfile.isCpuSavingActive}"
+            val selectorKey = "AUTO_${maxW}x${maxH}_${maxBr}_${minW}x${minH}_${activePowerProfile.maxFrameRate}_${forceLowest}_${disableOffscreenVideoTrack}_${activePowerProfile.isCpuSavingActive}"
             if (selectorKey != lastAppliedTrackSelectorKey) {
                 lastAppliedTrackSelectorKey = selectorKey
                 trackSelector?.let { selector ->
@@ -1214,6 +1349,8 @@ class LivePlayerController(
                             .setRendererDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
                             .setExceedVideoConstraintsIfNecessary(true)
                             .setExceedRendererCapabilitiesIfNecessary(true)
+                            .setAllowVideoMixedMimeTypeAdaptiveness(true)
+                            .setAllowVideoNonSeamlessAdaptiveness(false)
                     )
                 }
                 exoPlayer?.let { player ->
@@ -1305,29 +1442,29 @@ class LivePlayerController(
             /* clock = */ Clock.DEFAULT
         )
 
-        val initialTier = computeAdaptiveQualityTier(
-            estimatedBitrateBps = initialBitrate,
-            bufferedDurationMs = 5_000L,
-            isBuffering = false,
-            consecutiveRebufferCount = 0,
-            isLowBandoNetwork = lowBandoActive,
-            batteryPowerProfile = initialBatteryProfile
-        )
+        // Start in Auto Full HD (FULL_HD_1080P) by default unless battery saver caps resolution or network is strictly Low Bando
+        val initialBaseTier = if (lowBandoActive) AdaptiveQualityTier.LOW_BANDO_240P else AdaptiveQualityTier.FULL_HD_1080P
+        val initialCappedOrdinal = maxOf(initialBaseTier.ordinal, initialBatteryProfile.maxQualityTierCap.ordinal)
+            .coerceIn(0, AdaptiveQualityTier.entries.lastIndex)
+        val initialTier = AdaptiveQualityTier.entries[initialCappedOrdinal]
         currentAdaptiveTier = initialTier
         activeTrackResolutionLabel = if (initialBatteryProfile.isCpuSavingActive) {
             "${initialTier.badgeLabel} • ${initialBatteryProfile.maxFrameRate}fps Eco"
+        } else if (initialTier == AdaptiveQualityTier.LOW_BANDO_240P) {
+            "Low Data (240p)"
         } else {
-            initialTier.badgeLabel
+            "Auto Full HD (1080p)"
         }
 
+        val lockInitialFullHd = initialTier == AdaptiveQualityTier.FULL_HD_1080P && !initialBatteryProfile.isCpuSavingActive
         val selector = DefaultTrackSelector(context, adaptiveTrackSelectionFactory).apply {
             setParameters(
                 buildUponParameters()
                     .setMaxVideoSize(initialTier.maxWidth, initialTier.maxHeight)
                     .setMaxVideoBitrate(initialTier.maxBitrateBps)
                     .setMaxVideoFrameRate(initialBatteryProfile.maxFrameRate)
-                    .setMinVideoSize(0, 0)
-                    .setMinVideoBitrate(0)
+                    .setMinVideoSize(if (lockInitialFullHd) 1280 else 0, if (lockInitialFullHd) 720 else 0)
+                    .setMinVideoBitrate(if (lockInitialFullHd) 1_200_000 else 0)
                     .setForceLowestBitrate(
                         initialTier.forceLowestBitrate ||
                                 initialBatteryProfile == BatteryPowerProfile.CRITICAL_BATTERY_SAVER ||
@@ -1337,7 +1474,7 @@ class LivePlayerController(
                     .setExceedVideoConstraintsIfNecessary(true)
                     .setExceedRendererCapabilitiesIfNecessary(true)
                     .setAllowVideoMixedMimeTypeAdaptiveness(true)
-                    .setAllowVideoNonSeamlessAdaptiveness(true)
+                    .setAllowVideoNonSeamlessAdaptiveness(false)
             )
         }
         trackSelector = selector
@@ -1607,15 +1744,57 @@ class LivePlayerController(
     }
 
     /**
-     * Ensures Live TV playback jumps directly to the current live broadcast edge without rewinding.
+     * Automatically recovers and resumes Live TV playback without requiring the user to press the
+     * bottom "Live stream • Continuous real-time playback" button.
+     */
+    private fun autoRecoverLiveStream(player: ExoPlayer, forceReload: Boolean = false) {
+        if (!channel.isLiveBroadcast) return
+        val now = android.os.SystemClock.elapsedRealtime()
+        lastLiveAutoReloadRealtimeMs = now
+        pausedByCallOrExternalAudio = false
+        pausedSpecificallyByPhoneCall = false
+        _uiState.value = PlayerUiState.Buffering
+
+        if (forceReload || player.playbackState == Player.STATE_IDLE || player.playbackState == Player.STATE_ENDED) {
+            channel = channel.copy(
+                streamUrl = com.example.data.ChannelRepository.normalizeDashStreamUrl(channel.streamUrl)
+            )
+            _currentChannel.value = channel
+            loadChannelStream(player, preserveVodPosition = false)
+        } else {
+            if (player.isCurrentMediaItemLive) {
+                player.seekToDefaultPosition()
+            }
+            player.prepare()
+            player.playWhenReady = true
+            player.play()
+        }
+        updatePlaybackInfo()
+        mainHandler.removeCallbacks(positionUpdateRunnable)
+        mainHandler.postDelayed(positionUpdateRunnable, 450L)
+    }
+
+    /**
+     * Ensures Live TV playback jumps directly to the current live broadcast edge without rewinding,
+     * or reloads the live stream if it had stopped/stalled.
      */
     fun syncToLiveEdge() {
+        pausedByCallOrExternalAudio = false
+        pausedSpecificallyByPhoneCall = false
         exoPlayer?.let { player ->
+            val needsReload = player.playbackState == Player.STATE_IDLE ||
+                    player.playbackState == Player.STATE_ENDED ||
+                    _uiState.value is PlayerUiState.Error
+            if (needsReload) {
+                autoRecoverLiveStream(player, forceReload = true)
+                return
+            }
             if (player.isCurrentMediaItemLive) {
                 player.seekToDefaultPosition()
             }
             player.playWhenReady = true
             player.play()
+            updatePlaybackInfo()
         }
     }
 

@@ -1202,6 +1202,42 @@ class ExampleRobolectricTest {
         val nextSeed = MediaContentRepository.rotateMovieCatalogOrder()
         org.junit.Assert.assertNotEquals("rotateMovieCatalogOrder must advance rotation seed", prevSeed, nextSeed)
 
+        // 11. Verify Auto Full HD <-> Low Data 2-state stability (no intermediate 720p/480p/360p oscillation)
+        assertEquals("Auto Full HD", com.example.player.NetworkQualityMode.AUTO_ADAPTIVE.label)
+        val steadyAutoHd = controller.evaluateAndApplyAdaptiveTrackSelection(
+            estimatedBitrateBps = 1_400_000L,
+            bufferedDurationMs = 5_000L,
+            forceBufferingState = false,
+            rebufferCountOverride = 0
+        )
+        assertEquals(com.example.player.AdaptiveQualityTier.FULL_HD_1080P, steadyAutoHd)
+
+        val droppedToLowData = controller.evaluateAndApplyAdaptiveTrackSelection(
+            estimatedBitrateBps = 600_000L,
+            bufferedDurationMs = 1_000L,
+            forceBufferingState = true,
+            rebufferCountOverride = 1
+        )
+        assertEquals(com.example.player.AdaptiveQualityTier.LOW_BANDO_240P, droppedToLowData)
+
+        // While internet is still weak/recovering (1.1 Mbps), stays locked in Low Data without oscillating
+        val heldInLowData = controller.evaluateAndApplyAdaptiveTrackSelection(
+            estimatedBitrateBps = 1_100_000L,
+            bufferedDurationMs = 3_000L,
+            forceBufferingState = false,
+            rebufferCountOverride = 0
+        )
+        assertEquals(com.example.player.AdaptiveQualityTier.LOW_BANDO_240P, heldInLowData)
+
+        // Once internet is stable (>= 1.8 Mbps & >= 4.5s buffer), returns directly to Auto Full HD
+        val restoredToAutoHd = controller.evaluateAndApplyAdaptiveTrackSelection(
+            estimatedBitrateBps = 2_600_000L,
+            bufferedDurationMs = 7_000L,
+            forceBufferingState = false,
+            rebufferCountOverride = 0
+        )
+        assertEquals(com.example.player.AdaptiveQualityTier.FULL_HD_1080P, restoredToAutoHd)
+
         completedFile.delete()
         controller.release()
     }
