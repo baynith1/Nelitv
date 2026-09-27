@@ -1280,6 +1280,240 @@ class ExampleRobolectricTest {
         )
         assertEquals(com.example.player.AdaptiveQualityTier.FULL_HD_1080P, restoredToAutoHd)
 
+        // 12. Verify NeliPlay Firebase Configuration & All 8 Firestore Collections Schema Support
+        assertEquals("neliplay", MediaContentRepository.DEFAULT_PROJECT_ID)
+        assertEquals("neliplay.firebaseapp.com", MediaContentRepository.DEFAULT_AUTH_DOMAIN)
+        assertEquals("https://neliplay-default-rtdb.firebaseio.com", MediaContentRepository.DEFAULT_DATABASE_URL)
+        assertEquals("neliplay.firebasestorage.app", MediaContentRepository.DEFAULT_STORAGE_BUCKET)
+        assertEquals("39702563643", MediaContentRepository.DEFAULT_MESSAGING_SENDER_ID)
+        assertEquals("1:39702563643:web:7dfc69461cbc615483051e", MediaContentRepository.DEFAULT_WEB_APP_ID)
+        assertEquals("G-ZXL5195YHY", MediaContentRepository.DEFAULT_MEASUREMENT_ID)
+
+        val sampleMoviesFirestoreJson = """
+            {
+              "documents": [
+                {
+                  "name": "projects/neliplay/databases/(default)/documents/movies/mov_1788911132603_wdgav",
+                  "fields": {
+                    "id": { "stringValue": "mov_1788911132603_wdgav" },
+                    "title": { "stringValue": "Movie Title" },
+                    "originalTitle": { "stringValue": "Original Movie Title" },
+                    "overview": { "stringValue": "Movie description" },
+                    "posterPath": { "stringValue": "https://example.com/poster.jpg" },
+                    "backdropPath": { "stringValue": "https://example.com/backdrop.jpg" },
+                    "posterUrl": { "stringValue": "https://example.com/poster.jpg" },
+                    "thumbnailUrl": { "stringValue": "https://example.com/thumbnail.jpg" },
+                    "backdropUrl": { "stringValue": "https://example.com/backdrop.jpg" },
+                    "imageUrl": { "stringValue": "https://example.com/image.jpg" },
+                    "streamUrl": { "stringValue": "https://example.com/movie.mp4" },
+                    "playbackUrl": { "stringValue": "https://example.com/movie.m3u8" },
+                    "downloadUrl": { "stringValue": "https://example.com/movie.mp4" },
+                    "subtitleUrl": { "stringValue": "" },
+                    "categoryId": { "stringValue": "movie" },
+                    "allowStreaming": { "booleanValue": true },
+                    "allowDownload": { "booleanValue": true },
+                    "youtubeVideoId": { "stringValue": "" },
+                    "youtubeUrl": { "stringValue": "" }
+                  }
+                },
+                {
+                  "name": "projects/neliplay/databases/(default)/documents/movies/incomplete_doc",
+                  "fields": {
+                    "id": { "stringValue": "incomplete_doc" }
+                  }
+                }
+              ]
+            }
+        """.trimIndent()
+
+        val sampleSeriesFirestoreJson = """
+            {
+              "documents": [
+                {
+                  "name": "projects/neliplay/databases/(default)/documents/series/series_001",
+                  "fields": {
+                    "id": { "stringValue": "series_001" },
+                    "title": { "stringValue": "Series Title" },
+                    "overview": { "stringValue": "Series description" },
+                    "posterPath": { "stringValue": "https://example.com/poster.jpg" },
+                    "backdropPath": { "stringValue": "https://example.com/backdrop.jpg" },
+                    "posterUrl": { "stringValue": "https://example.com/poster.jpg" },
+                    "backdropUrl": { "stringValue": "https://example.com/backdrop.jpg" },
+                    "categoryId": { "stringValue": "series" }
+                  }
+                }
+              ]
+            }
+        """.trimIndent()
+
+        val sampleEpisodesFirestoreJson = """
+            {
+              "documents": [
+                {
+                  "name": "projects/neliplay/databases/(default)/documents/episodes/episode_001",
+                  "fields": {
+                    "id": { "stringValue": "episode_001" },
+                    "seriesId": { "stringValue": "series_001" },
+                    "seasonNumber": { "integerValue": "1" },
+                    "episodeNumber": { "integerValue": "1" },
+                    "title": { "stringValue": "Episode 1" },
+                    "overview": { "stringValue": "Episode description" },
+                    "posterUrl": { "stringValue": "https://example.com/episode.jpg" },
+                    "streamUrl": { "stringValue": "https://example.com/episode.mp4" },
+                    "playbackUrl": { "stringValue": "https://example.com/episode.m3u8" },
+                    "downloadUrl": { "stringValue": "https://example.com/episode.mp4" },
+                    "subtitleUrl": { "stringValue": "" },
+                    "allowStreaming": { "booleanValue": true },
+                    "allowDownload": { "booleanValue": true }
+                  }
+                }
+              ]
+            }
+        """.trimIndent()
+
+        val sampleTvChannelsFirestoreJson = """
+            {
+              "documents": [
+                {
+                  "name": "projects/neliplay/databases/(default)/documents/tvChannels/channel_001",
+                  "fields": {
+                    "id": { "stringValue": "channel_001" },
+                    "name": { "stringValue": "Channel Name" },
+                    "logoUrl": { "stringValue": "https://example.com/logo.png" },
+                    "streamUrl": { "stringValue": "https://example.com/live.m3u8" },
+                    "category": { "stringValue": "Live TV" },
+                    "isLive": { "booleanValue": true }
+                  }
+                }
+              ]
+            }
+        """.trimIndent()
+
+        val sampleCategoriesFirestoreJson = """
+            {
+              "documents": [
+                {
+                  "name": "projects/neliplay/databases/(default)/documents/categories/action",
+                  "fields": {
+                    "id": { "stringValue": "action" },
+                    "name": { "stringValue": "Action" },
+                    "nameSw": { "stringValue": "Action" }
+                  }
+                }
+              ]
+            }
+        """.trimIndent()
+
+        val sampleSettingsFirestoreJson = """
+            {
+              "documents": [
+                {
+                  "name": "projects/neliplay/databases/(default)/documents/settings/app",
+                  "fields": {
+                    "maintenanceMode": { "booleanValue": false },
+                    "appName": { "stringValue": "NeliPlay" }
+                  }
+                }
+              ]
+            }
+        """.trimIndent()
+
+        val sampleNotificationsFirestoreJson = """
+            {
+              "documents": [
+                {
+                  "name": "projects/neliplay/databases/(default)/documents/notifications/notif_001",
+                  "fields": {
+                    "id": { "stringValue": "notif_001" },
+                    "title": { "stringValue": "New Movie Added" },
+                    "message": { "stringValue": "Watch Movie Title now on NeliPlay!" }
+                  }
+                }
+              ]
+            }
+        """.trimIndent()
+
+        val sampleUsersFirestoreJson = """
+            {
+              "documents": [
+                {
+                  "name": "projects/neliplay/databases/(default)/documents/users/user_001",
+                  "fields": {
+                    "id": { "stringValue": "user_001" },
+                    "displayName": { "stringValue": "NeliPlay User" }
+                  }
+                }
+              ]
+            }
+        """.trimIndent()
+
+        val totalSyncedCount = MediaContentRepository.parseFirestoreCollections(
+            moviesJson = sampleMoviesFirestoreJson,
+            seriesJson = sampleSeriesFirestoreJson,
+            episodesJson = sampleEpisodesFirestoreJson,
+            tvChannelsJson = sampleTvChannelsFirestoreJson,
+            categoriesJson = sampleCategoriesFirestoreJson,
+            settingsJson = sampleSettingsFirestoreJson,
+            notificationsJson = sampleNotificationsFirestoreJson,
+            usersJson = sampleUsersFirestoreJson
+        )
+        assertTrue("Expected at least 7 documents parsed across all collections, got $totalSyncedCount", totalSyncedCount >= 7)
+
+        val syncedMovie = MediaContentRepository.getMediaById("mov_1788911132603_wdgav")
+        assertNotNull("Expected movie mov_1788911132603_wdgav in catalog", syncedMovie)
+        assertEquals("Movie Title", syncedMovie!!.title)
+        assertEquals("Original Movie Title", syncedMovie.originalTitle)
+        assertEquals("Movie description", syncedMovie.synopsis)
+        assertEquals("https://example.com/poster.jpg", syncedMovie.posterUrl)
+        assertEquals("https://example.com/backdrop.jpg", syncedMovie.backdropUrl)
+        assertEquals("https://example.com/thumbnail.jpg", syncedMovie.thumbnailUrl)
+        assertEquals("https://example.com/image.jpg", syncedMovie.imageUrl)
+        assertEquals("https://example.com/movie.mp4", syncedMovie.streamUrl)
+        assertEquals("https://example.com/movie.m3u8", syncedMovie.playbackUrl)
+        assertEquals("https://example.com/movie.mp4", syncedMovie.downloadUrl)
+        assertTrue(syncedMovie.allowStreaming)
+        assertTrue(syncedMovie.allowDownload)
+
+        val syncedSeries = MediaContentRepository.getMediaById("series_001")
+        assertNotNull("Expected series_001 in catalog", syncedSeries)
+        assertEquals("Series Title", syncedSeries!!.title)
+        assertEquals("Series description", syncedSeries.synopsis)
+        assertEquals("https://example.com/poster.jpg", syncedSeries.posterUrl)
+        assertEquals("https://example.com/backdrop.jpg", syncedSeries.backdropUrl)
+        assertTrue("Expected series_001 to be marked as series", syncedSeries.isSeries)
+
+        val seriesEpisodes = MediaContentRepository.getEpisodesForSeries("series_001", 1)
+        assertTrue("Expected episode_001 linked to series_001 via seriesId", seriesEpisodes.any { it.id == "episode_001" })
+        val syncedEpisode = seriesEpisodes.first { it.id == "episode_001" }
+        assertEquals("Episode 1", syncedEpisode.name)
+        assertEquals("Episode 1", syncedEpisode.title)
+        assertEquals("Episode description", syncedEpisode.overview)
+        assertEquals("https://example.com/episode.jpg", syncedEpisode.posterUrl)
+        assertEquals("https://example.com/episode.mp4", syncedEpisode.streamUrl)
+        assertEquals("https://example.com/episode.m3u8", syncedEpisode.playbackUrl)
+        assertEquals("https://example.com/episode.mp4", syncedEpisode.downloadUrl)
+
+        val syncedChannel = com.example.data.ChannelRepository.getChannelById("channel_001")
+        assertNotNull("Expected channel_001 in Live TV catalog", syncedChannel)
+        assertEquals("Channel Name", syncedChannel!!.name)
+        assertEquals("https://example.com/live.m3u8", syncedChannel.streamUrl)
+        assertEquals("https://example.com/logo.png", syncedChannel.thumbnailUrl)
+        assertTrue(syncedChannel.isLiveBroadcast)
+
+        assertTrue(
+            "Expected 'action' category in categoriesCatalog",
+            MediaContentRepository.categoriesCatalog.value.any { it.id == "action" && it.name == "Action" && it.nameSw == "Action" }
+        )
+        assertEquals("NeliPlay", MediaContentRepository.firestoreSettings.value["appName"])
+        assertTrue(
+            "Expected notif_001 in firestoreNotifications",
+            MediaContentRepository.firestoreNotifications.value.any { it.id == "notif_001" }
+        )
+        assertTrue(
+            "Expected user_001 in firestoreUsers",
+            MediaContentRepository.firestoreUsers.value.containsKey("user_001")
+        )
+
         completedFile.delete()
         controller.release()
     }

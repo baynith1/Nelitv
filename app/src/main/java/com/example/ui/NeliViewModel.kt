@@ -389,15 +389,16 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
      * Runs in a persistent background scope so it continues even when the user exits the app.
      */
     fun addDownload(media: MediaContent) {
+        val effectiveDownloadUrl = media.downloadUrl.ifBlank { media.streamUrl }.ifBlank { media.playbackUrl }
         val guaranteedPoster = MediaContentRepository.resolveGuaranteedMediaImageUrl(
             media.posterUrl,
             media.backdropUrl,
-            media.streamUrl
+            effectiveDownloadUrl
         )
         val guaranteedBackdrop = MediaContentRepository.resolveGuaranteedMediaImageUrl(
             media.backdropUrl,
             media.posterUrl,
-            media.streamUrl
+            effectiveDownloadUrl
         )
         val item = DownloadedItemEntity(
             id = media.id,
@@ -409,7 +410,7 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
             type = media.type,
             posterUrl = guaranteedPoster,
             backdropUrl = guaranteedBackdrop,
-            streamUrl = ChannelRepository.normalizeDashStreamUrl(media.streamUrl),
+            streamUrl = ChannelRepository.normalizeDashStreamUrl(effectiveDownloadUrl),
             genre = media.primaryGenre,
             duration = media.duration,
             rating = media.rating,
@@ -433,10 +434,11 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
         seriesTitle: String,
         seriesPoster: String
     ) {
+        val effectiveDownloadUrl = episode.downloadUrl.ifBlank { episode.streamUrl }.ifBlank { episode.playbackUrl }
         val poster = MediaContentRepository.resolveGuaranteedMediaImageUrl(
             episode.stillPath,
             seriesPoster,
-            episode.streamUrl
+            effectiveDownloadUrl
         )
         val item = DownloadedItemEntity(
             id = episode.id,
@@ -444,7 +446,7 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
             type = "series",
             posterUrl = poster,
             backdropUrl = poster,
-            streamUrl = ChannelRepository.normalizeDashStreamUrl(episode.streamUrl),
+            streamUrl = ChannelRepository.normalizeDashStreamUrl(effectiveDownloadUrl),
             genre = if (episode.narrated) "Series • ${episode.narrationLanguage}" else "Series",
             duration = episode.durationLabel,
             rating = "HD",
@@ -468,10 +470,11 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
         seriesPoster: String
     ) {
         val entities = episodes.map { episode ->
+            val effectiveDownloadUrl = episode.downloadUrl.ifBlank { episode.streamUrl }.ifBlank { episode.playbackUrl }
             val poster = MediaContentRepository.resolveGuaranteedMediaImageUrl(
                 episode.stillPath,
                 seriesPoster,
-                episode.streamUrl
+                effectiveDownloadUrl
             )
             DownloadedItemEntity(
                 id = episode.id,
@@ -479,7 +482,7 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
                 type = "series",
                 posterUrl = poster,
                 backdropUrl = poster,
-                streamUrl = ChannelRepository.normalizeDashStreamUrl(episode.streamUrl),
+                streamUrl = ChannelRepository.normalizeDashStreamUrl(effectiveDownloadUrl),
                 genre = if (episode.narrated) "Series • ${episode.narrationLanguage}" else "Series",
                 duration = episode.durationLabel,
                 rating = "HD",
