@@ -126,7 +126,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        com.example.data.NeliAppUpdateManager.reconcileInstalledPackageState(this)
         if (wasInBackground) {
             wasInBackground = false
             // Show App Open ad only occasionally when returning to foreground from background,

@@ -65,7 +65,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -76,9 +75,6 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
-import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
-import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -504,7 +500,6 @@ const val DISCOVERY_MADJS_BANNER_TEXT = "Furahia Movie Nzuri kutoka kwa Madjs Wa
  * - Series are displayed in their dedicated Series sections.
  * - Adults content always displays visible Poster & Thumbnail images.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DiscoveryTabContent(
     selectedFilter: String,
@@ -513,68 +508,18 @@ fun DiscoveryTabContent(
     episodesCatalog: List<EpisodeItem>,
     onMediaSelected: (MediaContent) -> Unit,
     onPlayMedia: (MediaContent) -> Unit,
-    modifier: Modifier = Modifier,
-    catalogRotationSeed: Long = 0L,
-    isRefreshing: Boolean = false,
-    onRefreshDiscovery: () -> Unit = { MediaContentRepository.rotateMovieCatalogOrder() },
-    onRotateMovies: () -> Unit = { MediaContentRepository.rotateMovieCatalogOrder() }
+    modifier: Modifier = Modifier
 ) {
-    val context = LocalContext.current
     val discoverySections = listOf("All", "Movies", "Series", "Adults")
-    val liveRotationSeed by MediaContentRepository.catalogRotationSeed.collectAsState()
-    val hasSyncedRealMovies by MediaContentRepository.hasSyncedRealFirebaseMovies.collectAsState()
-    val effectiveSeed = if (catalogRotationSeed != 0L) catalogRotationSeed else liveRotationSeed
-    val pullToRefreshState = rememberPullToRefreshState()
 
-    // Ensure real Firebase movies are synced immediately when entering Discovery for the first time
-    LaunchedEffect(hasSyncedRealMovies) {
-        if (!hasSyncedRealMovies) {
-            MediaContentRepository.initializeAndPrewarmFromCache(context)
-            val apiKey = com.example.data.AuthRepository.resolveApiKey(context)
-            MediaContentRepository.syncFromFirebaseEndpoint(
-                databaseUrl = MediaContentRepository.DEFAULT_DATABASE_URL,
-                apiKey = apiKey,
-                projectId = MediaContentRepository.DEFAULT_PROJECT_ID,
-                forceRefresh = true
-            )
-        }
+    // Strictly deduplicated movies grouped ONLY by their first genre
+    val moviesByFirstGenre = remember(mediaCatalog) {
+        MediaContentRepository.getMoviesStrictlyByFirstGenre(mediaCatalog)
     }
 
-    // Automatic periodic rotation while browsing Discovery so movies feel alive and varied ("zibadilike badilike")
-    LaunchedEffect(selectedFilter) {
-        while (true) {
-            delay(45_000L)
-            onRotateMovies()
-        }
-    }
-
-    // Exclude synthetic demo fallback movies from Discovery so users only see real movies from Firebase
-    val discoveryCatalog = remember(mediaCatalog, hasSyncedRealMovies) {
-        val withoutDemo = mediaCatalog.filter { it.id !in MediaContentRepository.DEMO_FALLBACK_MOVIE_IDS }
-        withoutDemo.ifEmpty { mediaCatalog }
-    }
-
-    // Rotating spotlight mix (Studio Admin new additions + rotated catalog picks)
-    val rotatingSpotlightMovies = remember(discoveryCatalog, effectiveSeed, hasSyncedRealMovies) {
-        MediaContentRepository.getRotatingSpotlightMovies(
-            catalog = discoveryCatalog,
-            rotationSeed = effectiveSeed,
-            limit = 12
-        )
-    }
-
-    // Strictly deduplicated movies grouped ONLY by their first genre, rotated dynamically by effectiveSeed
-    val moviesByFirstGenre = remember(discoveryCatalog, effectiveSeed, hasSyncedRealMovies) {
-        MediaContentRepository.getMoviesStrictlyByFirstGenre(
-            catalog = discoveryCatalog,
-            rotationSeed = effectiveSeed
-        )
-    }
-
-    val seriesList = remember(mediaCatalog, effectiveSeed) {
-        val rawSeries = mediaCatalog.filter { it.published && it.isSeries && !it.isAdultContent }
+    val seriesList = remember(mediaCatalog) {
+        mediaCatalog.filter { it.published && it.isSeries && !it.isAdultContent }
             .distinctBy { it.id }
-        MediaContentRepository.rotateMediaListForSeed(rawSeries, effectiveSeed, "discovery_series")
     }
 
     val adultList = remember(mediaCatalog) {
@@ -594,165 +539,58 @@ fun DiscoveryTabContent(
         )
     }
 
-    PullToRefreshBox(
-        isRefreshing = isRefreshing,
-        onRefresh = onRefreshDiscovery,
-        state = pullToRefreshState,
-        indicator = {
-            PullToRefreshDefaults.Indicator(
-                state = pullToRefreshState,
-                isRefreshing = isRefreshing,
-                containerColor = NeliSurface,
-                color = NeliMagenta,
-                modifier = Modifier.align(Alignment.TopCenter)
-            )
-        },
+    LazyColumn(
         modifier = modifier
             .fillMaxSize()
-            .testTag("discovery_pull_to_refresh_box")
+            .testTag("discovery_tab_screen"),
+        contentPadding = PaddingValues(bottom = 32.dp)
     ) {
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .testTag("discovery_tab_screen"),
-            contentPadding = PaddingValues(bottom = 32.dp)
-        ) {
-            // 1. YouTube-style Top Filter Bar (All | Movies | Series | Adults)
-            item {
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("discovery_filter_chips")
-                ) {
-                    items(discoverySections) { section ->
-                        val isSelected = section.equals(selectedFilter, ignoreCase = true)
-                        val badgeColor = if (section == "Adults") Color(0xFFEF4444) else NeliTextPrimary
-                        val textColor = if (isSelected) {
-                            if (section == "Adults") Color.White else NeliSurface
-                        } else {
-                            NeliTextPrimary
-                        }
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(if (isSelected) badgeColor else NeliSurfaceVariant)
-                                .clickable {
-                                    onFilterSelected(section)
-                                    onRotateMovies()
-                                }
-                                .padding(horizontal = 14.dp, vertical = 7.dp)
-                                .testTag("discovery_chip_${section.lowercase()}")
-                        ) {
-                            val countLabel = when (section) {
-                                "Movies" -> "Movies"
-                                "Series" -> "Series"
-                                "Adults" -> "Adults 18+"
-                                else -> "All"
-                            }
-                            Text(
-                                text = countLabel,
-                                color = textColor,
-                                fontSize = 13.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                            )
-                        }
+        // 1. YouTube-style Top Filter Bar (All | Movies | Series | Adults)
+        item {
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("discovery_filter_chips")
+            ) {
+                items(discoverySections) { section ->
+                    val isSelected = section.equals(selectedFilter, ignoreCase = true)
+                    val badgeColor = if (section == "Adults") Color(0xFFEF4444) else NeliTextPrimary
+                    val textColor = if (isSelected) {
+                        if (section == "Adults") Color.White else NeliSurface
+                    } else {
+                        NeliTextPrimary
                     }
-                }
-            }
-
-            // 2. Discovery Banner ("Furahia Movie Nzuri kutoka kwa Madjs Wazuri") with quick "Badilisha" (Shuffle/Rotate) button
-            item {
-                DiscoveryMadjsBanner(
-                    totalMovieCount = rotatingSpotlightMovies.size,
-                    onRotateClick = onRefreshDiscovery
-                )
-            }
-
-            // 2b. Rotating Spotlight Mix ("Filamu Zinazobadilika • Mpya & Bora") so users always see fresh Studio Admin & catalog movies
-            if ((selectedFilter.equals("All", true) || selectedFilter.equals("Movies", true)) && rotatingSpotlightMovies.size > 1) {
-                item(key = "discovery_rotating_spotlight_section") {
-                    Column(
+                    Box(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 8.dp)
-                            .testTag("discovery_rotating_spotlight_row")
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (isSelected) badgeColor else NeliSurfaceVariant)
+                            .clickable { onFilterSelected(section) }
+                            .padding(horizontal = 14.dp, vertical = 7.dp)
+                            .testTag("discovery_chip_${section.lowercase()}")
                     ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 4.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(NeliMagenta)
-                                        .padding(horizontal = 7.dp, vertical = 2.dp)
-                                ) {
-                                    Text(
-                                        text = "MPYA & ZINAZOBADILIKA",
-                                        color = Color.White,
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.ExtraBold
-                                    )
-                                }
-                                Text(
-                                    text = "Chaguo la Sasa",
-                                    color = NeliTextPrimary,
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-
-                            Row(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(NeliSurfaceVariant)
-                                    .clickable { onRotateMovies() }
-                                    .padding(horizontal = 10.dp, vertical = 4.dp)
-                                    .testTag("spotlight_shuffle_button"),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Refresh,
-                                    contentDescription = "Badilisha Movies",
-                                    tint = NeliGenreCyan,
-                                    modifier = Modifier.size(13.dp)
-                                )
-                                Text(
-                                    text = "Badilisha",
-                                    color = NeliGenreCyan,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
+                        val countLabel = when (section) {
+                            "Movies" -> "Movies"
+                            "Series" -> "Series"
+                            "Adults" -> "Adults 18+"
+                            else -> "All"
                         }
-
-                        LazyRow(
-                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            items(
-                                items = rotatingSpotlightMovies,
-                                key = { "spotlight_${it.id}" }
-                            ) { movie ->
-                                MediaPosterCard(
-                                    media = movie,
-                                    onClick = { onMediaSelected(movie) }
-                                )
-                            }
-                        }
+                        Text(
+                            text = countLabel,
+                            color = textColor,
+                            fontSize = 13.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                        )
                     }
                 }
             }
+        }
+
+        // 2. Static Discovery Banner ("Furahia Movie Nzuri kutoka kwa Madjs Wazuri") — replaces top slider
+        item {
+            DiscoveryMadjsBanner()
+        }
 
         // 3. MOVIES SECTION (Grouped by First Genre) + Banner after a content genre section
         if (selectedFilter.equals("All", true) || selectedFilter.equals("Movies", true)) {
@@ -1004,15 +842,11 @@ fun DiscoveryTabContent(
                 }
             }
         }
-        }
     }
 }
 
 @Composable
-private fun DiscoveryMadjsBanner(
-    totalMovieCount: Int = 0,
-    onRotateClick: () -> Unit = {}
-) {
+private fun DiscoveryMadjsBanner() {
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -1062,52 +896,19 @@ private fun DiscoveryMadjsBanner(
                     fontWeight = FontWeight.ExtraBold
                 )
                 Text(
-                    text = if (totalMovieCount > 0) {
-                        "Sinema na Series zilizotafsiriwa kwa Kiswahili • HD"
-                    } else {
-                        "Sinema na Series zilizotafsiriwa kwa Kiswahili • HD"
-                    },
+                    text = "Sinema na Series zilizotafsiriwa kwa Kiswahili • HD",
                     color = NeliGenreCyan,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Medium
                 )
-            }
-
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(Color(0x33A855F7))
-                    .border(1.dp, Color(0x66A855F7), RoundedCornerShape(10.dp))
-                    .clickable { onRotateClick() }
-                    .padding(horizontal = 10.dp, vertical = 8.dp)
-                    .testTag("discovery_rotate_movies_button"),
-                contentAlignment = Alignment.Center
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Refresh,
-                        contentDescription = "Badilisha Movies",
-                        tint = Color.White,
-                        modifier = Modifier.size(14.dp)
-                    )
-                    Text(
-                        text = "Badilisha",
-                        color = Color.White,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.ExtraBold
-                    )
-                }
             }
         }
     }
 }
 
 /**
- * SEARCH PAGE:
- * Searches Azam TV Live channels in a clean vertical multi-column grid.
+ * SEARCH TAB:
+ * Everything is searchable (Live TV, Movies, Series, Adults, and Episodes) in a vertical multi-column grid.
  */
 @Composable
 fun SearchTabContent(
@@ -1122,19 +923,83 @@ fun SearchTabContent(
     onChannelSelected: (LiveChannel) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val searchFilterTabs = remember {
-        ChannelRepository.categories
+    val searchFilterTabs = remember(mediaList) {
+        val tabs = LinkedHashSet<String>()
+        tabs.addAll(
+            listOf(
+                "All",
+                "Live TV",
+                "Movies",
+                "Series",
+                "Adults",
+                "X Video",
+                "XXX",
+                "Porn",
+                "Swahili",
+                "Action",
+                "Sports",
+                "Drama"
+            )
+        )
+        MediaContentRepository.getAdultGenreAndCategoryFilters(mediaList)
+            .filter { !it.equals("All", ignoreCase = true) }
+            .forEach { tabs.add(it) }
+        tabs.toList()
     }
 
     val allChannels = if (liveChannels.isNotEmpty()) liveChannels else ChannelRepository.channels
 
     val filteredChannels = remember(searchQuery, selectedCategory, allChannels) {
-        val catFilter = if (selectedCategory.equals("Live TV", true)) {
-            "All"
+        if (selectedCategory.equals("Movies", true) ||
+            selectedCategory.equals("Series", true) ||
+            selectedCategory.equals("Adults", true) ||
+            MediaContentRepository.isAdultKeywordOrQuery(selectedCategory) ||
+            MediaContentRepository.isAdultKeywordOrQuery(searchQuery)
+        ) {
+            emptyList()
         } else {
-            selectedCategory
+            val catFilter = if (selectedCategory.equals("Live TV", true) || selectedCategory.equals("Swahili", true)) {
+                "All"
+            } else {
+                selectedCategory
+            }
+            ChannelRepository.filterChannels(searchQuery, catFilter)
         }
-        ChannelRepository.filterChannels(searchQuery, catFilter)
+    }
+
+    val filteredMedia = remember(searchQuery, selectedCategory, mediaList) {
+        if (selectedCategory.equals("Live TV", true)) {
+            emptyList()
+        } else {
+            mediaList.filter { item ->
+                MediaContentRepository.matchesMediaSearch(
+                    item = item,
+                    searchQuery = searchQuery,
+                    selectedCategory = selectedCategory
+                )
+            }
+        }
+    }
+
+    val filteredEpisodes = remember(searchQuery, selectedCategory, episodesList) {
+        val q = searchQuery.trim()
+        if (selectedCategory.equals("Live TV", true) ||
+            selectedCategory.equals("Movies", true) ||
+            selectedCategory.equals("Adults", true) ||
+            MediaContentRepository.isAdultKeywordOrQuery(selectedCategory) ||
+            MediaContentRepository.isAdultKeywordOrQuery(q)
+        ) {
+            emptyList()
+        } else if (q.isEmpty() && !selectedCategory.equals("Series", true)) {
+            emptyList()
+        } else {
+            episodesList.filter { ep ->
+                q.isEmpty() ||
+                    ep.name.contains(q, ignoreCase = true) ||
+                    ep.overview.contains(q, ignoreCase = true) ||
+                    ep.narrationLanguage.contains(q, ignoreCase = true)
+            }
+        }
     }
 
     Column(
@@ -1155,7 +1020,7 @@ fun SearchTabContent(
                     .testTag("search_tab_input"),
                 placeholder = {
                     Text(
-                        text = "Search Azam TV channels...",
+                        text = "Search channels, movies, series...",
                         color = NeliTextSecondary,
                         fontSize = 14.sp
                     )
@@ -1186,7 +1051,7 @@ fun SearchTabContent(
             onCategorySelected = onCategorySelected
         )
 
-        if (filteredChannels.isEmpty()) {
+        if (filteredMedia.isEmpty() && filteredEpisodes.isEmpty() && filteredChannels.isEmpty()) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -1202,40 +1067,118 @@ fun SearchTabContent(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "No matching Azam TV channels found",
+                        text = "No matching channels, movies, series, or adult titles found",
                         color = NeliTextPrimary,
                         fontWeight = FontWeight.Bold
                     )
                 }
             }
         } else {
+            // Vertical multi-column layout only — no horizontal scrolling in Search
             LazyVerticalGrid(
                 columns = GridCells.Adaptive(minSize = 155.dp),
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 36.dp),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 110.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier
                     .fillMaxSize()
                     .testTag("channels_grid")
             ) {
-                item(
-                    span = { GridItemSpan(maxLineSpan) },
-                    key = "search_header_channels"
-                ) {
-                    Text(
-                        text = "Azam TV Channels (${filteredChannels.size})",
-                        color = NeliTextPrimary,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        modifier = Modifier.padding(top = 6.dp, bottom = 2.dp)
-                    )
+                if (filteredMedia.isNotEmpty()) {
+                    item(
+                        span = { GridItemSpan(maxLineSpan) },
+                        key = "search_header_media"
+                    ) {
+                        Text(
+                            text = "Movies, Series & Adults (${filteredMedia.size})",
+                            color = NeliTextPrimary,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            modifier = Modifier.padding(top = 4.dp, bottom = 2.dp)
+                        )
+                    }
+
+                    items(filteredMedia, key = { "search_media_${it.id}" }) { media ->
+                        MediaPosterCard(
+                            media = media,
+                            onClick = { onMediaSelected(media) },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+
+                    // SEARCH: Native ad between result groups occasionally
+                    item(
+                        span = { GridItemSpan(maxLineSpan) },
+                        key = "search_native_ad_between_groups"
+                    ) {
+                        NeliNativeSearchAd(placementKey = "search_between_result_groups")
+                    }
                 }
 
-                items(filteredChannels, key = { "search_ch_${it.id}" }) { channel ->
-                    ChannelCard(
-                        channel = channel,
-                        onClick = { onChannelSelected(channel) }
-                    )
+                if (filteredEpisodes.isNotEmpty()) {
+                    item(
+                        span = { GridItemSpan(maxLineSpan) },
+                        key = "search_header_episodes"
+                    ) {
+                        Text(
+                            text = "Series Episodes (${filteredEpisodes.size})",
+                            color = NeliGenreCyan,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            modifier = Modifier.padding(top = 6.dp, bottom = 2.dp)
+                        )
+                    }
+
+                    items(filteredEpisodes, key = { "search_ep_${it.id}" }) { ep ->
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(NeliCardPurple)
+                                .border(1.dp, NeliMagenta.copy(alpha = 0.45f), RoundedCornerShape(12.dp))
+                                .clickable { onChannelSelected(ep.toPlayableChannel()) }
+                                .padding(horizontal = 12.dp, vertical = 10.dp)
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Text(
+                                    text = "S${ep.seasonNumber}E${ep.episodeNumber} • ${ep.name}",
+                                    color = NeliTextPrimary,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = "${ep.runtime} min • ${if (ep.narrated) ep.narrationLanguage else "HD"}",
+                                    color = NeliGenreCyan,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+                    }
+                }
+
+                if (filteredChannels.isNotEmpty()) {
+                    item(
+                        span = { GridItemSpan(maxLineSpan) },
+                        key = "search_header_channels"
+                    ) {
+                        Text(
+                            text = "Live TV Channels (${filteredChannels.size})",
+                            color = NeliTextPrimary,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            modifier = Modifier.padding(top = 6.dp, bottom = 2.dp)
+                        )
+                    }
+
+                    items(filteredChannels, key = { "search_ch_${it.id}" }) { channel ->
+                        ChannelCard(
+                            channel = channel,
+                            onClick = { onChannelSelected(channel) }
+                        )
+                    }
                 }
             }
         }
@@ -1261,10 +1204,8 @@ fun DownloadTabContent(
     onDeleteDownload: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val rotationSeed by MediaContentRepository.catalogRotationSeed.collectAsState()
-    val downloadableCatalog = remember(mediaCatalog, downloadedIds, rotationSeed) {
-        val raw = mediaCatalog.filter { it.published && it.downloadEnabled && !it.isAdultContent }
-        MediaContentRepository.rotateMediaListForSeed(raw, rotationSeed, "downloadable_catalog")
+    val downloadableCatalog = remember(mediaCatalog, downloadedIds) {
+        mediaCatalog.filter { it.published && it.downloadEnabled }
     }
 
     LazyColumn(
@@ -2230,7 +2171,7 @@ fun AccountTabContent(
                                 fontWeight = FontWeight.Medium
                             )
                             Text(
-                                text = "Account Synced • Azam TV Live Streaming",
+                                text = "Account Synced • $downloadsCount Offline • ${watchlist.size} Watchlist",
                                 color = NeliTextSecondary,
                                 fontSize = 11.sp
                             )
@@ -2299,7 +2240,7 @@ fun AccountTabContent(
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = "Sign in to sync your Azam TV streaming preferences",
+                                text = "Sign in to sync your watchlist and downloads",
                                 color = NeliTextSecondary,
                                 fontSize = 12.sp
                             )
@@ -2846,13 +2787,13 @@ fun AccountTabContent(
                         )
                         Column {
                             Text(
-                                text = "Stream Live TV on Mobile Data",
+                                text = "Stream & Download on Mobile Data",
                                 color = NeliTextPrimary,
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = "Watch Azam TV live channels smoothly on 3G/4G/5G mobile data and Wi-Fi",
+                                text = "Watch movies, series & live TV smoothly on 3G/4G/5G mobile data and Wi-Fi",
                                 color = NeliTextSecondary,
                                 fontSize = 11.sp
                             )

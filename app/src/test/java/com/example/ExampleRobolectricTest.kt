@@ -24,11 +24,46 @@ class ExampleRobolectricTest {
     }
 
     @Test
-    fun `azam tv only streaming app has empty movie and series catalogs and 13 built-in azam channels`() {
-        assertTrue(MediaContentRepository.mediaCatalog.value.isEmpty())
-        assertTrue(MediaContentRepository.episodesCatalog.value.isEmpty())
-        assertEquals(13, com.example.data.ChannelRepository.channels.size)
-        assertTrue(com.example.data.ChannelRepository.channels.all { it.isDash && it.isClearKey })
+    fun `firestore movie series episode and tvChannel JSON documents parse properly`() {
+        val movieDocJson = """
+            {
+              "documents": [
+                {
+                  "name": "projects/neli-tv/databases/(default)/documents/movies/mov_1788911132603_wdgav",
+                  "fields": {
+                    "id": {"stringValue": "mov_1788911132603_wdgav"},
+                    "title": {"stringValue": "Never a Thief"},
+                    "originalTitle": {"stringValue": "缉盗"},
+                    "originalLanguage": {"stringValue": "zh"},
+                    "narrated": {"booleanValue": true},
+                    "narrationLanguage": {"stringValue": "Swahili"},
+                    "downloadEnabled": {"booleanValue": true},
+                    "featured": {"booleanValue": true},
+                    "published": {"booleanValue": true},
+                    "rating": {"doubleValue": 5.3},
+                    "runtime": {"integerValue": "120"},
+                    "year": {"integerValue": "2025"},
+                    "posterPath": {"stringValue": "https://image.tmdb.org/t/p/w500/ui5Ujx256vAI5JbXzeTGVwMkVhs.jpg"},
+                    "backdropPath": {"stringValue": "https://image.tmdb.org/t/p/original/vuq5EfA9ED9vnxQgEV4zWEAFmKJ.jpg"},
+                    "streamUrl": {"stringValue": "https://vz-1bb50f2e-8ea.b-cdn.net/9d14eb59-d3a0-4b01-9010-ba9bc5492865/play_480p.mp4"},
+                    "genres": {"arrayValue": {"values": [{"stringValue": "Crime"}]}}
+                  }
+                }
+              ]
+            }
+        """.trimIndent()
+
+        val count = MediaContentRepository.parseFirestoreCollections(
+            moviesJson = movieDocJson
+        )
+        assertEquals(1, count)
+        val movie = MediaContentRepository.getMediaById("mov_1788911132603_wdgav")
+        assertNotNull(movie)
+        assertEquals("Never a Thief", movie!!.title)
+        assertTrue(movie.narrated)
+        assertEquals("Swahili", movie.narrationLanguage)
+        assertTrue(movie.shouldAutoSkipSwahiliMovieIntro)
+        assertTrue(movie.toPlayableChannel().isSwahiliNarratedMovie)
     }
 
     @Test
@@ -201,13 +236,12 @@ class ExampleRobolectricTest {
         val allChannels = com.example.data.ChannelRepository.channels
         val azamChannels = com.example.data.ChannelRepository.azamPriorityChannels
 
-        // Ensure all 13 Azam TV priority channels are built-in inside the app
-        assertEquals(13, allChannels.size)
-        assertEquals(13, azamChannels.size)
-        assertTrue(azamChannels.any { it.name.equals("Azam Sports 1 HD", ignoreCase = true) })
-        assertTrue(azamChannels.any { it.name.equals("Azam One", ignoreCase = true) })
-        assertTrue(azamChannels.any { it.name.equals("Sinema Zetu", ignoreCase = true) })
-        assertTrue(azamChannels.any { it.name.equals("UTV", ignoreCase = true) })
+        // Ensure extra Azam TV channels were added (17 Azam TV priority channels total)
+        assertTrue(azamChannels.size >= 16)
+        assertTrue(azamChannels.any { it.name.equals("Azam Xtra HD", ignoreCase = true) })
+        assertTrue(azamChannels.any { it.name.equals("Azam Movies HD", ignoreCase = true) })
+        assertTrue(azamChannels.any { it.name.equals("Clouds TV HD", ignoreCase = true) })
+        assertTrue(azamChannels.any { it.name.equals("ITV Tanzania HD", ignoreCase = true) })
 
         // Ensure Azam Sports 1-4, Azam One, Azam Two, Sinema Zetu use .mpd links with cdntoken and clearkey
         val azamSports1 = allChannels.first { it.name.contains("Azam Sports 1", ignoreCase = true) }
@@ -228,16 +262,19 @@ class ExampleRobolectricTest {
         assertTrue(com.example.data.ChannelRepository.updateCdnAuthorizationToken(tokenJson))
         assertEquals(1790412582L, com.example.data.ChannelRepository.AZAM_CDN_EXP)
 
-        // Ensure .m3u8 URLs remain .m3u8 untouched by normalizeDashStreamUrl
-        val sampleHlsUrl = "https://example.com/live/stream.m3u8"
-        assertEquals(
-            sampleHlsUrl,
-            com.example.data.ChannelRepository.normalizeDashStreamUrl(sampleHlsUrl)
-        )
+        // Ensure .m3u8 channels remain .m3u8 untouched
+        val hlsChannels = allChannels.filter { it.streamUrl.contains(".m3u8", ignoreCase = true) }
+        assertTrue(hlsChannels.isNotEmpty())
+        hlsChannels.forEach { ch ->
+            assertEquals(
+                ch.streamUrl,
+                com.example.data.ChannelRepository.normalizeDashStreamUrl(ch.streamUrl)
+            )
+        }
     }
 
     @Test
-    fun `daily east africa time notifications and home widget azam channels are configured`() {
+    fun `daily east africa time notifications and home widget 2026 non-adult movies and azam channels are configured`() {
         val context = ApplicationProvider.getApplicationContext<Context>()
 
         // 1. Verify all 4 daily EAT notification slots (7:00, 13:00, 16:00, 19:30 Africa/Dar_es_Salaam)
@@ -254,11 +291,20 @@ class ExampleRobolectricTest {
 
         com.example.notifications.NeliNotificationScheduler.scheduleAllDailyNotifications(context)
 
-        // 2. Verify Low Bando Saver mode exists in NetworkQualityMode
+        // 2. Verify top 3 2026 non-adult movies for Home Widget bottom row
+        val movies2026 = MediaContentRepository.getLatest2026NonAdultMovies(3)
+        assertEquals(3, movies2026.size)
+        movies2026.forEach { movie ->
+            assertEquals("2026", movie.releaseYear)
+            org.junit.Assert.assertFalse(movie.isAdultContent)
+            org.junit.Assert.assertFalse(movie.genre.contains("Adult", ignoreCase = true))
+        }
+
+        // 3. Verify Low Bando Saver mode exists in NetworkQualityMode
         val lowBandoMode = com.example.player.NetworkQualityMode.ULTRA_LOW_BANDO_SAVER
         assertTrue(lowBandoMode.label.contains("Low Bando", ignoreCase = true))
 
-        // 3. Verify widget update executes cleanly without throwing
+        // 4. Verify widget update executes cleanly without throwing
         com.example.widget.NeliHomeWidgetProvider.updateAllWidgets(context)
     }
 
@@ -401,48 +447,6 @@ class ExampleRobolectricTest {
             parsedRelease.apkDownloadUrl
         )
 
-        // Verify that when a new release (v1.0.2) is posted on GitHub, the old app sees isNewUpdateAvailable = true,
-        // and once updated to v1.0.2, the updated app sees isNewUpdateAvailable = false (does NOT keep showing updates!)
-        val newReleaseV102Json = """
-            {
-              "tag_name": "v1.0.2",
-              "name": "Neli TV v1.0.2 Official Release",
-              "html_url": "https://github.com/baynith1/Nelitv/releases/tag/v1.0.2",
-              "body": "Bug fixes and playback improvements",
-              "published_at": "2026-09-27T01:00:00Z",
-              "assets": [
-                {
-                  "name": "Nelitv.apk",
-                  "browser_download_url": "https://github.com/baynith1/Nelitv/releases/download/v1.0.2/Nelitv.apk"
-                }
-              ]
-            }
-        """.trimIndent()
-        val beforeUpdateInfo = com.example.data.NeliAppUpdateManager.parseGitHubReleaseJson(
-            rawJson = newReleaseV102Json,
-            currentVersionTag = "v1.0.0"
-        )
-        assertNotNull(beforeUpdateInfo)
-        assertTrue(beforeUpdateInfo!!.isNewUpdateAvailable)
-
-        // Simulate completing the update to v1.0.2
-        com.example.data.NeliAppUpdateManager.markReleaseAsInstalled(
-            context = context,
-            versionTag = "v1.0.2",
-            publishedAt = beforeUpdateInfo.publishedAt,
-            apkUrl = beforeUpdateInfo.apkDownloadUrl
-        )
-        assertEquals("v1.0.2", com.example.data.NeliAppUpdateManager.getEffectiveInstalledVersionTag(context))
-        org.junit.Assert.assertFalse(com.example.data.NeliAppUpdateManager.releaseInfo.value.isNewUpdateAvailable)
-
-        // Re-checking GitHub inside the updated app must show isNewUpdateAvailable = false
-        val afterUpdateInfo = com.example.data.NeliAppUpdateManager.parseGitHubReleaseJson(
-            rawJson = newReleaseV102Json,
-            currentVersionTag = com.example.data.NeliAppUpdateManager.getEffectiveInstalledVersionTag(context)
-        )
-        assertNotNull(afterUpdateInfo)
-        org.junit.Assert.assertFalse(afterUpdateInfo!!.isNewUpdateAvailable)
-
         // 3. Verify tokenEndpointUrl JSON payload updates ChannelRepository
         val combinedTokenJson = """
             {
@@ -512,13 +516,34 @@ class ExampleRobolectricTest {
     }
 
     @Test
-    fun `azam tv only streaming pages homepage ads interstitial on channel tap and navigation work properly`() {
-        // 1. Verify Homepage includes all 13 Azam TV channels stored locally in the app
-        val prioritized = com.example.data.ChannelRepository.getPrioritizedAllChannels()
-        assertEquals(13, prioritized.size)
-        assertTrue(prioritized.all { it.isAzamPriority && it.isDash && it.isClearKey })
+    fun `bottom menu 5 tabs homepage all channels priority discovery first genre deduplication and adult images work properly`() {
+        // 1. Verify BottomNavTab has exactly Home, Discovery, Search, Download, Account
+        val tabs = com.example.ui.components.BottomNavTab.entries.map { it.label }
+        assertEquals(listOf("Home", "Discovery", "Search", "Download", "Account"), tabs)
 
-        // 2. Verify expired CDN tokens are rejected so stale tokens never break Azam TV
+        // 2. Verify Homepage includes all channels prioritized by Azam TV -> Tanzania -> Other
+        val prioritized = com.example.data.ChannelRepository.getPrioritizedAllChannels()
+        assertTrue(prioritized.size >= 36)
+        assertTrue(prioritized.first().isAzamPriority)
+        val firstNonTanzaniaIdx = prioritized.indexOfFirst { !it.isTanzaniaChannel }
+        val lastAzamIdx = prioritized.indexOfLast { it.isAzamPriority }
+        assertTrue(lastAzamIdx < firstNonTanzaniaIdx)
+
+        // 3. Verify Discovery groups movies strictly by their 1st genre only (zero duplicate movies)
+        val groupedMovies = MediaContentRepository.getMoviesStrictlyByFirstGenre()
+        assertTrue(groupedMovies.isNotEmpty())
+        val allAssignedIds = groupedMovies.flatMap { (_, movies) -> movies.map { it.id } }
+        assertEquals(allAssignedIds.distinct().size, allAssignedIds.size)
+
+        // 4. Verify Adult content always has non-blank poster and thumbnail URLs
+        val adults = MediaContentRepository.getAdultContentCatalog()
+        assertTrue(adults.isNotEmpty())
+        adults.forEach { adult ->
+            assertTrue(adult.posterUrl.startsWith("https://"))
+            assertTrue(adult.backdropUrl.startsWith("https://"))
+        }
+
+        // 5. Verify expired CDN tokens are rejected so stale Firebase tokens never break Azam TV
         val expiredTokenJson = """
             {
               "token": "eyJhbGciOiJIUzUxMiJ9.eyJleHAiOiIxNjAwMDAwMDAwIn0.sig",
@@ -530,40 +555,101 @@ class ExampleRobolectricTest {
             com.example.data.ChannelRepository.updateCdnAuthorizationToken(expiredTokenJson)
         )
 
-        // 3. Verify Pull-to-Refresh refreshes the Live TV channel list in-place while preserving priority
+        // 6. Verify Pull-to-Refresh refreshes the Live TV channel list in-place while preserving priority
         val refreshedList = com.example.data.ChannelRepository.refreshLiveChannels()
-        assertEquals(13, refreshedList.size)
+        assertTrue(refreshedList.size >= 36)
         assertTrue(refreshedList.first().isAzamPriority)
         assertTrue(com.example.data.ChannelRepository.lastRefreshedEpochMs > 0L)
 
-        // 4. Verify NeliViewModel only allows HOME, SEARCH, and ACCOUNT tabs (no Discovery or Downloads)
+        // 7. Verify Discovery banner text ("Furahia Movie Nzuri kutoka kwa Madjs Wazuri")
+        assertEquals(
+            "Furahia Movie Nzuri kutoka kwa Madjs Wazuri",
+            com.example.ui.screens.DISCOVERY_MADJS_BANNER_TEXT
+        )
+
+        // 8. Verify Offline Mode sends user directly to Download page & Movie/Series Watchpage Back -> Movie Details -> Discovery
         val app = ApplicationProvider.getApplicationContext<android.app.Application>()
         val vm = com.example.ui.NeliViewModel(app)
 
-        assertEquals(com.example.ui.components.BottomNavTab.HOME, vm.selectedTab.value)
-        vm.selectTab(com.example.ui.components.BottomNavTab.SEARCH)
-        assertEquals(com.example.ui.components.BottomNavTab.SEARCH, vm.selectedTab.value)
-        vm.selectTab(com.example.ui.components.BottomNavTab.ACCOUNT)
-        assertEquals(com.example.ui.components.BottomNavTab.ACCOUNT, vm.selectedTab.value)
-
-        // Trying to select removed tabs (DISCOVERY / DOWNLOAD) redirects to HOME
-        vm.selectTab(com.example.ui.components.BottomNavTab.DISCOVERY)
-        assertEquals(com.example.ui.components.BottomNavTab.HOME, vm.selectedTab.value)
-        vm.selectTab(com.example.ui.components.BottomNavTab.DOWNLOAD)
-        assertEquals(com.example.ui.components.BottomNavTab.HOME, vm.selectedTab.value)
-
-        // Offline mode keeps user on Homepage (does not redirect to removed Download tab)
+        // Offline mode directs immediately to Download tab
         vm.updateOfflineState(true)
         assertTrue(vm.isOfflineMode.value)
-        assertEquals(com.example.ui.components.BottomNavTab.HOME, vm.selectedTab.value)
+        assertEquals(com.example.ui.components.BottomNavTab.DOWNLOAD, vm.selectedTab.value)
+
+        // Back online
         vm.updateOfflineState(false)
-
-        // Returning from Watching Page returns to Homepage
-        val sampleChannel = com.example.data.ChannelRepository.channels.first()
-        vm.onReturnFromWatchPage(sampleChannel)
+        vm.selectTab(com.example.ui.components.BottomNavTab.HOME)
         assertEquals(com.example.ui.components.BottomNavTab.HOME, vm.selectedTab.value)
 
-        // 5. Verify AdMob app-ads.txt, Application startup initialization, test device ID config, playback protection, and Interstitial on channel tap
+        // User watches a Movie on Watchpage and presses Back -> must go to Movie Details page of that movie (never Homepage), then Back -> Discovery
+        val sampleMovie = MediaContentRepository.mediaCatalog.value.first { it.isMovie && !it.isAdultContent }
+        vm.onReturnFromWatchPage(sampleMovie.toPlayableChannel())
+        assertEquals( sampleMovie.id, vm.selectedMediaId.value)
+        assertEquals(com.example.ui.components.BottomNavTab.DISCOVERY, vm.selectedTab.value)
+
+        // Pressing Back from Movie Details page sends user to Discovery
+        vm.navigateBackFromMediaDetails()
+        assertEquals(null, vm.selectedMediaId.value)
+        assertEquals(com.example.ui.components.BottomNavTab.DISCOVERY, vm.selectedTab.value)
+
+        // User watches a Series Episode on Watchpage and presses Back -> must go to Series Details page of that series, then Back -> Discovery
+        val sampleEpisode = MediaContentRepository.episodesCatalog.value.first()
+        vm.selectTab(com.example.ui.components.BottomNavTab.HOME)
+        vm.onReturnFromWatchPage(sampleEpisode.toPlayableChannel("Series"))
+        assertEquals(sampleEpisode.seriesId, vm.selectedMediaId.value)
+        assertEquals(com.example.ui.components.BottomNavTab.DISCOVERY, vm.selectedTab.value)
+
+        vm.navigateBackFromMediaDetails()
+        assertEquals(null, vm.selectedMediaId.value)
+        assertEquals(com.example.ui.components.BottomNavTab.DISCOVERY, vm.selectedTab.value)
+
+        // 9. Verify Adult aliases ("X", "xxx", "X video", "porn") & Firebase Adult Genre/Category grouping and search
+        assertTrue(MediaContentRepository.isAdultKeywordOrQuery("X"))
+        assertTrue(MediaContentRepository.isAdultKeywordOrQuery("xxx"))
+        assertTrue(MediaContentRepository.isAdultKeywordOrQuery("X video"))
+        assertTrue(MediaContentRepository.isAdultKeywordOrQuery("porn"))
+        assertTrue(MediaContentRepository.isAdultKeywordOrQuery("18+"))
+        org.junit.Assert.assertFalse(MediaContentRepository.isAdultKeywordOrQuery("Box Office Action"))
+
+        val adultFirestoreJson = """
+            {
+              "documents": [
+                {
+                  "name": "projects/neliplay/databases/(default)/documents/adults/adult_fb_1",
+                  "fields": {
+                    "id": {"stringValue": "adult_fb_1"},
+                    "title": {"stringValue": "Late Night X Video Special"},
+                    "streamUrl": {"stringValue": "https://vz-1bb50f2e-8ea.b-cdn.net/9d14eb59-d3a0-4b01-9010-ba9bc5492865/play_480p.mp4"},
+                    "genre": {"stringValue": "X Video"},
+                    "category": {"stringValue": "Porn"},
+                    "genres": {"arrayValue": {"values": [{"stringValue": "X Video"}, {"stringValue": "XXX"}, {"stringValue": "Porn"}]}},
+                    "published": {"booleanValue": true}
+                  }
+                }
+              ]
+            }
+        """.trimIndent()
+        MediaContentRepository.parseFirestoreCollections(adultsJson = adultFirestoreJson)
+        val parsedAdult = MediaContentRepository.getMediaById("adult_fb_1")
+        assertNotNull(parsedAdult)
+        assertTrue(parsedAdult!!.isAdultContent)
+        assertEquals("X Video", parsedAdult.primaryGenre)
+
+        val groupedAdults = MediaContentRepository.getAdultsGroupedByGenreAndCategory()
+        assertTrue(groupedAdults.any { it.first.equals("X Video", ignoreCase = true) })
+        assertTrue(groupedAdults.any { it.first.equals("XXX", ignoreCase = true) })
+        assertTrue(groupedAdults.any { it.first.equals("Porn", ignoreCase = true) })
+
+        // Verify searching by "X", "xxx", "X video", "porn" matches adult items
+        listOf("X", "xxx", "X video", "porn").forEach { query ->
+            val results = MediaContentRepository.mediaCatalog.value.filter {
+                MediaContentRepository.matchesMediaSearch(it, query, "All")
+            }
+            assertTrue("Expected adult search results for '$query'", results.isNotEmpty())
+            assertTrue(results.all { it.isAdultContent })
+        }
+
+        // 10. Verify AdMob app-ads.txt, Application startup initialization, test device ID config, playback protection, cooldowns, and Download flow
         val neliApp = app as? com.example.NeliApplication
         assertNotNull("Expected Application context to be NeliApplication", neliApp)
         assertTrue(com.example.ads.NeliAdMobManager.isApplicationInitialized)
@@ -609,6 +695,14 @@ class ExampleRobolectricTest {
             com.example.ads.NeliAdMobManager.NATIVE_ADVANCED_AD_UNIT_ID,
             com.example.ads.NeliAdMobManager.resolveNativeAdUnitId()
         )
+        assertEquals(
+            com.example.ads.NeliAdMobManager.BANNER_AD_UNIT_ID,
+            com.example.ads.NeliAdMobManager.resolveBannerAdUnitId(useTestAds = false)
+        )
+        assertEquals(
+            com.example.ads.NeliAdMobManager.TEST_BANNER_AD_UNIT_ID,
+            com.example.ads.NeliAdMobManager.resolveBannerAdUnitId(useTestAds = true)
+        )
 
         // Verify NO ADS inside the video player / while playback is active
         com.example.ads.NeliAdMobManager.resetForTesting()
@@ -620,30 +714,43 @@ class ExampleRobolectricTest {
         org.junit.Assert.assertFalse(com.example.ads.NeliAdMobManager.isAppOpenEligible(1_000_000L))
         com.example.ads.NeliAdMobManager.updatePlaybackActiveState(false)
 
-        // Verify tapping a channel invokes runChannelTapWithInterstitialIfEligible and opens the channel
-        var channelOpenedCount = 0
-        com.example.ads.NeliAdMobManager.runChannelTapWithInterstitialIfEligible(app) {
-            channelOpenedCount++
-        }
-        assertEquals(1, channelOpenedCount)
+        // Verify Interstitial is never shown immediately after an App Open ad
+        com.example.ads.NeliAdMobManager.lastAppOpenShownAtMs = 1_000_000L
+        org.junit.Assert.assertFalse(com.example.ads.NeliAdMobManager.isInterstitialEligible(1_010_000L))
+        assertTrue(com.example.ads.NeliAdMobManager.isInterstitialEligible(1_000_000L + com.example.ads.NeliAdMobManager.POST_APP_OPEN_GRACE_MS + 1000L))
 
-        // 6. Verify Homepage channel categories order (Azam TV -> Sports -> Entertainment -> News -> Movies -> Music -> Tanzania),
+        // Verify Download starts immediately without a second press when no interstitial is loaded
+        var downloadTriggeredCount = 0
+        com.example.ads.NeliAdMobManager.runDownloadWithInterstitialIfEligible(app) {
+            downloadTriggeredCount++
+        }
+        assertEquals(1, downloadTriggeredCount)
+
+        // 11. Verify Homepage channel categories order (Azam TV -> Sports -> Entertainment -> Kids -> News -> Movies -> ...),
         // 6-channel vertical chunking for Muted Video Ads, and guaranteed channel logos
         val homepageCategories = com.example.data.ChannelRepository.getChannelsGroupedByHomepageCategories()
         assertTrue(homepageCategories.size >= 6)
-        val firstFiveTitles = homepageCategories.take(5).map { it.first }
+        val firstSixTitles = homepageCategories.take(6).map { it.first }
         assertEquals(
-            listOf("Azam TV", "Sports", "Entertainment", "News", "Movies"),
-            firstFiveTitles
+            listOf("Azam TV", "Sports", "Entertainment", "Kids", "News", "Movies"),
+            firstSixTitles
         )
-        // First category ("Azam TV") must contain all 13 Azam TV channels
-        assertEquals(13, homepageCategories.first().second.size)
+        // First category ("Azam TV") must contain all Azam TV priority channels
+        assertTrue(homepageCategories.first().second.size >= 17)
         assertTrue(homepageCategories.first().second.all { it.isAzamPriority })
 
         // Verify All Channels vertical chunking groups channels into blocks of 6 for Muted Video Ads
         val sixChannelBlocks = com.example.data.ChannelRepository.getAllChannelsChunkedEverySixForAds()
         assertTrue(sixChannelBlocks.isNotEmpty())
         assertEquals(6, sixChannelBlocks.first().size)
+        assertEquals(
+            com.example.ads.NeliAdMobManager.TEST_NATIVE_VIDEO_AD_UNIT_ID,
+            com.example.ads.NeliAdMobManager.resolveNativeVideoAdUnitId(useTestAds = true)
+        )
+        assertEquals(
+            com.example.ads.NeliAdMobManager.NATIVE_ADVANCED_AD_UNIT_ID,
+            com.example.ads.NeliAdMobManager.resolveNativeVideoAdUnitId(useTestAds = false)
+        )
 
         // Verify every channel in All Channels has a valid https:// logo URL and fallback logo URL
         com.example.data.ChannelRepository.getPrioritizedAllChannels().forEach { ch ->
@@ -651,6 +758,31 @@ class ExampleRobolectricTest {
             val fallbackLogo = com.example.data.ChannelRepository.resolveFallbackChannelLogoUrl(ch)
             assertTrue("Channel ${ch.name} must have a valid fallback logo URL", fallbackLogo.startsWith("https://"))
         }
+
+        // Verify Firestore tvChannels custom logo fields (e.g. channelLogo / iconUrl) are extracted and visible in All Channels
+        val customChannelFirestoreJson = """
+            {
+              "documents": [
+                {
+                  "name": "projects/neli-tv/databases/(default)/documents/tvChannels/custom_tz_ch_1",
+                  "fields": {
+                    "id": {"stringValue": "custom_tz_ch_1"},
+                    "name": {"stringValue": "Bongo Star TV"},
+                    "streamUrl": {"stringValue": "https://example.com/live/bongostar.m3u8"},
+                    "category": {"stringValue": "Entertainment"},
+                    "country": {"stringValue": "Tanzania"},
+                    "channelLogo": {"stringValue": "https://i.ibb.co/8gtr1n42/1000221072.jpg"},
+                    "enabled": {"booleanValue": true},
+                    "published": {"booleanValue": true}
+                  }
+                }
+              ]
+            }
+        """.trimIndent()
+        MediaContentRepository.parseFirestoreCollections(tvChannelsJson = customChannelFirestoreJson)
+        val syncedChannel = com.example.data.ChannelRepository.getChannelById("custom_tz_ch_1")
+        assertNotNull(syncedChannel)
+        assertEquals("https://i.ibb.co/8gtr1n42/1000221072.jpg", syncedChannel!!.thumbnailUrl)
     }
 
     @Test
@@ -1027,42 +1159,6 @@ class ExampleRobolectricTest {
             fallbackStreamUrl = completedEntity.streamUrl
         )
         assertTrue("Expected file:// URI when resolving by media ID, got $resolvedByIdUri", resolvedByIdUri.startsWith("file:"))
-
-        // 10. Verify Auto Full HD <-> Low Data 2-state stability (no intermediate 720p/480p/360p oscillation)
-        assertEquals("Auto Full HD", com.example.player.NetworkQualityMode.AUTO_ADAPTIVE.label)
-        val steadyAutoHd = controller.evaluateAndApplyAdaptiveTrackSelection(
-            estimatedBitrateBps = 1_400_000L,
-            bufferedDurationMs = 5_000L,
-            forceBufferingState = false,
-            rebufferCountOverride = 0
-        )
-        assertEquals(com.example.player.AdaptiveQualityTier.FULL_HD_1080P, steadyAutoHd)
-
-        val droppedToLowData = controller.evaluateAndApplyAdaptiveTrackSelection(
-            estimatedBitrateBps = 600_000L,
-            bufferedDurationMs = 1_000L,
-            forceBufferingState = true,
-            rebufferCountOverride = 1
-        )
-        assertEquals(com.example.player.AdaptiveQualityTier.LOW_BANDO_240P, droppedToLowData)
-
-        // While internet is still weak/recovering (1.1 Mbps), stays locked in Low Data without oscillating
-        val heldInLowData = controller.evaluateAndApplyAdaptiveTrackSelection(
-            estimatedBitrateBps = 1_100_000L,
-            bufferedDurationMs = 3_000L,
-            forceBufferingState = false,
-            rebufferCountOverride = 0
-        )
-        assertEquals(com.example.player.AdaptiveQualityTier.LOW_BANDO_240P, heldInLowData)
-
-        // Once internet is stable (>= 1.8 Mbps & >= 4.5s buffer), returns directly to Auto Full HD
-        val restoredToAutoHd = controller.evaluateAndApplyAdaptiveTrackSelection(
-            estimatedBitrateBps = 2_600_000L,
-            bufferedDurationMs = 7_000L,
-            forceBufferingState = false,
-            rebufferCountOverride = 0
-        )
-        assertEquals(com.example.player.AdaptiveQualityTier.FULL_HD_1080P, restoredToAutoHd)
 
         completedFile.delete()
         controller.release()

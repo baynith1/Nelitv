@@ -55,22 +55,7 @@ data class FirebaseConfigEntity(
     val networkMode: String = "AUTO_ADAPTIVE", // "AUTO_ADAPTIVE", "LOW_DATA", "HIGH_HD"
     val allowMobileData: Boolean = true,
     val updatedAt: Long = System.currentTimeMillis()
-) {
-    val authDomain: String
-        get() = "neliplay.firebaseapp.com"
-
-    val storageBucket: String
-        get() = "neliplay.firebasestorage.app"
-
-    val messagingSenderId: String
-        get() = "39702563643"
-
-    val webAppId: String
-        get() = "1:39702563643:web:7dfc69461cbc615483051e"
-
-    val measurementId: String
-        get() = "G-ZXL5195YHY"
-}
+)
 
 @Entity(tableName = "user_accounts")
 data class UserAccountEntity(

@@ -377,10 +377,6 @@ fun NeliShareApkAndAutoUpdateSection(
     val autoUpdateEnabled by NeliAppUpdateManager.autoUpdateEnabled.collectAsState()
     val statusBannerMessage by NeliAppUpdateManager.apkDownloadStatusMessage.collectAsState()
 
-    androidx.compose.runtime.LaunchedEffect(Unit) {
-        NeliAppUpdateManager.reconcileInstalledPackageState(context)
-    }
-
     var showFullscreenQrDialog by rememberSaveable { mutableStateOf(false) }
 
     if (showFullscreenQrDialog) {

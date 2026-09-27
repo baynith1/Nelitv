@@ -826,11 +826,7 @@ fun PlayerScreen(
                                     modifier = Modifier.size(15.dp)
                                 )
                                 val qualitySummary = if (playbackInfo.networkMode == NetworkQualityMode.AUTO_ADAPTIVE) {
-                                    if (playbackInfo.adaptiveQualityTier == com.example.player.AdaptiveQualityTier.LOW_BANDO_240P) {
-                                        "Auto HD → Low Data"
-                                    } else {
-                                        "Auto Full HD (${playbackInfo.adaptiveQualityTier.badgeLabel})"
-                                    }
+                                    "Auto (${playbackInfo.adaptiveQualityTier.badgeLabel})"
                                 } else {
                                     playbackInfo.networkMode.label
                                 }
@@ -930,11 +926,7 @@ fun PlayerScreen(
                                 )
                                 Text(
                                     text = if (playbackInfo.networkMode == NetworkQualityMode.AUTO_ADAPTIVE) {
-                                        if (playbackInfo.adaptiveQualityTier == com.example.player.AdaptiveQualityTier.LOW_BANDO_240P) {
-                                            "Buffering • Low Data Mode (${playbackInfo.connectionLabel})..."
-                                        } else {
-                                            "Buffering • Auto Full HD (${playbackInfo.connectionLabel})..."
-                                        }
+                                        "Buffering • Adapting to ${playbackInfo.adaptiveQualityTier.badgeLabel} (${playbackInfo.connectionLabel})..."
                                     } else {
                                         "Buffering stream (${playbackInfo.connectionLabel})..."
                                     },
@@ -1308,17 +1300,6 @@ fun PlayerScreen(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         if (activeChannel.isLiveBroadcast) {
-                            // Automatic watchdog: if Live TV ever pauses or stalls, automatically invoke syncToLiveEdge()
-                            // so the user never has to manually click the bottom "LIVE STREAM • CONTINUOUS REAL-TIME PLAYBACK" button.
-                            LaunchedEffect(activeChannel.id, playbackInfo.isPlaying, uiState) {
-                                if (!playbackInfo.isPlaying && uiState is PlayerUiState.Ready) {
-                                    kotlinx.coroutines.delay(1200L)
-                                    playerController.syncToLiveEdge()
-                                } else if (uiState is PlayerUiState.Error) {
-                                    kotlinx.coroutines.delay(2000L)
-                                    playerController.syncToLiveEdge()
-                                }
-                            }
                             // Live Real-Time Broadcast Badge (No timeline, no pause!)
                             Row(
                                 modifier = Modifier

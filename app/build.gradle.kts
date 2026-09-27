@@ -111,7 +111,7 @@ dependencies {
   implementation(libs.androidx.media3.common)
   implementation("net.java.dev.jna:jna:5.14.0@aar")
   testImplementation(libs.jna)
-  // implementation(libs.converter.moshi)
+  implementation(libs.converter.moshi)
   // implementation(libs.firebase.ai)
   // Uncomment to use Firestore:
   // implementation(libs.firebase.firestore)
@@ -126,12 +126,12 @@ dependencies {
   // implementation(libs.firebase.appcheck.debug)
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.kotlinx.coroutines.core)
-  // implementation(libs.logging.interceptor)
-  // implementation(libs.moshi.kotlin)
+  implementation(libs.logging.interceptor)
+  implementation(libs.moshi.kotlin)
   implementation(libs.okhttp)
   // implementation(libs.play.services.location)
   implementation(libs.play.services.ads)
-  // implementation(libs.retrofit)
+  implementation(libs.retrofit)
   testImplementation(libs.androidx.compose.ui.test.junit4)
   testImplementation(libs.androidx.core)
   testImplementation(libs.androidx.junit)
@@ -145,30 +145,6 @@ dependencies {
   androidTestImplementation(libs.androidx.runner)
   debugImplementation(libs.androidx.compose.ui.test.manifest)
   debugImplementation(libs.androidx.compose.ui.tooling)
-  "kspDebug"(libs.androidx.room.compiler)
-  "kspRelease"(libs.androidx.room.compiler)
-  // "ksp"(libs.moshi.kotlin.codegen)
-}
-
-tasks.matching { it.name.startsWith("ksp") }.configureEach {
-  doFirst {
-    val prev = Thread.getDefaultUncaughtExceptionHandler()
-    Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
-      val details = (throwable.message ?: "") + "\n" + throwable.stackTraceToString()
-      if (
-        thread.name.startsWith("AWT-EventQueue") &&
-          (details.contains("ksp.com.intellij.openapi") ||
-            details.contains("BinaryFileTypeDecompilers") ||
-            details.contains("ApplicationManager.getApplication"))
-      ) {
-        return@setDefaultUncaughtExceptionHandler
-      }
-      if (prev != null) {
-        prev.uncaughtException(thread, throwable)
-      } else if (throwable !is ThreadDeath) {
-        System.err.print("Exception in thread \"${thread.name}\" ")
-        throwable.printStackTrace(System.err)
-      }
-    }
-  }
+  "ksp"(libs.androidx.room.compiler)
+  "ksp"(libs.moshi.kotlin.codegen)
 }

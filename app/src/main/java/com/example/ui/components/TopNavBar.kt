@@ -32,10 +32,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.LiveTv
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -87,8 +88,6 @@ fun TopNavBar(
     isOfflineMode: Boolean = false,
     onOfflineClick: () -> Unit = {},
     onBrandClick: () -> Unit = {},
-    isAccountOpen: Boolean = false,
-    onAccountClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -138,7 +137,7 @@ fun TopNavBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            // Left: Brand Logo
+            // Left: Clean YouTube-style Brand Logo
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -158,7 +157,7 @@ fun TopNavBar(
                 ) {
                     Icon(
                         imageVector = Icons.Default.LiveTv,
-                        contentDescription = "Azam TV Logo",
+                        contentDescription = "Nelitv Logo",
                         tint = Color.White,
                         modifier = Modifier.size(14.dp)
                     )
@@ -182,44 +181,65 @@ fun TopNavBar(
                 }
             }
 
-            // Right: Search Button followed immediately by Account Button (Logo -> Search -> Account)
+            // Right: Offline Indicator, Theme Toggle & Search Icon Buttons
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                IconButton(
-                    onClick = onToggleSearch,
-                    modifier = Modifier
-                        .testTag("search_icon_button")
-                        .size(48.dp)
-                        .clip(CircleShape)
-                        .background(
-                            if (isSearchOpen) NeliMagenta.copy(alpha = 0.16f) else Color.Transparent
+                if (isOfflineMode) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(Color(0x33F59E0B))
+                            .border(1.dp, Color(0x66F59E0B), RoundedCornerShape(16.dp))
+                            .clickable { onOfflineClick() }
+                            .padding(horizontal = 10.dp, vertical = 5.dp)
+                            .testTag("top_nav_offline_indicator")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CloudOff,
+                            contentDescription = "Offline Mode",
+                            tint = Color(0xFFFBBF24),
+                            modifier = Modifier.size(14.dp)
                         )
+                        Text(
+                            text = "Offline",
+                            color = Color(0xFFFBBF24),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                IconButton(
+                    onClick = { NeliThemeManager.toggleTheme(context) },
+                    modifier = Modifier
+                        .testTag("theme_toggle_icon_button")
+                        .size(40.dp)
+                        .clip(CircleShape)
                 ) {
                     Icon(
-                        imageVector = if (isSearchOpen) Icons.Default.Clear else Icons.Default.Search,
-                        contentDescription = if (isSearchOpen) "Close search" else "Search Azam TV channels",
-                        tint = if (isSearchOpen) NeliMagenta else NeliTextPrimary,
-                        modifier = Modifier.size(22.dp)
+                        imageVector = if (isLightMode) Icons.Default.DarkMode else Icons.Default.LightMode,
+                        contentDescription = if (isLightMode) "Switch to Dark Theme" else "Switch to Light Theme",
+                        tint = NeliTextPrimary,
+                        modifier = Modifier.size(20.dp)
                     )
                 }
 
                 IconButton(
-                    onClick = onAccountClick,
+                    onClick = onToggleSearch,
                     modifier = Modifier
-                        .testTag("account_icon_button")
-                        .size(48.dp)
+                        .testTag("search_icon_button")
+                        .size(40.dp)
                         .clip(CircleShape)
-                        .background(
-                            if (isAccountOpen) NeliMagenta.copy(alpha = 0.16f) else Color.Transparent
-                        )
                 ) {
                     Icon(
-                        imageVector = Icons.Default.AccountCircle,
-                        contentDescription = "Account",
-                        tint = if (isAccountOpen) NeliMagenta else NeliTextPrimary,
-                        modifier = Modifier.size(24.dp)
+                        imageVector = if (isSearchOpen) Icons.Default.Clear else Icons.Default.Search,
+                        contentDescription = if (isSearchOpen) "Close search" else "Search",
+                        tint = NeliTextPrimary,
+                        modifier = Modifier.size(22.dp)
                     )
                 }
             }

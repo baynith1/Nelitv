@@ -52,14 +52,7 @@ class ClearKeyDecryptingDataSource(
         val pathPart = uriString.substringBefore("?").lowercase()
 
         val isMpd = pathPart.endsWith(".mpd")
-        val isMp4Segment = pathPart.endsWith(".mp4") ||
-            pathPart.endsWith(".m4s") ||
-            pathPart.endsWith(".cmfv") ||
-            pathPart.endsWith(".cmfa") ||
-            pathPart.endsWith(".dash") ||
-            pathPart.endsWith(".m4v") ||
-            pathPart.endsWith(".m4a") ||
-            pathPart.endsWith(".init")
+        val isMp4Segment = pathPart.endsWith(".mp4") || pathPart.endsWith(".m4s") || pathPart.endsWith(".cmfv") || pathPart.endsWith(".cmfa")
 
         if (decryptor == null || (!isMpd && !isMp4Segment)) {
             passthroughMode = true
@@ -72,48 +65,24 @@ class ClearKeyDecryptingDataSource(
         passthroughMode = false
 
         // Fetch full resource from upstream so we can parse/decrypt complete MP4 boxes or MPD XML
-        var fullFetchSpec = effectiveDataSpec.buildUpon()
+        val fullFetchSpec = effectiveDataSpec.buildUpon()
             .setPosition(0)
             .setLength(C.LENGTH_UNSET.toLong())
             .build()
 
-        try {
-            upstream.open(fullFetchSpec)
-        } catch (e: androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException) {
-            if ((e.responseCode == 403 || e.responseCode == 401) &&
-                fullFetchSpec.uri.toString().contains("azamtvltd.co.tz", ignoreCase = true)
-            ) {
-                try {
-                    upstream.close()
-                } catch (_: Exception) {
-                }
-                if (com.example.data.ChannelRepository.refreshCdnTokenFromEndpointSync()) {
-                    val refreshedSpec = resolveDataSpecToken(dataSpec)
-                    fullFetchSpec = refreshedSpec.buildUpon()
-                        .setPosition(0)
-                        .setLength(C.LENGTH_UNSET.toLong())
-                        .build()
-                    upstream.open(fullFetchSpec)
-                } else {
-                    throw e
-                }
-            } else {
-                throw e
-            }
-        }
-        currentUri = upstream.uri ?: fullFetchSpec.uri
+        upstream.open(fullFetchSpec)
+        currentUri = upstream.uri ?: effectiveDataSpec.uri
 
         val rawBytes = readAllUpstreamBytes()
         upstream.close()
 
-        val streamKey = pathPart.substringAfterLast("/").substringBeforeLast("-")
         val processedBytes = if (isMpd) {
             val xml = String(rawBytes, Charsets.UTF_8)
                 .replace("http://cdnblncr.azamtvltd.co.tz", com.example.data.ChannelRepository.AZAM_CDN_HOST, ignoreCase = true)
                 .replace("https://cdnblncr.azamtvltd.co.tz", com.example.data.ChannelRepository.AZAM_CDN_HOST, ignoreCase = true)
             decryptor.stripMpdContentProtection(xml).toByteArray(Charsets.UTF_8)
         } else {
-            decryptor.processMp4Segment(rawBytes, streamKey)
+            decryptor.processMp4Segment(rawBytes)
         }
 
         transformedData = processedBytes

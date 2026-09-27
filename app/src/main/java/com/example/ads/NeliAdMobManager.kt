@@ -221,9 +221,11 @@ object NeliAdMobManager {
                 try {
                     MobileAds.initialize(appContext) {
                         mainHandler.post {
-                            preloadInterstitialAd(appContext)
                             preloadAppOpenAd(appContext)
                         }
+                        mainHandler.postDelayed({
+                            preloadInterstitialAd(appContext)
+                        }, 1200L)
                     }
                 } catch (_: Throwable) {
                 }
@@ -247,15 +249,15 @@ object NeliAdMobManager {
                 try {
                     MobileAds.initialize(appContext) {
                         mainHandler.post {
-                            preloadInterstitialAd(appContext)
                             preloadAppOpenAd(appContext)
                         }
+                        mainHandler.postDelayed({
+                            preloadInterstitialAd(appContext)
+                        }, 1200L)
                     }
                 } catch (_: Throwable) {
                 }
             }
-        } else {
-            preloadInterstitialAd(appContext)
         }
     }
 
@@ -341,64 +343,6 @@ object NeliAdMobManager {
             } catch (_: Throwable) {
                 isLoadingInterstitialAd = false
             }
-        }
-    }
-
-    /**
-     * Channel Tap Interstitial flow:
-     * When the user taps an Azam TV channel:
-     * -> if an Interstitial ad is loaded -> show interstitial -> ad closes -> open channel player automatically
-     * -> if no ad is loaded -> open channel player immediately and preload the next interstitial.
-     */
-    fun runChannelTapWithInterstitialIfEligible(
-        context: Context,
-        onOpenChannel: () -> Unit
-    ) {
-        val channelOpened = AtomicBoolean(false)
-        val openChannelOnce = {
-            if (channelOpened.compareAndSet(false, true)) {
-                onOpenChannel()
-            }
-        }
-
-        val activity = context.findActivity() ?: currentForegroundActivityRef?.get()
-        val loadedAd = interstitialAd
-        val now = System.currentTimeMillis()
-
-        if (activity == null || activity.isFinishing || loadedAd == null || isShowingFullScreenAd) {
-            openChannelOnce()
-            preloadInterstitialAd(context)
-            return
-        }
-
-        interstitialAd = null
-        isShowingFullScreenAd = true
-        lastInterstitialShownAtMs = now
-
-        loadedAd.fullScreenContentCallback = object : FullScreenContentCallback() {
-            override fun onAdDismissedFullScreenContent() {
-                isShowingFullScreenAd = false
-                lastAnyFullScreenAdDismissedAtMs = System.currentTimeMillis()
-                preloadInterstitialAd(activity)
-                openChannelOnce()
-            }
-
-            override fun onAdFailedToShowFullScreenContent(adError: AdError) {
-                isShowingFullScreenAd = false
-                preloadInterstitialAd(activity)
-                openChannelOnce()
-            }
-
-            override fun onAdShowedFullScreenContent() {
-                isShowingFullScreenAd = true
-            }
-        }
-
-        try {
-            loadedAd.show(activity)
-        } catch (_: Throwable) {
-            isShowingFullScreenAd = false
-            openChannelOnce()
         }
     }
 
