@@ -447,6 +447,48 @@ class ExampleRobolectricTest {
             parsedRelease.apkDownloadUrl
         )
 
+        // Verify that when a new release (v1.0.2) is posted on GitHub, the old app sees isNewUpdateAvailable = true,
+        // and once updated to v1.0.2, the updated app sees isNewUpdateAvailable = false (does NOT keep showing updates!)
+        val newReleaseV102Json = """
+            {
+              "tag_name": "v1.0.2",
+              "name": "Neli TV v1.0.2 Official Release",
+              "html_url": "https://github.com/baynith1/Nelitv/releases/tag/v1.0.2",
+              "body": "Bug fixes and playback improvements",
+              "published_at": "2026-09-27T01:00:00Z",
+              "assets": [
+                {
+                  "name": "Nelitv.apk",
+                  "browser_download_url": "https://github.com/baynith1/Nelitv/releases/download/v1.0.2/Nelitv.apk"
+                }
+              ]
+            }
+        """.trimIndent()
+        val beforeUpdateInfo = com.example.data.NeliAppUpdateManager.parseGitHubReleaseJson(
+            rawJson = newReleaseV102Json,
+            currentVersionTag = "v1.0.0"
+        )
+        assertNotNull(beforeUpdateInfo)
+        assertTrue(beforeUpdateInfo!!.isNewUpdateAvailable)
+
+        // Simulate completing the update to v1.0.2
+        com.example.data.NeliAppUpdateManager.markReleaseAsInstalled(
+            context = context,
+            versionTag = "v1.0.2",
+            publishedAt = beforeUpdateInfo.publishedAt,
+            apkUrl = beforeUpdateInfo.apkDownloadUrl
+        )
+        assertEquals("v1.0.2", com.example.data.NeliAppUpdateManager.getEffectiveInstalledVersionTag(context))
+        org.junit.Assert.assertFalse(com.example.data.NeliAppUpdateManager.releaseInfo.value.isNewUpdateAvailable)
+
+        // Re-checking GitHub inside the updated app must show isNewUpdateAvailable = false
+        val afterUpdateInfo = com.example.data.NeliAppUpdateManager.parseGitHubReleaseJson(
+            rawJson = newReleaseV102Json,
+            currentVersionTag = com.example.data.NeliAppUpdateManager.getEffectiveInstalledVersionTag(context)
+        )
+        assertNotNull(afterUpdateInfo)
+        org.junit.Assert.assertFalse(afterUpdateInfo!!.isNewUpdateAvailable)
+
         // 3. Verify tokenEndpointUrl JSON payload updates ChannelRepository
         val combinedTokenJson = """
             {
