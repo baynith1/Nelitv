@@ -24,46 +24,11 @@ class ExampleRobolectricTest {
     }
 
     @Test
-    fun `firestore movie series episode and tvChannel JSON documents parse properly`() {
-        val movieDocJson = """
-            {
-              "documents": [
-                {
-                  "name": "projects/neli-tv/databases/(default)/documents/movies/mov_1788911132603_wdgav",
-                  "fields": {
-                    "id": {"stringValue": "mov_1788911132603_wdgav"},
-                    "title": {"stringValue": "Never a Thief"},
-                    "originalTitle": {"stringValue": "缉盗"},
-                    "originalLanguage": {"stringValue": "zh"},
-                    "narrated": {"booleanValue": true},
-                    "narrationLanguage": {"stringValue": "Swahili"},
-                    "downloadEnabled": {"booleanValue": true},
-                    "featured": {"booleanValue": true},
-                    "published": {"booleanValue": true},
-                    "rating": {"doubleValue": 5.3},
-                    "runtime": {"integerValue": "120"},
-                    "year": {"integerValue": "2025"},
-                    "posterPath": {"stringValue": "https://image.tmdb.org/t/p/w500/ui5Ujx256vAI5JbXzeTGVwMkVhs.jpg"},
-                    "backdropPath": {"stringValue": "https://image.tmdb.org/t/p/original/vuq5EfA9ED9vnxQgEV4zWEAFmKJ.jpg"},
-                    "streamUrl": {"stringValue": "https://vz-1bb50f2e-8ea.b-cdn.net/9d14eb59-d3a0-4b01-9010-ba9bc5492865/play_480p.mp4"},
-                    "genres": {"arrayValue": {"values": [{"stringValue": "Crime"}]}}
-                  }
-                }
-              ]
-            }
-        """.trimIndent()
-
-        val count = MediaContentRepository.parseFirestoreCollections(
-            moviesJson = movieDocJson
-        )
-        assertEquals(1, count)
-        val movie = MediaContentRepository.getMediaById("mov_1788911132603_wdgav")
-        assertNotNull(movie)
-        assertEquals("Never a Thief", movie!!.title)
-        assertTrue(movie.narrated)
-        assertEquals("Swahili", movie.narrationLanguage)
-        assertTrue(movie.shouldAutoSkipSwahiliMovieIntro)
-        assertTrue(movie.toPlayableChannel().isSwahiliNarratedMovie)
+    fun `azam tv only streaming app has empty movie and series catalogs and 13 built-in azam channels`() {
+        assertTrue(MediaContentRepository.mediaCatalog.value.isEmpty())
+        assertTrue(MediaContentRepository.episodesCatalog.value.isEmpty())
+        assertEquals(13, com.example.data.ChannelRepository.channels.size)
+        assertTrue(com.example.data.ChannelRepository.channels.all { it.isDash && it.isClearKey })
     }
 
     @Test
@@ -236,12 +201,13 @@ class ExampleRobolectricTest {
         val allChannels = com.example.data.ChannelRepository.channels
         val azamChannels = com.example.data.ChannelRepository.azamPriorityChannels
 
-        // Ensure extra Azam TV channels were added (17 Azam TV priority channels total)
-        assertTrue(azamChannels.size >= 16)
-        assertTrue(azamChannels.any { it.name.equals("Azam Xtra HD", ignoreCase = true) })
-        assertTrue(azamChannels.any { it.name.equals("Azam Movies HD", ignoreCase = true) })
-        assertTrue(azamChannels.any { it.name.equals("Clouds TV HD", ignoreCase = true) })
-        assertTrue(azamChannels.any { it.name.equals("ITV Tanzania HD", ignoreCase = true) })
+        // Ensure all 13 Azam TV priority channels are built-in inside the app
+        assertEquals(13, allChannels.size)
+        assertEquals(13, azamChannels.size)
+        assertTrue(azamChannels.any { it.name.equals("Azam Sports 1 HD", ignoreCase = true) })
+        assertTrue(azamChannels.any { it.name.equals("Azam One", ignoreCase = true) })
+        assertTrue(azamChannels.any { it.name.equals("Sinema Zetu", ignoreCase = true) })
+        assertTrue(azamChannels.any { it.name.equals("UTV", ignoreCase = true) })
 
         // Ensure Azam Sports 1-4, Azam One, Azam Two, Sinema Zetu use .mpd links with cdntoken and clearkey
         val azamSports1 = allChannels.first { it.name.contains("Azam Sports 1", ignoreCase = true) }
@@ -262,19 +228,16 @@ class ExampleRobolectricTest {
         assertTrue(com.example.data.ChannelRepository.updateCdnAuthorizationToken(tokenJson))
         assertEquals(1790412582L, com.example.data.ChannelRepository.AZAM_CDN_EXP)
 
-        // Ensure .m3u8 channels remain .m3u8 untouched
-        val hlsChannels = allChannels.filter { it.streamUrl.contains(".m3u8", ignoreCase = true) }
-        assertTrue(hlsChannels.isNotEmpty())
-        hlsChannels.forEach { ch ->
-            assertEquals(
-                ch.streamUrl,
-                com.example.data.ChannelRepository.normalizeDashStreamUrl(ch.streamUrl)
-            )
-        }
+        // Ensure .m3u8 URLs remain .m3u8 untouched by normalizeDashStreamUrl
+        val sampleHlsUrl = "https://example.com/live/stream.m3u8"
+        assertEquals(
+            sampleHlsUrl,
+            com.example.data.ChannelRepository.normalizeDashStreamUrl(sampleHlsUrl)
+        )
     }
 
     @Test
-    fun `daily east africa time notifications and home widget 2026 non-adult movies and azam channels are configured`() {
+    fun `daily east africa time notifications and home widget azam channels are configured`() {
         val context = ApplicationProvider.getApplicationContext<Context>()
 
         // 1. Verify all 4 daily EAT notification slots (7:00, 13:00, 16:00, 19:30 Africa/Dar_es_Salaam)
@@ -291,20 +254,11 @@ class ExampleRobolectricTest {
 
         com.example.notifications.NeliNotificationScheduler.scheduleAllDailyNotifications(context)
 
-        // 2. Verify top 3 2026 non-adult movies for Home Widget bottom row
-        val movies2026 = MediaContentRepository.getLatest2026NonAdultMovies(3)
-        assertEquals(3, movies2026.size)
-        movies2026.forEach { movie ->
-            assertEquals("2026", movie.releaseYear)
-            org.junit.Assert.assertFalse(movie.isAdultContent)
-            org.junit.Assert.assertFalse(movie.genre.contains("Adult", ignoreCase = true))
-        }
-
-        // 3. Verify Low Bando Saver mode exists in NetworkQualityMode
+        // 2. Verify Low Bando Saver mode exists in NetworkQualityMode
         val lowBandoMode = com.example.player.NetworkQualityMode.ULTRA_LOW_BANDO_SAVER
         assertTrue(lowBandoMode.label.contains("Low Bando", ignoreCase = true))
 
-        // 4. Verify widget update executes cleanly without throwing
+        // 3. Verify widget update executes cleanly without throwing
         com.example.widget.NeliHomeWidgetProvider.updateAllWidgets(context)
     }
 
@@ -558,34 +512,13 @@ class ExampleRobolectricTest {
     }
 
     @Test
-    fun `bottom menu 5 tabs homepage all channels priority discovery first genre deduplication and adult images work properly`() {
-        // 1. Verify BottomNavTab has exactly Home, Discovery, Search, Download, Account
-        val tabs = com.example.ui.components.BottomNavTab.entries.map { it.label }
-        assertEquals(listOf("Home", "Discovery", "Search", "Download", "Account"), tabs)
-
-        // 2. Verify Homepage includes all channels prioritized by Azam TV -> Tanzania -> Other
+    fun `azam tv only streaming pages homepage ads interstitial on channel tap and navigation work properly`() {
+        // 1. Verify Homepage includes all 13 Azam TV channels stored locally in the app
         val prioritized = com.example.data.ChannelRepository.getPrioritizedAllChannels()
-        assertTrue(prioritized.size >= 36)
-        assertTrue(prioritized.first().isAzamPriority)
-        val firstNonTanzaniaIdx = prioritized.indexOfFirst { !it.isTanzaniaChannel }
-        val lastAzamIdx = prioritized.indexOfLast { it.isAzamPriority }
-        assertTrue(lastAzamIdx < firstNonTanzaniaIdx)
+        assertEquals(13, prioritized.size)
+        assertTrue(prioritized.all { it.isAzamPriority && it.isDash && it.isClearKey })
 
-        // 3. Verify Discovery groups movies strictly by their 1st genre only (zero duplicate movies)
-        val groupedMovies = MediaContentRepository.getMoviesStrictlyByFirstGenre()
-        assertTrue(groupedMovies.isNotEmpty())
-        val allAssignedIds = groupedMovies.flatMap { (_, movies) -> movies.map { it.id } }
-        assertEquals(allAssignedIds.distinct().size, allAssignedIds.size)
-
-        // 4. Verify Adult content always has non-blank poster and thumbnail URLs
-        val adults = MediaContentRepository.getAdultContentCatalog()
-        assertTrue(adults.isNotEmpty())
-        adults.forEach { adult ->
-            assertTrue(adult.posterUrl.startsWith("https://"))
-            assertTrue(adult.backdropUrl.startsWith("https://"))
-        }
-
-        // 5. Verify expired CDN tokens are rejected so stale Firebase tokens never break Azam TV
+        // 2. Verify expired CDN tokens are rejected so stale tokens never break Azam TV
         val expiredTokenJson = """
             {
               "token": "eyJhbGciOiJIUzUxMiJ9.eyJleHAiOiIxNjAwMDAwMDAwIn0.sig",
@@ -597,101 +530,40 @@ class ExampleRobolectricTest {
             com.example.data.ChannelRepository.updateCdnAuthorizationToken(expiredTokenJson)
         )
 
-        // 6. Verify Pull-to-Refresh refreshes the Live TV channel list in-place while preserving priority
+        // 3. Verify Pull-to-Refresh refreshes the Live TV channel list in-place while preserving priority
         val refreshedList = com.example.data.ChannelRepository.refreshLiveChannels()
-        assertTrue(refreshedList.size >= 36)
+        assertEquals(13, refreshedList.size)
         assertTrue(refreshedList.first().isAzamPriority)
         assertTrue(com.example.data.ChannelRepository.lastRefreshedEpochMs > 0L)
 
-        // 7. Verify Discovery banner text ("Furahia Movie Nzuri kutoka kwa Madjs Wazuri")
-        assertEquals(
-            "Furahia Movie Nzuri kutoka kwa Madjs Wazuri",
-            com.example.ui.screens.DISCOVERY_MADJS_BANNER_TEXT
-        )
-
-        // 8. Verify Offline Mode sends user directly to Download page & Movie/Series Watchpage Back -> Movie Details -> Discovery
+        // 4. Verify NeliViewModel only allows HOME, SEARCH, and ACCOUNT tabs (no Discovery or Downloads)
         val app = ApplicationProvider.getApplicationContext<android.app.Application>()
         val vm = com.example.ui.NeliViewModel(app)
 
-        // Offline mode directs immediately to Download tab
-        vm.updateOfflineState(true)
-        assertTrue(vm.isOfflineMode.value)
-        assertEquals(com.example.ui.components.BottomNavTab.DOWNLOAD, vm.selectedTab.value)
+        assertEquals(com.example.ui.components.BottomNavTab.HOME, vm.selectedTab.value)
+        vm.selectTab(com.example.ui.components.BottomNavTab.SEARCH)
+        assertEquals(com.example.ui.components.BottomNavTab.SEARCH, vm.selectedTab.value)
+        vm.selectTab(com.example.ui.components.BottomNavTab.ACCOUNT)
+        assertEquals(com.example.ui.components.BottomNavTab.ACCOUNT, vm.selectedTab.value)
 
-        // Back online
-        vm.updateOfflineState(false)
-        vm.selectTab(com.example.ui.components.BottomNavTab.HOME)
+        // Trying to select removed tabs (DISCOVERY / DOWNLOAD) redirects to HOME
+        vm.selectTab(com.example.ui.components.BottomNavTab.DISCOVERY)
+        assertEquals(com.example.ui.components.BottomNavTab.HOME, vm.selectedTab.value)
+        vm.selectTab(com.example.ui.components.BottomNavTab.DOWNLOAD)
         assertEquals(com.example.ui.components.BottomNavTab.HOME, vm.selectedTab.value)
 
-        // User watches a Movie on Watchpage and presses Back -> must go to Movie Details page of that movie (never Homepage), then Back -> Discovery
-        val sampleMovie = MediaContentRepository.mediaCatalog.value.first { it.isMovie && !it.isAdultContent }
-        vm.onReturnFromWatchPage(sampleMovie.toPlayableChannel())
-        assertEquals( sampleMovie.id, vm.selectedMediaId.value)
-        assertEquals(com.example.ui.components.BottomNavTab.DISCOVERY, vm.selectedTab.value)
+        // Offline mode keeps user on Homepage (does not redirect to removed Download tab)
+        vm.updateOfflineState(true)
+        assertTrue(vm.isOfflineMode.value)
+        assertEquals(com.example.ui.components.BottomNavTab.HOME, vm.selectedTab.value)
+        vm.updateOfflineState(false)
 
-        // Pressing Back from Movie Details page sends user to Discovery
-        vm.navigateBackFromMediaDetails()
-        assertEquals(null, vm.selectedMediaId.value)
-        assertEquals(com.example.ui.components.BottomNavTab.DISCOVERY, vm.selectedTab.value)
+        // Returning from Watching Page returns to Homepage
+        val sampleChannel = com.example.data.ChannelRepository.channels.first()
+        vm.onReturnFromWatchPage(sampleChannel)
+        assertEquals(com.example.ui.components.BottomNavTab.HOME, vm.selectedTab.value)
 
-        // User watches a Series Episode on Watchpage and presses Back -> must go to Series Details page of that series, then Back -> Discovery
-        val sampleEpisode = MediaContentRepository.episodesCatalog.value.first()
-        vm.selectTab(com.example.ui.components.BottomNavTab.HOME)
-        vm.onReturnFromWatchPage(sampleEpisode.toPlayableChannel("Series"))
-        assertEquals(sampleEpisode.seriesId, vm.selectedMediaId.value)
-        assertEquals(com.example.ui.components.BottomNavTab.DISCOVERY, vm.selectedTab.value)
-
-        vm.navigateBackFromMediaDetails()
-        assertEquals(null, vm.selectedMediaId.value)
-        assertEquals(com.example.ui.components.BottomNavTab.DISCOVERY, vm.selectedTab.value)
-
-        // 9. Verify Adult aliases ("X", "xxx", "X video", "porn") & Firebase Adult Genre/Category grouping and search
-        assertTrue(MediaContentRepository.isAdultKeywordOrQuery("X"))
-        assertTrue(MediaContentRepository.isAdultKeywordOrQuery("xxx"))
-        assertTrue(MediaContentRepository.isAdultKeywordOrQuery("X video"))
-        assertTrue(MediaContentRepository.isAdultKeywordOrQuery("porn"))
-        assertTrue(MediaContentRepository.isAdultKeywordOrQuery("18+"))
-        org.junit.Assert.assertFalse(MediaContentRepository.isAdultKeywordOrQuery("Box Office Action"))
-
-        val adultFirestoreJson = """
-            {
-              "documents": [
-                {
-                  "name": "projects/neliplay/databases/(default)/documents/adults/adult_fb_1",
-                  "fields": {
-                    "id": {"stringValue": "adult_fb_1"},
-                    "title": {"stringValue": "Late Night X Video Special"},
-                    "streamUrl": {"stringValue": "https://vz-1bb50f2e-8ea.b-cdn.net/9d14eb59-d3a0-4b01-9010-ba9bc5492865/play_480p.mp4"},
-                    "genre": {"stringValue": "X Video"},
-                    "category": {"stringValue": "Porn"},
-                    "genres": {"arrayValue": {"values": [{"stringValue": "X Video"}, {"stringValue": "XXX"}, {"stringValue": "Porn"}]}},
-                    "published": {"booleanValue": true}
-                  }
-                }
-              ]
-            }
-        """.trimIndent()
-        MediaContentRepository.parseFirestoreCollections(adultsJson = adultFirestoreJson)
-        val parsedAdult = MediaContentRepository.getMediaById("adult_fb_1")
-        assertNotNull(parsedAdult)
-        assertTrue(parsedAdult!!.isAdultContent)
-        assertEquals("X Video", parsedAdult.primaryGenre)
-
-        val groupedAdults = MediaContentRepository.getAdultsGroupedByGenreAndCategory()
-        assertTrue(groupedAdults.any { it.first.equals("X Video", ignoreCase = true) })
-        assertTrue(groupedAdults.any { it.first.equals("XXX", ignoreCase = true) })
-        assertTrue(groupedAdults.any { it.first.equals("Porn", ignoreCase = true) })
-
-        // Verify searching by "X", "xxx", "X video", "porn" matches adult items
-        listOf("X", "xxx", "X video", "porn").forEach { query ->
-            val results = MediaContentRepository.mediaCatalog.value.filter {
-                MediaContentRepository.matchesMediaSearch(it, query, "All")
-            }
-            assertTrue("Expected adult search results for '$query'", results.isNotEmpty())
-            assertTrue(results.all { it.isAdultContent })
-        }
-
-        // 10. Verify AdMob app-ads.txt, Application startup initialization, test device ID config, playback protection, cooldowns, and Download flow
+        // 5. Verify AdMob app-ads.txt, Application startup initialization, test device ID config, playback protection, and Interstitial on channel tap
         val neliApp = app as? com.example.NeliApplication
         assertNotNull("Expected Application context to be NeliApplication", neliApp)
         assertTrue(com.example.ads.NeliAdMobManager.isApplicationInitialized)
@@ -737,14 +609,6 @@ class ExampleRobolectricTest {
             com.example.ads.NeliAdMobManager.NATIVE_ADVANCED_AD_UNIT_ID,
             com.example.ads.NeliAdMobManager.resolveNativeAdUnitId()
         )
-        assertEquals(
-            com.example.ads.NeliAdMobManager.BANNER_AD_UNIT_ID,
-            com.example.ads.NeliAdMobManager.resolveBannerAdUnitId(useTestAds = false)
-        )
-        assertEquals(
-            com.example.ads.NeliAdMobManager.TEST_BANNER_AD_UNIT_ID,
-            com.example.ads.NeliAdMobManager.resolveBannerAdUnitId(useTestAds = true)
-        )
 
         // Verify NO ADS inside the video player / while playback is active
         com.example.ads.NeliAdMobManager.resetForTesting()
@@ -756,43 +620,30 @@ class ExampleRobolectricTest {
         org.junit.Assert.assertFalse(com.example.ads.NeliAdMobManager.isAppOpenEligible(1_000_000L))
         com.example.ads.NeliAdMobManager.updatePlaybackActiveState(false)
 
-        // Verify Interstitial is never shown immediately after an App Open ad
-        com.example.ads.NeliAdMobManager.lastAppOpenShownAtMs = 1_000_000L
-        org.junit.Assert.assertFalse(com.example.ads.NeliAdMobManager.isInterstitialEligible(1_010_000L))
-        assertTrue(com.example.ads.NeliAdMobManager.isInterstitialEligible(1_000_000L + com.example.ads.NeliAdMobManager.POST_APP_OPEN_GRACE_MS + 1000L))
-
-        // Verify Download starts immediately without a second press when no interstitial is loaded
-        var downloadTriggeredCount = 0
-        com.example.ads.NeliAdMobManager.runDownloadWithInterstitialIfEligible(app) {
-            downloadTriggeredCount++
+        // Verify tapping a channel invokes runChannelTapWithInterstitialIfEligible and opens the channel
+        var channelOpenedCount = 0
+        com.example.ads.NeliAdMobManager.runChannelTapWithInterstitialIfEligible(app) {
+            channelOpenedCount++
         }
-        assertEquals(1, downloadTriggeredCount)
+        assertEquals(1, channelOpenedCount)
 
-        // 11. Verify Homepage channel categories order (Azam TV -> Sports -> Entertainment -> Kids -> News -> Movies -> ...),
+        // 6. Verify Homepage channel categories order (Azam TV -> Sports -> Entertainment -> News -> Movies -> Music -> Tanzania),
         // 6-channel vertical chunking for Muted Video Ads, and guaranteed channel logos
         val homepageCategories = com.example.data.ChannelRepository.getChannelsGroupedByHomepageCategories()
         assertTrue(homepageCategories.size >= 6)
-        val firstSixTitles = homepageCategories.take(6).map { it.first }
+        val firstFiveTitles = homepageCategories.take(5).map { it.first }
         assertEquals(
-            listOf("Azam TV", "Sports", "Entertainment", "Kids", "News", "Movies"),
-            firstSixTitles
+            listOf("Azam TV", "Sports", "Entertainment", "News", "Movies"),
+            firstFiveTitles
         )
-        // First category ("Azam TV") must contain all Azam TV priority channels
-        assertTrue(homepageCategories.first().second.size >= 17)
+        // First category ("Azam TV") must contain all 13 Azam TV channels
+        assertEquals(13, homepageCategories.first().second.size)
         assertTrue(homepageCategories.first().second.all { it.isAzamPriority })
 
         // Verify All Channels vertical chunking groups channels into blocks of 6 for Muted Video Ads
         val sixChannelBlocks = com.example.data.ChannelRepository.getAllChannelsChunkedEverySixForAds()
         assertTrue(sixChannelBlocks.isNotEmpty())
         assertEquals(6, sixChannelBlocks.first().size)
-        assertEquals(
-            com.example.ads.NeliAdMobManager.TEST_NATIVE_VIDEO_AD_UNIT_ID,
-            com.example.ads.NeliAdMobManager.resolveNativeVideoAdUnitId(useTestAds = true)
-        )
-        assertEquals(
-            com.example.ads.NeliAdMobManager.NATIVE_ADVANCED_AD_UNIT_ID,
-            com.example.ads.NeliAdMobManager.resolveNativeVideoAdUnitId(useTestAds = false)
-        )
 
         // Verify every channel in All Channels has a valid https:// logo URL and fallback logo URL
         com.example.data.ChannelRepository.getPrioritizedAllChannels().forEach { ch ->
@@ -800,31 +651,6 @@ class ExampleRobolectricTest {
             val fallbackLogo = com.example.data.ChannelRepository.resolveFallbackChannelLogoUrl(ch)
             assertTrue("Channel ${ch.name} must have a valid fallback logo URL", fallbackLogo.startsWith("https://"))
         }
-
-        // Verify Firestore tvChannels custom logo fields (e.g. channelLogo / iconUrl) are extracted and visible in All Channels
-        val customChannelFirestoreJson = """
-            {
-              "documents": [
-                {
-                  "name": "projects/neli-tv/databases/(default)/documents/tvChannels/custom_tz_ch_1",
-                  "fields": {
-                    "id": {"stringValue": "custom_tz_ch_1"},
-                    "name": {"stringValue": "Bongo Star TV"},
-                    "streamUrl": {"stringValue": "https://example.com/live/bongostar.m3u8"},
-                    "category": {"stringValue": "Entertainment"},
-                    "country": {"stringValue": "Tanzania"},
-                    "channelLogo": {"stringValue": "https://i.ibb.co/8gtr1n42/1000221072.jpg"},
-                    "enabled": {"booleanValue": true},
-                    "published": {"booleanValue": true}
-                  }
-                }
-              ]
-            }
-        """.trimIndent()
-        MediaContentRepository.parseFirestoreCollections(tvChannelsJson = customChannelFirestoreJson)
-        val syncedChannel = com.example.data.ChannelRepository.getChannelById("custom_tz_ch_1")
-        assertNotNull(syncedChannel)
-        assertEquals("https://i.ibb.co/8gtr1n42/1000221072.jpg", syncedChannel!!.thumbnailUrl)
     }
 
     @Test
@@ -1202,49 +1028,7 @@ class ExampleRobolectricTest {
         )
         assertTrue("Expected file:// URI when resolving by media ID, got $resolvedByIdUri", resolvedByIdUri.startsWith("file:"))
 
-        // 10. Verify Dynamic Movie Rotation & Studio Admin New Movie Surfacing:
-        //     - Rotating catalog seed changes movie order in spotlight & genre shelves so users never see a static list
-        //     - Newly added Studio Admin movies (with createdAtEpochMs) are surfaced and rotated across shelves
-        val baseMovies = MediaContentRepository.mediaCatalog.value.filter { !it.isSeries }
-        assertTrue("Expected expanded movie catalog with at least 10 movies, got ${baseMovies.size}", baseMovies.size >= 10)
-
-        val spotlightSeedA = MediaContentRepository.getRotatingSpotlightMovies(
-            catalog = MediaContentRepository.mediaCatalog.value,
-            rotationSeed = 101L,
-            limit = 10
-        )
-        val spotlightSeedB = MediaContentRepository.getRotatingSpotlightMovies(
-            catalog = MediaContentRepository.mediaCatalog.value,
-            rotationSeed = 202L,
-            limit = 10
-        )
-        assertTrue("Spotlight movies must not be empty", spotlightSeedA.isNotEmpty())
-        org.junit.Assert.assertNotEquals(
-            "Rotating seed must dynamically change movie order so users see fresh movies",
-            spotlightSeedA.map { it.id },
-            spotlightSeedB.map { it.id }
-        )
-
-        val genreRowsSeedA = MediaContentRepository.getMoviesStrictlyByFirstGenre(
-            catalog = MediaContentRepository.mediaCatalog.value,
-            rotationSeed = 101L
-        )
-        val genreRowsSeedB = MediaContentRepository.getMoviesStrictlyByFirstGenre(
-            catalog = MediaContentRepository.mediaCatalog.value,
-            rotationSeed = 202L
-        )
-        assertTrue("Genre shelves must not be empty", genreRowsSeedA.isNotEmpty())
-        org.junit.Assert.assertNotEquals(
-            "Rotating seed must dynamically rotate genre shelf order or movie order within shelves",
-            genreRowsSeedA.flatMap { (_, list) -> list.map { it.id } },
-            genreRowsSeedB.flatMap { (_, list) -> list.map { it.id } }
-        )
-
-        val prevSeed = MediaContentRepository.catalogRotationSeed.value
-        val nextSeed = MediaContentRepository.rotateMovieCatalogOrder()
-        org.junit.Assert.assertNotEquals("rotateMovieCatalogOrder must advance rotation seed", prevSeed, nextSeed)
-
-        // 11. Verify Auto Full HD <-> Low Data 2-state stability (no intermediate 720p/480p/360p oscillation)
+        // 10. Verify Auto Full HD <-> Low Data 2-state stability (no intermediate 720p/480p/360p oscillation)
         assertEquals("Auto Full HD", com.example.player.NetworkQualityMode.AUTO_ADAPTIVE.label)
         val steadyAutoHd = controller.evaluateAndApplyAdaptiveTrackSelection(
             estimatedBitrateBps = 1_400_000L,
@@ -1279,240 +1063,6 @@ class ExampleRobolectricTest {
             rebufferCountOverride = 0
         )
         assertEquals(com.example.player.AdaptiveQualityTier.FULL_HD_1080P, restoredToAutoHd)
-
-        // 12. Verify NeliPlay Firebase Configuration & All 8 Firestore Collections Schema Support
-        assertEquals("neliplay", MediaContentRepository.DEFAULT_PROJECT_ID)
-        assertEquals("neliplay.firebaseapp.com", MediaContentRepository.DEFAULT_AUTH_DOMAIN)
-        assertEquals("https://neliplay-default-rtdb.firebaseio.com", MediaContentRepository.DEFAULT_DATABASE_URL)
-        assertEquals("neliplay.firebasestorage.app", MediaContentRepository.DEFAULT_STORAGE_BUCKET)
-        assertEquals("39702563643", MediaContentRepository.DEFAULT_MESSAGING_SENDER_ID)
-        assertEquals("1:39702563643:web:7dfc69461cbc615483051e", MediaContentRepository.DEFAULT_WEB_APP_ID)
-        assertEquals("G-ZXL5195YHY", MediaContentRepository.DEFAULT_MEASUREMENT_ID)
-
-        val sampleMoviesFirestoreJson = """
-            {
-              "documents": [
-                {
-                  "name": "projects/neliplay/databases/(default)/documents/movies/mov_1788911132603_wdgav",
-                  "fields": {
-                    "id": { "stringValue": "mov_1788911132603_wdgav" },
-                    "title": { "stringValue": "Movie Title" },
-                    "originalTitle": { "stringValue": "Original Movie Title" },
-                    "overview": { "stringValue": "Movie description" },
-                    "posterPath": { "stringValue": "https://example.com/poster.jpg" },
-                    "backdropPath": { "stringValue": "https://example.com/backdrop.jpg" },
-                    "posterUrl": { "stringValue": "https://example.com/poster.jpg" },
-                    "thumbnailUrl": { "stringValue": "https://example.com/thumbnail.jpg" },
-                    "backdropUrl": { "stringValue": "https://example.com/backdrop.jpg" },
-                    "imageUrl": { "stringValue": "https://example.com/image.jpg" },
-                    "streamUrl": { "stringValue": "https://example.com/movie.mp4" },
-                    "playbackUrl": { "stringValue": "https://example.com/movie.m3u8" },
-                    "downloadUrl": { "stringValue": "https://example.com/movie.mp4" },
-                    "subtitleUrl": { "stringValue": "" },
-                    "categoryId": { "stringValue": "movie" },
-                    "allowStreaming": { "booleanValue": true },
-                    "allowDownload": { "booleanValue": true },
-                    "youtubeVideoId": { "stringValue": "" },
-                    "youtubeUrl": { "stringValue": "" }
-                  }
-                },
-                {
-                  "name": "projects/neliplay/databases/(default)/documents/movies/incomplete_doc",
-                  "fields": {
-                    "id": { "stringValue": "incomplete_doc" }
-                  }
-                }
-              ]
-            }
-        """.trimIndent()
-
-        val sampleSeriesFirestoreJson = """
-            {
-              "documents": [
-                {
-                  "name": "projects/neliplay/databases/(default)/documents/series/series_001",
-                  "fields": {
-                    "id": { "stringValue": "series_001" },
-                    "title": { "stringValue": "Series Title" },
-                    "overview": { "stringValue": "Series description" },
-                    "posterPath": { "stringValue": "https://example.com/poster.jpg" },
-                    "backdropPath": { "stringValue": "https://example.com/backdrop.jpg" },
-                    "posterUrl": { "stringValue": "https://example.com/poster.jpg" },
-                    "backdropUrl": { "stringValue": "https://example.com/backdrop.jpg" },
-                    "categoryId": { "stringValue": "series" }
-                  }
-                }
-              ]
-            }
-        """.trimIndent()
-
-        val sampleEpisodesFirestoreJson = """
-            {
-              "documents": [
-                {
-                  "name": "projects/neliplay/databases/(default)/documents/episodes/episode_001",
-                  "fields": {
-                    "id": { "stringValue": "episode_001" },
-                    "seriesId": { "stringValue": "series_001" },
-                    "seasonNumber": { "integerValue": "1" },
-                    "episodeNumber": { "integerValue": "1" },
-                    "title": { "stringValue": "Episode 1" },
-                    "overview": { "stringValue": "Episode description" },
-                    "posterUrl": { "stringValue": "https://example.com/episode.jpg" },
-                    "streamUrl": { "stringValue": "https://example.com/episode.mp4" },
-                    "playbackUrl": { "stringValue": "https://example.com/episode.m3u8" },
-                    "downloadUrl": { "stringValue": "https://example.com/episode.mp4" },
-                    "subtitleUrl": { "stringValue": "" },
-                    "allowStreaming": { "booleanValue": true },
-                    "allowDownload": { "booleanValue": true }
-                  }
-                }
-              ]
-            }
-        """.trimIndent()
-
-        val sampleTvChannelsFirestoreJson = """
-            {
-              "documents": [
-                {
-                  "name": "projects/neliplay/databases/(default)/documents/tvChannels/channel_001",
-                  "fields": {
-                    "id": { "stringValue": "channel_001" },
-                    "name": { "stringValue": "Channel Name" },
-                    "logoUrl": { "stringValue": "https://example.com/logo.png" },
-                    "streamUrl": { "stringValue": "https://example.com/live.m3u8" },
-                    "category": { "stringValue": "Live TV" },
-                    "isLive": { "booleanValue": true }
-                  }
-                }
-              ]
-            }
-        """.trimIndent()
-
-        val sampleCategoriesFirestoreJson = """
-            {
-              "documents": [
-                {
-                  "name": "projects/neliplay/databases/(default)/documents/categories/action",
-                  "fields": {
-                    "id": { "stringValue": "action" },
-                    "name": { "stringValue": "Action" },
-                    "nameSw": { "stringValue": "Action" }
-                  }
-                }
-              ]
-            }
-        """.trimIndent()
-
-        val sampleSettingsFirestoreJson = """
-            {
-              "documents": [
-                {
-                  "name": "projects/neliplay/databases/(default)/documents/settings/app",
-                  "fields": {
-                    "maintenanceMode": { "booleanValue": false },
-                    "appName": { "stringValue": "NeliPlay" }
-                  }
-                }
-              ]
-            }
-        """.trimIndent()
-
-        val sampleNotificationsFirestoreJson = """
-            {
-              "documents": [
-                {
-                  "name": "projects/neliplay/databases/(default)/documents/notifications/notif_001",
-                  "fields": {
-                    "id": { "stringValue": "notif_001" },
-                    "title": { "stringValue": "New Movie Added" },
-                    "message": { "stringValue": "Watch Movie Title now on NeliPlay!" }
-                  }
-                }
-              ]
-            }
-        """.trimIndent()
-
-        val sampleUsersFirestoreJson = """
-            {
-              "documents": [
-                {
-                  "name": "projects/neliplay/databases/(default)/documents/users/user_001",
-                  "fields": {
-                    "id": { "stringValue": "user_001" },
-                    "displayName": { "stringValue": "NeliPlay User" }
-                  }
-                }
-              ]
-            }
-        """.trimIndent()
-
-        val totalSyncedCount = MediaContentRepository.parseFirestoreCollections(
-            moviesJson = sampleMoviesFirestoreJson,
-            seriesJson = sampleSeriesFirestoreJson,
-            episodesJson = sampleEpisodesFirestoreJson,
-            tvChannelsJson = sampleTvChannelsFirestoreJson,
-            categoriesJson = sampleCategoriesFirestoreJson,
-            settingsJson = sampleSettingsFirestoreJson,
-            notificationsJson = sampleNotificationsFirestoreJson,
-            usersJson = sampleUsersFirestoreJson
-        )
-        assertTrue("Expected at least 7 documents parsed across all collections, got $totalSyncedCount", totalSyncedCount >= 7)
-
-        val syncedMovie = MediaContentRepository.getMediaById("mov_1788911132603_wdgav")
-        assertNotNull("Expected movie mov_1788911132603_wdgav in catalog", syncedMovie)
-        assertEquals("Movie Title", syncedMovie!!.title)
-        assertEquals("Original Movie Title", syncedMovie.originalTitle)
-        assertEquals("Movie description", syncedMovie.synopsis)
-        assertEquals("https://example.com/poster.jpg", syncedMovie.posterUrl)
-        assertEquals("https://example.com/backdrop.jpg", syncedMovie.backdropUrl)
-        assertEquals("https://example.com/thumbnail.jpg", syncedMovie.thumbnailUrl)
-        assertEquals("https://example.com/image.jpg", syncedMovie.imageUrl)
-        assertEquals("https://example.com/movie.mp4", syncedMovie.streamUrl)
-        assertEquals("https://example.com/movie.m3u8", syncedMovie.playbackUrl)
-        assertEquals("https://example.com/movie.mp4", syncedMovie.downloadUrl)
-        assertTrue(syncedMovie.allowStreaming)
-        assertTrue(syncedMovie.allowDownload)
-
-        val syncedSeries = MediaContentRepository.getMediaById("series_001")
-        assertNotNull("Expected series_001 in catalog", syncedSeries)
-        assertEquals("Series Title", syncedSeries!!.title)
-        assertEquals("Series description", syncedSeries.synopsis)
-        assertEquals("https://example.com/poster.jpg", syncedSeries.posterUrl)
-        assertEquals("https://example.com/backdrop.jpg", syncedSeries.backdropUrl)
-        assertTrue("Expected series_001 to be marked as series", syncedSeries.isSeries)
-
-        val seriesEpisodes = MediaContentRepository.getEpisodesForSeries("series_001", 1)
-        assertTrue("Expected episode_001 linked to series_001 via seriesId", seriesEpisodes.any { it.id == "episode_001" })
-        val syncedEpisode = seriesEpisodes.first { it.id == "episode_001" }
-        assertEquals("Episode 1", syncedEpisode.name)
-        assertEquals("Episode 1", syncedEpisode.title)
-        assertEquals("Episode description", syncedEpisode.overview)
-        assertEquals("https://example.com/episode.jpg", syncedEpisode.posterUrl)
-        assertEquals("https://example.com/episode.mp4", syncedEpisode.streamUrl)
-        assertEquals("https://example.com/episode.m3u8", syncedEpisode.playbackUrl)
-        assertEquals("https://example.com/episode.mp4", syncedEpisode.downloadUrl)
-
-        val syncedChannel = com.example.data.ChannelRepository.getChannelById("channel_001")
-        assertNotNull("Expected channel_001 in Live TV catalog", syncedChannel)
-        assertEquals("Channel Name", syncedChannel!!.name)
-        assertEquals("https://example.com/live.m3u8", syncedChannel.streamUrl)
-        assertEquals("https://example.com/logo.png", syncedChannel.thumbnailUrl)
-        assertTrue(syncedChannel.isLiveBroadcast)
-
-        assertTrue(
-            "Expected 'action' category in categoriesCatalog",
-            MediaContentRepository.categoriesCatalog.value.any { it.id == "action" && it.name == "Action" && it.nameSw == "Action" }
-        )
-        assertEquals("NeliPlay", MediaContentRepository.firestoreSettings.value["appName"])
-        assertTrue(
-            "Expected notif_001 in firestoreNotifications",
-            MediaContentRepository.firestoreNotifications.value.any { it.id == "notif_001" }
-        )
-        assertTrue(
-            "Expected user_001 in firestoreUsers",
-            MediaContentRepository.firestoreUsers.value.containsKey("user_001")
-        )
 
         completedFile.delete()
         controller.release()

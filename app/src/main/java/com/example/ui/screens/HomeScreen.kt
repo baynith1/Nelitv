@@ -100,28 +100,15 @@ fun HomeScreen(
     val context = LocalContext.current
     val isOfflineMode by neliViewModel.isOfflineMode.collectAsState()
     val selectedTab by neliViewModel.selectedTab.collectAsState()
-    val selectedMediaId by neliViewModel.selectedMediaId.collectAsState()
 
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var selectedLiveCategory by rememberSaveable { mutableStateOf("All") }
-    var selectedDiscoveryFilter by rememberSaveable { mutableStateOf("All") }
     var selectedSearchCategory by rememberSaveable { mutableStateOf("All") }
     var isSearchOpen by rememberSaveable { mutableStateOf(false) }
 
-    val mediaCatalog by neliViewModel.mediaCatalog.collectAsState()
-    val episodesCatalog by neliViewModel.episodesCatalog.collectAsState()
-    val catalogRotationSeed by neliViewModel.catalogRotationSeed.collectAsState()
     val liveChannels by neliViewModel.liveChannels.collectAsState()
     val isRefreshingLiveTv by neliViewModel.isRefreshingLiveTv.collectAsState()
-    val isRefreshingDiscovery by neliViewModel.isRefreshingDiscovery.collectAsState()
-    val downloads by neliViewModel.downloads.collectAsState()
-    val downloadedIds by neliViewModel.downloadedIds.collectAsState()
-    val downloadingIds by neliViewModel.downloadingIds.collectAsState()
-    val downloadProgress by neliViewModel.downloadProgress.collectAsState()
-    val activeDownloadTitles by neliViewModel.activeDownloadTitles.collectAsState()
-    val downloadBannerMessage by neliViewModel.downloadBannerMessage.collectAsState()
     val watchlist by neliViewModel.watchlistItems.collectAsState()
-    val watchlistIds by neliViewModel.watchlistIds.collectAsState()
     val firebaseConfig by neliViewModel.firebaseConfig.collectAsState()
     val currentUser by neliViewModel.currentUser.collectAsState()
     val authError by neliViewModel.authError.collectAsState()
@@ -134,10 +121,6 @@ fun HomeScreen(
     LaunchedEffect(Unit) {
         neliViewModel.refreshConnectivityState()
         neliViewModel.attemptAutoGoogleSignInIfNeeded(context)
-    }
-
-    val activeDetailMedia = remember(selectedMediaId, mediaCatalog) {
-        selectedMediaId?.let { id -> mediaCatalog.find { it.id == id } }
     }
 
     // Handle back button:
@@ -401,27 +384,12 @@ private fun LiveTvHomeTab(
                             .testTag("homepage_offline_icon")
                     )
                     Text(
-                        text = "You're offline • Live streams require an internet connection to load.",
+                        text = "You're offline • Azam TV live streams require an internet connection to play.",
                         color = Color(0xFFFDE68A),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium,
                         modifier = Modifier.weight(1f)
                     )
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(Color(0x33F59E0B))
-                            .clickable { onOpenDownloads() }
-                            .padding(horizontal = 10.dp, vertical = 5.dp)
-                            .testTag("homepage_offline_downloads_button")
-                    ) {
-                        Text(
-                            text = "Downloads",
-                            color = Color(0xFFFBBF24),
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
                 }
             }
         }

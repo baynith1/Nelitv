@@ -1106,8 +1106,8 @@ private fun DiscoveryMadjsBanner(
 }
 
 /**
- * SEARCH TAB:
- * Everything is searchable (Live TV, Movies, Series, Adults, and Episodes) in a vertical multi-column grid.
+ * SEARCH PAGE:
+ * Searches Azam TV Live channels in a clean vertical multi-column grid.
  */
 @Composable
 fun SearchTabContent(
@@ -1122,89 +1122,19 @@ fun SearchTabContent(
     onChannelSelected: (LiveChannel) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val searchFilterTabs = remember(mediaList) {
-        val tabs = LinkedHashSet<String>()
-        tabs.addAll(
-            listOf(
-                "All",
-                "Live TV",
-                "Movies",
-                "Series",
-                "Adults",
-                "X Video",
-                "XXX",
-                "Porn",
-                "Swahili",
-                "Action",
-                "Sports",
-                "Drama"
-            )
-        )
-        MediaContentRepository.getAdultGenreAndCategoryFilters(mediaList)
-            .filter { !it.equals("All", ignoreCase = true) }
-            .forEach { tabs.add(it) }
-        tabs.toList()
+    val searchFilterTabs = remember {
+        ChannelRepository.categories
     }
 
     val allChannels = if (liveChannels.isNotEmpty()) liveChannels else ChannelRepository.channels
 
     val filteredChannels = remember(searchQuery, selectedCategory, allChannels) {
-        if (selectedCategory.equals("Movies", true) ||
-            selectedCategory.equals("Series", true) ||
-            selectedCategory.equals("Adults", true) ||
-            MediaContentRepository.isAdultKeywordOrQuery(selectedCategory) ||
-            MediaContentRepository.isAdultKeywordOrQuery(searchQuery)
-        ) {
-            emptyList()
+        val catFilter = if (selectedCategory.equals("Live TV", true)) {
+            "All"
         } else {
-            val catFilter = if (selectedCategory.equals("Live TV", true) || selectedCategory.equals("Swahili", true)) {
-                "All"
-            } else {
-                selectedCategory
-            }
-            ChannelRepository.filterChannels(searchQuery, catFilter)
+            selectedCategory
         }
-    }
-
-    val rotationSeed by MediaContentRepository.catalogRotationSeed.collectAsState()
-    val filteredMedia = remember(searchQuery, selectedCategory, mediaList, rotationSeed) {
-        if (selectedCategory.equals("Live TV", true)) {
-            emptyList()
-        } else {
-            val matched = mediaList.filter { item ->
-                MediaContentRepository.matchesMediaSearch(
-                    item = item,
-                    searchQuery = searchQuery,
-                    selectedCategory = selectedCategory
-                )
-            }
-            if (searchQuery.isBlank()) {
-                MediaContentRepository.rotateMediaListForSeed(matched, rotationSeed, "search_browse_$selectedCategory")
-            } else {
-                matched
-            }
-        }
-    }
-
-    val filteredEpisodes = remember(searchQuery, selectedCategory, episodesList) {
-        val q = searchQuery.trim()
-        if (selectedCategory.equals("Live TV", true) ||
-            selectedCategory.equals("Movies", true) ||
-            selectedCategory.equals("Adults", true) ||
-            MediaContentRepository.isAdultKeywordOrQuery(selectedCategory) ||
-            MediaContentRepository.isAdultKeywordOrQuery(q)
-        ) {
-            emptyList()
-        } else if (q.isEmpty() && !selectedCategory.equals("Series", true)) {
-            emptyList()
-        } else {
-            episodesList.filter { ep ->
-                q.isEmpty() ||
-                    ep.name.contains(q, ignoreCase = true) ||
-                    ep.overview.contains(q, ignoreCase = true) ||
-                    ep.narrationLanguage.contains(q, ignoreCase = true)
-            }
-        }
+        ChannelRepository.filterChannels(searchQuery, catFilter)
     }
 
     Column(
@@ -1225,7 +1155,7 @@ fun SearchTabContent(
                     .testTag("search_tab_input"),
                 placeholder = {
                     Text(
-                        text = "Search channels, movies, series...",
+                        text = "Search Azam TV channels...",
                         color = NeliTextSecondary,
                         fontSize = 14.sp
                     )
@@ -1256,7 +1186,7 @@ fun SearchTabContent(
             onCategorySelected = onCategorySelected
         )
 
-        if (filteredMedia.isEmpty() && filteredEpisodes.isEmpty() && filteredChannels.isEmpty()) {
+        if (filteredChannels.isEmpty()) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -1272,118 +1202,40 @@ fun SearchTabContent(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "No matching channels, movies, series, or adult titles found",
+                        text = "No matching Azam TV channels found",
                         color = NeliTextPrimary,
                         fontWeight = FontWeight.Bold
                     )
                 }
             }
         } else {
-            // Vertical multi-column layout only — no horizontal scrolling in Search
             LazyVerticalGrid(
                 columns = GridCells.Adaptive(minSize = 155.dp),
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 110.dp),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 36.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier
                     .fillMaxSize()
                     .testTag("channels_grid")
             ) {
-                if (filteredMedia.isNotEmpty()) {
-                    item(
-                        span = { GridItemSpan(maxLineSpan) },
-                        key = "search_header_media"
-                    ) {
-                        Text(
-                            text = "Movies, Series & Adults (${filteredMedia.size})",
-                            color = NeliTextPrimary,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            modifier = Modifier.padding(top = 4.dp, bottom = 2.dp)
-                        )
-                    }
-
-                    items(filteredMedia, key = { "search_media_${it.id}" }) { media ->
-                        MediaPosterCard(
-                            media = media,
-                            onClick = { onMediaSelected(media) },
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-
-                    // SEARCH: Native ad between result groups occasionally
-                    item(
-                        span = { GridItemSpan(maxLineSpan) },
-                        key = "search_native_ad_between_groups"
-                    ) {
-                        NeliNativeSearchAd(placementKey = "search_between_result_groups")
-                    }
+                item(
+                    span = { GridItemSpan(maxLineSpan) },
+                    key = "search_header_channels"
+                ) {
+                    Text(
+                        text = "Azam TV Channels (${filteredChannels.size})",
+                        color = NeliTextPrimary,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        modifier = Modifier.padding(top = 6.dp, bottom = 2.dp)
+                    )
                 }
 
-                if (filteredEpisodes.isNotEmpty()) {
-                    item(
-                        span = { GridItemSpan(maxLineSpan) },
-                        key = "search_header_episodes"
-                    ) {
-                        Text(
-                            text = "Series Episodes (${filteredEpisodes.size})",
-                            color = NeliGenreCyan,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            modifier = Modifier.padding(top = 6.dp, bottom = 2.dp)
-                        )
-                    }
-
-                    items(filteredEpisodes, key = { "search_ep_${it.id}" }) { ep ->
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(NeliCardPurple)
-                                .border(1.dp, NeliMagenta.copy(alpha = 0.45f), RoundedCornerShape(12.dp))
-                                .clickable { onChannelSelected(ep.toPlayableChannel()) }
-                                .padding(horizontal = 12.dp, vertical = 10.dp)
-                        ) {
-                            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                Text(
-                                    text = "S${ep.seasonNumber}E${ep.episodeNumber} • ${ep.name}",
-                                    color = NeliTextPrimary,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    text = "${ep.runtime} min • ${if (ep.narrated) ep.narrationLanguage else "HD"}",
-                                    color = NeliGenreCyan,
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            }
-                        }
-                    }
-                }
-
-                if (filteredChannels.isNotEmpty()) {
-                    item(
-                        span = { GridItemSpan(maxLineSpan) },
-                        key = "search_header_channels"
-                    ) {
-                        Text(
-                            text = "Live TV Channels (${filteredChannels.size})",
-                            color = NeliTextPrimary,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            modifier = Modifier.padding(top = 6.dp, bottom = 2.dp)
-                        )
-                    }
-
-                    items(filteredChannels, key = { "search_ch_${it.id}" }) { channel ->
-                        ChannelCard(
-                            channel = channel,
-                            onClick = { onChannelSelected(channel) }
-                        )
-                    }
+                items(filteredChannels, key = { "search_ch_${it.id}" }) { channel ->
+                    ChannelCard(
+                        channel = channel,
+                        onClick = { onChannelSelected(channel) }
+                    )
                 }
             }
         }
@@ -2378,7 +2230,7 @@ fun AccountTabContent(
                                 fontWeight = FontWeight.Medium
                             )
                             Text(
-                                text = "Account Synced • $downloadsCount Offline • ${watchlist.size} Watchlist",
+                                text = "Account Synced • Azam TV Live Streaming",
                                 color = NeliTextSecondary,
                                 fontSize = 11.sp
                             )
@@ -2447,7 +2299,7 @@ fun AccountTabContent(
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = "Sign in to sync your watchlist and downloads",
+                                text = "Sign in to sync your Azam TV streaming preferences",
                                 color = NeliTextSecondary,
                                 fontSize = 12.sp
                             )
@@ -2994,13 +2846,13 @@ fun AccountTabContent(
                         )
                         Column {
                             Text(
-                                text = "Stream & Download on Mobile Data",
+                                text = "Stream Live TV on Mobile Data",
                                 color = NeliTextPrimary,
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = "Watch movies, series & live TV smoothly on 3G/4G/5G mobile data and Wi-Fi",
+                                text = "Watch Azam TV live channels smoothly on 3G/4G/5G mobile data and Wi-Fi",
                                 color = NeliTextSecondary,
                                 fontSize = 11.sp
                             )
