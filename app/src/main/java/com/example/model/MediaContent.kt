@@ -66,6 +66,28 @@ data class CastMember(
 )
 
 /**
+ * Represents a category inside the Firestore `categories` collection.
+ */
+data class FirestoreCategoryItem(
+    val id: String,
+    val name: String,
+    val nameSw: String = name
+)
+
+/**
+ * Represents a notification inside the Firestore `notifications` collection.
+ */
+data class FirestoreNotificationItem(
+    val id: String,
+    val title: String,
+    val message: String,
+    val imageUrl: String = "",
+    val mediaId: String = "",
+    val channelId: String = "",
+    val createdAtEpochMs: Long = 0L
+)
+
+/**
  * Represents a season inside a Firestore `series` document (`seasons` array of maps).
  */
 data class SeriesSeason(
@@ -96,20 +118,32 @@ data class EpisodeItem(
     val narrationLanguage: String = "",
     val downloadEnabled: Boolean = true,
     val published: Boolean = true,
-    val viewsCount: Long = 0L
+    val viewsCount: Long = 0L,
+    val playbackUrl: String = streamUrl,
+    val downloadUrl: String = streamUrl,
+    val subtitleUrl: String = "",
+    val allowStreaming: Boolean = true,
+    val allowDownload: Boolean = downloadEnabled
 ) {
+    val title: String
+        get() = name
+
+    val posterUrl: String
+        get() = stillPath
+
     val durationLabel: String
         get() = if (runtime > 0) "${runtime}m" else "45m"
 
     fun toPlayableChannel(seriesTitle: String = ""): LiveChannel {
+        val effectiveStreamUrl = streamUrl.ifBlank { playbackUrl }.ifBlank { downloadUrl }
         val displayTitle = if (seriesTitle.isNotBlank()) {
             "$seriesTitle • S${seasonNumber}E${episodeNumber}: $name"
         } else {
             "S${seasonNumber}E${episodeNumber} • $name"
         }
         val format = when {
-            playbackType.equals("mp4", ignoreCase = true) || streamUrl.substringBefore("?").endsWith(".mp4", ignoreCase = true) -> "mp4"
-            playbackType.equals("dash", ignoreCase = true) || streamUrl.contains(".mpd", ignoreCase = true) -> "dash"
+            playbackType.equals("mp4", ignoreCase = true) || effectiveStreamUrl.substringBefore("?").endsWith(".mp4", ignoreCase = true) -> "mp4"
+            playbackType.equals("dash", ignoreCase = true) || effectiveStreamUrl.contains(".mpd", ignoreCase = true) -> "dash"
             else -> "hls"
         }
         return LiveChannel(
@@ -120,7 +154,7 @@ data class EpisodeItem(
             } else {
                 durationLabel
             },
-            streamUrl = streamUrl,
+            streamUrl = effectiveStreamUrl,
             streamFormat = format,
             thumbnailUrl = stillPath,
             categories = listOf("Series", if (narrated) narrationLanguage else "Drama"),
@@ -179,14 +213,28 @@ data class MediaContent(
     val numberOfEpisodes: Int = 0,
     val firstAirDate: String = "",
     val lastAirDate: String = "",
-    val seasons: List<SeriesSeason> = emptyList()
+    val seasons: List<SeriesSeason> = emptyList(),
+    val createdAtEpochMs: Long = 0L,
+    val thumbnailUrl: String = posterUrl,
+    val imageUrl: String = posterUrl,
+    val playbackUrl: String = streamUrl,
+    val downloadUrl: String = streamUrl,
+    val subtitleUrl: String = "",
+    val categoryId: String = type,
+    val allowStreaming: Boolean = true,
+    val allowDownload: Boolean = downloadEnabled,
+    val youtubeVideoId: String = "",
+    val youtubeUrl: String = ""
 ) {
     val isSeries: Boolean =
-        type.equals("series", ignoreCase = true) || type.equals("tv_show", ignoreCase = true)
+        type.equals("series", ignoreCase = true) ||
+            type.equals("tv_show", ignoreCase = true) ||
+            categoryId.equals("series", ignoreCase = true)
 
     val isAdult: Boolean by lazy(LazyThreadSafetyMode.PUBLICATION) {
         type.equals("adult", ignoreCase = true) ||
             com.example.data.MediaContentRepository.isAdultKeywordOrQuery(type) ||
+            com.example.data.MediaContentRepository.isAdultKeywordOrQuery(categoryId) ||
             com.example.data.MediaContentRepository.isAdultKeywordOrQuery(genre) ||
             subGenres.any { com.example.data.MediaContentRepository.isAdultKeywordOrQuery(it) }
     }
@@ -232,7 +280,8 @@ data class MediaContent(
         get() = synopsis
 
     fun toPlayableChannel(): LiveChannel {
-        val cleanPath = streamUrl.substringBefore("?").lowercase()
+        val effectiveStreamUrl = streamUrl.ifBlank { playbackUrl }.ifBlank { downloadUrl }
+        val cleanPath = effectiveStreamUrl.substringBefore("?").lowercase()
         val detectedFormat = when {
             cleanPath.endsWith(".mp4") || cleanPath.endsWith(".ts") ||
                     streamFormat.equals("mp4", ignoreCase = true) -> "mp4"
@@ -251,7 +300,7 @@ data class MediaContent(
                     append(narrationLanguage)
                 }
             },
-            streamUrl = streamUrl,
+            streamUrl = effectiveStreamUrl,
             streamFormat = detectedFormat,
             thumbnailUrl = backdropUrl.ifBlank { posterUrl },
             categories = subGenres,

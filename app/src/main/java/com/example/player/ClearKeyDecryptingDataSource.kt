@@ -39,10 +39,15 @@ class ClearKeyDecryptingDataSource(
     }
 
     private var currentUri: Uri? = null
+    private var currentResponseHeaders: Map<String, List<String>> = emptyMap()
     private var transformedData: ByteArray? = null
     private var readPosition: Int = 0
     private var bytesRemaining: Int = 0
     private var passthroughMode: Boolean = false
+
+    companion object {
+        private val PERIOD_SUFFIX_REGEX = Regex("""-p=\d+""", RegexOption.IGNORE_CASE)
+    }
 
     override fun open(dataSpec: DataSpec): Long {
         transferInitializing(dataSpec)
@@ -52,12 +57,20 @@ class ClearKeyDecryptingDataSource(
         val pathPart = uriString.substringBefore("?").lowercase()
 
         val isMpd = pathPart.endsWith(".mpd")
-        val isMp4Segment = pathPart.endsWith(".mp4") || pathPart.endsWith(".m4s") || pathPart.endsWith(".cmfv") || pathPart.endsWith(".cmfa")
+        val isMp4Segment = pathPart.endsWith(".mp4") ||
+            pathPart.endsWith(".m4s") ||
+            pathPart.endsWith(".cmfv") ||
+            pathPart.endsWith(".cmfa") ||
+            pathPart.endsWith(".dash") ||
+            pathPart.endsWith(".m4v") ||
+            pathPart.endsWith(".m4a") ||
+            pathPart.endsWith(".init")
 
         if (decryptor == null || (!isMpd && !isMp4Segment)) {
             passthroughMode = true
             val length = upstream.open(effectiveDataSpec)
             currentUri = upstream.uri ?: effectiveDataSpec.uri
+            currentResponseHeaders = upstream.responseHeaders
             transferStarted(effectiveDataSpec)
             return length
         }
@@ -65,24 +78,31 @@ class ClearKeyDecryptingDataSource(
         passthroughMode = false
 
         // Fetch full resource from upstream so we can parse/decrypt complete MP4 boxes or MPD XML
-        val fullFetchSpec = effectiveDataSpec.buildUpon()
+        var fullFetchSpec = effectiveDataSpec.buildUpon()
             .setPosition(0)
             .setLength(C.LENGTH_UNSET.toLong())
             .build()
 
-        upstream.open(fullFetchSpec)
-        currentUri = upstream.uri ?: effectiveDataSpec.uri
+        openUpstreamWithAzamFallbacks(fullFetchSpec)?.let { succeededSpec ->
+            fullFetchSpec = succeededSpec
+        }
+
+        currentUri = upstream.uri ?: fullFetchSpec.uri
+        currentResponseHeaders = upstream.responseHeaders
+        transferStarted(effectiveDataSpec)
 
         val rawBytes = readAllUpstreamBytes()
         upstream.close()
 
+        val rawFileName = pathPart.substringAfterLast("/").substringBeforeLast(".")
+        val streamKey = PERIOD_SUFFIX_REGEX.replace(rawFileName, "").substringBeforeLast("-")
         val processedBytes = if (isMpd) {
             val xml = String(rawBytes, Charsets.UTF_8)
                 .replace("http://cdnblncr.azamtvltd.co.tz", com.example.data.ChannelRepository.AZAM_CDN_HOST, ignoreCase = true)
                 .replace("https://cdnblncr.azamtvltd.co.tz", com.example.data.ChannelRepository.AZAM_CDN_HOST, ignoreCase = true)
             decryptor.stripMpdContentProtection(xml).toByteArray(Charsets.UTF_8)
         } else {
-            decryptor.processMp4Segment(rawBytes)
+            decryptor.processMp4Segment(rawBytes, streamKey)
         }
 
         transformedData = processedBytes
@@ -100,8 +120,62 @@ class ClearKeyDecryptingDataSource(
             }
         }
 
-        transferStarted(effectiveDataSpec)
         return bytesRemaining.toLong()
+    }
+
+    private fun openUpstreamWithAzamFallbacks(initialSpec: DataSpec): DataSpec? {
+        try {
+            upstream.open(initialSpec)
+            return initialSpec
+        } catch (e: androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException) {
+            val initialUrl = initialSpec.uri.toString()
+            if ((e.responseCode == 403 || e.responseCode == 401 || e.responseCode == 404) &&
+                initialUrl.contains("azamtvltd.co.tz", ignoreCase = true)
+            ) {
+                try {
+                    upstream.close()
+                } catch (_: Exception) {
+                }
+                val basePath = initialUrl.substringBefore("?")
+                val edgeBasePath = basePath
+                    .replace("http://cdnblncr.azamtvltd.co.tz", com.example.data.ChannelRepository.DEFAULT_AZAM_CDN_HOST, ignoreCase = true)
+                    .replace("https://cdnblncr.azamtvltd.co.tz", com.example.data.ChannelRepository.DEFAULT_AZAM_CDN_HOST, ignoreCase = true)
+                val lbBasePath = edgeBasePath.replace(
+                    com.example.data.ChannelRepository.DEFAULT_AZAM_CDN_HOST,
+                    com.example.data.ChannelRepository.DEFAULT_AZAM_LOAD_BALANCER_HOST,
+                    ignoreCase = true
+                )
+
+                val candidateUrls = linkedSetOf(
+                    "$edgeBasePath?cdntoken=${com.example.data.ChannelRepository.DEFAULT_AZAM_CDN_TOKEN_ENCODED}",
+                    "$edgeBasePath?cdntoken=${com.example.data.ChannelRepository.DEFAULT_AZAM_CDN_TOKEN}",
+                    "$lbBasePath?cdntoken=${com.example.data.ChannelRepository.DEFAULT_AZAM_CDN_TOKEN_ENCODED}",
+                    "$lbBasePath?cdntoken=${com.example.data.ChannelRepository.DEFAULT_AZAM_CDN_TOKEN}",
+                    "$edgeBasePath?cdntoken=${com.example.data.ChannelRepository.FALLBACK_AZAM_CDN_TOKEN}"
+                )
+                candidateUrls.remove(initialUrl)
+
+                for (candidateUrl in candidateUrls) {
+                    try {
+                        val candidateSpec = initialSpec.buildUpon()
+                            .setUri(Uri.parse(candidateUrl))
+                            .setPosition(0)
+                            .setLength(C.LENGTH_UNSET.toLong())
+                            .build()
+                        upstream.open(candidateSpec)
+                        return candidateSpec
+                    } catch (_: Exception) {
+                        try {
+                            upstream.close()
+                        } catch (_: Exception) {
+                        }
+                    }
+                }
+                throw e
+            } else {
+                throw e
+            }
+        }
     }
 
     override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
@@ -133,7 +207,7 @@ class ClearKeyDecryptingDataSource(
     }
 
     override fun getResponseHeaders(): Map<String, List<String>> {
-        return upstream.responseHeaders
+        return if (passthroughMode) upstream.responseHeaders else currentResponseHeaders
     }
 
     override fun close() {
@@ -148,6 +222,7 @@ class ClearKeyDecryptingDataSource(
             }
         }
         currentUri = null
+        currentResponseHeaders = emptyMap()
     }
 
     private fun resolveDataSpecToken(dataSpec: DataSpec): DataSpec {

@@ -14,22 +14,14 @@ import java.net.URL
 class ExampleUnitTest {
 
     @Test
-    fun `channel repository contains all 36 channels with 17 Azam DASH MPD streams and Tanzania priority`() {
-        assertEquals(36, ChannelRepository.channels.size)
-        val first17 = ChannelRepository.channels.take(17)
-        assertTrue(first17.all {
+    fun `channel repository contains all 13 Azam TV DASH MPD streams`() {
+        assertEquals(13, ChannelRepository.channels.size)
+        assertTrue(ChannelRepository.channels.all {
             it.isDash &&
                     it.streamUrl.startsWith(ChannelRepository.DEFAULT_AZAM_CDN_HOST) &&
                     it.streamUrl.contains(".mpd?cdntoken=") &&
                     it.isClearKey
         })
-
-        val popTz = ChannelRepository.getChannelById("tv_1788953482934_twaqe")
-        assertNotNull(popTz)
-        assertEquals("POP Animation Network", popTz!!.name)
-        assertEquals("Tanzania", popTz.country)
-        assertEquals(2, popTz.priorityTier)
-        assertTrue(popTz.streamUrl.endsWith(".m3u8", ignoreCase = true))
     }
 
     @Test
@@ -49,12 +41,10 @@ class ExampleUnitTest {
     }
 
     @Test
-    fun `all category returns all channels`() {
+    fun `all category returns all 13 Azam TV channels`() {
         val result = ChannelRepository.filterChannels(query = "", category = "All")
-        assertEquals(36, result.size)
-        // Verify priority order: Azam (3) -> Tanzania (2) -> Others (0)
-        assertEquals(3, result.first().priorityTier)
-        assertEquals(0, result.last().priorityTier)
+        assertEquals(13, result.size)
+        assertTrue(result.all { it.priorityTier == 3 })
     }
 
     @Test
@@ -67,9 +57,9 @@ class ExampleUnitTest {
         assertTrue(news.isNotEmpty())
         assertTrue(news.all { it.categories.any { cat -> cat.contains("news", ignoreCase = true) } })
 
-        val kids = ChannelRepository.filterChannels(query = "", category = "Kids")
-        assertTrue(kids.isNotEmpty())
-        assertTrue(kids.all { it.categories.any { cat -> cat.contains("kid", ignoreCase = true) } })
+        val movies = ChannelRepository.filterChannels(query = "", category = "Movies")
+        assertTrue(movies.isNotEmpty())
+        assertTrue(movies.all { it.categories.any { cat -> cat.contains("movie", ignoreCase = true) } })
 
         val tanzania = ChannelRepository.filterChannels(query = "", category = "Tanzania")
         assertTrue(tanzania.isNotEmpty())
@@ -88,8 +78,8 @@ class ExampleUnitTest {
         val azamUpper = ChannelRepository.filterChannels(query = "AZAM", category = "All")
         assertEquals(azamLower.size, azamUpper.size)
 
-        val bbc = ChannelRepository.filterChannels(query = "bbc", category = "All")
-        assertTrue(bbc.any { it.name.contains("BBC", ignoreCase = true) })
+        val sinema = ChannelRepository.filterChannels(query = "sinema", category = "All")
+        assertTrue(sinema.any { it.name.contains("Sinema", ignoreCase = true) })
 
         val none = ChannelRepository.filterChannels(query = "xyz123nonexistent", category = "All")
         assertTrue(none.isEmpty())
@@ -122,16 +112,23 @@ class ExampleUnitTest {
     }
 
     @Test
-    fun `mpd content protection stripping removes all drm tags`() {
+    fun `mpd content protection stripping removes all drm tags across multiple AdaptationSets without corrupting XML`() {
         val sampleMpd = """
             <MPD>
               <Period>
                 <AdaptationSet mimeType="video/mp4">
-                  <ContentProtection schemeIdUri="urn:mpeg:dash:mp4protection:2011" value="cenc" cenc:default_KID="c31df160-0afc-3379-9eca-c543331803f2"/>
                   <ContentProtection schemeIdUri="urn:uuid:edef8ba9-79d6-4ace-a3c8-27dcd51d21ed" value="Widevine Content Protection">
                     <cenc:pssh>AAAAZHBzc2g=</cenc:pssh>
                   </ContentProtection>
+                  <ContentProtection schemeIdUri="urn:mpeg:dash:mp4protection:2011" value="cenc" cenc:default_KID="c31df160-0afc-3379-9eca-c543331803f2"/>
                   <Representation id="avc1_600000=10003" bandwidth="600000" />
+                </AdaptationSet>
+                <AdaptationSet mimeType="audio/mp4" lang="swa">
+                  <ContentProtection schemeIdUri="urn:mpeg:dash:mp4protection:2011" value="cenc" cenc:default_KID="c31df160-0afc-3379-9eca-c543331803f2"/>
+                  <ContentProtection schemeIdUri="urn:uuid:edef8ba9-79d6-4ace-a3c8-27dcd51d21ed">
+                    <cenc:pssh>AAAAZHBzc2g=</cenc:pssh>
+                  </ContentProtection>
+                  <Representation id="mp4a_160000_swa=20000" bandwidth="160000" />
                 </AdaptationSet>
               </Period>
             </MPD>
@@ -144,6 +141,8 @@ class ExampleUnitTest {
         assertFalse(stripped.contains("ContentProtection"))
         assertFalse(stripped.contains("cenc:pssh"))
         assertTrue(stripped.contains("Representation id=\"avc1_600000=10003\""))
+        assertTrue(stripped.contains("Representation id=\"mp4a_160000_swa=20000\""))
+        assertTrue(stripped.contains("<AdaptationSet mimeType=\"audio/mp4\" lang=\"swa\">"))
     }
 
     @Test
@@ -238,48 +237,41 @@ class ExampleUnitTest {
     }
 
     @Test
-    fun `hls channels have none encryption`() {
-        val bbc = ChannelRepository.getChannelById("9mFG4jZCtlXCEKfv5TF6")
-        assertNotNull(bbc)
-        assertTrue(bbc!!.isHls)
-        assertFalse(bbc.isClearKey)
-        assertEquals("none", bbc.encryptionType)
+    fun `all 13 built-in Azam TV channels have valid DASH MPD URLs and ClearKey pairs`() {
+        val allChannels = ChannelRepository.channels
+        assertEquals(13, allChannels.size)
+        allChannels.forEach { ch ->
+            assertTrue("Channel ${ch.name} must be DASH", ch.isDash)
+            assertTrue("Channel ${ch.name} must use ClearKey", ch.isClearKey)
+            assertFalse("Channel ${ch.name} must have non-empty clearKeyId", ch.clearKeyId.isNullOrBlank())
+            assertFalse("Channel ${ch.name} must have non-empty clearKey", ch.clearKey.isNullOrBlank())
+            assertTrue("Channel ${ch.name} must include cdntoken", ch.streamUrl.contains("cdntoken="))
+        }
     }
 
     @Test
-    fun `firestore movie series episode and tvChannel seed models prioritize Tanzania`() {
-        val movie = com.example.data.MediaContentRepository.getMediaById("mov_1788911132603_wdgav")
-        assertNotNull(movie)
-        assertEquals("Never a Thief", movie!!.title)
-        assertTrue(movie.narrated)
-        assertEquals("Swahili", movie.narrationLanguage)
-        assertTrue(movie.toPlayableChannel().isMp4)
-
-        val series = com.example.data.MediaContentRepository.getMediaById("ser_1788988691994_5tt72")
-        assertNotNull(series)
-        assertEquals("Squid Game", series!!.title)
-        assertEquals(3, series.seasons.size)
-
-        val episodes = com.example.data.MediaContentRepository.getEpisodesForSeries("ser_1788988691994_5tt72", 3)
-        assertTrue(episodes.isNotEmpty())
-        assertEquals("Keys and Knives", episodes.first().name)
+    fun `movies and series catalogs are empty in Azam TV only streaming mode`() {
+        assertTrue(com.example.data.MediaContentRepository.mediaCatalog.value.isEmpty())
+        assertTrue(com.example.data.MediaContentRepository.episodesCatalog.value.isEmpty())
     }
 
     @Test
-    fun `homepage featured live tv channels contain expanded Azam TV bouquet KIX and WWE`() {
+    fun `homepage featured live tv channels contain the 13 Azam TV channels`() {
         val homeChannels = ChannelRepository.homePageFeaturedChannels
-        assertEquals(14, homeChannels.size)
+        assertEquals(13, homeChannels.size)
         val names = homeChannels.map { it.name }
         assertTrue(names.any { it.contains("Azam Sports 1", ignoreCase = true) })
         assertTrue(names.any { it.contains("Azam Sports 2", ignoreCase = true) })
+        assertTrue(names.any { it.contains("Azam Sports 3", ignoreCase = true) })
+        assertTrue(names.any { it.contains("Azam Sports 4", ignoreCase = true) })
         assertTrue(names.any { it.equals("Azam One", ignoreCase = true) })
         assertTrue(names.any { it.equals("Azam Two", ignoreCase = true) })
         assertTrue(names.any { it.equals("Sinema Zetu", ignoreCase = true) })
-        assertTrue(names.any { it.equals("Azam Xtra HD", ignoreCase = true) })
-        assertTrue(names.any { it.equals("Azam Movies HD", ignoreCase = true) })
-        assertTrue(names.any { it.equals("Clouds TV HD", ignoreCase = true) })
-        assertTrue(names.any { it.equals("ITV Tanzania HD", ignoreCase = true) })
+        assertTrue(names.any { it.equals("UTV", ignoreCase = true) })
+        assertTrue(names.any { it.equals("ZBC2", ignoreCase = true) })
+        assertTrue(names.any { it.equals("ZBC", ignoreCase = true) })
         assertTrue(names.any { it.equals("KIX", ignoreCase = true) })
-        assertTrue(names.any { it.equals("WWE", ignoreCase = true) })
+        assertTrue(names.any { it.equals("Crown Tv", ignoreCase = true) })
+        assertTrue(names.any { it.equals("Wasafi", ignoreCase = true) })
     }
 }

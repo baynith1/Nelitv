@@ -126,6 +126,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        com.example.data.NeliAppUpdateManager.reconcileInstalledPackageState(this)
         if (wasInBackground) {
             wasInBackground = false
             // Show App Open ad only occasionally when returning to foreground from background,
@@ -227,24 +228,14 @@ fun NeliApp(
 ) {
     val context = LocalContext.current
 
-    // Request notification permission on Android 13+ and immediately dispatch automatic startup notification
-    val notificationPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission(),
-        onResult = { granted ->
-            if (granted) {
-                NeliNotificationScheduler.scheduleAllDailyNotifications(context)
-            }
-        }
-    )
-
     LaunchedEffect(Unit) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             val granted = ContextCompat.checkSelfPermission(
                 context,
                 Manifest.permission.POST_NOTIFICATIONS
             ) == PackageManager.PERMISSION_GRANTED
-            if (!granted) {
-                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            if (granted) {
+                NeliNotificationScheduler.scheduleAllDailyNotifications(context)
             }
         }
     }

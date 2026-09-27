@@ -50,6 +50,7 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
 
     val mediaCatalog: StateFlow<List<MediaContent>> = MediaContentRepository.mediaCatalog
     val episodesCatalog: StateFlow<List<EpisodeItem>> = MediaContentRepository.episodesCatalog
+    val catalogRotationSeed: StateFlow<Long> = MediaContentRepository.catalogRotationSeed
     val liveChannels: StateFlow<List<LiveChannel>> = ChannelRepository.liveChannelsFlow
     val firebaseSyncStatus: StateFlow<String> = MediaContentRepository.firebaseSyncStatus
     val downloadProgress: StateFlow<Map<String, Int>> = OfflineDownloadManager.downloadProgress
@@ -59,10 +60,8 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
     private val _isOfflineMode = MutableStateFlow(!OfflineDownloadManager.isDeviceOnline(appContext))
     val isOfflineMode: StateFlow<Boolean> = _isOfflineMode.asStateFlow()
 
-    // Navigation state: if offline at launch, send user directly to the Download page
-    private val _selectedTab = MutableStateFlow(
-        if (_isOfflineMode.value) BottomNavTab.DOWNLOAD else BottomNavTab.HOME
-    )
+    // Navigation state: always start on Homepage (Azam TV Live Streaming)
+    private val _selectedTab = MutableStateFlow(BottomNavTab.HOME)
     val selectedTab: StateFlow<BottomNavTab> = _selectedTab.asStateFlow()
 
     private val _selectedMediaId = MutableStateFlow<String?>(null)
@@ -70,6 +69,9 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _isRefreshingLiveTv = MutableStateFlow(false)
     val isRefreshingLiveTv: StateFlow<Boolean> = _isRefreshingLiveTv.asStateFlow()
+
+    private val _isRefreshingDiscovery = MutableStateFlow(false)
+    val isRefreshingDiscovery: StateFlow<Boolean> = _isRefreshingDiscovery.asStateFlow()
 
     val downloads: StateFlow<List<DownloadedItemEntity>> = combine(
         dao.getAllDownloads(),
@@ -250,13 +252,11 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
 
-        // 2. Automatic background sync loop for Azam TV Cloud Token, Live Catalog, Daily Alerts & GitHub App Updates
+        // Refresh Azam TV CDN token in background without using Firestore/Firebase
         viewModelScope.launch(Dispatchers.IO) {
-            // Brief startup yield so initial Compose UI renders immediately without network/JSON contention
-            delay(1200L)
             while (isActive) {
                 performAutomaticSyncCycle()
-                delay(MediaContentRepository.computeJitterDelayMsFor10MScale(10 * 60 * 1000L))
+                delay(10 * 60 * 1000L)
             }
         }
     }
@@ -269,17 +269,7 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
 
     private suspend fun performAutomaticSyncCycle() = withContext(Dispatchers.IO) {
         try {
-            val apiKey = AuthRepository.resolveApiKey(appContext)
-            MediaContentRepository.syncCdnTokenFromFirebase(
-                databaseUrl = MediaContentRepository.DEFAULT_DATABASE_URL,
-                apiKey = apiKey,
-                projectId = MediaContentRepository.DEFAULT_PROJECT_ID
-            )
-            MediaContentRepository.syncFromFirebaseEndpoint(
-                databaseUrl = MediaContentRepository.DEFAULT_DATABASE_URL,
-                apiKey = apiKey,
-                projectId = MediaContentRepository.DEFAULT_PROJECT_ID
-            )
+            ChannelRepository.refreshLiveChannels()
             com.example.notifications.NeliNotificationScheduler.scheduleAllDailyNotifications(appContext)
             com.example.widget.NeliHomeWidgetProvider.updateAllWidgets(appContext)
             NeliAppUpdateManager.checkForUpdates(appContext, triggeredByUser = false)
@@ -303,16 +293,9 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
         } catch (_: Exception) {}
     }
 
-    /**
-     * Updates the offline mode state. Whenever the device is offline, automatically sends the user
-     * directly to the Download page (`BottomNavTab.DOWNLOAD`).
-     */
     fun updateOfflineState(isOffline: Boolean) {
         _isOfflineMode.value = isOffline
-        if (isOffline) {
-            _selectedMediaId.value = null
-            _selectedTab.value = BottomNavTab.DOWNLOAD
-        }
+        _selectedMediaId.value = null
     }
 
     fun refreshConnectivityState() {
@@ -324,40 +307,25 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
 
     fun selectTab(tab: BottomNavTab) {
         _selectedMediaId.value = null
-        _selectedTab.value = tab
+        _selectedTab.value = when (tab) {
+            BottomNavTab.HOME, BottomNavTab.SEARCH, BottomNavTab.ACCOUNT -> tab
+            else -> BottomNavTab.HOME
+        }
     }
 
     fun openMediaDetails(mediaId: String?) {
-        _selectedMediaId.value = mediaId
+        _selectedMediaId.value = null
     }
 
-    /**
-     * Called when the user presses Back from the Movie/Series Details page (`MediaDetailScreen`).
-     * Always closes the details view and sends the user directly to the Discovery page (`BottomNavTab.DISCOVERY`).
-     */
     fun navigateBackFromMediaDetails() {
         _selectedMediaId.value = null
-        _selectedTab.value = BottomNavTab.DISCOVERY
+        _selectedTab.value = BottomNavTab.HOME
     }
 
-    /**
-     * Called when the user presses Back from the Watchpage (`PlayerScreen`).
-     * - If the user was watching a Movie or Series (`!watchedChannel.isLiveBroadcast`), NEVER send them
-     *   to the Homepage; always send them to the Movie Details page (`MediaDetailScreen`) of that respective
-     *   movie/series with the underlying tab set to Discovery (`BottomNavTab.DISCOVERY`).
-     */
     fun onReturnFromWatchPage(watchedChannel: LiveChannel) {
-        if (!watchedChannel.isLiveBroadcast) {
-            if (watchedChannel.id.startsWith("dl_") || _isOfflineMode.value) {
-                _selectedMediaId.value = null
-                _selectedTab.value = BottomNavTab.DOWNLOAD
-                return
-            }
-            val resolvedMedia = MediaContentRepository.resolveMediaForPlaybackChannel(watchedChannel)
-            _selectedTab.value = BottomNavTab.DISCOVERY
-            if (resolvedMedia != null) {
-                _selectedMediaId.value = resolvedMedia.id
-            }
+        _selectedMediaId.value = null
+        if (_selectedTab.value != BottomNavTab.SEARCH && _selectedTab.value != BottomNavTab.ACCOUNT) {
+            _selectedTab.value = BottomNavTab.HOME
         }
     }
 
@@ -370,15 +338,16 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
      * Runs in a persistent background scope so it continues even when the user exits the app.
      */
     fun addDownload(media: MediaContent) {
+        val effectiveDownloadUrl = media.downloadUrl.ifBlank { media.streamUrl }.ifBlank { media.playbackUrl }
         val guaranteedPoster = MediaContentRepository.resolveGuaranteedMediaImageUrl(
             media.posterUrl,
             media.backdropUrl,
-            media.streamUrl
+            effectiveDownloadUrl
         )
         val guaranteedBackdrop = MediaContentRepository.resolveGuaranteedMediaImageUrl(
             media.backdropUrl,
             media.posterUrl,
-            media.streamUrl
+            effectiveDownloadUrl
         )
         val item = DownloadedItemEntity(
             id = media.id,
@@ -390,7 +359,7 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
             type = media.type,
             posterUrl = guaranteedPoster,
             backdropUrl = guaranteedBackdrop,
-            streamUrl = ChannelRepository.normalizeDashStreamUrl(media.streamUrl),
+            streamUrl = ChannelRepository.normalizeDashStreamUrl(effectiveDownloadUrl),
             genre = media.primaryGenre,
             duration = media.duration,
             rating = media.rating,
@@ -414,10 +383,11 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
         seriesTitle: String,
         seriesPoster: String
     ) {
+        val effectiveDownloadUrl = episode.downloadUrl.ifBlank { episode.streamUrl }.ifBlank { episode.playbackUrl }
         val poster = MediaContentRepository.resolveGuaranteedMediaImageUrl(
             episode.stillPath,
             seriesPoster,
-            episode.streamUrl
+            effectiveDownloadUrl
         )
         val item = DownloadedItemEntity(
             id = episode.id,
@@ -425,7 +395,7 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
             type = "series",
             posterUrl = poster,
             backdropUrl = poster,
-            streamUrl = ChannelRepository.normalizeDashStreamUrl(episode.streamUrl),
+            streamUrl = ChannelRepository.normalizeDashStreamUrl(effectiveDownloadUrl),
             genre = if (episode.narrated) "Series • ${episode.narrationLanguage}" else "Series",
             duration = episode.durationLabel,
             rating = "HD",
@@ -449,10 +419,11 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
         seriesPoster: String
     ) {
         val entities = episodes.map { episode ->
+            val effectiveDownloadUrl = episode.downloadUrl.ifBlank { episode.streamUrl }.ifBlank { episode.playbackUrl }
             val poster = MediaContentRepository.resolveGuaranteedMediaImageUrl(
                 episode.stillPath,
                 seriesPoster,
-                episode.streamUrl
+                effectiveDownloadUrl
             )
             DownloadedItemEntity(
                 id = episode.id,
@@ -460,7 +431,7 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
                 type = "series",
                 posterUrl = poster,
                 backdropUrl = poster,
-                streamUrl = ChannelRepository.normalizeDashStreamUrl(episode.streamUrl),
+                streamUrl = ChannelRepository.normalizeDashStreamUrl(effectiveDownloadUrl),
                 genre = if (episode.narrated) "Series • ${episode.narrationLanguage}" else "Series",
                 duration = episode.durationLabel,
                 rating = "HD",
@@ -680,13 +651,66 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun refreshCatalog() {
+        MediaContentRepository.rotateMovieCatalogOrder()
         viewModelScope.launch {
             val apiKey = AuthRepository.resolveApiKey(appContext)
             MediaContentRepository.syncFromFirebaseEndpoint(
                 databaseUrl = MediaContentRepository.DEFAULT_DATABASE_URL,
                 apiKey = apiKey,
-                projectId = MediaContentRepository.DEFAULT_PROJECT_ID
+                projectId = MediaContentRepository.DEFAULT_PROJECT_ID,
+                forceRefresh = true
             )
+            com.example.widget.NeliHomeWidgetProvider.updateAllWidgets(appContext)
+        }
+    }
+
+    /**
+     * Immediately shuffles/rotates all movie shelves and spotlight picks on the Discovery page.
+     */
+    fun rotateDiscoveryMovies() {
+        MediaContentRepository.rotateMovieCatalogOrder()
+    }
+
+    /**
+     * Pull-to-refresh / live Studio Admin sync handler for the Discovery (Movies & Series) tab.
+     * Immediately rotates the movie shelves so the UI feels alive and responsive, then fetches
+     * any newly added Studio Admin movies from Cloud Firestore & Realtime Database.
+     */
+    fun refreshDiscoveryCatalog(forceNetworkSync: Boolean = true) {
+        MediaContentRepository.rotateMovieCatalogOrder()
+        if (!forceNetworkSync) {
+            viewModelScope.launch(Dispatchers.IO) {
+                try {
+                    val apiKey = AuthRepository.resolveApiKey(appContext)
+                    MediaContentRepository.syncFromFirebaseEndpoint(
+                        databaseUrl = MediaContentRepository.DEFAULT_DATABASE_URL,
+                        apiKey = apiKey,
+                        projectId = MediaContentRepository.DEFAULT_PROJECT_ID,
+                        forceRefresh = false
+                    )
+                } catch (_: Exception) {
+                }
+            }
+            return
+        }
+        if (_isRefreshingDiscovery.value) return
+        _isRefreshingDiscovery.value = true
+        viewModelScope.launch {
+            try {
+                val apiKey = AuthRepository.resolveApiKey(appContext)
+                MediaContentRepository.syncFromFirebaseEndpoint(
+                    databaseUrl = MediaContentRepository.DEFAULT_DATABASE_URL,
+                    apiKey = apiKey,
+                    projectId = MediaContentRepository.DEFAULT_PROJECT_ID,
+                    forceRefresh = true
+                )
+                MediaContentRepository.rotateMovieCatalogOrder()
+                com.example.widget.NeliHomeWidgetProvider.updateAllWidgets(appContext)
+                delay(300)
+            } catch (_: Exception) {
+            } finally {
+                _isRefreshingDiscovery.value = false
+            }
         }
     }
 
@@ -701,21 +725,11 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
         refreshConnectivityState()
         ChannelRepository.refreshLiveChannels()
 
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             try {
-                val apiKey = AuthRepository.resolveApiKey(appContext)
-                MediaContentRepository.syncCdnTokenFromFirebase(
-                    databaseUrl = MediaContentRepository.DEFAULT_DATABASE_URL,
-                    apiKey = apiKey,
-                    projectId = MediaContentRepository.DEFAULT_PROJECT_ID
-                )
-                MediaContentRepository.syncFromFirebaseEndpoint(
-                    databaseUrl = MediaContentRepository.DEFAULT_DATABASE_URL,
-                    apiKey = apiKey,
-                    projectId = MediaContentRepository.DEFAULT_PROJECT_ID
-                )
+                ChannelRepository.refreshCdnTokenFromEndpointSync()
                 ChannelRepository.refreshLiveChannels()
-                delay(350)
+                delay(300)
             } catch (_: Exception) {
             } finally {
                 _isRefreshingLiveTv.value = false

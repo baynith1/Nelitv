@@ -36,6 +36,7 @@ class Mp4CencDecryptor(
 
     // Track ID -> TrackEncryptionConfig parsed from initialization segments
     private val trackConfigs = ConcurrentHashMap<Int, TrackEncryptionConfig>()
+    private val trackConfigsByStream = ConcurrentHashMap<String, TrackEncryptionConfig>()
 
     // Last seen IV size (defaults to 8 bytes which is standard for Nagra/Azam/Widevine CENC)
     @Volatile
@@ -43,9 +44,9 @@ class Mp4CencDecryptor(
 
     companion object {
         private val CONTENT_PROTECTION_SELF_CLOSING_REGEX =
-            Regex("""<ContentProtection\b[^>]*/>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+            Regex("""<(?:[a-zA-Z0-9_]+:)?ContentProtection\b[^>]*/>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
         private val CONTENT_PROTECTION_BLOCK_REGEX =
-            Regex("""<ContentProtection\b[^>]*>.*?</ContentProtection>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+            Regex("""<(?:[a-zA-Z0-9_]+:)?ContentProtection\b[^>]*(?<!/)>.*?</(?:[a-zA-Z0-9_]+:)?ContentProtection\s*>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
 
         private fun normalizeHex(hex: String): String =
             hex.trim().replace("-", "").replace(" ", "").lowercase()
@@ -86,17 +87,19 @@ class Mp4CencDecryptor(
     /**
      * Strips <ContentProtection> elements from a DASH MPD XML string so ExoPlayer
      * treats the manifest as standard clear DASH.
+     * Self-closing tags MUST be stripped before block tags so a self-closing tag never
+     * matches across AdaptationSets to a later closing </ContentProtection> tag.
      */
     fun stripMpdContentProtection(mpdXml: String): String {
-        val withoutBlocks = CONTENT_PROTECTION_BLOCK_REGEX.replace(mpdXml, "")
-        return CONTENT_PROTECTION_SELF_CLOSING_REGEX.replace(withoutBlocks, "")
+        val withoutSelfClosing = CONTENT_PROTECTION_SELF_CLOSING_REGEX.replace(mpdXml, "")
+        return CONTENT_PROTECTION_BLOCK_REGEX.replace(withoutSelfClosing, "")
     }
 
     /**
      * Processes either an initialization segment (`moov`) or a media segment (`moof` + `mdat`)
      * in-place and returns the modified ByteArray.
      */
-    fun processMp4Segment(data: ByteArray): ByteArray {
+    fun processMp4Segment(data: ByteArray, streamKey: String = ""): ByteArray {
         var offset = 0
         val limit = data.size
         var currentMoofOffset = -1
@@ -116,11 +119,11 @@ class Mp4CencDecryptor(
 
             when (boxType) {
                 "moov" -> {
-                    processMoov(data, offset + 8, offset + actualSize)
+                    processMoov(data, offset + 8, offset + actualSize, streamKey)
                 }
                 "moof" -> {
                     currentMoofOffset = offset
-                    pendingTrafInfo = processMoof(data, offset, offset + 8, offset + actualSize)
+                    pendingTrafInfo = processMoof(data, offset, offset + 8, offset + actualSize, streamKey)
                 }
                 "mdat" -> {
                     if (pendingTrafInfo.isNotEmpty()) {
@@ -145,7 +148,7 @@ class Mp4CencDecryptor(
         return data
     }
 
-    private fun processMoov(data: ByteArray, start: Int, end: Int) {
+    private fun processMoov(data: ByteArray, start: Int, end: Int, streamKey: String = "") {
         var offset = start
         val defaultSampleSizes = mutableMapOf<Int, Int>()
 
@@ -172,7 +175,7 @@ class Mp4CencDecryptor(
                     writeType(data, offset + 4, "free")
                 }
                 "trak" -> {
-                    processTrak(data, offset + 8, offset + size, defaultSampleSizes)
+                    processTrak(data, offset + 8, offset + size, defaultSampleSizes, streamKey)
                 }
             }
             offset += size
@@ -198,7 +201,8 @@ class Mp4CencDecryptor(
         data: ByteArray,
         start: Int,
         end: Int,
-        defaultSampleSizes: Map<Int, Int>
+        defaultSampleSizes: Map<Int, Int>,
+        streamKey: String = ""
     ) {
         var trackId = 0
         var offset = start
@@ -215,7 +219,7 @@ class Mp4CencDecryptor(
                     readInt32BE(data, offset + 20)
                 }
             } else if (type == "mdia") {
-                processMdia(data, offset + 8, offset + size, trackId, defaultSampleSizes[trackId] ?: 0)
+                processMdia(data, offset + 8, offset + size, trackId, defaultSampleSizes[trackId] ?: 0, streamKey)
             }
             offset += size
         }
@@ -226,7 +230,8 @@ class Mp4CencDecryptor(
         start: Int,
         end: Int,
         trackId: Int,
-        defaultSampleSize: Int
+        defaultSampleSize: Int,
+        streamKey: String = ""
     ) {
         var offset = start
         while (offset + 8 <= end) {
@@ -234,7 +239,7 @@ class Mp4CencDecryptor(
             val type = readType(data, offset + 4)
             if (size < 8 || offset + size > end) break
             if (type == "minf") {
-                processMinf(data, offset + 8, offset + size, trackId, defaultSampleSize)
+                processMinf(data, offset + 8, offset + size, trackId, defaultSampleSize, streamKey)
             }
             offset += size
         }
@@ -245,7 +250,8 @@ class Mp4CencDecryptor(
         start: Int,
         end: Int,
         trackId: Int,
-        defaultSampleSize: Int
+        defaultSampleSize: Int,
+        streamKey: String = ""
     ) {
         var offset = start
         while (offset + 8 <= end) {
@@ -253,7 +259,7 @@ class Mp4CencDecryptor(
             val type = readType(data, offset + 4)
             if (size < 8 || offset + size > end) break
             if (type == "stbl") {
-                processStbl(data, offset + 8, offset + size, trackId, defaultSampleSize)
+                processStbl(data, offset + 8, offset + size, trackId, defaultSampleSize, streamKey)
             }
             offset += size
         }
@@ -264,15 +270,28 @@ class Mp4CencDecryptor(
         start: Int,
         end: Int,
         trackId: Int,
-        defaultSampleSize: Int
+        defaultSampleSize: Int,
+        streamKey: String = ""
     ) {
         var offset = start
         while (offset + 8 <= end) {
             val size = readInt32BE(data, offset)
             val type = readType(data, offset + 4)
             if (size < 8 || offset + size > end) break
-            if (type == "stsd" && size >= 16) {
-                processStsd(data, offset + 16, offset + size, trackId, defaultSampleSize)
+            when (type) {
+                "stsd" -> {
+                    if (size >= 16) {
+                        processStsd(data, offset + 16, offset + size, trackId, defaultSampleSize, streamKey)
+                    }
+                }
+                "sbgp", "sgpd" -> {
+                    if (size >= 16 && readType(data, offset + 12) == "seig") {
+                        writeType(data, offset + 4, "free")
+                    }
+                }
+                "saiz", "saio", "senc" -> {
+                    writeType(data, offset + 4, "free")
+                }
             }
             offset += size
         }
@@ -283,7 +302,8 @@ class Mp4CencDecryptor(
         start: Int,
         end: Int,
         trackId: Int,
-        defaultSampleSize: Int
+        defaultSampleSize: Int,
+        streamKey: String = ""
     ) {
         var offset = start
         while (offset + 8 <= end) {
@@ -326,6 +346,9 @@ class Mp4CencDecryptor(
                         }
                         if (sinfResult.config != null) {
                             trackConfigs[trackId] = sinfResult.config
+                            if (streamKey.isNotEmpty()) {
+                                trackConfigsByStream["$streamKey#$trackId"] = sinfResult.config
+                            }
                             if (sinfResult.config.defaultIvSize > 0) {
                                 lastKnownIvSize = sinfResult.config.defaultIvSize
                             }
@@ -440,7 +463,8 @@ class Mp4CencDecryptor(
         data: ByteArray,
         moofStart: Int,
         contentStart: Int,
-        moofEnd: Int
+        moofEnd: Int,
+        streamKey: String = ""
     ): List<TrafEncryptionData> {
         val result = mutableListOf<TrafEncryptionData>()
         var offset = contentStart
@@ -450,7 +474,7 @@ class Mp4CencDecryptor(
             if (size < 8 || offset + size > moofEnd) break
 
             if (type == "traf") {
-                val trafData = processTraf(data, offset + 8, offset + size)
+                val trafData = processTraf(data, offset + 8, offset + size, streamKey)
                 if (trafData != null) {
                     result.add(trafData)
                 }
@@ -463,7 +487,8 @@ class Mp4CencDecryptor(
     private fun processTraf(
         data: ByteArray,
         start: Int,
-        end: Int
+        end: Int,
+        streamKey: String = ""
     ): TrafEncryptionData? {
         var trackId = 0
         var defaultSampleSizeFromTfhd = 0
@@ -493,10 +518,11 @@ class Mp4CencDecryptor(
                     }
                 }
                 "trun" -> {
+                    val streamTrackCfg = if (streamKey.isNotEmpty()) trackConfigsByStream["$streamKey#$trackId"] else null
                     val trackDefaultSize = if (defaultSampleSizeFromTfhd > 0) {
                         defaultSampleSizeFromTfhd
                     } else {
-                        trackConfigs[trackId]?.defaultSampleSize ?: 0
+                        (streamTrackCfg ?: trackConfigs[trackId])?.defaultSampleSize ?: 0
                     }
                     val trunParsed = parseTrun(data, offset, offset + size, trackDefaultSize)
                     dataOffsetFromTrun = trunParsed.first
@@ -521,7 +547,8 @@ class Mp4CencDecryptor(
 
         if (sencBoxOffset < 0 || sampleSizes.isEmpty()) return null
 
-        val trackConfig = trackConfigs[trackId]
+        val trackConfig = (if (streamKey.isNotEmpty()) trackConfigsByStream["$streamKey#$trackId"] else null)
+            ?: trackConfigs[trackId]
         val ivSize = trackConfig?.defaultIvSize?.takeIf { it > 0 } ?: lastKnownIvSize
         val sampleCencList = parseSenc(
             data = data,
@@ -654,23 +681,41 @@ class Mp4CencDecryptor(
         }
 
         val count = minOf(traf.sampleSizes.size, traf.sampleCencList.size)
+        var scratchCapacity = 0
+        var encryptedScratch = ByteArray(0)
+        var decryptedScratch = ByteArray(0)
+        val iv16 = ByteArray(16)
+
         for (i in 0 until count) {
-            val sampleSize = traf.sampleSizes[i]
             val cenc = traf.sampleCencList[i]
+            val subsampleTotalSize = if (cenc.subsamples.isNotEmpty()) {
+                var sum = 0
+                for (sub in cenc.subsamples) {
+                    sum += sub.clearBytes + sub.protectedBytes
+                }
+                sum
+            } else {
+                0
+            }
+            val sampleSize = when {
+                traf.sampleSizes[i] > 0 -> traf.sampleSizes[i]
+                subsampleTotalSize > 0 -> subsampleTotalSize
+                count == 1 -> (mdatEnd - sampleCursor).coerceAtLeast(0)
+                else -> 0
+            }
 
             if (sampleSize <= 0 || sampleCursor + sampleSize > mdatEnd) {
                 break
             }
 
             // Build 16-byte AES-CTR counter block from 8-byte or 16-byte IV
-            val iv16 = ByteArray(16)
+            java.util.Arrays.fill(iv16, 0.toByte())
             System.arraycopy(cenc.iv, 0, iv16, 0, minOf(cenc.iv.size, 16))
 
             if (cenc.subsamples.isEmpty()) {
-                // Full-sample encryption
+                // Full-sample encryption in-place
                 cipher.init(Cipher.DECRYPT_MODE, secretKey, IvParameterSpec(iv16))
-                val decrypted = cipher.doFinal(data, sampleCursor, sampleSize)
-                System.arraycopy(decrypted, 0, data, sampleCursor, sampleSize)
+                cipher.doFinal(data, sampleCursor, sampleSize, data, sampleCursor)
             } else {
                 // Subsample encryption: all protected ranges in a sample form one contiguous AES-CTR stream
                 var totalProtected = 0
@@ -681,30 +726,36 @@ class Mp4CencDecryptor(
                 }
 
                 if (totalProtected > 0) {
-                    val encryptedConcat = ByteArray(totalProtected)
+                    if (totalProtected > scratchCapacity) {
+                        scratchCapacity = totalProtected
+                        encryptedScratch = ByteArray(scratchCapacity)
+                        decryptedScratch = ByteArray(scratchCapacity)
+                    }
                     var readCursor = sampleCursor
                     var concatOffset = 0
 
                     for (sub in cenc.subsamples) {
                         readCursor += sub.clearBytes
                         if (sub.protectedBytes > 0 && readCursor + sub.protectedBytes <= mdatEnd) {
-                            System.arraycopy(data, readCursor, encryptedConcat, concatOffset, sub.protectedBytes)
+                            System.arraycopy(data, readCursor, encryptedScratch, concatOffset, sub.protectedBytes)
                             concatOffset += sub.protectedBytes
                             readCursor += sub.protectedBytes
                         }
                     }
 
-                    cipher.init(Cipher.DECRYPT_MODE, secretKey, IvParameterSpec(iv16))
-                    val decryptedConcat = cipher.doFinal(encryptedConcat)
+                    if (concatOffset > 0) {
+                        cipher.init(Cipher.DECRYPT_MODE, secretKey, IvParameterSpec(iv16))
+                        cipher.doFinal(encryptedScratch, 0, concatOffset, decryptedScratch, 0)
 
-                    var writeCursor = sampleCursor
-                    var decOffset = 0
-                    for (sub in cenc.subsamples) {
-                        writeCursor += sub.clearBytes
-                        if (sub.protectedBytes > 0 && writeCursor + sub.protectedBytes <= mdatEnd) {
-                            System.arraycopy(decryptedConcat, decOffset, data, writeCursor, sub.protectedBytes)
-                            decOffset += sub.protectedBytes
-                            writeCursor += sub.protectedBytes
+                        var writeCursor = sampleCursor
+                        var decOffset = 0
+                        for (sub in cenc.subsamples) {
+                            writeCursor += sub.clearBytes
+                            if (sub.protectedBytes > 0 && writeCursor + sub.protectedBytes <= mdatEnd) {
+                                System.arraycopy(decryptedScratch, decOffset, data, writeCursor, sub.protectedBytes)
+                                decOffset += sub.protectedBytes
+                                writeCursor += sub.protectedBytes
+                            }
                         }
                     }
                 }
