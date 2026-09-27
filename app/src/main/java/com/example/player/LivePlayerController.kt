@@ -189,9 +189,9 @@ enum class AdaptiveQualityTier(
         maxWidth = 1920,
         maxHeight = 1080,
         maxBitrateBps = 5_500_000,
-        minPreferredWidth = 1280,
-        minPreferredHeight = 720,
-        minPreferredBitrateBps = 1_500_000,
+        minPreferredWidth = 0,
+        minPreferredHeight = 0,
+        minPreferredBitrateBps = 0,
         forceLowestBitrate = false,
         badgeLabel = "1080p Full HD",
         description = "Prioritizing High-Quality 1080p/720p HD Stream"
@@ -200,9 +200,9 @@ enum class AdaptiveQualityTier(
         maxWidth = 1280,
         maxHeight = 720,
         maxBitrateBps = 2_800_000,
-        minPreferredWidth = 854,
-        minPreferredHeight = 480,
-        minPreferredBitrateBps = 850_000,
+        minPreferredWidth = 0,
+        minPreferredHeight = 0,
+        minPreferredBitrateBps = 0,
         forceLowestBitrate = false,
         badgeLabel = "720p HD",
         description = "High-Quality 720p Adaptive Stream"
@@ -211,9 +211,9 @@ enum class AdaptiveQualityTier(
         maxWidth = 854,
         maxHeight = 480,
         maxBitrateBps = 1_250_000,
-        minPreferredWidth = 640,
-        minPreferredHeight = 360,
-        minPreferredBitrateBps = 450_000,
+        minPreferredWidth = 0,
+        minPreferredHeight = 0,
+        minPreferredBitrateBps = 0,
         forceLowestBitrate = false,
         badgeLabel = "480p SD",
         description = "Balanced 480p Adaptive Stream"
@@ -222,9 +222,9 @@ enum class AdaptiveQualityTier(
         maxWidth = 640,
         maxHeight = 360,
         maxBitrateBps = 650_000,
-        minPreferredWidth = 426,
-        minPreferredHeight = 240,
-        minPreferredBitrateBps = 220_000,
+        minPreferredWidth = 0,
+        minPreferredHeight = 0,
+        minPreferredBitrateBps = 0,
         forceLowestBitrate = false,
         badgeLabel = "360p Saver",
         description = "Dynamically Downscaled for Bandwidth / Power Stability"
@@ -781,12 +781,12 @@ class LivePlayerController(
                             } else {
                                 0L
                             }
-                            if (totalBufferingMs >= 5_500L && now - lastLiveAutoReloadRealtimeMs >= 5_500L) {
+                            if (totalBufferingMs >= 18_000L && now - lastLiveAutoReloadRealtimeMs >= 15_000L) {
                                 if (_playbackInfo.value.networkMode == NetworkQualityMode.AUTO_ADAPTIVE) {
                                     consecutiveRebufferCount = maxOf(consecutiveRebufferCount, 1)
                                     evaluateAndApplyAdaptiveTrackSelection(forceBufferingState = true)
                                 }
-                                autoRecoverLiveStream(player, forceReload = totalBufferingMs >= 9_000L)
+                                autoRecoverLiveStream(player, forceReload = totalBufferingMs >= 28_000L)
                             }
                         }
                         Player.STATE_READY -> {
@@ -800,11 +800,12 @@ class LivePlayerController(
                                     if (currentPos != lastObservedLivePositionMs) {
                                         lastObservedLivePositionMs = currentPos
                                         lastLivePositionChangedRealtimeMs = now
-                                    } else if (lastLivePositionChangedRealtimeMs > 0L &&
-                                        now - lastLivePositionChangedRealtimeMs >= 6_500L &&
-                                        now - lastLiveAutoReloadRealtimeMs >= 7_000L
+                                    } else if (!player.isCurrentMediaItemLive &&
+                                        lastLivePositionChangedRealtimeMs > 0L &&
+                                        now - lastLivePositionChangedRealtimeMs >= 16_000L &&
+                                        now - lastLiveAutoReloadRealtimeMs >= 16_000L
                                     ) {
-                                        // Live stream position frozen for > 6.5s -> auto-resync & reload live stream
+                                        // Non-dynamic live stream position frozen for > 16s -> auto-resync & reload
                                         lastLivePositionChangedRealtimeMs = now
                                         autoRecoverLiveStream(player, forceReload = true)
                                     }
@@ -1387,28 +1388,33 @@ class LivePlayerController(
         _uiState.value = PlayerUiState.Loading
         registerPowerBroadcastReceiverIfNeeded()
 
-        // Prioritize standard AOSP platform codecs (c2.android.* / OMX.google.*) and exclude
-        // buggy goldfish/ranchu emulator codecs that fail CCodecResources system resource queries (error 6)
-        // or stall on seek flush.
+        // Use hardware decoders on real Android devices for smooth HD playback, while preferring
+        // standard AOSP software codecs on emulators to avoid goldfish/ranchu CCodec errors.
+        val isEmulatorDevice = android.os.Build.FINGERPRINT.contains("generic", ignoreCase = true) ||
+                android.os.Build.HARDWARE.contains("ranchu", ignoreCase = true) ||
+                android.os.Build.HARDWARE.contains("goldfish", ignoreCase = true) ||
+                android.os.Build.PRODUCT.contains("sdk", ignoreCase = true)
         val reliableCodecSelector = MediaCodecSelector { mimeType, requiresSecureDecoder, requiresTunnelingDecoder ->
             val defaultInfos = MediaCodecSelector.DEFAULT.getDecoderInfos(
                 mimeType,
                 requiresSecureDecoder,
                 requiresTunnelingDecoder
             )
-            val androidPlatformCodecs = defaultInfos.filter { info ->
-                info.name.startsWith("c2.android.", ignoreCase = true) ||
-                        info.name.startsWith("OMX.google.", ignoreCase = true) ||
-                        (info.softwareOnly && !info.vendor)
-            }
-            if (androidPlatformCodecs.isNotEmpty() && !requiresSecureDecoder && !requiresTunnelingDecoder) {
-                androidPlatformCodecs
+            val withoutBuggyEmulatorCodecs = defaultInfos.filterNot { info ->
+                info.name.contains("goldfish", ignoreCase = true) ||
+                        info.name.contains("ranchu", ignoreCase = true) ||
+                        info.name.contains("cuttlefish", ignoreCase = true)
+            }.ifEmpty { defaultInfos }
+
+            if (isEmulatorDevice && !requiresSecureDecoder && !requiresTunnelingDecoder) {
+                val androidPlatformCodecs = withoutBuggyEmulatorCodecs.filter { info ->
+                    info.name.startsWith("c2.android.", ignoreCase = true) ||
+                            info.name.startsWith("OMX.google.", ignoreCase = true) ||
+                            (info.softwareOnly && !info.vendor)
+                }
+                androidPlatformCodecs.ifEmpty { withoutBuggyEmulatorCodecs }
             } else {
-                defaultInfos.filterNot { info ->
-                    info.name.contains("goldfish", ignoreCase = true) ||
-                            info.name.contains("ranchu", ignoreCase = true) ||
-                            info.name.contains("cuttlefish", ignoreCase = true)
-                }.ifEmpty { defaultInfos }
+                withoutBuggyEmulatorCodecs
             }
         }
 
@@ -1456,15 +1462,14 @@ class LivePlayerController(
             "Auto Full HD (1080p)"
         }
 
-        val lockInitialFullHd = initialTier == AdaptiveQualityTier.FULL_HD_1080P && !initialBatteryProfile.isCpuSavingActive
         val selector = DefaultTrackSelector(context, adaptiveTrackSelectionFactory).apply {
             setParameters(
                 buildUponParameters()
                     .setMaxVideoSize(initialTier.maxWidth, initialTier.maxHeight)
                     .setMaxVideoBitrate(initialTier.maxBitrateBps)
                     .setMaxVideoFrameRate(initialBatteryProfile.maxFrameRate)
-                    .setMinVideoSize(if (lockInitialFullHd) 1280 else 0, if (lockInitialFullHd) 720 else 0)
-                    .setMinVideoBitrate(if (lockInitialFullHd) 1_200_000 else 0)
+                    .setMinVideoSize(0, 0)
+                    .setMinVideoBitrate(0)
                     .setForceLowestBitrate(
                         initialTier.forceLowestBitrate ||
                                 initialBatteryProfile == BatteryPowerProfile.CRITICAL_BATTERY_SAVER ||
@@ -1474,7 +1479,7 @@ class LivePlayerController(
                     .setExceedVideoConstraintsIfNecessary(true)
                     .setExceedRendererCapabilitiesIfNecessary(true)
                     .setAllowVideoMixedMimeTypeAdaptiveness(true)
-                    .setAllowVideoNonSeamlessAdaptiveness(false)
+                    .setAllowVideoNonSeamlessAdaptiveness(true)
             )
         }
         trackSelector = selector
@@ -1751,6 +1756,8 @@ class LivePlayerController(
         if (!channel.isLiveBroadcast) return
         val now = android.os.SystemClock.elapsedRealtime()
         lastLiveAutoReloadRealtimeMs = now
+        totalBufferingStartedAtRealtimeMs = now
+        bufferingEnteredAtRealtimeMs = now
         pausedByCallOrExternalAudio = false
         pausedSpecificallyByPhoneCall = false
         _uiState.value = PlayerUiState.Buffering
@@ -1825,9 +1832,12 @@ class LivePlayerController(
 
     private fun loadChannelStream(player: ExoPlayer, preserveVodPosition: Boolean = false) {
         try {
+            val now = android.os.SystemClock.elapsedRealtime()
+            totalBufferingStartedAtRealtimeMs = now
+            bufferingEnteredAtRealtimeMs = now
             val isLocalOffline = isPlayingLocalOfflineStream(channel)
             val mediaSource = createMediaSource(channel)
-            player.repeatMode = if (channel.isLiveBroadcast) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+            player.repeatMode = Player.REPEAT_MODE_OFF
             val startPositionMs = when {
                 channel.isLiveBroadcast -> C.TIME_UNSET
                 preserveVodPosition && lastKnownVodPositionMs > 0L -> lastKnownVodPositionMs
@@ -1850,9 +1860,6 @@ class LivePlayerController(
             }
 
             player.prepare()
-            if (channel.isLiveBroadcast && !channel.isMp4) {
-                player.seekToDefaultPosition()
-            }
             player.playWhenReady = true
             player.play()
         } catch (e: Exception) {
@@ -1918,11 +1925,11 @@ class LivePlayerController(
         val extractorsFactory = sharedExtractorsFactory
 
         val liveConfiguration = MediaItem.LiveConfiguration.Builder()
-            .setTargetOffsetMs(4_500L)
-            .setMinOffsetMs(2_000L)
-            .setMaxOffsetMs(16_000L)
-            .setMinPlaybackSpeed(0.97f)
-            .setMaxPlaybackSpeed(1.03f)
+            .setTargetOffsetMs(8_000L)
+            .setMinOffsetMs(4_000L)
+            .setMaxOffsetMs(25_000L)
+            .setMinPlaybackSpeed(0.98f)
+            .setMaxPlaybackSpeed(1.02f)
             .build()
 
         val isLocalHlsPlaylist = isLocalOfflineFile &&

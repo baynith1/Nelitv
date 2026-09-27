@@ -710,7 +710,7 @@ object MediaContentRepository {
     private val _firestoreUsers = MutableStateFlow<Map<String, Map<String, String>>>(emptyMap())
     val firestoreUsers: StateFlow<Map<String, Map<String, String>>> = _firestoreUsers.asStateFlow()
 
-    private val _mediaCatalog = MutableStateFlow<List<MediaContent>>(initialProductionCatalog)
+    private val _mediaCatalog = MutableStateFlow<List<MediaContent>>(emptyList())
     val mediaCatalog: StateFlow<List<MediaContent>> = _mediaCatalog.asStateFlow()
 
     fun resolveCategoryDisplayName(rawCategoryIdOrName: String): String {
@@ -726,46 +726,12 @@ object MediaContentRepository {
     }
 
     /**
-     * Restores previously synced real Firebase movies/series/episodes from disk cache at 0ms on app launch
-     * so users immediately see real Firebase movies on Discovery before the network call even finishes.
+     * Azam TV Streaming App only: clears any old movie/series cache and keeps catalogs empty.
      */
     fun initializeAndPrewarmFromCache(context: android.content.Context) {
         appContextRef = context.applicationContext
-        try {
-            val prefs = context.applicationContext.getSharedPreferences(
-                PREFS_FIREBASE_CATALOG_CACHE,
-                android.content.Context.MODE_PRIVATE
-            )
-            val cachedMovies = prefs.getString(KEY_CACHED_MOVIES_JSON, null)
-            val cachedSeries = prefs.getString(KEY_CACHED_SERIES_JSON, null)
-            val cachedEpisodes = prefs.getString(KEY_CACHED_EPISODES_JSON, null)
-            val cachedAdults = prefs.getString(KEY_CACHED_ADULTS_JSON, null)
-            val cachedCategories = prefs.getString(KEY_CACHED_CATEGORIES_JSON, null)
-            val cachedSettings = prefs.getString(KEY_CACHED_SETTINGS_JSON, null)
-            val cachedNotifications = prefs.getString(KEY_CACHED_NOTIFICATIONS_JSON, null)
-            val cachedRtdb = prefs.getString(KEY_CACHED_RTDB_JSON, null)
-
-            if (!cachedMovies.isNullOrBlank() ||
-                !cachedSeries.isNullOrBlank() ||
-                !cachedAdults.isNullOrBlank() ||
-                !cachedCategories.isNullOrBlank()
-            ) {
-                parseFirestoreCollections(
-                    moviesJson = cachedMovies,
-                    seriesJson = cachedSeries,
-                    episodesJson = cachedEpisodes,
-                    adultsJson = cachedAdults,
-                    categoriesJson = cachedCategories,
-                    settingsJson = cachedSettings,
-                    notificationsJson = cachedNotifications,
-                    isFromLiveNetworkSync = true
-                )
-            }
-            if (!cachedRtdb.isNullOrBlank()) {
-                parseFirebaseJsonPayload(cachedRtdb, isFromLiveNetworkSync = true)
-            }
-        } catch (_: Throwable) {
-        }
+        _mediaCatalog.value = emptyList()
+        _episodesCatalog.value = emptyList()
     }
 
     private fun saveFirestorePayloadsToDiskCache(
@@ -807,10 +773,10 @@ object MediaContentRepository {
         }
     }
 
-    private val _episodesCatalog = MutableStateFlow<List<EpisodeItem>>(initialProductionEpisodes)
+    private val _episodesCatalog = MutableStateFlow<List<EpisodeItem>>(emptyList())
     val episodesCatalog: StateFlow<List<EpisodeItem>> = _episodesCatalog.asStateFlow()
 
-    private val _firebaseSyncStatus = MutableStateFlow("Online • Live & On-Demand Catalog Ready")
+    private val _firebaseSyncStatus = MutableStateFlow("Azam TV Live Channels Ready")
     val firebaseSyncStatus: StateFlow<String> = _firebaseSyncStatus.asStateFlow()
 
     /**

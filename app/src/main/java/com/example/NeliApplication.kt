@@ -30,7 +30,6 @@ class NeliApplication : Application(), ImageLoaderFactory {
         NativeLogSuppressor.suppressNonFatalNativeLogs()
         super.onCreate()
         NeliThemeManager.initialize(this)
-        MediaContentRepository.initializeAndPrewarmFromCache(this)
         // Configure test device IDs for development and initialize Google Mobile Ads SDK at app startup
         NeliAdMobManager.initializeInApplication(this)
     }
