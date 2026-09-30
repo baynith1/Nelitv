@@ -7,14 +7,17 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.BaseDataSource
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
+import androidx.media3.datasource.HttpDataSource
 import java.io.ByteArrayOutputStream
 import kotlin.math.min
 
 /**
  * A [DataSource] that transparently:
  * 1. Propagates exact encoded query parameters (e.g., `cdntoken=...`) from the manifest URI to segment URIs.
- * 2. Strips `<ContentProtection>` tags from DASH `.mpd` manifests when software ClearKey decryption is active.
- * 3. Decrypts CENC AES-128-CTR `.mp4` / `.m4s` initialization and media segments in memory using [Mp4CencDecryptor],
+ * 2. Automatically refreshes the live Azam CDN token from `https://streamzone.fun/api/cdn-token` and
+ *    `https://streamzone.fun/api/channels` on background I/O threads if not yet synced or on HTTP 401/403.
+ * 3. Strips `<ContentProtection>` tags from DASH `.mpd` manifests so ExoPlayer never throws DRM license errors.
+ * 4. Decrypts CENC AES-128-CTR `.mp4` / `.m4s` initialization and media segments in memory using [Mp4CencDecryptor],
  *    eliminating reliance on hardware/emulator CryptoHalHidl DRM factories.
  */
 @OptIn(UnstableApi::class)
@@ -39,38 +42,39 @@ class ClearKeyDecryptingDataSource(
     }
 
     private var currentUri: Uri? = null
-    private var currentResponseHeaders: Map<String, List<String>> = emptyMap()
     private var transformedData: ByteArray? = null
     private var readPosition: Int = 0
     private var bytesRemaining: Int = 0
     private var passthroughMode: Boolean = false
 
-    companion object {
-        private val PERIOD_SUFFIX_REGEX = Regex("""-p=\d+""", RegexOption.IGNORE_CASE)
-    }
-
     override fun open(dataSpec: DataSpec): Long {
         transferInitializing(dataSpec)
 
-        val effectiveDataSpec = resolveDataSpecToken(dataSpec)
+        val initialUriStr = dataSpec.uri.toString()
+        val isAzamOrTokenStream = initialUriStr.contains("azamtvltd.co.tz", ignoreCase = true) ||
+            initialUriStr.contains("/live/eds/", ignoreCase = true) ||
+            initialUriStr.contains("cdntoken=", ignoreCase = true)
+
+        // Ensure we have synced the live token at least once before opening the first Azam manifest
+        if (isAzamOrTokenStream && com.example.data.ChannelRepository.lastLiveTokenSyncEpochMs == 0L) {
+            val pathLower = initialUriStr.substringBefore("?").lowercase()
+            if (pathLower.endsWith(".mpd")) {
+                TokenManager.fetchLiveTokenBlocking(forceRefresh = false)
+            }
+        }
+
+        var effectiveDataSpec = resolveDataSpecToken(dataSpec, forceLatestRepoToken = false)
         val uriString = effectiveDataSpec.uri.toString()
         val pathPart = uriString.substringBefore("?").lowercase()
 
         val isMpd = pathPart.endsWith(".mpd")
-        val isMp4Segment = pathPart.endsWith(".mp4") ||
-            pathPart.endsWith(".m4s") ||
-            pathPart.endsWith(".cmfv") ||
-            pathPart.endsWith(".cmfa") ||
-            pathPart.endsWith(".dash") ||
-            pathPart.endsWith(".m4v") ||
-            pathPart.endsWith(".m4a") ||
-            pathPart.endsWith(".init")
+        val isMp4Segment = pathPart.endsWith(".mp4") || pathPart.endsWith(".m4s") || pathPart.endsWith(".cmfv") || pathPart.endsWith(".cmfa")
 
-        if (decryptor == null || (!isMpd && !isMp4Segment)) {
+        if (!isMpd && (decryptor == null || !isMp4Segment)) {
             passthroughMode = true
-            val length = upstream.open(effectiveDataSpec)
+            val (openedSpec, length) = openUpstreamWithTokenFailover(dataSpec, effectiveDataSpec)
+            effectiveDataSpec = openedSpec
             currentUri = upstream.uri ?: effectiveDataSpec.uri
-            currentResponseHeaders = upstream.responseHeaders
             transferStarted(effectiveDataSpec)
             return length
         }
@@ -78,31 +82,26 @@ class ClearKeyDecryptingDataSource(
         passthroughMode = false
 
         // Fetch full resource from upstream so we can parse/decrypt complete MP4 boxes or MPD XML
-        var fullFetchSpec = effectiveDataSpec.buildUpon()
+        val fullFetchSpec = effectiveDataSpec.buildUpon()
             .setPosition(0)
             .setLength(C.LENGTH_UNSET.toLong())
             .build()
 
-        openUpstreamWithAzamFallbacks(fullFetchSpec)?.let { succeededSpec ->
-            fullFetchSpec = succeededSpec
-        }
-
-        currentUri = upstream.uri ?: fullFetchSpec.uri
-        currentResponseHeaders = upstream.responseHeaders
-        transferStarted(effectiveDataSpec)
+        val (openedSpec, _) = openUpstreamWithTokenFailover(dataSpec, fullFetchSpec)
+        currentUri = upstream.uri ?: openedSpec.uri
 
         val rawBytes = readAllUpstreamBytes()
         upstream.close()
 
-        val rawFileName = pathPart.substringAfterLast("/").substringBeforeLast(".")
-        val streamKey = PERIOD_SUFFIX_REGEX.replace(rawFileName, "").substringBeforeLast("-")
         val processedBytes = if (isMpd) {
             val xml = String(rawBytes, Charsets.UTF_8)
                 .replace("http://cdnblncr.azamtvltd.co.tz", com.example.data.ChannelRepository.AZAM_CDN_HOST, ignoreCase = true)
                 .replace("https://cdnblncr.azamtvltd.co.tz", com.example.data.ChannelRepository.AZAM_CDN_HOST, ignoreCase = true)
-            decryptor.stripMpdContentProtection(xml).toByteArray(Charsets.UTF_8)
+            val stripped = decryptor?.stripMpdContentProtection(xml)
+                ?: Mp4CencDecryptor(emptyMap()).stripMpdContentProtection(xml)
+            stripped.toByteArray(Charsets.UTF_8)
         } else {
-            decryptor.processMp4Segment(rawBytes, streamKey)
+            decryptor?.processMp4Segment(rawBytes) ?: rawBytes
         }
 
         transformedData = processedBytes
@@ -120,58 +119,34 @@ class ClearKeyDecryptingDataSource(
             }
         }
 
+        transferStarted(effectiveDataSpec)
         return bytesRemaining.toLong()
     }
 
-    private fun openUpstreamWithAzamFallbacks(initialSpec: DataSpec): DataSpec? {
-        try {
-            upstream.open(initialSpec)
-            return initialSpec
-        } catch (e: androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException) {
-            val initialUrl = initialSpec.uri.toString()
-            if ((e.responseCode == 403 || e.responseCode == 401 || e.responseCode == 404) &&
-                initialUrl.contains("azamtvltd.co.tz", ignoreCase = true)
-            ) {
+    private fun openUpstreamWithTokenFailover(
+        originalSpec: DataSpec,
+        attemptSpec: DataSpec
+    ): Pair<DataSpec, Long> {
+        return try {
+            val len = upstream.open(attemptSpec)
+            attemptSpec to len
+        } catch (e: HttpDataSource.InvalidResponseCodeException) {
+            if (TokenManager.isAuthenticationFailure(e.responseCode, e.message)) {
                 try {
                     upstream.close()
                 } catch (_: Exception) {
                 }
-                val basePath = initialUrl.substringBefore("?")
-                val edgeBasePath = basePath
-                    .replace("http://cdnblncr.azamtvltd.co.tz", com.example.data.ChannelRepository.DEFAULT_AZAM_CDN_HOST, ignoreCase = true)
-                    .replace("https://cdnblncr.azamtvltd.co.tz", com.example.data.ChannelRepository.DEFAULT_AZAM_CDN_HOST, ignoreCase = true)
-                val lbBasePath = edgeBasePath.replace(
-                    com.example.data.ChannelRepository.DEFAULT_AZAM_CDN_HOST,
-                    com.example.data.ChannelRepository.DEFAULT_AZAM_LOAD_BALANCER_HOST,
-                    ignoreCase = true
+                TokenManager.handleAuthenticationFailureBlocking(
+                    failedUrl = attemptSpec.uri.toString(),
+                    httpStatusCode = e.responseCode
                 )
-
-                val candidateUrls = linkedSetOf(
-                    "$edgeBasePath?cdntoken=${com.example.data.ChannelRepository.DEFAULT_AZAM_CDN_TOKEN_ENCODED}",
-                    "$edgeBasePath?cdntoken=${com.example.data.ChannelRepository.DEFAULT_AZAM_CDN_TOKEN}",
-                    "$lbBasePath?cdntoken=${com.example.data.ChannelRepository.DEFAULT_AZAM_CDN_TOKEN_ENCODED}",
-                    "$lbBasePath?cdntoken=${com.example.data.ChannelRepository.DEFAULT_AZAM_CDN_TOKEN}",
-                    "$edgeBasePath?cdntoken=${com.example.data.ChannelRepository.FALLBACK_AZAM_CDN_TOKEN}"
-                )
-                candidateUrls.remove(initialUrl)
-
-                for (candidateUrl in candidateUrls) {
-                    try {
-                        val candidateSpec = initialSpec.buildUpon()
-                            .setUri(Uri.parse(candidateUrl))
-                            .setPosition(0)
-                            .setLength(C.LENGTH_UNSET.toLong())
-                            .build()
-                        upstream.open(candidateSpec)
-                        return candidateSpec
-                    } catch (_: Exception) {
-                        try {
-                            upstream.close()
-                        } catch (_: Exception) {
-                        }
-                    }
-                }
-                throw e
+                val refreshedBaseSpec = resolveDataSpecToken(originalSpec, forceLatestRepoToken = true)
+                val retrySpec = refreshedBaseSpec.buildUpon()
+                    .setPosition(attemptSpec.position)
+                    .setLength(attemptSpec.length)
+                    .build()
+                val retryLen = upstream.open(retrySpec)
+                retrySpec to retryLen
             } else {
                 throw e
             }
@@ -207,7 +182,7 @@ class ClearKeyDecryptingDataSource(
     }
 
     override fun getResponseHeaders(): Map<String, List<String>> {
-        return if (passthroughMode) upstream.responseHeaders else currentResponseHeaders
+        return upstream.responseHeaders
     }
 
     override fun close() {
@@ -222,40 +197,17 @@ class ClearKeyDecryptingDataSource(
             }
         }
         currentUri = null
-        currentResponseHeaders = emptyMap()
     }
 
-    private fun resolveDataSpecToken(dataSpec: DataSpec): DataSpec {
-        val rawUriStr = dataSpec.uri.toString()
-        val normalizedStr = com.example.data.ChannelRepository.normalizeDashStreamUrl(rawUriStr)
-        val normalizedUri = Uri.parse(normalizedStr)
-
-        if (normalizedUri.toString().contains("cdntoken=", ignoreCase = true)) {
-            return if (normalizedStr != rawUriStr) dataSpec.withUri(normalizedUri) else dataSpec
-        }
-
-        val fallbackQuery = encodedManifestQuery?.takeIf { it.isNotBlank() }
-            ?: if (normalizedStr.contains("azamtvltd.co.tz", ignoreCase = true)) {
-                "cdntoken=${com.example.data.ChannelRepository.AZAM_CDN_TOKEN}"
-            } else {
-                null
-            }
-
-        if (fallbackQuery.isNullOrBlank()) {
-            return if (normalizedStr != rawUriStr) dataSpec.withUri(normalizedUri) else dataSpec
-        }
-
-        val currentEncodedQuery = normalizedUri.encodedQuery
-        val mergedEncodedQuery = if (currentEncodedQuery.isNullOrBlank()) {
-            fallbackQuery
-        } else {
-            "$currentEncodedQuery&$fallbackQuery"
-        }
-
-        val resolvedUri = normalizedUri.buildUpon()
-            .encodedQuery(mergedEncodedQuery)
-            .build()
-        return dataSpec.withUri(resolvedUri)
+    private fun resolveDataSpecToken(
+        dataSpec: DataSpec,
+        forceLatestRepoToken: Boolean = false
+    ): DataSpec {
+        return TokenManager.injectTokenIntoDataSpec(
+            dataSpec = dataSpec,
+            forceLatestToken = forceLatestRepoToken,
+            encodedManifestQuery = encodedManifestQuery
+        )
     }
 
     private fun readAllUpstreamBytes(): ByteArray {

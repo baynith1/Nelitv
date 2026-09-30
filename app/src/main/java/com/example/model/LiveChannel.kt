@@ -32,7 +32,8 @@ data class LiveChannel(
     val seasonNumber: Int = 0,
     val episodeNumber: Int = 0,
     val isSwahiliNarratedMovie: Boolean = false,
-    val isAdultContent: Boolean = false
+    val isAdultContent: Boolean = false,
+    val backupStreamUrl: String = ""
 ) {
     val category: String
         get() = categories.firstOrNull()?.replaceFirstChar { it.uppercase() } ?: "Live TV"

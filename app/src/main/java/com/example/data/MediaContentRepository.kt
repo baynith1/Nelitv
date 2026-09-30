@@ -3,8 +3,6 @@ package com.example.data
 import com.example.data.local.DownloadedItemEntity
 import com.example.model.CastMember
 import com.example.model.EpisodeItem
-import com.example.model.FirestoreCategoryItem
-import com.example.model.FirestoreNotificationItem
 import com.example.model.LiveChannel
 import com.example.model.MediaContent
 import com.example.model.SeriesSeason
@@ -31,12 +29,7 @@ import kotlin.random.Random
 object MediaContentRepository {
 
     const val DEFAULT_PROJECT_ID = "neliplay"
-    const val DEFAULT_AUTH_DOMAIN = "neliplay.firebaseapp.com"
     const val DEFAULT_DATABASE_URL = "https://neliplay-default-rtdb.firebaseio.com"
-    const val DEFAULT_STORAGE_BUCKET = "neliplay.firebasestorage.app"
-    const val DEFAULT_MESSAGING_SENDER_ID = "39702563643"
-    const val DEFAULT_WEB_APP_ID = "1:39702563643:web:7dfc69461cbc615483051e"
-    const val DEFAULT_MEASUREMENT_ID = "G-ZXL5195YHY"
     const val MAX_CONCURRENT_USERS_CAPACITY = 10_000_000L
 
     private data class CachedEdgePayload(
@@ -389,180 +382,6 @@ object MediaContentRepository {
             runtimeMinutes = 130
         ),
         MediaContent(
-            id = "mov_2026_bongo_strike",
-            title = "Strike Force: Indian Ocean",
-            originalTitle = "Strike Force",
-            originalLanguage = "en",
-            type = "movie",
-            posterUrl = "https://image.tmdb.org/t/p/w500/1QdXdRYfktUSONkl1oD5gc6Be0s.jpg",
-            backdropUrl = "https://image.tmdb.org/t/p/original/2meX1nMdScFOoV4370rqHWKmXhY.jpg",
-            streamUrl = "https://vz-1bb50f2e-8ea.b-cdn.net/9d14eb59-d3a0-4b01-9010-ba9bc5492865/play_480p.mp4",
-            streamFormat = "mp4",
-            genre = "Action",
-            subGenres = listOf("Action", "Popular", "Movies", "Swahili"),
-            duration = "2h 08m",
-            rating = "8.8",
-            director = "Action Cinema",
-            screenplay = "Swahili Narrated",
-            production = "International Cinema",
-            synopsis = "A special maritime task force intercepts an armored cargo vessel off the East African coast in an explosive Swahili-narrated action blockbuster.",
-            isTrending = true,
-            isComingSoon = false,
-            isKids = false,
-            releaseYear = "2026",
-            narrated = true,
-            narrationLanguage = "Swahili",
-            downloadEnabled = true,
-            featured = true,
-            published = true,
-            runtimeMinutes = 128
-        ),
-        MediaContent(
-            id = "mov_2026_rogue_sniper",
-            title = "Zero Hour: Final Target",
-            originalTitle = "Zero Hour",
-            originalLanguage = "en",
-            type = "movie",
-            posterUrl = "https://image.tmdb.org/t/p/w500/okJESjE3wqN4qDNFOM8TecUVfHX.jpg",
-            backdropUrl = "https://image.tmdb.org/t/p/original/vuq5EfA9ED9vnxQgEV4zWEAFmKJ.jpg",
-            streamUrl = "https://vz-1bb50f2e-8ea.b-cdn.net/9d14eb59-d3a0-4b01-9010-ba9bc5492865/play_480p.mp4",
-            streamFormat = "mp4",
-            genre = "Action",
-            subGenres = listOf("Action", "Thriller", "Movies", "Swahili"),
-            duration = "1h 56m",
-            rating = "8.6",
-            director = "Cinema Studios",
-            screenplay = "Swahili Narrated",
-            production = "Action Studios",
-            synopsis = "Framed for a high-profile mission gone wrong, a master marksman goes rogue to clear his name and expose the mastermind behind the conspiracy.",
-            isTrending = true,
-            isComingSoon = false,
-            isKids = false,
-            releaseYear = "2026",
-            narrated = true,
-            narrationLanguage = "Swahili",
-            downloadEnabled = true,
-            featured = true,
-            published = true,
-            runtimeMinutes = 116
-        ),
-        MediaContent(
-            id = "mov_2026_silent_witness",
-            title = "Nightfall Conspiracy",
-            originalTitle = "Nightfall Conspiracy",
-            originalLanguage = "en",
-            type = "movie",
-            posterUrl = "https://image.tmdb.org/t/p/w500/oSk0j4yeDOqXNHIjYehgSJ2WujM.jpg",
-            backdropUrl = "https://image.tmdb.org/t/p/original/2meX1nMdScFOoV4370rqHWKmXhY.jpg",
-            streamUrl = "https://vz-1bb50f2e-8ea.b-cdn.net/9d14eb59-d3a0-4b01-9010-ba9bc5492865/play_480p.mp4",
-            streamFormat = "mp4",
-            genre = "Thriller",
-            subGenres = listOf("Thriller", "Mystery", "Movies", "Swahili"),
-            duration = "2h 02m",
-            rating = "8.5",
-            director = "Suspense Studios",
-            screenplay = "Swahili Narrated",
-            production = "International",
-            synopsis = "When an encrypted drive vanishes during a citywide blackout, a forensic analyst is hunted across the night by operatives who will stop at nothing.",
-            isTrending = true,
-            isComingSoon = false,
-            isKids = false,
-            releaseYear = "2026",
-            narrated = true,
-            narrationLanguage = "Swahili",
-            downloadEnabled = true,
-            featured = true,
-            published = true,
-            runtimeMinutes = 122
-        ),
-        MediaContent(
-            id = "mov_2026_cartel_gold",
-            title = "Syndicate of Gold",
-            originalTitle = "Syndicate of Gold",
-            originalLanguage = "en",
-            type = "movie",
-            posterUrl = "https://image.tmdb.org/t/p/w500/3sUdP791SMnEQuJNIpRCT49pkxe.jpg",
-            backdropUrl = "https://image.tmdb.org/t/p/original/vuq5EfA9ED9vnxQgEV4zWEAFmKJ.jpg",
-            streamUrl = "https://vz-1bb50f2e-8ea.b-cdn.net/9d14eb59-d3a0-4b01-9010-ba9bc5492865/play_480p.mp4",
-            streamFormat = "mp4",
-            genre = "Crime",
-            subGenres = listOf("Crime", "Action", "Movies", "Swahili"),
-            duration = "2h 06m",
-            rating = "8.7",
-            director = "Crime Cinema",
-            screenplay = "Swahili Narrated",
-            production = "International Cinema",
-            synopsis = "Undercover detectives infiltrate an international gold-smuggling cartel, risking everything when their cover is threatened from inside the department.",
-            isTrending = true,
-            isComingSoon = false,
-            isKids = false,
-            releaseYear = "2026",
-            narrated = true,
-            narrationLanguage = "Swahili",
-            downloadEnabled = true,
-            featured = true,
-            published = true,
-            runtimeMinutes = 126
-        ),
-        MediaContent(
-            id = "mov_2026_cyber_nexus",
-            title = "Nexus 2099: Uprising",
-            originalTitle = "Nexus 2099",
-            originalLanguage = "en",
-            type = "movie",
-            posterUrl = "https://image.tmdb.org/t/p/w500/yEB6bMYgNu6qEQWoBvlkg6Ea5P.jpg",
-            backdropUrl = "https://image.tmdb.org/t/p/original/2meX1nMdScFOoV4370rqHWKmXhY.jpg",
-            streamUrl = "https://vz-1bb50f2e-8ea.b-cdn.net/9d14eb59-d3a0-4b01-9010-ba9bc5492865/play_480p.mp4",
-            streamFormat = "mp4",
-            genre = "Sci-Fi",
-            subGenres = listOf("Sci-Fi", "Action", "Movies", "Swahili"),
-            duration = "2h 12m",
-            rating = "8.6",
-            director = "Future Cinema",
-            screenplay = "Swahili Narrated",
-            production = "Sci-Fi Studios",
-            synopsis = "In a neon-lit future metropolis, a rogue combat pilot teams up with a rebel engineer to shut down an orbital defense grid before launch.",
-            isTrending = true,
-            isComingSoon = false,
-            isKids = false,
-            releaseYear = "2026",
-            narrated = true,
-            narrationLanguage = "Swahili",
-            downloadEnabled = true,
-            featured = true,
-            published = true,
-            runtimeMinutes = 132
-        ),
-        MediaContent(
-            id = "mov_2026_dynasty_crown",
-            title = "Blood & Crown",
-            originalTitle = "Blood & Crown",
-            originalLanguage = "en",
-            type = "movie",
-            posterUrl = "https://image.tmdb.org/t/p/w500/ui5Ujx256vAI5JbXzeTGVwMkVhs.jpg",
-            backdropUrl = "https://image.tmdb.org/t/p/original/2meX1nMdScFOoV4370rqHWKmXhY.jpg",
-            streamUrl = "https://vz-1bb50f2e-8ea.b-cdn.net/9d14eb59-d3a0-4b01-9010-ba9bc5492865/play_480p.mp4",
-            streamFormat = "mp4",
-            genre = "Drama",
-            subGenres = listOf("Drama", "Crime", "Movies", "Swahili"),
-            duration = "2h 05m",
-            rating = "8.5",
-            director = "Drama Studios",
-            screenplay = "Swahili Narrated",
-            production = "International",
-            synopsis = "A powerful family empire faces betrayal from within when the heir uncovers the truth behind his brother's sudden disappearance.",
-            isTrending = true,
-            isComingSoon = false,
-            isKids = false,
-            releaseYear = "2026",
-            narrated = true,
-            narrationLanguage = "Swahili",
-            downloadEnabled = true,
-            featured = true,
-            published = true,
-            runtimeMinutes = 125
-        ),
-        MediaContent(
             id = "adult_midnight_desire_hd",
             title = "Midnight Velvet (18+)",
             originalTitle = "Midnight Velvet",
@@ -651,240 +470,25 @@ object MediaContentRepository {
         )
     )
 
-    private val initialProductionIds: Set<String> by lazy {
-        initialProductionCatalog.map { it.id }.toSet()
-    }
-
-    /**
-     * IDs of synthetic fallback/demo movies that must be replaced as soon as real movies from Firebase sync,
-     * and excluded from the live Discovery screen when real Firebase movies are present.
-     */
-    val DEMO_FALLBACK_MOVIE_IDS: Set<String> = setOf(
-        "mov_2026_shadow_protocol",
-        "mov_2026_crimson_horizon",
-        "mov_2026_dar_express",
-        "mov_2026_bongo_strike",
-        "mov_2026_rogue_sniper",
-        "mov_2026_silent_witness",
-        "mov_2026_cartel_gold",
-        "mov_2026_cyber_nexus",
-        "mov_2026_dynasty_crown"
-    )
-
-    private const val PREFS_FIREBASE_CATALOG_CACHE = "neli_firebase_catalog_cache_v2"
-    private const val KEY_CACHED_MOVIES_JSON = "cached_firestore_movies_json"
-    private const val KEY_CACHED_SERIES_JSON = "cached_firestore_series_json"
-    private const val KEY_CACHED_EPISODES_JSON = "cached_firestore_episodes_json"
-    private const val KEY_CACHED_ADULTS_JSON = "cached_firestore_adults_json"
-    private const val KEY_CACHED_CATEGORIES_JSON = "cached_firestore_categories_json"
-    private const val KEY_CACHED_SETTINGS_JSON = "cached_firestore_settings_json"
-    private const val KEY_CACHED_NOTIFICATIONS_JSON = "cached_firestore_notifications_json"
-    private const val KEY_CACHED_RTDB_JSON = "cached_rtdb_payload_json"
-
-    @Volatile
-    private var appContextRef: android.content.Context? = null
-
-    private val _hasSyncedRealFirebaseMovies = MutableStateFlow(false)
-    val hasSyncedRealFirebaseMovies: StateFlow<Boolean> = _hasSyncedRealFirebaseMovies.asStateFlow()
-
-    private val _categoriesCatalog = MutableStateFlow<List<FirestoreCategoryItem>>(
-        listOf(
-            FirestoreCategoryItem(id = "action", name = "Action", nameSw = "Action"),
-            FirestoreCategoryItem(id = "crime", name = "Crime", nameSw = "Crime"),
-            FirestoreCategoryItem(id = "drama", name = "Drama", nameSw = "Drama"),
-            FirestoreCategoryItem(id = "thriller", name = "Thriller", nameSw = "Thriller"),
-            FirestoreCategoryItem(id = "comedy", name = "Comedy", nameSw = "Comedy"),
-            FirestoreCategoryItem(id = "sci-fi", name = "Sci-Fi", nameSw = "Sci-Fi"),
-            FirestoreCategoryItem(id = "series", name = "Series", nameSw = "Series"),
-            FirestoreCategoryItem(id = "movie", name = "Movies", nameSw = "Movies")
-        )
-    )
-    val categoriesCatalog: StateFlow<List<FirestoreCategoryItem>> = _categoriesCatalog.asStateFlow()
-
-    private val _firestoreSettings = MutableStateFlow<Map<String, String>>(emptyMap())
-    val firestoreSettings: StateFlow<Map<String, String>> = _firestoreSettings.asStateFlow()
-
-    private val _firestoreNotifications = MutableStateFlow<List<FirestoreNotificationItem>>(emptyList())
-    val firestoreNotifications: StateFlow<List<FirestoreNotificationItem>> = _firestoreNotifications.asStateFlow()
-
-    private val _firestoreUsers = MutableStateFlow<Map<String, Map<String, String>>>(emptyMap())
-    val firestoreUsers: StateFlow<Map<String, Map<String, String>>> = _firestoreUsers.asStateFlow()
-
-    private val _mediaCatalog = MutableStateFlow<List<MediaContent>>(emptyList())
+    private val _mediaCatalog = MutableStateFlow<List<MediaContent>>(initialProductionCatalog)
     val mediaCatalog: StateFlow<List<MediaContent>> = _mediaCatalog.asStateFlow()
 
-    fun resolveCategoryDisplayName(rawCategoryIdOrName: String): String {
-        val clean = rawCategoryIdOrName.trim()
-        if (clean.isEmpty()) return ""
-        val matched = _categoriesCatalog.value.firstOrNull {
-            it.id.equals(clean, ignoreCase = true) ||
-                it.name.equals(clean, ignoreCase = true) ||
-                it.nameSw.equals(clean, ignoreCase = true)
-        }
-        if (matched != null) return matched.name
-        return clean.replaceFirstChar { it.uppercase() }
-    }
-
-    /**
-     * Azam TV Streaming App only: clears any old movie/series cache and keeps catalogs empty.
-     */
-    fun initializeAndPrewarmFromCache(context: android.content.Context) {
-        appContextRef = context.applicationContext
-        _mediaCatalog.value = emptyList()
-        _episodesCatalog.value = emptyList()
-    }
-
-    private fun saveFirestorePayloadsToDiskCache(
-        moviesJson: String?,
-        seriesJson: String?,
-        episodesJson: String?,
-        adultsJson: String?,
-        categoriesJson: String? = null,
-        settingsJson: String? = null,
-        notificationsJson: String? = null
-    ) {
-        val ctx = appContextRef ?: return
-        try {
-            val editor = ctx.getSharedPreferences(
-                PREFS_FIREBASE_CATALOG_CACHE,
-                android.content.Context.MODE_PRIVATE
-            ).edit()
-            if (!moviesJson.isNullOrBlank()) editor.putString(KEY_CACHED_MOVIES_JSON, moviesJson)
-            if (!seriesJson.isNullOrBlank()) editor.putString(KEY_CACHED_SERIES_JSON, seriesJson)
-            if (!episodesJson.isNullOrBlank()) editor.putString(KEY_CACHED_EPISODES_JSON, episodesJson)
-            if (!adultsJson.isNullOrBlank()) editor.putString(KEY_CACHED_ADULTS_JSON, adultsJson)
-            if (!categoriesJson.isNullOrBlank()) editor.putString(KEY_CACHED_CATEGORIES_JSON, categoriesJson)
-            if (!settingsJson.isNullOrBlank()) editor.putString(KEY_CACHED_SETTINGS_JSON, settingsJson)
-            if (!notificationsJson.isNullOrBlank()) editor.putString(KEY_CACHED_NOTIFICATIONS_JSON, notificationsJson)
-            editor.apply()
-        } catch (_: Throwable) {
-        }
-    }
-
-    private fun saveRtdbPayloadToDiskCache(rtdbJson: String?) {
-        val ctx = appContextRef ?: return
-        if (rtdbJson.isNullOrBlank()) return
-        try {
-            ctx.getSharedPreferences(
-                PREFS_FIREBASE_CATALOG_CACHE,
-                android.content.Context.MODE_PRIVATE
-            ).edit().putString(KEY_CACHED_RTDB_JSON, rtdbJson).apply()
-        } catch (_: Throwable) {
-        }
-    }
-
-    private val _episodesCatalog = MutableStateFlow<List<EpisodeItem>>(emptyList())
+    private val _episodesCatalog = MutableStateFlow<List<EpisodeItem>>(initialProductionEpisodes)
     val episodesCatalog: StateFlow<List<EpisodeItem>> = _episodesCatalog.asStateFlow()
 
-    private val _firebaseSyncStatus = MutableStateFlow("Azam TV Live Channels Ready")
+    private val _firebaseSyncStatus = MutableStateFlow("Online • Live & On-Demand Catalog Ready")
     val firebaseSyncStatus: StateFlow<String> = _firebaseSyncStatus.asStateFlow()
 
     /**
-     * Reactive rotation seed that updates automatically when Studio Admin movies sync, when the user
-     * opens/refreshes Discovery, or on periodic rotation so movies dynamically change order ("zibadilike badilike")
-     * instead of staying in one static sequence.
+     * Returns the top [limit] New 2026 Movies from the catalog, strictly excluding any adult content (`!it.isAdultContent`).
      */
-    private val _catalogRotationSeed = MutableStateFlow(System.currentTimeMillis() xor 0x5DEECE66DL)
-    val catalogRotationSeed: StateFlow<Long> = _catalogRotationSeed.asStateFlow()
-
-    /**
-     * Advances the catalog rotation seed to a guaranteed new value so all movie shelves, spotlight rows,
-     * and recommendations immediately shuffle/rotate to showcase different movies.
-     */
-    fun rotateMovieCatalogOrder(explicitSeed: Long? = null): Long {
-        val current = _catalogRotationSeed.value
-        val candidate = explicitSeed ?: (System.nanoTime() xor (current * 6364136223846793005L + 1442695040888963407L))
-        val nextSeed = if (candidate == current) candidate + 1009L else candidate
-        _catalogRotationSeed.value = nextSeed
-        return nextSeed
-    }
-
-    /**
-     * Deterministically rotates and shuffles a list of [MediaContent] for a given [seed] and [salt].
-     * Guarantees that when there are 2 or more movies, changing [seed] changes the leading movie
-     * so users always see a dynamic variety of movies across visits and refreshes.
-     */
-    fun rotateMediaListForSeed(
-        items: List<MediaContent>,
-        seed: Long = _catalogRotationSeed.value,
-        salt: String = ""
-    ): List<MediaContent> {
-        if (items.size <= 1) return items
-        val combinedHash = seed xor (salt.hashCode().toLong() * 2654435761L)
-        val rng = Random(combinedHash)
-        val shuffled = items.shuffled(rng)
-        // Also apply a cyclic shift based on positive seed steps so even 2-item or 3-item shelves visibly swap their first item
-        val shift = (( combinedHash.ushr(1) % items.size.toLong() ).toInt() + items.size) % items.size
-        if (shift == 0 && shuffled.first().id == items.first().id && items.size >= 2) {
-            return shuffled.drop(1) + shuffled.first()
-        }
-        return if (shift > 0) {
-            shuffled.drop(shift) + shuffled.take(shift)
-        } else {
-            shuffled
-        }
-    }
-
-    /**
-     * Returns a dynamically rotating spotlight mix of non-adult published movies (prioritizing Studio Admin
-     * movies and rotating across all genres) so users immediately see fresh, changing movies on Discovery.
-     */
-    fun getRotatingSpotlightMovies(
-        catalog: List<MediaContent> = _mediaCatalog.value,
-        rotationSeed: Long = _catalogRotationSeed.value,
-        limit: Int = 12
-    ): List<MediaContent> {
-        val rawMovies = catalog
-            .filter { it.published && it.isMovie && !it.isAdultContent }
-            .distinctBy { it.id }
-        if (rawMovies.isEmpty()) return emptyList()
-
-        val hasRealFirebaseMovies = _hasSyncedRealFirebaseMovies.value ||
-            rawMovies.any { it.id !in initialProductionIds }
-        val allMovies = if (hasRealFirebaseMovies) {
-            rawMovies.filter { it.id !in DEMO_FALLBACK_MOVIE_IDS }.ifEmpty { rawMovies }
-        } else {
-            rawMovies
-        }
-
-        val studioAdminMovies = allMovies.filter { it.id !in initialProductionIds || it.createdAtEpochMs > 0L }
-        val baseMovies = allMovies.filter { it.id in initialProductionIds && it.createdAtEpochMs <= 0L }
-
-        val rotatedStudio = rotateMediaListForSeed(studioAdminMovies, rotationSeed, "studio_admin_spotlight")
-        val rotatedBase = rotateMediaListForSeed(baseMovies, rotationSeed, "base_catalog_spotlight")
-
-        // Interleave Studio Admin movies and rotated catalog movies so new uploads and diverse genres both shine
-        val combined = mutableListOf<MediaContent>()
-        val maxLen = maxOf(rotatedStudio.size, rotatedBase.size)
-        for (i in 0 until maxLen) {
-            rotatedStudio.getOrNull(i)?.let { combined.add(it) }
-            rotatedBase.getOrNull(i)?.let { combined.add(it) }
-        }
-        return rotateMediaListForSeed(combined.distinctBy { it.id }, rotationSeed, "spotlight_final").take(limit)
-    }
-
-    /**
-     * Returns the top [limit] New 2026 Movies from the catalog, strictly excluding any adult content (`!it.isAdultContent`),
-     * and dynamically rotating among available 2026 movies using [rotationSeed].
-     */
-    fun getLatest2026NonAdultMovies(
-        limit: Int = 3,
-        rotationSeed: Long = _catalogRotationSeed.value
-    ): List<MediaContent> {
+    fun getLatest2026NonAdultMovies(limit: Int = 3): List<MediaContent> {
         val nonAdultMovies = _mediaCatalog.value.filter {
             it.published && it.isMovie && !it.isAdultContent
-        }.distinctBy { it.id }
-        val movies2026 = rotateMediaListForSeed(
-            nonAdultMovies.filter { it.releaseYear.trim() == "2026" },
-            rotationSeed,
-            "movies_2026"
-        )
-        val remaining = rotateMediaListForSeed(
-            nonAdultMovies.filter { it.releaseYear.trim() != "2026" }
-                .sortedByDescending { it.releaseYear },
-            rotationSeed,
-            "movies_other_years"
-        )
+        }
+        val movies2026 = nonAdultMovies.filter { it.releaseYear.trim() == "2026" }
+        val remaining = nonAdultMovies.filter { it.releaseYear.trim() != "2026" }
+            .sortedByDescending { it.releaseYear }
         return (movies2026 + remaining).take(limit)
     }
 
@@ -1223,18 +827,15 @@ object MediaContentRepository {
         val q = searchQuery.trim()
         val isAdultQuery = isAdultKeywordOrQuery(q)
 
-        val matchesQuery = if (isAdultQuery) {
-            item.isAdultContent
-        } else {
-            q.isEmpty() ||
-                item.title.contains(q, ignoreCase = true) ||
-                item.originalTitle.contains(q, ignoreCase = true) ||
-                item.primaryGenre.contains(q, ignoreCase = true) ||
-                item.genre.contains(q, ignoreCase = true) ||
-                item.subGenres.any { it.contains(q, ignoreCase = true) } ||
-                item.synopsis.contains(q, ignoreCase = true) ||
-                item.narrationLanguage.contains(q, ignoreCase = true)
-        }
+        val matchesQuery = q.isEmpty() ||
+            item.title.contains(q, ignoreCase = true) ||
+            item.originalTitle.contains(q, ignoreCase = true) ||
+            item.primaryGenre.contains(q, ignoreCase = true) ||
+            item.genre.contains(q, ignoreCase = true) ||
+            item.subGenres.any { it.contains(q, ignoreCase = true) } ||
+            item.synopsis.contains(q, ignoreCase = true) ||
+            item.narrationLanguage.contains(q, ignoreCase = true) ||
+            (isAdultQuery && item.isAdultContent)
 
         val matchesCat = when {
             selectedCategory.equals("All", ignoreCase = true) -> true
@@ -1317,34 +918,22 @@ object MediaContentRepository {
     }
 
     /**
-     * Alias for [getMoviesGroupedByPrimaryGenreOnly] used by Discovery tab to group movies strictly by their 1st genre only,
-     * while dynamically rotating movie order within each genre and rotating genre shelves based on [rotationSeed].
+     * Alias for [getMoviesGroupedByPrimaryGenreOnly] used by Discovery tab to group movies strictly by their 1st genre only.
      */
     fun getMoviesStrictlyByFirstGenre(
-        catalog: List<MediaContent> = _mediaCatalog.value,
-        rotationSeed: Long = _catalogRotationSeed.value
-    ): List<Pair<String, List<MediaContent>>> = getMoviesGroupedByPrimaryGenreOnly(catalog, rotationSeed)
+        catalog: List<MediaContent> = _mediaCatalog.value
+    ): List<Pair<String, List<MediaContent>>> = getMoviesGroupedByPrimaryGenreOnly(catalog)
 
     /**
      * Groups Movies strictly by their FIRST genre only (`extractPrimaryGenre`) so that each movie
      * appears in AT MOST ONE genre row and is NEVER duplicated across multiple genres.
-     * Uses [rotationSeed] to dynamically rotate the order of movies inside each genre shelf AND
-     * rotate the genre shelves themselves so movies never sit in a static order.
+     * Example: If Movie A has genres ["Action", "Animation", "Drama"], it is placed ONLY in "Action".
      */
     fun getMoviesGroupedByPrimaryGenreOnly(
-        catalog: List<MediaContent> = _mediaCatalog.value,
-        rotationSeed: Long = _catalogRotationSeed.value
+        catalog: List<MediaContent> = _mediaCatalog.value
     ): List<Pair<String, List<MediaContent>>> {
-        val rawPublishedMovies = catalog.filter { it.published && it.isMovie && !it.isAdult }
-        if (rawPublishedMovies.isEmpty()) return emptyList()
-
-        val hasRealFirebaseMovies = _hasSyncedRealFirebaseMovies.value ||
-            rawPublishedMovies.any { it.id !in initialProductionIds }
-        val publishedMovies = if (hasRealFirebaseMovies) {
-            rawPublishedMovies.filter { it.id !in DEMO_FALLBACK_MOVIE_IDS }.ifEmpty { rawPublishedMovies }
-        } else {
-            rawPublishedMovies
-        }
+        val publishedMovies = catalog.filter { it.published && it.isMovie && !it.isAdult }
+        if (publishedMovies.isEmpty()) return emptyList()
 
         val assignedMovieIds = mutableSetOf<String>()
         val genreMap = linkedMapOf<String, MutableList<MediaContent>>()
@@ -1381,18 +970,8 @@ object MediaContentRepository {
             }.thenByDescending { it.value.size }
         )
 
-        val baseRows = sortedGenres.mapNotNull { (genreName, items) ->
-            if (items.isNotEmpty()) {
-                genreName to rotateMediaListForSeed(items, rotationSeed, "genre_row_$genreName")
-            } else null
-        }
-
-        if (baseRows.size <= 1) return baseRows
-        val shelfShift = ((rotationSeed.ushr(3) % baseRows.size.toLong()).toInt() + baseRows.size) % baseRows.size
-        return if (shelfShift > 0) {
-            baseRows.drop(shelfShift) + baseRows.take(shelfShift)
-        } else {
-            baseRows
+        return sortedGenres.mapNotNull { (genreName, items) ->
+            if (items.isNotEmpty()) genreName to items else null
         }
     }
 
@@ -1449,31 +1028,21 @@ object MediaContentRepository {
     fun getBestForKids(): List<MediaContent> =
         _mediaCatalog.value.filter { it.isKids }.ifEmpty { _mediaCatalog.value.takeLast(3) }
 
-    fun getRelatedMedia(
-        currentId: String,
-        currentGenre: String = "",
-        rotationSeed: Long = _catalogRotationSeed.value
-    ): List<MediaContent> {
+    fun getRelatedMedia(currentId: String, currentGenre: String = ""): List<MediaContent> {
         val currentItem = _mediaCatalog.value.find { it.id == currentId }
         val targetGenre = currentGenre.ifBlank { currentItem?.genre.orEmpty() }
-        val candidates = _mediaCatalog.value.filter {
-            it.published && it.id != currentId && it.isAdultContent == (currentItem?.isAdultContent == true)
-        }
-        val sameGenre = rotateMediaListForSeed(
-            candidates.filter { item ->
+        val candidates = _mediaCatalog.value.filter { it.published && it.id != currentId }
+        return candidates.sortedWith(
+            compareByDescending<MediaContent> { item ->
                 targetGenre.isNotBlank() &&
                     (item.genre.equals(targetGenre, ignoreCase = true) ||
                         item.subGenres.any { it.equals(targetGenre, ignoreCase = true) })
-            },
-            rotationSeed,
-            "related_same_$currentId"
-        )
-        val otherGenres = rotateMediaListForSeed(
-            candidates.filter { item -> sameGenre.none { it.id == item.id } },
-            rotationSeed,
-            "related_other_$currentId"
-        )
-        return (sameGenre + otherGenres).take(10)
+            }.thenByDescending { item ->
+                currentItem != null && item.narrated == currentItem.narrated
+            }.thenByDescending { item ->
+                item.featured || item.isTrending
+            }
+        ).take(10)
     }
 
     // Production mode: no fake downloads pre-seeded
@@ -1481,22 +1050,19 @@ object MediaContentRepository {
 
     /**
      * Syncs both Cloud (`movies`, `series`, `episodes`, `tvChannels`) and
-     * Realtime Database (`live_streams`, `channels`, `movies`, `series`) in parallel for `neliplay`.
-     * When [forceRefresh] is true, bypasses the edge response cache so newly added Studio Admin
-     * movies appear immediately, and rotates the catalog order.
+     * Realtime Database (`live_streams`, `channels`) in parallel for `neliplay`.
      */
     suspend fun syncFromFirebaseEndpoint(
         databaseUrl: String = DEFAULT_DATABASE_URL,
         apiKey: String = "",
-        projectId: String = DEFAULT_PROJECT_ID,
-        forceRefresh: Boolean = false
+        projectId: String = DEFAULT_PROJECT_ID
     ): Result<Int> = withContext(Dispatchers.IO) {
         catalogSyncMutex.withLock {
             val cleanUrl = databaseUrl.trim().removeSuffix("/").ifEmpty { DEFAULT_DATABASE_URL }
             val cleanProjectId = projectId.trim().ifEmpty {
                 extractProjectIdFromUrl(cleanUrl).ifEmpty { DEFAULT_PROJECT_ID }
             }
-            val cleanKey = sanitizeFirebaseWebApiKey(apiKey)
+            val cleanKey = if (apiKey.trim() == "YOUR_FIREBASE_API_KEY") "" else apiKey.trim()
 
             try {
                 _firebaseSyncStatus.value = "Updating live catalog..."
@@ -1505,83 +1071,34 @@ object MediaContentRepository {
                 coroutineScope {
                     val firestoreDeferred = async {
                         if (cleanProjectId.isNotEmpty()) {
-                            syncFromCloudFirestore(cleanProjectId, cleanKey, forceRefresh).getOrDefault(0)
+                            syncFromCloudFirestore(cleanProjectId, cleanKey).getOrDefault(0)
                         } else 0
                     }
 
                     val rtdbDeferred = async {
                         if (cleanUrl.contains(".firebaseio.com") || cleanUrl.endsWith(".json")) {
-                            syncFromRealtimeDatabase(cleanUrl, cleanKey, forceRefresh).getOrDefault(0)
+                            syncFromRealtimeDatabase(cleanUrl, cleanKey).getOrDefault(0)
                         } else 0
                     }
 
-                    totalSynced = firestoreDeferred.await() + rtdbDeferred.await()
+                    val backupChannelsDeferred = async {
+                        syncChannelsFromBackupApi().size
+                    }
+
+                    totalSynced = firestoreDeferred.await() + rtdbDeferred.await() + backupChannelsDeferred.await()
                 }
 
-                // Rotate catalog order immediately after sync so real Firebase movies are displayed right away
-                rotateMovieCatalogOrder()
+                // Enrich top featured movies/series with real TMDB casters & posters
+                enrichTopCatalogItemsWithTmdb()
 
                 _firebaseSyncStatus.value =
                     "Online • ${_mediaCatalog.value.size} Titles & ${ChannelRepository.liveChannelsFlow.value.size} Live Channels (10M Scale Ready)"
-
-                // Run TMDB enrichment asynchronously without blocking the catalog sync mutex or UI
-                enrichTopCatalogItemsWithTmdb()
-
                 Result.success(totalSynced.coerceAtLeast(_mediaCatalog.value.size))
-            } catch (e: Throwable) {
+            } catch (e: Exception) {
                 _firebaseSyncStatus.value = "Online • Catalog Ready"
-                Result.failure(Exception(e.message ?: "Sync error", e))
+                Result.failure(e)
             }
         }
-    }
-
-    private fun sanitizeFirebaseWebApiKey(rawKey: String): String {
-        val trimmed = rawKey.trim()
-        if (trimmed.isEmpty() ||
-            trimmed == "YOUR_FIREBASE_API_KEY" ||
-            trimmed == "YOUR_API_KEY" ||
-            trimmed.contains("1wE3rT4yU5iO6pA7sD")
-        ) {
-            return ""
-        }
-        return trimmed
-    }
-
-    private fun sanitizeRtdbAuthToken(rawToken: String): String {
-        val clean = sanitizeFirebaseWebApiKey(rawToken)
-        // Firebase Realtime Database `?auth=` expects a JWT ID token or database secret, never a Web API key (`AIza...`)
-        if (clean.startsWith("AIza")) return ""
-        return clean
-    }
-
-    private fun fetchFirestoreUrlWithFallback(
-        urlWithoutKey: String,
-        apiKey: String,
-        forceRefresh: Boolean = false
-    ): String? {
-        val cleanKey = sanitizeFirebaseWebApiKey(apiKey)
-        // 1. Try public Firestore endpoint without `?key=` first
-        val directBody = fetchUrlText(urlWithoutKey, forceRefresh = forceRefresh)
-        if (!directBody.isNullOrBlank() &&
-            (directBody.contains("\"documents\"") || directBody.contains("\"fields\""))
-        ) {
-            return directBody
-        }
-
-        // 2. If a Firebase Web API key is configured, also try with `?key=`
-        if (cleanKey.isNotEmpty()) {
-            val sep = if (urlWithoutKey.contains("?")) "&" else "?"
-            val keyedBody = fetchUrlText("$urlWithoutKey${sep}key=$cleanKey", forceRefresh = forceRefresh)
-            if (!keyedBody.isNullOrBlank() &&
-                (keyedBody.contains("\"documents\"") || keyedBody.contains("\"fields\""))
-            ) {
-                return keyedBody
-            }
-            if (!keyedBody.isNullOrBlank() && directBody.isNullOrBlank()) {
-                return keyedBody
-            }
-        }
-        return directBody
     }
 
     private suspend fun enrichTopCatalogItemsWithTmdb(maxItems: Int = 8) {
@@ -1609,207 +1126,57 @@ object MediaContentRepository {
         return ""
     }
 
-    /**
-     * Fetches all pages of a Firestore collection (following `nextPageToken` up to [maxPages])
-     * so when Studio Admin adds many movies, every single document is retrieved.
-     * Falls back to unpaginated collection fetch if `pageSize` is rejected.
-     */
-    private fun fetchPaginatedFirestoreCollection(
-        baseFirestoreUrl: String,
-        collectionName: String,
-        apiKey: String,
-        forceRefresh: Boolean = false,
-        pageSize: Int = 200,
-        maxPages: Int = 4
-    ): String? {
-        val mergedDocs = JSONArray()
-        var pageToken = ""
-        var pagesFetched = 0
-
-        while (pagesFetched < maxPages) {
-            val tokenParam = if (pageToken.isNotEmpty()) "&pageToken=$pageToken" else ""
-            val pagedUrl = "$baseFirestoreUrl/$collectionName?pageSize=$pageSize$tokenParam"
-            val rawBody = fetchFirestoreUrlWithFallback(pagedUrl, apiKey, forceRefresh = forceRefresh)
-            val body = if (!rawBody.isNullOrBlank() && rawBody.contains("\"documents\"")) {
-                rawBody
-            } else if (pagesFetched == 0) {
-                fetchFirestoreUrlWithFallback("$baseFirestoreUrl/$collectionName", apiKey, forceRefresh = forceRefresh)
-                    ?: rawBody
-            } else {
-                rawBody
-            }
-            if (body.isNullOrBlank()) break
-            try {
-                val json = JSONObject(body)
-                val docs = json.optJSONArray("documents")
-                if (docs != null) {
-                    for (i in 0 until docs.length()) {
-                        docs.optJSONObject(i)?.let { mergedDocs.put(it) }
-                    }
-                }
-                pageToken = json.optString("nextPageToken", "").trim()
-                pagesFetched++
-                if (pageToken.isEmpty()) break
-            } catch (_: Throwable) {
-                break
-            }
-        }
-
-        if (mergedDocs.length() == 0) return null
-        return JSONObject().put("documents", mergedDocs).toString()
-    }
-
-    private suspend fun syncFromCloudFirestore(
-        projectId: String,
-        apiKey: String,
-        forceRefresh: Boolean = false
-    ): Result<Int> = coroutineScope {
+    private suspend fun syncFromCloudFirestore(projectId: String, apiKey: String): Result<Int> = coroutineScope {
         try {
             val baseFirestoreUrl = "https://firestore.googleapis.com/v1/projects/$projectId/databases/(default)/documents"
-            val cleanKey = sanitizeFirebaseWebApiKey(apiKey)
+            val keyParam = if (apiKey.isNotEmpty()) "&key=$apiKey" else ""
 
-            val categoriesDeferred = async {
-                fetchFirestoreUrlWithFallback("$baseFirestoreUrl/categories?pageSize=100", cleanKey, forceRefresh)
-            }
-            val moviesDeferred = async {
-                fetchPaginatedFirestoreCollection(baseFirestoreUrl, "movies", cleanKey, forceRefresh, pageSize = 200, maxPages = 4)
-            }
-            val studioMoviesDeferred = async {
-                fetchPaginatedFirestoreCollection(baseFirestoreUrl, "studio_movies", cleanKey, forceRefresh, pageSize = 150, maxPages = 2)
-            }
-            val seriesDeferred = async {
-                fetchPaginatedFirestoreCollection(baseFirestoreUrl, "series", cleanKey, forceRefresh, pageSize = 200, maxPages = 3)
-            }
-            val adultsDeferred = async {
-                fetchPaginatedFirestoreCollection(baseFirestoreUrl, "adults", cleanKey, forceRefresh, pageSize = 200, maxPages = 2)
-            }
-            val adultSingularDeferred = async {
-                fetchFirestoreUrlWithFallback("$baseFirestoreUrl/adult?pageSize=200", cleanKey, forceRefresh)
-            }
-            val episodesDeferred = async {
-                fetchPaginatedFirestoreCollection(baseFirestoreUrl, "episodes", cleanKey, forceRefresh, pageSize = 250, maxPages = 3)
-            }
-
-            // 1a. Publish primary movies immediately as soon as `movies` responds so Discovery shows real movies right away!
-            val primaryMoviesJson = moviesDeferred.await()
-            val resolvedCategoriesJson = categoriesDeferred.await()
-            if (!primaryMoviesJson.isNullOrBlank()) {
-                parseFirestoreCollections(
-                    moviesJson = primaryMoviesJson,
-                    categoriesJson = resolvedCategoriesJson,
-                    isFromLiveNetworkSync = true
-                )
-            }
-
-            // 1b. Merge studio_movies, series, episodes, categories, and adults and persist to disk cache
-            val extraStudioMoviesJson = studioMoviesDeferred.await()
-            val combinedMoviesJson = mergeFirestoreDocumentsJson(primaryMoviesJson, extraStudioMoviesJson)
-            val resolvedSeriesJson = seriesDeferred.await()
-            val resolvedEpisodesJson = episodesDeferred.await()
-            val resolvedAdultsJson = mergeFirestoreDocumentsJson(adultsDeferred.await(), adultSingularDeferred.await())
-
-            // 2. Fetch and process TV Channels (`tvChannels`), `settings`, `notifications`, `users`, & CDN Token docs
-            val tvChannelsDeferred = async {
-                fetchPaginatedFirestoreCollection(baseFirestoreUrl, "tvChannels", cleanKey, forceRefresh, pageSize = 200, maxPages = 2)
-            }
-            val channelsDeferred = async {
-                fetchFirestoreUrlWithFallback("$baseFirestoreUrl/channels?pageSize=200", cleanKey, forceRefresh)
-            }
+            val moviesDeferred = async { fetchUrlText("$baseFirestoreUrl/movies?pageSize=300$keyParam") }
+            val seriesDeferred = async { fetchUrlText("$baseFirestoreUrl/series?pageSize=200$keyParam") }
+            val adultsDeferred = async { fetchUrlText("$baseFirestoreUrl/adults?pageSize=200$keyParam") }
+            val adultSingularDeferred = async { fetchUrlText("$baseFirestoreUrl/adult?pageSize=200$keyParam") }
+            val episodesDeferred = async { fetchUrlText("$baseFirestoreUrl/episodes?pageSize=300$keyParam") }
+            val tvChannelsDeferred = async { fetchUrlText("$baseFirestoreUrl/tvChannels?pageSize=200$keyParam") }
+            val channelsDeferred = async { fetchUrlText("$baseFirestoreUrl/channels?pageSize=200$keyParam") }
             val azamTokenDocDeferred = async {
-                fetchFirestoreUrlWithFallback("$baseFirestoreUrl/config/azam_token", cleanKey, forceRefresh)
+                val docKeyParam = if (apiKey.isNotEmpty()) "?key=$apiKey" else ""
+                fetchUrlText("$baseFirestoreUrl/config/azam_token$docKeyParam")
             }
-            val configDeferred = async {
-                fetchFirestoreUrlWithFallback("$baseFirestoreUrl/config?pageSize=50", cleanKey, forceRefresh)
-            }
-            val settingsDeferred = async {
-                fetchFirestoreUrlWithFallback("$baseFirestoreUrl/settings?pageSize=50", cleanKey, forceRefresh)
-            }
-            val notificationsDeferred = async {
-                fetchFirestoreUrlWithFallback("$baseFirestoreUrl/notifications?pageSize=50", cleanKey, forceRefresh)
-            }
-            val usersDeferred = async {
-                fetchFirestoreUrlWithFallback("$baseFirestoreUrl/users?pageSize=50", cleanKey, forceRefresh)
-            }
-
-            val resolvedSettingsJson = settingsDeferred.await()
-            val resolvedNotificationsJson = notificationsDeferred.await()
-            val resolvedUsersJson = usersDeferred.await()
-
-            saveFirestorePayloadsToDiskCache(
-                moviesJson = combinedMoviesJson,
-                seriesJson = resolvedSeriesJson,
-                episodesJson = resolvedEpisodesJson,
-                adultsJson = resolvedAdultsJson,
-                categoriesJson = resolvedCategoriesJson,
-                settingsJson = resolvedSettingsJson,
-                notificationsJson = resolvedNotificationsJson
-            )
-
-            var totalSynced = parseFirestoreCollections(
-                moviesJson = combinedMoviesJson,
-                seriesJson = resolvedSeriesJson,
-                episodesJson = resolvedEpisodesJson,
-                adultsJson = resolvedAdultsJson,
-                categoriesJson = resolvedCategoriesJson,
-                settingsJson = resolvedSettingsJson,
-                notificationsJson = resolvedNotificationsJson,
-                usersJson = resolvedUsersJson,
-                isFromLiveNetworkSync = true
-            )
-
-            val primaryTvChannelsJson = tvChannelsDeferred.await()
-            val secondaryChannelsJson = channelsDeferred.await()
-            val chosenChannelsJson = primaryTvChannelsJson ?: secondaryChannelsJson
-            if (!chosenChannelsJson.isNullOrBlank()) {
-                totalSynced += parseFirestoreCollections(
-                    tvChannelsJson = chosenChannelsJson,
-                    isFromLiveNetworkSync = true
-                )
-            }
-            if (!secondaryChannelsJson.isNullOrBlank() && secondaryChannelsJson != chosenChannelsJson) {
-                totalSynced += parseFirestoreCollections(
-                    tvChannelsJson = secondaryChannelsJson,
-                    isFromLiveNetworkSync = true
-                )
+            val configDeferred = async { fetchUrlText("$baseFirestoreUrl/config?pageSize=50$keyParam") }
+            val settingsDeferred = async { fetchUrlText("$baseFirestoreUrl/settings?pageSize=50$keyParam") }
+            val directTokenEndpointDeferred = async {
+                fetchUrlText(ChannelRepository.AZAM_TOKEN_ENDPOINT_URL)
             }
 
             parseFirestoreCdnTokenDocs(azamTokenDocDeferred.await())
             parseFirestoreCdnTokenDocs(configDeferred.await())
-            parseFirestoreCdnTokenDocs(resolvedSettingsJson)
+            parseFirestoreCdnTokenDocs(settingsDeferred.await())
+            directTokenEndpointDeferred.await()?.takeIf {
+                it.contains("token", ignoreCase = true) || it.trim().startsWith("eyJ")
+            }?.let {
+                ChannelRepository.updateCdnAuthorizationToken(it, isAuthoritativeTokenApi = true)
+            }
 
+            val totalSynced = parseFirestoreCollections(
+                moviesJson = moviesDeferred.await(),
+                seriesJson = seriesDeferred.await(),
+                episodesJson = episodesDeferred.await(),
+                tvChannelsJson = tvChannelsDeferred.await() ?: channelsDeferred.await(),
+                adultsJson = adultsDeferred.await() ?: adultSingularDeferred.await()
+            )
+            val extraChannelsJson = channelsDeferred.await()
+            if (!extraChannelsJson.isNullOrBlank() && extraChannelsJson != tvChannelsDeferred.await()) {
+                parseFirestoreCollections(tvChannelsJson = extraChannelsJson)
+            }
             Result.success(totalSynced)
-        } catch (e: Throwable) {
-            Result.failure(Exception(e.message ?: "Firestore sync error", e))
-        }
-    }
-
-    private fun mergeFirestoreDocumentsJson(primaryJson: String?, secondaryJson: String?): String? {
-        if (primaryJson.isNullOrBlank()) return secondaryJson
-        if (secondaryJson.isNullOrBlank()) return primaryJson
-        return try {
-            val outDocs = JSONArray()
-            val primaryDocs = JSONObject(primaryJson).optJSONArray("documents")
-            val secondaryDocs = JSONObject(secondaryJson).optJSONArray("documents")
-            if (primaryDocs != null) {
-                for (i in 0 until primaryDocs.length()) {
-                    primaryDocs.optJSONObject(i)?.let { outDocs.put(it) }
-                }
-            }
-            if (secondaryDocs != null) {
-                for (i in 0 until secondaryDocs.length()) {
-                    secondaryDocs.optJSONObject(i)?.let { outDocs.put(it) }
-                }
-            }
-            JSONObject().put("documents", outDocs).toString()
-        } catch (_: Exception) {
-            primaryJson
+        } catch (e: Exception) {
+            Result.failure(e)
         }
     }
 
     /**
      * Parses Firestore `config/azam_token` (either as a single document `{"fields": ...}` or a collection `{"documents": [...]}`).
-     * Supports `exp` as `null` (`nullValue`), `timestampValue` (date picker), `stringValue`, `integerValue`, or `doubleValue`,
-     * and automatically extracts the expiration from the JWT `token` when `exp` is `null` or missing.
+     * Expiration dates (`exp`) are ignored/removed because Azam TV tokens are free and non-expiring.
      */
     fun parseFirestoreCdnTokenDocs(collectionOrDocJson: String?): Boolean {
         if (collectionOrDocJson.isNullOrBlank()) return false
@@ -1830,12 +1197,6 @@ object MediaContentRepository {
                 val fields = doc.optJSONObject("fields") ?: continue
                 val tokenVal = fields.fsString("token").ifEmpty { fields.fsString("cdntoken") }.trim()
                 val cdnHostVal = fields.fsString("cdnHost", ChannelRepository.AZAM_CDN_HOST).trim()
-                val rawExp = fields.fsFlexibleExp("exp")
-                val resolvedExp = ChannelRepository.parseFlexibleExpiration(
-                    rawExp = rawExp,
-                    jwtToken = tokenVal,
-                    fallbackExp = ChannelRepository.AZAM_CDN_EXP
-                )
                 val sourceVal = fields.fsString("source", ChannelRepository.AZAM_CDN_SOURCE)
                 val endpointUrl = fields.fsString("tokenEndpointUrl").ifEmpty { fields.fsString("apiUrl") }
 
@@ -1843,7 +1204,6 @@ object MediaContentRepository {
                     val tokenJson = JSONObject().apply {
                         put("token", tokenVal)
                         put("cdnHost", cdnHostVal)
-                        put("exp", resolvedExp)
                         put("source", sourceVal)
                         if (endpointUrl.isNotBlank()) {
                             put("tokenEndpointUrl", endpointUrl)
@@ -1854,8 +1214,8 @@ object MediaContentRepository {
                     }
                 }
                 if (endpointUrl.startsWith("http", ignoreCase = true)) {
-                    fetchUrlText(endpointUrl)?.let { responseText ->
-                        if (ChannelRepository.updateCdnAuthorizationToken(responseText)) {
+                    fetchUrlText(endpointUrl, forceRefresh = true)?.let { responseText ->
+                        if (ChannelRepository.updateCdnAuthorizationToken(responseText, isAuthoritativeTokenApi = true)) {
                             updatedAny = true
                         }
                     }
@@ -1865,16 +1225,6 @@ object MediaContentRepository {
         } catch (_: Exception) {
             false
         }
-    }
-
-    private fun JSONObject.fsFlexibleExp(key: String): Any? {
-        val field = optJSONObject(key) ?: return null
-        if (field.has("nullValue")) return null
-        if (field.has("integerValue")) return field.optString("integerValue")
-        if (field.has("doubleValue")) return field.optDouble("doubleValue").toLong()
-        if (field.has("timestampValue")) return field.optString("timestampValue")
-        if (field.has("stringValue")) return field.optString("stringValue")
-        return null
     }
 
     /**
@@ -1889,9 +1239,10 @@ object MediaContentRepository {
         tokenSyncMutex.withLock {
             val cleanUrl = databaseUrl.trim().removeSuffix("/").ifEmpty { DEFAULT_DATABASE_URL }
             val cleanProjectId = projectId.trim().ifEmpty { DEFAULT_PROJECT_ID }
-            val cleanKey = sanitizeFirebaseWebApiKey(apiKey)
-            val rtdbAuthToken = sanitizeRtdbAuthToken(apiKey)
-            val authQuery = if (rtdbAuthToken.isNotBlank()) "?auth=$rtdbAuthToken" else ""
+            val cleanKey = if (apiKey.trim() == "YOUR_FIREBASE_API_KEY") "" else apiKey.trim()
+            val authQuery = if (cleanKey.isNotBlank()) "?auth=$cleanKey" else ""
+            val keyParam = if (cleanKey.isNotEmpty()) "&key=$cleanKey" else ""
+            val docKeyParam = if (cleanKey.isNotEmpty()) "?key=$cleanKey" else ""
 
             return@withLock try {
                 coroutineScope {
@@ -1899,29 +1250,23 @@ object MediaContentRepository {
                     val rtdbAzamDeferred = async { fetchUrlText("$cleanUrl/azam_token.json$authQuery") }
                     val rtdbConfigAzamDeferred = async { fetchUrlText("$cleanUrl/config/azam_token.json$authQuery") }
                     val fsAzamDocDeferred = async {
-                        fetchFirestoreUrlWithFallback(
-                            "https://firestore.googleapis.com/v1/projects/$cleanProjectId/databases/(default)/documents/config/azam_token",
-                            cleanKey
-                        )
+                        fetchUrlText("https://firestore.googleapis.com/v1/projects/$cleanProjectId/databases/(default)/documents/config/azam_token$docKeyParam")
                     }
                     val fsConfigDeferred = async {
-                        fetchFirestoreUrlWithFallback(
-                            "https://firestore.googleapis.com/v1/projects/$cleanProjectId/databases/(default)/documents/config?pageSize=20",
-                            cleanKey
-                        )
+                        fetchUrlText("https://firestore.googleapis.com/v1/projects/$cleanProjectId/databases/(default)/documents/config?pageSize=20$keyParam")
                     }
                     val directEndpointDeferred = async {
-                        fetchUrlText(ChannelRepository.AZAM_TOKEN_ENDPOINT_URL)
+                        fetchUrlText(ChannelRepository.AZAM_TOKEN_ENDPOINT_URL, forceRefresh = true)
                     }
 
                     var updated = false
-                    rtdbCdnDeferred.await()?.takeIf { it.contains("token") }?.let {
+                    rtdbCdnDeferred.await()?.takeIf { it.contains("token", ignoreCase = true) }?.let {
                         if (ChannelRepository.updateCdnAuthorizationToken(it)) updated = true
                     }
-                    rtdbAzamDeferred.await()?.takeIf { it.contains("token") }?.let {
+                    rtdbAzamDeferred.await()?.takeIf { it.contains("token", ignoreCase = true) }?.let {
                         if (ChannelRepository.updateCdnAuthorizationToken(it)) updated = true
                     }
-                    rtdbConfigAzamDeferred.await()?.takeIf { it.contains("token") }?.let {
+                    rtdbConfigAzamDeferred.await()?.takeIf { it.contains("token", ignoreCase = true) }?.let {
                         if (ChannelRepository.updateCdnAuthorizationToken(it)) updated = true
                     }
                     fsAzamDocDeferred.await()?.let {
@@ -1930,47 +1275,92 @@ object MediaContentRepository {
                     fsConfigDeferred.await()?.let {
                         if (parseFirestoreCdnTokenDocs(it)) updated = true
                     }
-                    directEndpointDeferred.await()?.takeIf { it.contains("token") }?.let {
-                        if (ChannelRepository.updateCdnAuthorizationToken(it)) updated = true
+                    directEndpointDeferred.await()?.takeIf {
+                        it.contains("token", ignoreCase = true) || it.trim().startsWith("eyJ")
+                    }?.let {
+                        if (ChannelRepository.updateCdnAuthorizationToken(it, isAuthoritativeTokenApi = true)) {
+                            updated = true
+                        }
+                    }
+                    fetchUrlText(ChannelRepository.CHANNELS_BACKUP_API_URL, forceRefresh = true)?.let { channelsJson ->
+                        if (ChannelRepository.parseBackupChannelsApiPayload(channelsJson).isNotEmpty()) {
+                            updated = true
+                        }
                     }
                     updated
                 }
-            } catch (_: Throwable) {
+            } catch (_: Exception) {
                 false
             }
         }
     }
 
-    private suspend fun syncFromRealtimeDatabase(
-        cleanUrl: String,
-        apiKey: String,
-        forceRefresh: Boolean = false
-    ): Result<Int> = coroutineScope {
+    /**
+     * Synchronously refreshes the live CDN token (`https://streamzone.fun/api/cdn-token`)
+     * and backup channels (`https://streamzone.fun/api/channels`) on a background I/O thread
+     * so ExoPlayer's DataSource or error handler can immediately retry with a fresh token.
+     */
+    fun refreshLiveCdnTokenAndBackupBlocking(forceRefresh: Boolean = true): Boolean {
+        var updated = false
         try {
-            val rtdbAuthToken = sanitizeRtdbAuthToken(apiKey)
-            val authQuery = if (rtdbAuthToken.isNotBlank()) "?auth=$rtdbAuthToken" else ""
+            fetchUrlText(ChannelRepository.AZAM_TOKEN_ENDPOINT_URL, forceRefresh = forceRefresh)?.let { tokenBody ->
+                if (tokenBody.contains("token", ignoreCase = true) || tokenBody.trim().startsWith("eyJ")) {
+                    if (ChannelRepository.updateCdnAuthorizationToken(tokenBody, isAuthoritativeTokenApi = true)) {
+                        updated = true
+                    }
+                }
+            }
+        } catch (_: Exception) {
+        }
+        try {
+            if (forceRefresh || ChannelRepository.getCachedBackupApiChannels().isEmpty()) {
+                fetchUrlText(ChannelRepository.CHANNELS_BACKUP_API_URL, forceRefresh = forceRefresh)?.let { channelsBody ->
+                    if (ChannelRepository.parseBackupChannelsApiPayload(channelsBody).isNotEmpty()) {
+                        updated = true
+                    }
+                }
+            }
+        } catch (_: Exception) {
+        }
+        return updated
+    }
+
+    /**
+     * Fetches and merges all Live TV backup channels from `https://streamzone.fun/api/channels`.
+     * Existing channels receive backup stream URLs & ClearKeys for automatic failover,
+     * while any new channels from the API are added to the catalog.
+     */
+    suspend fun syncChannelsFromBackupApi(
+        apiUrl: String = ChannelRepository.CHANNELS_BACKUP_API_URL
+    ): List<LiveChannel> = withContext(Dispatchers.IO) {
+        try {
+            val json = fetchUrlText(apiUrl, forceRefresh = true) ?: return@withContext emptyList()
+            ChannelRepository.parseBackupChannelsApiPayload(json)
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    private suspend fun syncFromRealtimeDatabase(cleanUrl: String, apiKey: String): Result<Int> = coroutineScope {
+        try {
+            val authQuery = if (apiKey.isNotBlank()) "?auth=$apiKey" else ""
             val rootEndpoint = if (cleanUrl.endsWith(".json")) {
                 "$cleanUrl$authQuery"
             } else {
                 "$cleanUrl/.json$authQuery"
             }
 
-            val rootJson = fetchUrlText(rootEndpoint, forceRefresh)
+            val rootJson = fetchUrlText(rootEndpoint)
             if (!rootJson.isNullOrBlank() && rootJson.trim().startsWith("{")) {
-                saveRtdbPayloadToDiskCache(rootJson)
-                val count = parseFirebaseJsonPayload(rootJson, isFromLiveNetworkSync = true)
+                val count = parseFirebaseJsonPayload(rootJson)
                 return@coroutineScope Result.success(count)
             }
 
-            // Fallback to individual public RTDB nodes (`movies`, `series`, `episodes`, `adults`, `channels`, `live_streams`, `cdn_token`, `azam_token`)
-            val moviesDeferred = async { fetchUrlText("$cleanUrl/movies.json$authQuery", forceRefresh) }
-            val seriesDeferred = async { fetchUrlText("$cleanUrl/series.json$authQuery", forceRefresh) }
-            val episodesDeferred = async { fetchUrlText("$cleanUrl/episodes.json$authQuery", forceRefresh) }
-            val adultsDeferred = async { fetchUrlText("$cleanUrl/adults.json$authQuery", forceRefresh) }
-            val channelsDeferred = async { fetchUrlText("$cleanUrl/channels.json$authQuery", forceRefresh) }
-            val liveStreamsDeferred = async { fetchUrlText("$cleanUrl/live_streams.json$authQuery", forceRefresh) }
-            val cdnTokenDeferred = async { fetchUrlText("$cleanUrl/cdn_token.json$authQuery", forceRefresh) }
-            val azamTokenDeferred = async { fetchUrlText("$cleanUrl/azam_token.json$authQuery", forceRefresh) }
+            // Fallback to individual public RTDB nodes (`channels`, `live_streams`, `cdn_token`, `azam_token`) per rules
+            val channelsDeferred = async { fetchUrlText("$cleanUrl/channels.json$authQuery") }
+            val liveStreamsDeferred = async { fetchUrlText("$cleanUrl/live_streams.json$authQuery") }
+            val cdnTokenDeferred = async { fetchUrlText("$cleanUrl/cdn_token.json$authQuery") }
+            val azamTokenDeferred = async { fetchUrlText("$cleanUrl/azam_token.json$authQuery") }
 
             cdnTokenDeferred.await()?.trim()?.takeIf { it.startsWith("{") }?.let {
                 ChannelRepository.updateCdnAuthorizationToken(it)
@@ -1980,29 +1370,25 @@ object MediaContentRepository {
             }
 
             val combinedObj = JSONObject()
-            fun attachNodeIfJson(key: String, rawText: String?) {
-                val trimmed = rawText?.trim() ?: return
-                if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
-                    combinedObj.put(key, if (trimmed.startsWith("[")) JSONArray(trimmed) else JSONObject(trimmed))
+            channelsDeferred.await()?.trim()?.let { chText ->
+                if (chText.startsWith("{") || chText.startsWith("[")) {
+                    combinedObj.put("channels", if (chText.startsWith("[")) JSONArray(chText) else JSONObject(chText))
                 }
             }
-            attachNodeIfJson("movies", moviesDeferred.await())
-            attachNodeIfJson("series", seriesDeferred.await())
-            attachNodeIfJson("episodes", episodesDeferred.await())
-            attachNodeIfJson("adults", adultsDeferred.await())
-            attachNodeIfJson("channels", channelsDeferred.await())
-            attachNodeIfJson("live_streams", liveStreamsDeferred.await())
+            liveStreamsDeferred.await()?.trim()?.let { lsText ->
+                if (lsText.startsWith("{") || lsText.startsWith("[")) {
+                    combinedObj.put("live_streams", if (lsText.startsWith("[")) JSONArray(lsText) else JSONObject(lsText))
+                }
+            }
 
             if (combinedObj.length() > 0) {
-                val combinedStr = combinedObj.toString()
-                saveRtdbPayloadToDiskCache(combinedStr)
-                val count = parseFirebaseJsonPayload(combinedStr, isFromLiveNetworkSync = true)
+                val count = parseFirebaseJsonPayload(combinedObj.toString())
                 Result.success(count)
             } else {
                 Result.success(0)
             }
-        } catch (e: Throwable) {
-            Result.failure(Exception(e.message ?: "RTDB sync error", e))
+        } catch (e: Exception) {
+            Result.failure(e)
         }
     }
 
@@ -2013,18 +1399,19 @@ object MediaContentRepository {
             return cached.body
         }
         return try {
-            val request = Request.Builder()
+            val reqBuilder = Request.Builder()
                 .url(urlStr)
-                .header("Accept", "application/json")
+                .header("Accept", "application/json, text/plain, */*")
                 .header("Connection", "keep-alive")
-                .header("User-Agent", "Nelitv-Android/1.0.0 (by Neliplay; 10M-Scale-Edge)")
-                .apply {
-                    if (forceRefresh) {
-                        header("Cache-Control", "no-cache")
-                    }
-                }
-                .get()
-                .build()
+                .header(
+                    "User-Agent",
+                    "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+                )
+            if (urlStr.contains("streamzone.fun", ignoreCase = true)) {
+                reqBuilder.header("Referer", "https://streamzone.fun/")
+                reqBuilder.header("Origin", "https://streamzone.fun")
+            }
+            val request = reqBuilder.get().build()
             highScaleHttpClient.newCall(request).execute().use { response ->
                 if (response.isSuccessful) {
                     val text = response.body?.string()
@@ -2043,435 +1430,109 @@ object MediaContentRepository {
 
     /**
      * Parses REST v1 JSON responses (`{"documents": [...]}`) for
-     * `movies`, `series`, `episodes`, `tvChannels`, `categories`, `settings`, `notifications`, and `users`.
+     * `movies`, `series`, `episodes`, and `tvChannels`.
      */
     fun parseFirestoreCollections(
         moviesJson: String? = null,
         seriesJson: String? = null,
         episodesJson: String? = null,
         tvChannelsJson: String? = null,
-        adultsJson: String? = null,
-        categoriesJson: String? = null,
-        settingsJson: String? = null,
-        notificationsJson: String? = null,
-        usersJson: String? = null,
-        isFromLiveNetworkSync: Boolean = false
+        adultsJson: String? = null
     ): Int {
         val parsedMedia = mutableListOf<MediaContent>()
         val parsedEpisodes = mutableListOf<EpisodeItem>()
         val parsedChannels = mutableListOf<LiveChannel>()
-        var extraDocsParsed = 0
-
-        if (!categoriesJson.isNullOrBlank()) {
-            val docs = runCatching { JSONObject(categoriesJson).optJSONArray("documents") }.getOrNull()
-            if (docs != null) {
-                val parsedCategories = mutableListOf<FirestoreCategoryItem>()
-                for (i in 0 until docs.length()) {
-                    val doc = docs.optJSONObject(i) ?: continue
-                    runCatching { parseFirestoreCategoryDoc(doc) }.getOrNull()?.let {
-                        parsedCategories.add(it)
-                        extraDocsParsed++
-                    }
-                }
-                if (parsedCategories.isNotEmpty()) {
-                    val merged = (parsedCategories + _categoriesCatalog.value).distinctBy { it.id.lowercase(Locale.US) }
-                    _categoriesCatalog.value = merged
-                }
-            }
-        }
-
-        if (!settingsJson.isNullOrBlank()) {
-            extraDocsParsed += parseFirestoreSettingsDocs(settingsJson)
-            parseFirestoreCdnTokenDocs(settingsJson)
-        }
-
-        if (!notificationsJson.isNullOrBlank()) {
-            extraDocsParsed += parseFirestoreNotificationsDocs(notificationsJson)
-        }
-
-        if (!usersJson.isNullOrBlank()) {
-            extraDocsParsed += parseFirestoreUsersDocs(usersJson)
-        }
 
         if (!episodesJson.isNullOrBlank()) {
-            val docs = runCatching { JSONObject(episodesJson).optJSONArray("documents") }.getOrNull()
+            val docs = JSONObject(episodesJson).optJSONArray("documents")
             if (docs != null) {
                 for (i in 0 until docs.length()) {
                     val doc = docs.optJSONObject(i) ?: continue
-                    runCatching { parseFirestoreEpisodeDoc(doc) }.getOrNull()?.let { parsedEpisodes.add(it) }
+                    parseFirestoreEpisodeDoc(doc)?.let { parsedEpisodes.add(it) }
                 }
             }
         }
 
         if (parsedEpisodes.isNotEmpty()) {
-            _episodesCatalog.value = (parsedEpisodes + _episodesCatalog.value.filter { def ->
+            _episodesCatalog.value = parsedEpisodes + initialProductionEpisodes.filter { def ->
                 parsedEpisodes.none { it.id == def.id }
-            } + initialProductionEpisodes.filter { def ->
-                parsedEpisodes.none { it.id == def.id }
-            }).distinctBy { it.id }
-
-            // Also enrich any existing Series in _mediaCatalog whose seriesId matches newly loaded episodes
-            _mediaCatalog.value = _mediaCatalog.value.map { existing ->
-                if (existing.isSeries) enrichSeriesWithEpisodes(existing) else existing
             }
         }
 
         if (!moviesJson.isNullOrBlank()) {
-            val docs = runCatching { JSONObject(moviesJson).optJSONArray("documents") }.getOrNull()
+            val docs = JSONObject(moviesJson).optJSONArray("documents")
             if (docs != null) {
                 for (i in 0 until docs.length()) {
                     val doc = docs.optJSONObject(i) ?: continue
-                    runCatching { parseFirestoreMovieDoc(doc, forceAdult = false) }.getOrNull()?.let { parsedMedia.add(it) }
+                    parseFirestoreMovieDoc(doc, forceAdult = false)?.let { parsedMedia.add(it) }
                 }
             }
         }
 
         if (!adultsJson.isNullOrBlank()) {
-            val docs = runCatching { JSONObject(adultsJson).optJSONArray("documents") }.getOrNull()
+            val docs = JSONObject(adultsJson).optJSONArray("documents")
             if (docs != null) {
                 for (i in 0 until docs.length()) {
                     val doc = docs.optJSONObject(i) ?: continue
-                    runCatching { parseFirestoreMovieDoc(doc, forceAdult = true) }.getOrNull()?.let { parsedMedia.add(it) }
+                    parseFirestoreMovieDoc(doc, forceAdult = true)?.let { parsedMedia.add(it) }
                 }
             }
         }
 
         if (!seriesJson.isNullOrBlank()) {
-            val docs = runCatching { JSONObject(seriesJson).optJSONArray("documents") }.getOrNull()
+            val docs = JSONObject(seriesJson).optJSONArray("documents")
             if (docs != null) {
                 for (i in 0 until docs.length()) {
                     val doc = docs.optJSONObject(i) ?: continue
-                    runCatching { parseFirestoreSeriesDoc(doc) }.getOrNull()?.let { parsedMedia.add(it) }
+                    parseFirestoreSeriesDoc(doc)?.let { parsedMedia.add(it) }
                 }
             }
         }
 
         if (!tvChannelsJson.isNullOrBlank()) {
-            val docs = runCatching { JSONObject(tvChannelsJson).optJSONArray("documents") }.getOrNull()
+            val docs = JSONObject(tvChannelsJson).optJSONArray("documents")
             if (docs != null) {
                 for (i in 0 until docs.length()) {
                     val doc = docs.optJSONObject(i) ?: continue
-                    runCatching { parseFirestoreTvChannelDoc(doc) }.getOrNull()?.let { parsedChannels.add(it) }
+                    parseFirestoreTvChannelDoc(doc)?.let { parsedChannels.add(it) }
                 }
             }
         }
 
         if (parsedMedia.isNotEmpty()) {
             val enrichedMedia = parsedMedia.map { media ->
-                if (media.isSeries) enrichSeriesWithEpisodes(media) else media
-            }.distinctBy { it.id }
-
-            val hasSyncedMoviesNow = enrichedMedia.any { it.isMovie && !it.isAdultContent }
-            if (isFromLiveNetworkSync && hasSyncedMoviesNow) {
-                _hasSyncedRealFirebaseMovies.value = true
+                if (media.isSeries && media.streamUrl.isBlank()) {
+                    val firstEp = _episodesCatalog.value.firstOrNull { it.seriesId == media.id }
+                    if (firstEp != null) {
+                        media.copy(
+                            streamUrl = firstEp.streamUrl,
+                            streamFormat = if (firstEp.playbackType.equals("mp4", true)) "mp4" else "hls"
+                        )
+                    } else media
+                } else media
             }
-            val purgeDemoMovies = _hasSyncedRealFirebaseMovies.value
-
-            val existingCustom = _mediaCatalog.value.filter { existing ->
-                existing.id !in initialProductionIds &&
-                    (!purgeDemoMovies || existing.id !in DEMO_FALLBACK_MOVIE_IDS) &&
-                    enrichedMedia.none { it.id == existing.id }
+            _mediaCatalog.value = enrichedMedia + initialProductionCatalog.filter { def ->
+                enrichedMedia.none { it.id == def.id }
             }
-            val baseFallback = initialProductionCatalog.filter { def ->
-                val allowDemoFallback = !(purgeDemoMovies && def.isMovie && !def.isAdultContent)
-                allowDemoFallback &&
-                    enrichedMedia.none { it.id == def.id } &&
-                    existingCustom.none { it.id == def.id }
-            }
-            _mediaCatalog.value = (enrichedMedia + existingCustom + baseFallback).distinctBy { it.id }
-            rotateMovieCatalogOrder()
         }
 
         if (parsedChannels.isNotEmpty()) {
             ChannelRepository.mergeFirebaseChannelsWithAzamPriority(parsedChannels)
         }
 
-        return parsedMedia.size + parsedEpisodes.size + parsedChannels.size + extraDocsParsed
-    }
-
-    private fun enrichSeriesWithEpisodes(series: MediaContent): MediaContent {
-        val matchingEpisodes = _episodesCatalog.value
-            .filter { it.seriesId == series.id && it.published }
-            .sortedWith(compareBy<EpisodeItem> { it.seasonNumber }.thenBy { it.episodeNumber })
-        if (matchingEpisodes.isEmpty()) return series
-
-        val firstEp = matchingEpisodes.first()
-        val derivedSeasons = matchingEpisodes
-            .groupBy { it.seasonNumber }
-            .entries
-            .sortedBy { it.key }
-            .map { (seasonNum, eps) ->
-                val existingSeason = series.seasons.find { it.seasonNumber == seasonNum }
-                SeriesSeason(
-                    seasonNumber = seasonNum,
-                    name = existingSeason?.name?.ifBlank { "Season $seasonNum" } ?: "Season $seasonNum",
-                    episodeCount = maxOf(existingSeason?.episodeCount ?: 0, eps.size),
-                    airDate = existingSeason?.airDate?.ifBlank { eps.first().airDate } ?: eps.first().airDate,
-                    overview = existingSeason?.overview?.ifBlank { eps.first().overview } ?: eps.first().overview,
-                    posterPath = existingSeason?.posterPath?.ifBlank { series.posterUrl } ?: series.posterUrl
-                )
-            }
-        val mergedSeasons = (series.seasons.filter { s -> derivedSeasons.none { it.seasonNumber == s.seasonNumber } } + derivedSeasons)
-            .sortedBy { it.seasonNumber }
-        val totalSeasons = maxOf(series.numberOfSeasons, mergedSeasons.size, 1)
-        val totalEpisodes = maxOf(series.numberOfEpisodes, matchingEpisodes.size, 1)
-        val resolvedStreamUrl = if (series.streamUrl.isBlank()) firstEp.streamUrl else series.streamUrl
-        val resolvedPlaybackUrl = if (series.playbackUrl.isBlank()) firstEp.playbackUrl else series.playbackUrl
-        val resolvedFormat = when {
-            resolvedStreamUrl.substringBefore("?").endsWith(".mp4", ignoreCase = true) ||
-                firstEp.playbackType.equals("mp4", ignoreCase = true) -> "mp4"
-            resolvedStreamUrl.contains(".mpd", ignoreCase = true) -> "dash"
-            else -> "hls"
-        }
-
-        return series.copy(
-            streamUrl = resolvedStreamUrl,
-            playbackUrl = resolvedPlaybackUrl,
-            streamFormat = resolvedFormat,
-            numberOfSeasons = totalSeasons,
-            numberOfEpisodes = totalEpisodes,
-            duration = "$totalSeasons Seasons • $totalEpisodes Eps",
-            seasons = mergedSeasons
-        )
-    }
-
-    private fun parseFirestoreCategoryDoc(doc: JSONObject): FirestoreCategoryItem? {
-        val fields = doc.optJSONObject("fields") ?: return null
-        val docId = doc.optString("name", "").substringAfterLast("/")
-        val id = fields.fsString("id").ifEmpty { docId }.trim()
-        val name = fields.fsString("name")
-            .ifEmpty { fields.fsString("title") }
-            .ifEmpty { id.replaceFirstChar { it.uppercase() } }
-            .trim()
-        if (id.isEmpty() || name.isEmpty()) return null
-        val nameSw = fields.fsString("nameSw").ifEmpty { name }.trim()
-        return FirestoreCategoryItem(
-            id = id,
-            name = name,
-            nameSw = nameSw
-        )
-    }
-
-    private fun parseFirestoreSettingsDocs(settingsJson: String): Int {
-        return try {
-            val root = JSONObject(settingsJson)
-            val docs = mutableListOf<JSONObject>()
-            val docsArray = root.optJSONArray("documents")
-            if (docsArray != null) {
-                for (i in 0 until docsArray.length()) {
-                    docsArray.optJSONObject(i)?.let { docs.add(it) }
-                }
-            } else if (root.has("fields")) {
-                docs.add(root)
-            }
-            val updatedMap = _firestoreSettings.value.toMutableMap()
-            var count = 0
-            for (doc in docs) {
-                val fields = doc.optJSONObject("fields") ?: continue
-                val docId = doc.optString("name", "").substringAfterLast("/")
-                val keys = fields.keys()
-                while (keys.hasNext()) {
-                    val k = keys.next()
-                    val v = fields.fsString(k).ifEmpty {
-                        if (fields.optJSONObject(k)?.has("booleanValue") == true) {
-                            fields.fsBoolean(k).toString()
-                        } else ""
-                    }
-                    if (v.isNotEmpty()) {
-                        updatedMap[k] = v
-                        if (docId.isNotEmpty()) {
-                            updatedMap["$docId.$k"] = v
-                        }
-                    }
-                }
-                count++
-            }
-            if (count > 0) {
-                _firestoreSettings.value = updatedMap
-            }
-            count
-        } catch (_: Throwable) {
-            0
-        }
-    }
-
-    private fun parseFirestoreNotificationsDocs(notificationsJson: String): Int {
-        return try {
-            val docs = JSONObject(notificationsJson).optJSONArray("documents") ?: return 0
-            val list = mutableListOf<FirestoreNotificationItem>()
-            for (i in 0 until docs.length()) {
-                val doc = docs.optJSONObject(i) ?: continue
-                val fields = doc.optJSONObject("fields") ?: continue
-                val docId = doc.optString("name", "").substringAfterLast("/")
-                val id = fields.fsString("id").ifEmpty { docId }
-                val title = fields.fsString("title").ifEmpty { fields.fsString("name") }.trim()
-                val message = fields.fsString("message")
-                    .ifEmpty { fields.fsString("body") }
-                    .ifEmpty { fields.fsString("overview") }
-                    .ifEmpty { fields.fsString("description") }
-                    .trim()
-                if (title.isEmpty() && message.isEmpty()) continue
-                val imageUrl = fields.fsString("imageUrl")
-                    .ifEmpty { fields.fsString("posterUrl") }
-                    .ifEmpty { fields.fsString("logoUrl") }
-                val mediaId = fields.fsString("mediaId").ifEmpty { fields.fsString("movieId") }.ifEmpty { fields.fsString("seriesId") }
-                val channelId = fields.fsString("channelId")
-                list.add(
-                    FirestoreNotificationItem(
-                        id = id,
-                        title = title.ifEmpty { "Neli TV Update" },
-                        message = message,
-                        imageUrl = imageUrl,
-                        mediaId = mediaId,
-                        channelId = channelId,
-                        createdAtEpochMs = parseFirestoreDocTimestampMs(doc, fields)
-                    )
-                )
-            }
-            if (list.isNotEmpty()) {
-                _firestoreNotifications.value = (list + _firestoreNotifications.value).distinctBy { it.id }
-            }
-            list.size
-        } catch (_: Throwable) {
-            0
-        }
-    }
-
-    private fun parseFirestoreUsersDocs(usersJson: String): Int {
-        return try {
-            val root = JSONObject(usersJson)
-            val docs = mutableListOf<JSONObject>()
-            val docsArray = root.optJSONArray("documents")
-            if (docsArray != null) {
-                for (i in 0 until docsArray.length()) {
-                    docsArray.optJSONObject(i)?.let { docs.add(it) }
-                }
-            } else if (root.has("fields")) {
-                docs.add(root)
-            }
-            val updatedUsers = _firestoreUsers.value.toMutableMap()
-            var count = 0
-            for (doc in docs) {
-                val fields = doc.optJSONObject("fields") ?: continue
-                val docId = doc.optString("name", "").substringAfterLast("/")
-                val uid = fields.fsString("id").ifEmpty { fields.fsString("uid") }.ifEmpty { docId }
-                if (uid.isEmpty()) continue
-                val userMap = mutableMapOf<String, String>()
-                val keys = fields.keys()
-                while (keys.hasNext()) {
-                    val k = keys.next()
-                    val v = fields.fsString(k)
-                    if (v.isNotEmpty()) userMap[k] = v
-                }
-                updatedUsers[uid] = userMap
-                count++
-            }
-            if (count > 0) {
-                _firestoreUsers.value = updatedUsers
-            }
-            count
-        } catch (_: Throwable) {
-            0
-        }
-    }
-
-    private fun extractFirestoreMovieStreamUrl(fields: JSONObject): String {
-        val candidateKeys = listOf(
-            "streamUrl",
-            "videoUrl",
-            "url",
-            "movieUrl",
-            "fileUrl",
-            "hlsUrl",
-            "mp4Url",
-            "playbackUrl",
-            "bunnyUrl",
-            "stream",
-            "video",
-            "link",
-            "playUrl",
-            "source",
-            "src",
-            "downloadUrl",
-            "m3u8Url"
-        )
-        for (k in candidateKeys) {
-            val direct = fields.fsString(k).trim()
-            if (direct.startsWith("http", ignoreCase = true) || direct.startsWith("//")) {
-                return if (direct.startsWith("//")) "https:$direct" else direct
-            }
-            val nestedMap = fields.optJSONObject(k)
-                ?.optJSONObject("mapValue")
-                ?.optJSONObject("fields")
-            if (nestedMap != null) {
-                val nestedUrl = nestedMap.fsString("url")
-                    .ifEmpty { nestedMap.fsString("streamUrl") }
-                    .ifEmpty { nestedMap.fsString("src") }
-                    .trim()
-                if (nestedUrl.startsWith("http", ignoreCase = true)) return nestedUrl
-            }
-        }
-        val bunnyIdKeys = listOf("bunnyVideoId", "videoId", "guid", "bunnyGuid", "videoGuid")
-        for (bk in bunnyIdKeys) {
-            val guid = fields.fsString(bk).trim()
-            if (guid.length >= 8 && !guid.startsWith("http", ignoreCase = true)) {
-                return "https://vz-1bb50f2e-8ea.b-cdn.net/$guid/playlist.m3u8"
-            }
-        }
-        val keys = fields.keys()
-        while (keys.hasNext()) {
-            val k = keys.next()
-            val lower = k.lowercase(Locale.US)
-            if (lower.contains("stream") || lower.contains("video") || lower.contains("url") || lower.contains("mp4") || lower.contains("m3u8") || lower.contains("hls")) {
-                if (lower.contains("poster") || lower.contains("backdrop") || lower.contains("thumb") || lower.contains("image") || lower.contains("logo") || lower.contains("avatar") || lower.contains("cover") || lower.contains("trailer")) {
-                    continue
-                }
-                val v = fields.fsString(k).trim()
-                if (v.startsWith("http", ignoreCase = true) || v.startsWith("//")) {
-                    return if (v.startsWith("//")) "https:$v" else v
-                }
-            }
-        }
-        return ""
+        return parsedMedia.size + parsedEpisodes.size + parsedChannels.size
     }
 
     private fun parseFirestoreMovieDoc(doc: JSONObject, forceAdult: Boolean = false): MediaContent? {
         val fields = doc.optJSONObject("fields") ?: return null
         val docId = doc.optString("name", "").substringAfterLast("/")
-        val id = fields.fsString("id").ifEmpty { docId }.trim()
-        val title = fields.fsString("title")
-            .ifEmpty { fields.fsString("name") }
-            .ifEmpty { fields.fsString("movieTitle") }
-            .ifEmpty { fields.fsString("originalTitle") }
-            .trim()
-        val rawStreamUrl = fields.fsString("streamUrl").trim()
-        val rawPlaybackUrl = fields.fsString("playbackUrl").trim()
-        val rawDownloadUrl = fields.fsString("downloadUrl").trim()
-        val streamUrl = rawStreamUrl
-            .ifEmpty { rawPlaybackUrl }
-            .ifEmpty { rawDownloadUrl }
-            .ifEmpty { extractFirestoreMovieStreamUrl(fields) }
-        val playbackUrl = rawPlaybackUrl.ifEmpty { streamUrl }
-        val downloadUrl = rawDownloadUrl.ifEmpty { rawStreamUrl }.ifEmpty { streamUrl }
-        val subtitleUrl = fields.fsString("subtitleUrl").trim()
-        val categoryId = fields.fsString("categoryId").trim()
-        val allowStreaming = fields.fsBoolean("allowStreaming", true)
-        val allowDownload = fields.fsBoolean("allowDownload", fields.fsBoolean("downloadEnabled", true))
-        val youtubeVideoId = fields.fsString("youtubeVideoId").trim()
-        val youtubeUrl = fields.fsString("youtubeUrl").trim()
+        val id = fields.fsString("id").ifEmpty { docId }
+        val title = fields.fsString("title").ifEmpty { fields.fsString("name") }
+        val streamUrl = fields.fsString("streamUrl").ifEmpty {
+            fields.fsString("videoUrl").ifEmpty { fields.fsString("url") }
+        }
         val published = fields.fsBoolean("published", true)
         if (!published || title.isEmpty() || streamUrl.isEmpty()) return null
-
-        val createdAtEpochMs = parseFirestoreDocTimestampMs(doc, fields)
-
-        val resolvedCategoryFromId = if (
-            categoryId.isNotBlank() &&
-            !categoryId.equals("movie", ignoreCase = true) &&
-            !categoryId.equals("movies", ignoreCase = true) &&
-            !categoryId.equals("series", ignoreCase = true)
-        ) {
-            resolveCategoryDisplayName(categoryId)
-        } else ""
 
         val rawGenres = buildList {
             addAll(fields.fsStringList("genres"))
@@ -2481,7 +1542,6 @@ object MediaContentRepository {
             if (singleGenre.isNotBlank()) add(singleGenre)
             val singleCategory = fields.fsString("category").ifEmpty { fields.fsString("subCategory") }
             if (singleCategory.isNotBlank()) add(singleCategory)
-            if (resolvedCategoryFromId.isNotBlank()) add(resolvedCategoryFromId)
         }.flatMap { it.split(",", "/", "|") }
             .map { it.trim() }
             .filter { it.isNotEmpty() }
@@ -2491,7 +1551,6 @@ object MediaContentRepository {
             fields.fsBoolean("adult", false) ||
             fields.fsBoolean("isAdult", false) ||
             isAdultKeywordOrQuery(fields.fsString("type")) ||
-            isAdultKeywordOrQuery(categoryId) ||
             isAdultKeywordOrQuery(fields.fsString("category")) ||
             isAdultKeywordOrQuery(fields.fsString("genre")) ||
             rawGenres.any { isAdultKeywordOrQuery(it) }
@@ -2533,7 +1592,6 @@ object MediaContentRepository {
         val rawBackdropCandidate = fields.fsString("backdropPath")
             .ifEmpty { fields.fsString("backdropUrl") }
             .ifEmpty { fields.fsString("thumbnailUrl") }
-            .ifEmpty { fields.fsString("imageUrl") }
             .ifEmpty { fields.fsString("thumbnail") }
             .ifEmpty { rawPosterCandidate }
 
@@ -2549,8 +1607,6 @@ object MediaContentRepository {
             streamUrl = streamUrl,
             isBackdrop = true
         )
-        val thumbnailUrl = fields.fsString("thumbnailUrl").ifEmpty { posterPath }
-        val imageUrl = fields.fsString("imageUrl").ifEmpty { posterPath }
 
         val format = when {
             streamUrl.substringBefore("?").endsWith(".mp4", ignoreCase = true) -> "mp4"
@@ -2591,7 +1647,7 @@ object MediaContentRepository {
             duration = formatRuntimeMinutes(runtime),
             rating = if (isAdultDoc) "18+" else String.format(Locale.US, "%.1f", ratingVal),
             production = fields.fsStringList("productionCountries").joinToString(" • ").ifEmpty { if (isAdultDoc) "18+ Cinema" else "Movies" },
-            synopsis = fields.fsString("overview", fields.fsString("description", "Watch $title streaming in HD on Nelitv.")),
+            synopsis = fields.fsString("overview", "Watch $title streaming in HD on Nelitv."),
             cast = parseFirestoreCastList(
                 fields = fields,
                 mediaId = id,
@@ -2607,7 +1663,7 @@ object MediaContentRepository {
             releaseYear = year.toString(),
             narrated = narrated,
             narrationLanguage = narrationLanguage,
-            downloadEnabled = allowDownload,
+            downloadEnabled = fields.fsBoolean("downloadEnabled", true),
             featured = featured,
             published = published,
             runtimeMinutes = runtime,
@@ -2615,133 +1671,29 @@ object MediaContentRepository {
             viewsCount = fields.fsLong("viewsCount", 0L),
             voteCount = fields.fsLong("voteCount", 0L),
             watchlistsCount = fields.fsLong("watchlistsCount", 0L),
-            productionCountries = fields.fsStringList("productionCountries"),
-            createdAtEpochMs = createdAtEpochMs,
-            thumbnailUrl = thumbnailUrl,
-            imageUrl = imageUrl,
-            playbackUrl = playbackUrl,
-            downloadUrl = downloadUrl,
-            subtitleUrl = subtitleUrl,
-            categoryId = categoryId.ifEmpty { if (isAdultDoc) "adult" else "movie" },
-            allowStreaming = allowStreaming,
-            allowDownload = allowDownload,
-            youtubeVideoId = youtubeVideoId,
-            youtubeUrl = youtubeUrl
+            productionCountries = fields.fsStringList("productionCountries")
         )
-    }
-
-    private fun parseFirestoreDocTimestampMs(doc: JSONObject, fields: JSONObject): Long {
-        for (key in listOf("updatedAt", "createdAt", "addedAt", "uploadedAt", "timestamp")) {
-            val fieldObj = fields.optJSONObject(key) ?: continue
-            if (fieldObj.has("integerValue")) {
-                val v = fieldObj.optString("integerValue", "0").toLongOrNull() ?: 0L
-                if (v > 0L) return if (v < 10_000_000_000L) v * 1000L else v
-            }
-            if (fieldObj.has("doubleValue")) {
-                val v = fieldObj.optDouble("doubleValue", 0.0).toLong()
-                if (v > 0L) return if (v < 10_000_000_000L) v * 1000L else v
-            }
-            if (fieldObj.has("timestampValue")) {
-                val iso = fieldObj.optString("timestampValue", "")
-                val parsed = parseIsoTimestampMs(iso)
-                if (parsed > 0L) return parsed
-            }
-            if (fieldObj.has("stringValue")) {
-                val str = fieldObj.optString("stringValue", "").trim()
-                val asLong = str.toLongOrNull()
-                if (asLong != null && asLong > 0L) {
-                    return if (asLong < 10_000_000_000L) asLong * 1000L else asLong
-                }
-                val parsed = parseIsoTimestampMs(str)
-                if (parsed > 0L) return parsed
-            }
-        }
-        val docUpdateIso = doc.optString("updateTime", "").ifEmpty { doc.optString("createTime", "") }
-        return parseIsoTimestampMs(docUpdateIso)
-    }
-
-    private fun parseIsoTimestampMs(iso: String): Long {
-        val clean = iso.trim()
-        if (clean.isEmpty()) return 0L
-        return try {
-            val base = clean.substringBefore(".").substringBefore("Z").substringBefore("+")
-            val sdf = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).apply {
-                timeZone = java.util.TimeZone.getTimeZone("UTC")
-            }
-            sdf.parse(base)?.time ?: 0L
-        } catch (_: Throwable) {
-            0L
-        }
     }
 
     private fun parseFirestoreSeriesDoc(doc: JSONObject): MediaContent? {
         val fields = doc.optJSONObject("fields") ?: return null
         val docId = doc.optString("name", "").substringAfterLast("/")
-        val id = fields.fsString("id").ifEmpty { docId }.trim()
-        val name = fields.fsString("title")
-            .ifEmpty { fields.fsString("name") }
-            .ifEmpty { fields.fsString("originalTitle") }
-            .ifEmpty { fields.fsString("originalName") }
-            .trim()
+        val id = fields.fsString("id").ifEmpty { docId }
+        val name = fields.fsString("name").ifEmpty { fields.fsString("title") }
         val published = fields.fsBoolean("published", true)
         if (!published || name.isEmpty()) return null
 
-        val categoryId = fields.fsString("categoryId", "series").trim()
-        val resolvedCategoryFromId = if (
-            categoryId.isNotBlank() &&
-            !categoryId.equals("series", ignoreCase = true) &&
-            !categoryId.equals("movie", ignoreCase = true)
-        ) {
-            resolveCategoryDisplayName(categoryId)
-        } else ""
-
-        val genres = buildList {
-            addAll(fields.fsStringList("genres"))
-            addAll(fields.fsStringList("categories"))
-            val singleGenre = fields.fsString("genre").ifEmpty { fields.fsString("category") }
-            if (singleGenre.isNotBlank()) add(singleGenre)
-            if (resolvedCategoryFromId.isNotBlank()) add(resolvedCategoryFromId)
-        }.ifEmpty { listOf("Series") }
+        val genres = fields.fsStringList("genres").ifEmpty { listOf("Series") }
         val primaryGenre = genres.firstOrNull() ?: "Series"
         val featured = fields.fsBoolean("featured", false)
         val narrated = fields.fsBoolean("narrated", true)
         val narrationLanguage = fields.fsString("narrationLanguage", "Swahili")
         val ratingVal = fields.fsDouble("rating", 8.5)
+        val numSeasons = fields.fsInt("numberOfSeasons", 1)
+        val numEpisodes = fields.fsInt("numberOfEpisodes", 1)
         val year = fields.fsInt("year", 2025)
-
-        val rawPosterCandidate = fields.fsString("posterPath")
-            .ifEmpty { fields.fsString("posterUrl") }
-            .ifEmpty { fields.fsString("poster") }
-            .ifEmpty { fields.fsString("thumbnailUrl") }
-            .ifEmpty { fields.fsString("imageUrl") }
-        val rawBackdropCandidate = fields.fsString("backdropPath")
-            .ifEmpty { fields.fsString("backdropUrl") }
-            .ifEmpty { fields.fsString("thumbnailUrl") }
-            .ifEmpty { fields.fsString("imageUrl") }
-            .ifEmpty { rawPosterCandidate }
-
-        val matchingEpisodes = _episodesCatalog.value
-            .filter { it.seriesId == id && it.published }
-            .sortedWith(compareBy<EpisodeItem> { it.seasonNumber }.thenBy { it.episodeNumber })
-        val matchingEp = matchingEpisodes.firstOrNull()
-        val fallbackStream = matchingEp?.streamUrl
-            ?: "https://vz-1bb50f2e-8ea.b-cdn.net/9af12e30-1b3f-469f-9bfe-db895030c77a/playlist.m3u8"
-        val resolvedStreamUrl = fields.fsString("streamUrl")
-            .ifEmpty { fields.fsString("playbackUrl") }
-            .ifEmpty { fallbackStream }
-
-        val posterPath = resolveGuaranteedMediaImageUrl(
-            primaryCandidate = rawPosterCandidate,
-            secondaryCandidate = rawBackdropCandidate,
-            streamUrl = resolvedStreamUrl,
-            isBackdrop = false
-        )
-        val backdropPath = resolveGuaranteedMediaImageUrl(
-            primaryCandidate = rawBackdropCandidate,
-            secondaryCandidate = posterPath,
-            streamUrl = resolvedStreamUrl,
-            isBackdrop = true
-        )
+        val posterPath = fields.fsString("posterPath")
+        val backdropPath = fields.fsString("backdropPath").ifEmpty { posterPath }
 
         val seasonsList = mutableListOf<SeriesSeason>()
         val seasonsArray = fields.optJSONObject("seasons")
@@ -2759,39 +1711,26 @@ object MediaContentRepository {
                         episodeCount = mapFields.fsInt("episodeCount", 1),
                         airDate = mapFields.fsString("airDate"),
                         overview = mapFields.fsString("overview"),
-                        posterPath = mapFields.fsString("posterPath", mapFields.fsString("posterUrl", posterPath))
-                    )
-                )
-            }
-        }
-        if (seasonsList.isEmpty() && matchingEpisodes.isNotEmpty()) {
-            matchingEpisodes.groupBy { it.seasonNumber }.entries.sortedBy { it.key }.forEach { (seasonNum, eps) ->
-                seasonsList.add(
-                    SeriesSeason(
-                        seasonNumber = seasonNum,
-                        name = "Season $seasonNum",
-                        episodeCount = eps.size,
-                        airDate = eps.first().airDate,
-                        overview = eps.first().overview,
-                        posterPath = eps.first().stillPath.ifBlank { posterPath }
+                        posterPath = mapFields.fsString("posterPath", posterPath)
                     )
                 )
             }
         }
 
-        val numSeasons = fields.fsInt("numberOfSeasons", seasonsList.size.coerceAtLeast(1))
-        val numEpisodes = fields.fsInt("numberOfEpisodes", matchingEpisodes.size.coerceAtLeast(1))
+        val matchingEp = _episodesCatalog.value.firstOrNull { it.seriesId == id }
+        val fallbackStream = matchingEp?.streamUrl
+            ?: "https://vz-1bb50f2e-8ea.b-cdn.net/9af12e30-1b3f-469f-9bfe-db895030c77a/playlist.m3u8"
 
         return MediaContent(
             id = id,
             title = name,
-            originalTitle = fields.fsString("originalName", fields.fsString("originalTitle")),
+            originalTitle = fields.fsString("originalName"),
             originalLanguage = fields.fsString("originalLanguage", "en"),
             type = "series",
             posterUrl = posterPath,
             backdropUrl = backdropPath,
-            streamUrl = resolvedStreamUrl,
-            streamFormat = if (resolvedStreamUrl.substringBefore("?").endsWith(".mp4", ignoreCase = true)) "mp4" else "hls",
+            streamUrl = fields.fsString("streamUrl").ifEmpty { fallbackStream },
+            streamFormat = "hls",
             genre = primaryGenre,
             subGenres = buildList {
                 if (featured) add("Popular")
@@ -2826,98 +1765,52 @@ object MediaContentRepository {
             numberOfEpisodes = numEpisodes,
             firstAirDate = fields.fsString("firstAirDate"),
             lastAirDate = fields.fsString("lastAirDate"),
-            seasons = seasonsList,
-            categoryId = categoryId.ifEmpty { "series" },
-            playbackUrl = fields.fsString("playbackUrl").ifEmpty { resolvedStreamUrl },
-            downloadUrl = fields.fsString("downloadUrl").ifEmpty { resolvedStreamUrl }
+            seasons = seasonsList
         )
     }
 
     private fun parseFirestoreEpisodeDoc(doc: JSONObject): EpisodeItem? {
         val fields = doc.optJSONObject("fields") ?: return null
         val docId = doc.optString("name", "").substringAfterLast("/")
-        val id = fields.fsString("id").ifEmpty { docId }.trim()
-        val seriesId = fields.fsString("seriesId").trim()
-        val seasonNumber = fields.fsInt("seasonNumber", 1).coerceAtLeast(1)
-        val episodeNumber = fields.fsInt("episodeNumber", 1).coerceAtLeast(1)
-        val name = fields.fsString("title")
-            .ifEmpty { fields.fsString("name") }
-            .ifEmpty { fields.fsString("episodeTitle") }
-            .ifEmpty { "Episode $episodeNumber" }
-            .trim()
-        val rawStreamUrl = fields.fsString("streamUrl").trim()
-        val rawPlaybackUrl = fields.fsString("playbackUrl").trim()
-        val rawDownloadUrl = fields.fsString("downloadUrl").trim()
-        val streamUrl = rawStreamUrl
-            .ifEmpty { rawPlaybackUrl }
-            .ifEmpty { rawDownloadUrl }
-            .ifEmpty { extractFirestoreMovieStreamUrl(fields) }
-        val playbackUrl = rawPlaybackUrl.ifEmpty { streamUrl }
-        val downloadUrl = rawDownloadUrl.ifEmpty { rawStreamUrl }.ifEmpty { streamUrl }
-        val subtitleUrl = fields.fsString("subtitleUrl").trim()
-        val allowStreaming = fields.fsBoolean("allowStreaming", true)
-        val allowDownload = fields.fsBoolean("allowDownload", fields.fsBoolean("downloadEnabled", true))
+        val id = fields.fsString("id").ifEmpty { docId }
+        val seriesId = fields.fsString("seriesId")
+        val name = fields.fsString("name")
+        val streamUrl = fields.fsString("streamUrl")
         val published = fields.fsBoolean("published", true)
         if (!published || seriesId.isEmpty() || streamUrl.isEmpty()) return null
-
-        val rawPoster = fields.fsString("posterUrl")
-            .ifEmpty { fields.fsString("stillPath") }
-            .ifEmpty { fields.fsString("posterPath") }
-            .ifEmpty { fields.fsString("thumbnailUrl") }
-            .ifEmpty { fields.fsString("imageUrl") }
-        val resolvedStillPath = if (rawPoster.isNotBlank()) {
-            resolveGuaranteedMediaImageUrl(rawPoster, "", streamUrl, isBackdrop = true)
-        } else {
-            ""
-        }
-        val detectedPlaybackType = fields.fsString("playbackType").ifEmpty {
-            if (streamUrl.substringBefore("?").endsWith(".mp4", ignoreCase = true)) "mp4" else "m3u8"
-        }
 
         return EpisodeItem(
             id = id,
             seriesId = seriesId,
-            seasonNumber = seasonNumber,
-            episodeNumber = episodeNumber,
-            name = name,
-            overview = fields.fsString("overview", fields.fsString("description")),
-            stillPath = resolvedStillPath,
+            seasonNumber = fields.fsInt("seasonNumber", 1),
+            episodeNumber = fields.fsInt("episodeNumber", 1),
+            name = name.ifEmpty { "Episode ${fields.fsInt("episodeNumber", 1)}" },
+            overview = fields.fsString("overview"),
+            stillPath = fields.fsString("stillPath"),
             streamUrl = streamUrl,
-            playbackType = detectedPlaybackType,
+            playbackType = fields.fsString("playbackType", "m3u8"),
             runtime = fields.fsInt("runtime", 45),
             airDate = fields.fsString("airDate"),
             narrated = fields.fsBoolean("narrated", false),
             narrationLanguage = fields.fsString("narrationLanguage"),
-            downloadEnabled = allowDownload,
+            downloadEnabled = fields.fsBoolean("downloadEnabled", true),
             published = published,
-            viewsCount = fields.fsLong("viewsCount", 0L),
-            playbackUrl = playbackUrl,
-            downloadUrl = downloadUrl,
-            subtitleUrl = subtitleUrl,
-            allowStreaming = allowStreaming,
-            allowDownload = allowDownload
+            viewsCount = fields.fsLong("viewsCount", 0L)
         )
     }
 
     private fun parseFirestoreTvChannelDoc(doc: JSONObject): LiveChannel? {
         val fields = doc.optJSONObject("fields") ?: return null
         val docId = doc.optString("name", "").substringAfterLast("/")
-        val id = fields.fsString("id").ifEmpty { docId }.trim()
+        val id = fields.fsString("id").ifEmpty { docId }
         val name = fields.fsString("name")
-            .ifEmpty { fields.fsString("title") }
-            .ifEmpty { fields.fsString("channelName") }
-            .trim()
         val rawUrl = fields.fsString("streamUrl")
-            .ifEmpty { fields.fsString("playbackUrl") }
-            .ifEmpty { fields.fsString("url") }
-            .ifEmpty { extractFirestoreMovieStreamUrl(fields) }
-            .trim()
         val enabled = fields.fsBoolean("enabled", true)
         val published = fields.fsBoolean("published", true)
         if (!enabled || !published || name.isEmpty() || rawUrl.isEmpty()) return null
 
         val normalizedUrl = ChannelRepository.normalizeDashStreamUrl(rawUrl)
-        val category = fields.fsString("category", "Live TV")
+        val category = fields.fsString("category", "Entertainment")
         val country = fields.fsString("country", "")
         val featured = fields.fsBoolean("featured", false)
         val logo = extractFirestoreChannelLogo(fields)
@@ -2931,8 +1824,34 @@ object MediaContentRepository {
         }.distinct()
 
         val isMp4 = normalizedUrl.substringBefore("?").endsWith(".mp4", ignoreCase = true)
-        val isDash = !isMp4 && normalizedUrl.contains(".mpd", ignoreCase = true)
-        val parsedChannel = LiveChannel(
+        val isDash = !isMp4 && (
+            normalizedUrl.contains(".mpd", ignoreCase = true) ||
+                normalizedUrl.contains("/live/eds/", ignoreCase = true)
+            )
+        val fsClearKeys = mutableMapOf<String, String>()
+        val directColonKey = fields.fsString("clearKey").ifEmpty { fields.fsString("drmKey") }.trim()
+        if (directColonKey.contains(":")) {
+            val kId = directColonKey.substringBefore(":").trim()
+            val kVal = directColonKey.substringAfter(":").trim()
+            if (kId.isNotEmpty() && kVal.isNotEmpty()) fsClearKeys[kId] = kVal
+        } else {
+            val kId = fields.fsString("clearKeyId").ifEmpty { fields.fsString("kid") }.trim()
+            val kVal = fields.fsString("clearKey").ifEmpty { fields.fsString("key") }.trim()
+            if (kId.isNotEmpty() && kVal.isNotEmpty()) fsClearKeys[kId] = kVal
+        }
+        val clearKeysMapFields = fields.optJSONObject("clearKeys")
+            ?.optJSONObject("mapValue")
+            ?.optJSONObject("fields")
+        if (clearKeysMapFields != null) {
+            val keysIter = clearKeysMapFields.keys()
+            while (keysIter.hasNext()) {
+                val k = keysIter.next()
+                val v = clearKeysMapFields.fsString(k).trim()
+                if (k.isNotBlank() && v.isNotBlank()) fsClearKeys[k] = v
+            }
+        }
+
+        val provisionalChannel = LiveChannel(
             id = id,
             name = name,
             description = if (country.isNotBlank()) "$category • $country" else category,
@@ -2945,38 +1864,30 @@ object MediaContentRepository {
             thumbnailUrl = logo,
             categories = categoriesList,
             language = if (country.equals("Tanzania", ignoreCase = true)) "sw" else "en",
-            encryptionType = "none",
+            encryptionType = if (fsClearKeys.isNotEmpty() || isDash) "clearkey" else "none",
+            clearKeys = fsClearKeys,
             isLiveBroadcast = fields.fsBoolean("isLive", true),
             country = country,
             featured = featured,
             enabled = enabled,
             published = published
         )
-        return parsedChannel.copy(
-            thumbnailUrl = ChannelRepository.resolveGuaranteedChannelLogoUrl(parsedChannel)
+        val resolvedKeys = ChannelRepository.resolveClearKeysForChannel(provisionalChannel)
+        return provisionalChannel.copy(
+            clearKeys = resolvedKeys,
+            encryptionType = if (resolvedKeys.isNotEmpty()) "clearkey" else provisionalChannel.encryptionType,
+            thumbnailUrl = ChannelRepository.resolveGuaranteedChannelLogoUrl(provisionalChannel)
         )
     }
 
     private fun JSONObject.fsString(key: String, default: String = ""): String {
         val field = optJSONObject(key) ?: return default
-        if (field.has("stringValue")) return field.optString("stringValue", default)
-        if (field.has("integerValue")) return field.optString("integerValue", default)
-        if (field.has("doubleValue")) return field.optDouble("doubleValue").toString()
-        return default
+        return field.optString("stringValue", default)
     }
 
     private fun JSONObject.fsBoolean(key: String, default: Boolean = false): Boolean {
         val field = optJSONObject(key) ?: return default
-        if (field.has("booleanValue")) return field.optBoolean("booleanValue", default)
-        if (field.has("stringValue")) {
-            val str = field.optString("stringValue", "").trim().lowercase(Locale.US)
-            if (str == "true" || str == "1" || str == "yes") return true
-            if (str == "false" || str == "0" || str == "no") return false
-        }
-        if (field.has("integerValue")) {
-            return (field.optString("integerValue", "0").toIntOrNull() ?: 0) != 0
-        }
-        return default
+        return if (field.has("booleanValue")) field.optBoolean("booleanValue", default) else default
     }
 
     private fun JSONObject.fsInt(key: String, default: Int = 0): Int {
@@ -2987,10 +1898,6 @@ object MediaContentRepository {
         if (field.has("doubleValue")) {
             return field.optDouble("doubleValue", default.toDouble()).toInt()
         }
-        if (field.has("stringValue")) {
-            val str = field.optString("stringValue", "").trim()
-            return str.toIntOrNull() ?: str.toDoubleOrNull()?.toInt() ?: default
-        }
         return default
     }
 
@@ -2998,13 +1905,6 @@ object MediaContentRepository {
         val field = optJSONObject(key) ?: return default
         if (field.has("integerValue")) {
             return field.optString("integerValue", default.toString()).toLongOrNull() ?: default
-        }
-        if (field.has("doubleValue")) {
-            return field.optDouble("doubleValue", default.toDouble()).toLong()
-        }
-        if (field.has("stringValue")) {
-            val str = field.optString("stringValue", "").trim()
-            return str.toLongOrNull() ?: str.toDoubleOrNull()?.toLong() ?: default
         }
         return default
     }
@@ -3017,38 +1917,17 @@ object MediaContentRepository {
         if (field.has("integerValue")) {
             return field.optString("integerValue", default.toString()).toDoubleOrNull() ?: default
         }
-        if (field.has("stringValue")) {
-            return field.optString("stringValue", "").trim().toDoubleOrNull() ?: default
-        }
         return default
     }
 
     private fun JSONObject.fsStringList(key: String): List<String> {
-        val fieldObj = optJSONObject(key) ?: return emptyList()
-        if (fieldObj.has("stringValue")) {
-            val single = fieldObj.optString("stringValue", "").trim()
-            return if (single.isNotEmpty()) listOf(single) else emptyList()
-        }
-        val values = fieldObj
-            .optJSONObject("arrayValue")
+        val values = optJSONObject(key)
+            ?.optJSONObject("arrayValue")
             ?.optJSONArray("values") ?: return emptyList()
         val result = mutableListOf<String>()
         for (i in 0 until values.length()) {
-            val elem = values.optJSONObject(i) ?: continue
-            val str = elem.optString("stringValue", "").trim()
-            if (str.isNotEmpty()) {
-                result.add(str)
-            } else {
-                val mapFields = elem.optJSONObject("mapValue")?.optJSONObject("fields")
-                val nestedName = mapFields?.fsString("name")
-                    ?.ifEmpty { mapFields.fsString("title") }
-                    ?.ifEmpty { mapFields.fsString("label") }
-                    ?.trim()
-                    .orEmpty()
-                if (nestedName.isNotEmpty()) {
-                    result.add(nestedName)
-                }
-            }
+            val str = values.optJSONObject(i)?.optString("stringValue", "")?.trim().orEmpty()
+            if (str.isNotEmpty()) result.add(str)
         }
         return result
     }
@@ -3153,7 +2032,7 @@ object MediaContentRepository {
         return if (hrs > 0) "${hrs}h ${mins.toString().padStart(2, '0')}m" else "${mins}m"
     }
 
-    fun parseFirebaseJsonPayload(jsonStr: String, isFromLiveNetworkSync: Boolean = false): Int {
+    fun parseFirebaseJsonPayload(jsonStr: String): Int {
         val root = JSONObject(jsonStr)
         val parsedMedia = mutableListOf<MediaContent>()
         val parsedEpisodes = mutableListOf<EpisodeItem>()
@@ -3199,17 +2078,9 @@ object MediaContentRepository {
         }
 
         if (parsedMedia.isNotEmpty()) {
-            val hasSyncedMoviesNow = parsedMedia.any { it.isMovie && !it.isAdultContent }
-            if (isFromLiveNetworkSync && hasSyncedMoviesNow) {
-                _hasSyncedRealFirebaseMovies.value = true
+            _mediaCatalog.value = parsedMedia + _mediaCatalog.value.filter { def ->
+                parsedMedia.none { it.id == def.id }
             }
-            val purgeDemoMovies = _hasSyncedRealFirebaseMovies.value
-            val retainedExisting = _mediaCatalog.value.filter { def ->
-                val allowDemoFallback = !(purgeDemoMovies && def.isMovie && !def.isAdultContent && def.id in initialProductionIds)
-                allowDemoFallback && parsedMedia.none { it.id == def.id }
-            }
-            _mediaCatalog.value = (parsedMedia + retainedExisting).distinctBy { it.id }
-            rotateMovieCatalogOrder()
         }
 
         if (parsedChannels.isNotEmpty()) {
@@ -3259,54 +2130,32 @@ object MediaContentRepository {
 
     private fun parseSingleEpisodeObject(obj: JSONObject, fallbackId: String): EpisodeItem? {
         val seriesId = obj.optString("seriesId", "").trim()
-        val rawStreamUrl = obj.optString("streamUrl", "").trim()
-        val rawPlaybackUrl = obj.optString("playbackUrl", "").trim()
-        val rawDownloadUrl = obj.optString("downloadUrl", "").trim()
-        val streamUrl = rawStreamUrl.ifEmpty { rawPlaybackUrl }.ifEmpty { rawDownloadUrl }
+        val streamUrl = obj.optString("streamUrl", "").trim()
         if (seriesId.isEmpty() || streamUrl.isEmpty()) return null
-        val epNum = obj.optInt("episodeNumber", 1).coerceAtLeast(1)
-        val epTitle = obj.optString("title", obj.optString("name", "Episode $epNum")).trim().ifEmpty { "Episode $epNum" }
-        val rawPoster = obj.optString("posterUrl", obj.optString("stillPath", obj.optString("posterPath", obj.optString("thumbnailUrl", ""))))
-        val allowDownload = obj.optBoolean("allowDownload", obj.optBoolean("downloadEnabled", true))
-        val allowStreaming = obj.optBoolean("allowStreaming", true)
         return EpisodeItem(
             id = obj.optString("id", fallbackId),
             seriesId = seriesId,
-            seasonNumber = obj.optInt("seasonNumber", 1).coerceAtLeast(1),
-            episodeNumber = epNum,
-            name = epTitle,
+            seasonNumber = obj.optInt("seasonNumber", 1),
+            episodeNumber = obj.optInt("episodeNumber", 1),
+            name = obj.optString("name", "Episode"),
             overview = obj.optString("overview", ""),
-            stillPath = rawPoster,
+            stillPath = obj.optString("stillPath", ""),
             streamUrl = streamUrl,
-            playbackType = obj.optString(
-                "playbackType",
-                if (streamUrl.substringBefore("?").endsWith(".mp4", ignoreCase = true)) "mp4" else "m3u8"
-            ),
+            playbackType = obj.optString("playbackType", "m3u8"),
             runtime = obj.optInt("runtime", 45),
             airDate = obj.optString("airDate", ""),
             narrated = obj.optBoolean("narrated", false),
             narrationLanguage = obj.optString("narrationLanguage", ""),
-            downloadEnabled = allowDownload,
-            published = obj.optBoolean("published", true),
-            playbackUrl = rawPlaybackUrl.ifEmpty { streamUrl },
-            downloadUrl = rawDownloadUrl.ifEmpty { streamUrl },
-            subtitleUrl = obj.optString("subtitleUrl", ""),
-            allowStreaming = allowStreaming,
-            allowDownload = allowDownload
+            downloadEnabled = obj.optBoolean("downloadEnabled", true),
+            published = obj.optBoolean("published", true)
         )
     }
 
     private fun parseSingleMediaObject(obj: JSONObject, fallbackId: String, defaultType: String): MediaContent? {
-        val title = obj.optString("title", obj.optString("name", obj.optString("movieTitle", ""))).trim()
+        val title = obj.optString("title", obj.optString("name", "")).trim()
         val streamUrl = obj.optString(
             "streamUrl",
-            obj.optString(
-                "url",
-                obj.optString(
-                    "videoUrl",
-                    obj.optString("movieUrl", obj.optString("fileUrl", obj.optString("playbackUrl", "")))
-                )
-            )
+            obj.optString("url", obj.optString("videoUrl", ""))
         ).trim()
         val genresList = mutableListOf<String>()
         listOf("genres", "categories", "tags").forEach { arrayKey ->
