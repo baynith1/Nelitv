@@ -76,6 +76,7 @@ import com.example.ui.components.BottomNavTab
 import com.example.ui.components.ChannelCard
 import com.example.ui.components.LiveIndicatorBadge
 import com.example.ui.components.NeliBottomBar
+import com.example.ui.components.NeliHomepageAutoUpdatePopupDialog
 import com.example.ui.components.TopNavBar
 import com.example.ui.theme.NeliBackground
 import com.example.ui.theme.NeliGenreCyan
@@ -134,6 +135,9 @@ fun HomeScreen(
     LaunchedEffect(Unit) {
         neliViewModel.refreshConnectivityState()
     }
+
+    // Automatic popup on Homepage whenever a new update arrives in GitHub Releases
+    NeliHomepageAutoUpdatePopupDialog()
 
     // Handle back button:
     // - From MediaDetailScreen -> return to Discovery

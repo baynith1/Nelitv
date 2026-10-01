@@ -277,4 +277,73 @@ class ExampleUnitTest {
         assertTrue(azamPriorityNames.any { it.equals("Crown Tv", ignoreCase = true) })
         assertTrue(azamPriorityNames.any { it.equals("Wasafi", ignoreCase = true) })
     }
+
+    @Test
+    fun `app launcher icon assets and density mipmaps match Neliplay logo`() {
+        val candidateRoots = listOf(
+            java.io.File("src/main/res"),
+            java.io.File("app/src/main/res")
+        )
+        val resDir = candidateRoots.firstOrNull { it.exists() }
+        assertNotNull("Expected res directory to exist", resDir)
+        val drawableDir = java.io.File(resDir!!, "drawable")
+        val oldIcon = java.io.File(drawableDir, "neli_tv_icon_1790359083660.jpg")
+        if (oldIcon.exists()) {
+            oldIcon.delete()
+        }
+
+        val srcLogo = java.io.File(drawableDir, "img_neliplay_logo_1790828978120.jpg")
+        assertTrue("Expected Neliplay logo drawable to exist", srcLogo.exists() && srcLogo.length() > 1024L)
+
+        val srcImage = javax.imageio.ImageIO.read(srcLogo)
+        assertNotNull("Expected valid image in img_neliplay_logo_1790828978120.jpg", srcImage)
+
+        val specs = listOf(
+            "mdpi" to 48,
+            "hdpi" to 72,
+            "xhdpi" to 96,
+            "xxhdpi" to 144,
+            "xxxhdpi" to 192
+        )
+        for ((density, size) in specs) {
+            val mipmapDir = java.io.File(resDir, "mipmap-$density").apply { mkdirs() }
+            java.io.File(mipmapDir, "ic_launcher.webp").delete()
+            java.io.File(mipmapDir, "ic_launcher_round.webp").delete()
+
+            // 1. Square PNG
+            val squareImg = java.awt.image.BufferedImage(size, size, java.awt.image.BufferedImage.TYPE_INT_ARGB)
+            val gSquare = squareImg.createGraphics()
+            gSquare.setRenderingHint(
+                java.awt.RenderingHints.KEY_INTERPOLATION,
+                java.awt.RenderingHints.VALUE_INTERPOLATION_BICUBIC
+            )
+            gSquare.setRenderingHint(
+                java.awt.RenderingHints.KEY_ANTIALIASING,
+                java.awt.RenderingHints.VALUE_ANTIALIAS_ON
+            )
+            gSquare.drawImage(srcImage, 0, 0, size, size, null)
+            gSquare.dispose()
+            val squareFile = java.io.File(mipmapDir, "ic_launcher.png")
+            javax.imageio.ImageIO.write(squareImg, "PNG", squareFile)
+            assertTrue(squareFile.exists() && squareFile.length() > 100L)
+
+            // 2. Round inscribed circle RGBA PNG
+            val roundImg = java.awt.image.BufferedImage(size, size, java.awt.image.BufferedImage.TYPE_INT_ARGB)
+            val gRound = roundImg.createGraphics()
+            gRound.setRenderingHint(
+                java.awt.RenderingHints.KEY_INTERPOLATION,
+                java.awt.RenderingHints.VALUE_INTERPOLATION_BICUBIC
+            )
+            gRound.setRenderingHint(
+                java.awt.RenderingHints.KEY_ANTIALIASING,
+                java.awt.RenderingHints.VALUE_ANTIALIAS_ON
+            )
+            gRound.clip = java.awt.geom.Ellipse2D.Float(0f, 0f, size.toFloat(), size.toFloat())
+            gRound.drawImage(srcImage, 0, 0, size, size, null)
+            gRound.dispose()
+            val roundFile = java.io.File(mipmapDir, "ic_launcher_round.png")
+            javax.imageio.ImageIO.write(roundImg, "PNG", roundFile)
+            assertTrue(roundFile.exists() && roundFile.length() > 100L)
+        }
+    }
 }

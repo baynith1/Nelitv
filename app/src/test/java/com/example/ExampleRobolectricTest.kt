@@ -445,6 +445,44 @@ class ExampleRobolectricTest {
             "https://github.com/baynith1/Nelitv/releases/download/v1.0.0/Nelitv.apk",
             parsedRelease.apkDownloadUrl
         )
+        org.junit.Assert.assertFalse(com.example.data.NeliAppUpdateManager.showHomepageUpdatePopup.value)
+
+        // Verify Homepage Auto-Popup triggers automatically when a new update arrives on GitHub
+        val newerReleaseJson = """
+            {
+              "tag_name": "v1.0.1",
+              "name": "Neli TV v1.0.1 Official Release",
+              "html_url": "https://github.com/baynith1/Nelitv/releases/tag/v1.0.1",
+              "body": "New update with auto popup on homepage",
+              "published_at": "2026-10-01T00:00:00Z",
+              "assets": [
+                {
+                  "name": "Nelitv.apk",
+                  "browser_download_url": "https://github.com/baynith1/Nelitv/releases/download/v1.0.1/Nelitv.apk"
+                }
+              ]
+            }
+        """.trimIndent()
+        val parsedNewer = com.example.data.NeliAppUpdateManager.parseGitHubReleaseJson(
+            rawJson = newerReleaseJson,
+            currentVersionTag = "v1.0.0"
+        )
+        assertNotNull(parsedNewer)
+        assertTrue(parsedNewer!!.isNewUpdateAvailable)
+        assertTrue(com.example.data.NeliAppUpdateManager.showHomepageUpdatePopup.value)
+        com.example.data.NeliAppUpdateManager.dismissHomepageUpdatePopup("v1.0.1")
+        org.junit.Assert.assertFalse(com.example.data.NeliAppUpdateManager.showHomepageUpdatePopup.value)
+        com.example.data.NeliAppUpdateManager.parseGitHubReleaseJson(sampleReleaseJson, currentVersionTag = "v1.0.0")
+
+        // Verify Account Widget Setup sets and displays widget on Home Screen
+        assertTrue(
+            com.example.widget.NeliHomeWidgetProvider.setAndShowWidgetOnHomeScreen(
+                context = context,
+                navigateToHomeScreen = false
+            )
+        )
+        assertTrue(com.example.widget.NeliHomeWidgetProvider.isWidgetPinnedFlow.value)
+        assertNotNull(com.example.widget.NeliHomeWidgetProvider.widgetSetupStatusMessage.value)
 
         // 3. Verify tokenEndpointUrl JSON payload updates ChannelRepository and TokenManager
         val combinedTokenJson = """

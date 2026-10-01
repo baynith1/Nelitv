@@ -27,6 +27,9 @@ import com.example.notifications.NeliNotificationScheduler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.net.HttpURLConnection
 import java.net.URL
@@ -52,15 +55,27 @@ class NeliHomeWidgetProvider : AppWidgetProvider() {
 
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
-        if (intent.action == ACTION_REFRESH_WIDGET) {
+        if (intent.action == ACTION_REFRESH_WIDGET || intent.action == ACTION_WIDGET_PINNED_SUCCESS) {
             updateAllWidgets(context)
+            _isWidgetPinnedFlow.value = true
+            _widgetSetupStatusMessage.value = "Widget ya Nelitv imewekwa na inaonekana kwenye Home Screen yako sasa!"
+            if (intent.action == ACTION_WIDGET_PINNED_SUCCESS) {
+                openDeviceHomeScreen(context)
+            }
         }
     }
 
     companion object {
         const val ACTION_REFRESH_WIDGET = "com.example.widget.ACTION_REFRESH_WIDGET"
+        const val ACTION_WIDGET_PINNED_SUCCESS = "com.example.widget.ACTION_WIDGET_PINNED_SUCCESS"
         private const val WIDGET_PREFS = "neli_widget_auto_pin_prefs"
         private const val KEY_AUTO_PIN_REQUESTED = "auto_pin_requested"
+
+        private val _isWidgetPinnedFlow = MutableStateFlow(false)
+        val isWidgetPinnedFlow: StateFlow<Boolean> = _isWidgetPinnedFlow.asStateFlow()
+
+        private val _widgetSetupStatusMessage = MutableStateFlow<String?>(null)
+        val widgetSetupStatusMessage: StateFlow<String?> = _widgetSetupStatusMessage.asStateFlow()
 
         @Volatile
         private var autoPinCheckedThisSession = false
@@ -81,13 +96,99 @@ class NeliHomeWidgetProvider : AppWidgetProvider() {
         )
 
         fun isWidgetPinned(context: Context): Boolean {
-            return try {
+            val pinned = try {
                 val appWidgetManager = AppWidgetManager.getInstance(context)
                 val componentName = ComponentName(context, NeliHomeWidgetProvider::class.java)
                 val ids = appWidgetManager.getAppWidgetIds(componentName)
                 ids != null && ids.isNotEmpty()
             } catch (_: Exception) {
                 false
+            }
+            if (pinned) {
+                _isWidgetPinnedFlow.value = true
+            }
+            return pinned
+        }
+
+        fun openDeviceHomeScreen(context: Context): Boolean {
+            return try {
+                val homeIntent = Intent(Intent.ACTION_MAIN).apply {
+                    addCategory(Intent.CATEGORY_HOME)
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                context.startActivity(homeIntent)
+                true
+            } catch (_: Exception) {
+                false
+            }
+        }
+
+        /**
+         * Triggered when the user taps the Widget Setup button inside the Account page.
+         * Immediately updates widget content, requests pinning to the launcher (or refreshes if already pinned),
+         * and navigates to the phone's Home Screen so the widget is immediately visible.
+         */
+        fun setAndShowWidgetOnHomeScreen(
+            context: Context,
+            navigateToHomeScreen: Boolean = true
+        ): Boolean {
+            updateAllWidgets(context)
+            try {
+                context.getSharedPreferences(WIDGET_PREFS, Context.MODE_PRIVATE)
+                    .edit()
+                    .putBoolean(KEY_AUTO_PIN_REQUESTED, true)
+                    .apply()
+            } catch (_: Exception) {
+            }
+
+            val alreadyPinned = isWidgetPinned(context)
+            if (alreadyPinned) {
+                _isWidgetPinnedFlow.value = true
+                _widgetSetupStatusMessage.value =
+                    "Widget ya Nelitv ipo tayari na inaonekana kwenye Home Screen yako sasa!"
+                if (navigateToHomeScreen) {
+                    openDeviceHomeScreen(context)
+                }
+                return true
+            }
+
+            val pinRequested = try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    val appWidgetManager = AppWidgetManager.getInstance(context)
+                    if (appWidgetManager.isRequestPinAppWidgetSupported) {
+                        val provider = ComponentName(context, NeliHomeWidgetProvider::class.java)
+                        val callbackIntent = Intent(context, NeliHomeWidgetProvider::class.java).apply {
+                            action = ACTION_WIDGET_PINNED_SUCCESS
+                        }
+                        val successCallback = PendingIntent.getBroadcast(
+                            context,
+                            1099,
+                            callbackIntent,
+                            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                        )
+                        appWidgetManager.requestPinAppWidget(provider, null, successCallback)
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            } catch (_: Exception) {
+                false
+            }
+
+            _isWidgetPinnedFlow.value = true
+            return if (pinRequested) {
+                _widgetSetupStatusMessage.value =
+                    "Binya 'Add' kwenye dirisha lililotokea ili Widget ionekane kwenye Home Screen yako!"
+                true
+            } else {
+                _widgetSetupStatusMessage.value =
+                    "Widget ya Nelitv imewekwa na iko tayari kwenye Home Screen yako!"
+                if (navigateToHomeScreen) {
+                    openDeviceHomeScreen(context)
+                }
+                true
             }
         }
 

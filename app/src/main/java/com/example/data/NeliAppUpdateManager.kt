@@ -90,6 +90,12 @@ object NeliAppUpdateManager {
     private val _apkDownloadStatusMessage = MutableStateFlow<String?>(null)
     val apkDownloadStatusMessage: StateFlow<String?> = _apkDownloadStatusMessage.asStateFlow()
 
+    private val _showHomepageUpdatePopup = MutableStateFlow(false)
+    val showHomepageUpdatePopup: StateFlow<Boolean> = _showHomepageUpdatePopup.asStateFlow()
+
+    @Volatile
+    private var dismissedPopupTagInSession: String? = null
+
     @Volatile
     private var lastAutoTriggeredTagInSession: String? = null
 
@@ -208,11 +214,25 @@ object NeliAppUpdateManager {
         if (currentInfo.versionTag.equals(cleanTag, ignoreCase = true) ||
             !isRemoteVersionNewer(cleanTag, currentInfo.versionTag)
         ) {
+            _showHomepageUpdatePopup.value = false
             _releaseInfo.value = currentInfo.copy(
                 versionTag = cleanTag,
                 isNewUpdateAvailable = false,
                 statusMessage = "You are on the latest version ($cleanTag) • Auto-Update Active"
             )
+        }
+    }
+
+    fun dismissHomepageUpdatePopup(versionTag: String = _releaseInfo.value.versionTag) {
+        dismissedPopupTagInSession = versionTag.trim()
+        _showHomepageUpdatePopup.value = false
+    }
+
+    fun triggerHomepageUpdatePopupForNewRelease(versionTag: String = _releaseInfo.value.versionTag) {
+        if (dismissedPopupTagInSession == null ||
+            !dismissedPopupTagInSession.equals(versionTag.trim(), ignoreCase = true)
+        ) {
+            _showHomepageUpdatePopup.value = true
         }
     }
 
@@ -416,6 +436,11 @@ object NeliAppUpdateManager {
                 statusMessage = statusMsg
             )
             _releaseInfo.value = parsed
+            if (isNewer) {
+                triggerHomepageUpdatePopupForNewRelease(tagName)
+            } else {
+                _showHomepageUpdatePopup.value = false
+            }
             parsed
         } catch (_: Exception) {
             null
@@ -486,6 +511,7 @@ object NeliAppUpdateManager {
 
         // If the device APK is already up to date with this GitHub release, persist the tag & fingerprint
         if (!finalInfo.isNewUpdateAvailable) {
+            _showHomepageUpdatePopup.value = false
             markReleaseAsInstalled(
                 context = context,
                 versionTag = finalInfo.versionTag,
@@ -494,6 +520,7 @@ object NeliAppUpdateManager {
             )
         } else {
             _releaseInfo.value = finalInfo
+            triggerHomepageUpdatePopupForNewRelease(finalInfo.versionTag)
         }
 
         if (triggeredByUser) {

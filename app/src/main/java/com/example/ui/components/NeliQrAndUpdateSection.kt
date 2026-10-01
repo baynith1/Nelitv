@@ -30,6 +30,8 @@ import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.SystemUpdate
+import androidx.compose.material.icons.filled.Widgets
+import com.example.widget.NeliHomeWidgetProvider
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -503,6 +505,9 @@ fun NeliShareApkAndAutoUpdateSection(
             .testTag("share_apk_and_update_section"),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        // 0. Home Screen Widget Setup & Instant Home Screen Placement Card
+        NeliHomeWidgetAccountSetupCard()
+
         // 1. Share APK by Scan to Download QR & Share by Link Card
         Column(
             modifier = Modifier
@@ -953,6 +958,525 @@ fun NeliShareApkAndAutoUpdateSection(
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold
                 )
+            }
+        }
+    }
+}
+
+/**
+ * Account page Widget Setup Card:
+ * Allows the user to tap once to set/pin the Nelitv Home Screen Widget and immediately
+ * see it on their phone's Home Screen.
+ */
+@Composable
+fun NeliHomeWidgetAccountSetupCard(
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val isPinnedFlow by NeliHomeWidgetProvider.isWidgetPinnedFlow.collectAsState()
+    val widgetStatusMessage by NeliHomeWidgetProvider.widgetSetupStatusMessage.collectAsState()
+    var isPinnedLocal by remember { mutableStateOf(NeliHomeWidgetProvider.isWidgetPinned(context)) }
+    val isWidgetActive = isPinnedFlow || isPinnedLocal
+
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        isPinnedLocal = NeliHomeWidgetProvider.isWidgetPinned(context)
+    }
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(22.dp))
+            .background(
+                Brush.linearGradient(
+                    colors = listOf(Color(0xFF141E38), Color(0xFF1A0F2E))
+                )
+            )
+            .border(1.dp, NeliGenreCyan.copy(alpha = 0.6f), RoundedCornerShape(22.dp))
+            .padding(16.dp)
+            .testTag("account_widget_setup_card"),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.weight(1f)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(NeliMagenta),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Widgets,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(26.dp)
+                    )
+                }
+
+                Column {
+                    Text(
+                        text = "Home Screen Widget (Weka Widget)",
+                        color = Color.White,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                    Text(
+                        text = "Binya kuweka Widget ya Azam TV Live & Sinema 2026 ionekane kwenye Home Screen",
+                        color = NeliTextSecondary,
+                        fontSize = 11.sp
+                    )
+                }
+            }
+
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(if (isWidgetActive) Color(0x2610B981) else Color(0x33F41B54))
+                    .border(
+                        1.dp,
+                        if (isWidgetActive) Color(0xFF10B981) else NeliMagenta,
+                        RoundedCornerShape(10.dp)
+                    )
+                    .padding(horizontal = 10.dp, vertical = 5.dp)
+            ) {
+                Text(
+                    text = if (isWidgetActive) "ACTIVE ✓" else "SET WIDGET",
+                    color = if (isWidgetActive) Color(0xFF10B981) else Color.White,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.ExtraBold
+                )
+            }
+        }
+
+        // Interactive Widget Preview (Tapping the preview also sets & opens the widget on Home Screen)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(16.dp))
+                .background(Color(0xFF0C101C))
+                .border(1.dp, Color(0x4400D2FF), RoundedCornerShape(16.dp))
+                .clickable {
+                    NeliHomeWidgetProvider.setAndShowWidgetOnHomeScreen(
+                        context = context,
+                        navigateToHomeScreen = true
+                    )
+                    isPinnedLocal = true
+                }
+                .padding(12.dp)
+                .testTag("account_widget_preview_box"),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "NELITV HOME WIDGET PREVIEW",
+                    color = NeliGenreCyan,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.ExtraBold
+                )
+                Text(
+                    text = "Tap to Add to Home Screen →",
+                    color = NeliMagenta,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                listOf("Azam Sports 1 HD", "Azam Two", "WWE Live 24/7").forEach { chTitle ->
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color(0xFF181236))
+                            .border(1.dp, NeliMagenta.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
+                            .padding(vertical = 8.dp, horizontal = 6.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = "LIVE TV",
+                                color = NeliMagenta,
+                                fontSize = 8.sp,
+                                fontWeight = FontWeight.ExtraBold
+                            )
+                            Text(
+                                text = chTitle,
+                                color = Color.White,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                listOf("2026 Swahili HD", "2026 Action HD", "2026 Series HD").forEach { movLabel ->
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color(0xFF101B2E))
+                            .border(1.dp, NeliGenreCyan.copy(alpha = 0.45f), RoundedCornerShape(10.dp))
+                            .padding(vertical = 6.dp, horizontal = 6.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = movLabel,
+                            color = NeliGenreCyan,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+        }
+
+        if (!widgetStatusMessage.isNullOrBlank()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Color(0x2210B981))
+                    .border(1.dp, Color(0xFF10B981), RoundedCornerShape(10.dp))
+                    .padding(10.dp)
+                    .testTag("account_widget_status_banner"),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.CheckCircle,
+                    contentDescription = null,
+                    tint = Color(0xFF10B981),
+                    modifier = Modifier.size(16.dp)
+                )
+                Text(
+                    text = widgetStatusMessage!!,
+                    color = Color(0xFFA7F3D0),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Button(
+                onClick = {
+                    NeliHomeWidgetProvider.setAndShowWidgetOnHomeScreen(
+                        context = context,
+                        navigateToHomeScreen = true
+                    )
+                    isPinnedLocal = true
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag("account_set_widget_button")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Widgets,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "Set & Show Widget",
+                    color = Color.White,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.ExtraBold
+                )
+            }
+
+            OutlinedButton(
+                onClick = {
+                    NeliHomeWidgetProvider.updateAllWidgets(context)
+                    NeliHomeWidgetProvider.openDeviceHomeScreen(context)
+                },
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag("account_open_home_widget_button")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Refresh,
+                    contentDescription = null,
+                    tint = NeliGenreCyan,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "View on Home Screen",
+                    color = Color.White,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Automatic Homepage Popup Dialog whenever a new update arrives on GitHub (`baynith1/Nelitv`).
+ * Allows the user to immediately update the app or toggle Auto-Updates for all future GitHub releases.
+ */
+@Composable
+fun NeliHomepageAutoUpdatePopupDialog() {
+    val context = LocalContext.current
+    val releaseInfo by NeliAppUpdateManager.releaseInfo.collectAsState()
+    val showPopup by NeliAppUpdateManager.showHomepageUpdatePopup.collectAsState()
+    val autoUpdateEnabled by NeliAppUpdateManager.autoUpdateEnabled.collectAsState()
+    val statusBannerMessage by NeliAppUpdateManager.apkDownloadStatusMessage.collectAsState()
+
+    if (!showPopup || !releaseInfo.isNewUpdateAvailable) return
+
+    Dialog(
+        onDismissRequest = {
+            NeliAppUpdateManager.dismissHomepageUpdatePopup(releaseInfo.versionTag)
+        }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(24.dp))
+                .background(Color(0xFF101422))
+                .border(1.5.dp, NeliGenreCyan, RoundedCornerShape(24.dp))
+                .padding(20.dp)
+                .testTag("homepage_auto_update_popup_dialog"),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(NeliMagenta),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.SystemUpdate,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                    Column {
+                        Text(
+                            text = "New GitHub Update (${releaseInfo.versionTag})",
+                            color = Color.White,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                        Text(
+                            text = releaseInfo.releaseTitle,
+                            color = NeliGenreCyan,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                IconButton(
+                    onClick = {
+                        NeliAppUpdateManager.dismissHomepageUpdatePopup(releaseInfo.versionTag)
+                    },
+                    modifier = Modifier
+                        .size(34.dp)
+                        .clip(CircleShape)
+                        .background(NeliSurfaceVariant)
+                        .testTag("homepage_popup_close_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Close Update Popup",
+                        tint = Color.White,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+
+            // What's New box
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(NeliSurfaceVariant)
+                    .border(1.dp, NeliBorder, RoundedCornerShape(14.dp))
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.NewReleases,
+                        contentDescription = null,
+                        tint = NeliGenreCyan,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Text(
+                        text = "What's New on GitHub (${releaseInfo.publishedAt})",
+                        color = NeliGenreCyan,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                }
+                Text(
+                    text = releaseInfo.whatsNewNotes,
+                    color = NeliTextPrimary,
+                    fontSize = 11.sp,
+                    lineHeight = 16.sp,
+                    maxLines = 6,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            // Auto-Update Toggle inside Homepage Popup
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(NeliCardPurple)
+                    .border(1.dp, Color(0x44A855F7), RoundedCornerShape(14.dp))
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AutoMode,
+                        contentDescription = null,
+                        tint = NeliGenreCyan,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Column {
+                        Text(
+                            text = "Auto-Update from GitHub",
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                        Text(
+                            text = "Sasisha app moja kwa moja kila toleo jipya linapowekwa GitHub",
+                            color = NeliTextSecondary,
+                            fontSize = 10.sp
+                        )
+                    }
+                }
+
+                Switch(
+                    checked = autoUpdateEnabled,
+                    onCheckedChange = { enabled ->
+                        NeliAppUpdateManager.setAutoUpdateEnabled(context, enabled)
+                    },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Color.White,
+                        checkedTrackColor = NeliMagenta
+                    ),
+                    modifier = Modifier.testTag("homepage_popup_auto_update_switch")
+                )
+            }
+
+            if (!statusBannerMessage.isNullOrBlank()) {
+                Text(
+                    text = statusBannerMessage!!,
+                    color = Color(0xFF10B981),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                OutlinedButton(
+                    onClick = {
+                        NeliAppUpdateManager.dismissHomepageUpdatePopup(releaseInfo.versionTag)
+                    },
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("homepage_popup_later_button")
+                ) {
+                    Text(
+                        text = "Baadaye",
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                Button(
+                    onClick = {
+                        NeliAppUpdateManager.downloadAndInstallApk(
+                            context = context,
+                            apkUrl = releaseInfo.apkDownloadUrl,
+                            versionTag = releaseInfo.versionTag,
+                            isAutoUpdate = false
+                        )
+                        NeliAppUpdateManager.dismissHomepageUpdatePopup(releaseInfo.versionTag)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("homepage_popup_update_now_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Download,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Update Now",
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                }
             }
         }
     }

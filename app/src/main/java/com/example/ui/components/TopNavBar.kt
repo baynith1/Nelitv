@@ -5,9 +5,13 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import com.example.R
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -148,21 +152,15 @@ fun TopNavBar(
                     .padding(vertical = 4.dp)
                     .testTag("header_brand_logo")
             ) {
-                Box(
+                Image(
+                    painter = painterResource(id = R.drawable.img_neliplay_logo_1790828978120),
+                    contentDescription = "Neliplay Logo",
+                    contentScale = ContentScale.Crop,
                     modifier = Modifier
-                        .width(32.dp)
-                        .height(22.dp)
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(Color(0xFFFF0033)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.LiveTv,
-                        contentDescription = "Azam TV Logo",
-                        tint = Color.White,
-                        modifier = Modifier.size(14.dp)
-                    )
-                }
+                        .size(34.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .border(1.dp, Color(0x5500E5FF), RoundedCornerShape(8.dp))
+                )
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
@@ -173,8 +171,8 @@ fun TopNavBar(
                         letterSpacing = (-0.4).sp
                     )
                     Text(
-                        text = "TV",
-                        color = Color(0xFFFF0033),
+                        text = "play",
+                        color = Color(0xFFFF2E7E),
                         fontSize = 19.sp,
                         fontWeight = FontWeight.Black,
                         letterSpacing = (-0.4).sp
