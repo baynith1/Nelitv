@@ -50,6 +50,7 @@ object NeliAdminManager {
     private const val PREFS_NAME = "neli_mini_admin_prefs"
     private const val KEY_LOCK_ALL_CHANNELS = "lock_all_channels"
     private const val KEY_LOCKED_CHANNEL_IDS = "locked_channel_ids"
+    private const val KEY_HIDDEN_CHANNEL_IDS = "hidden_channel_ids"
     private const val KEY_CUSTOM_CHANNELS_JSON = "custom_channels_json"
     private const val KEY_ADMIN_SMS_TEXT = "admin_sms_text"
     private const val KEY_ADMIN_SMS_ID = "admin_sms_id"
@@ -61,6 +62,9 @@ object NeliAdminManager {
 
     private val _lockedChannelIds = MutableStateFlow<Set<String>>(emptySet())
     val lockedChannelIds: StateFlow<Set<String>> = _lockedChannelIds.asStateFlow()
+
+    private val _hiddenChannelIds = MutableStateFlow<Set<String>>(emptySet())
+    val hiddenChannelIds: StateFlow<Set<String>> = _hiddenChannelIds.asStateFlow()
 
     private val _customAddedChannels = MutableStateFlow<List<LiveChannel>>(emptyList())
     val customAddedChannels: StateFlow<List<LiveChannel>> = _customAddedChannels.asStateFlow()
@@ -88,6 +92,8 @@ object NeliAdminManager {
         _areAllChannelsLocked.value = prefs.getBoolean(KEY_LOCK_ALL_CHANNELS, false)
         val savedLocked = prefs.getStringSet(KEY_LOCKED_CHANNEL_IDS, emptySet())?.toSet() ?: emptySet()
         _lockedChannelIds.value = savedLocked
+        val savedHidden = prefs.getStringSet(KEY_HIDDEN_CHANNEL_IDS, emptySet())?.toSet() ?: emptySet()
+        _hiddenChannelIds.value = savedHidden
 
         val customJson = prefs.getString(KEY_CUSTOM_CHANNELS_JSON, "").orEmpty()
         val parsedCustom = parseCustomChannelsJson(customJson)
@@ -108,7 +114,7 @@ object NeliAdminManager {
             _activeAdminSms.value = null
         }
 
-        if (parsedCustom.isNotEmpty()) {
+        if (parsedCustom.isNotEmpty() || savedHidden.isNotEmpty()) {
             ChannelRepository.refreshLiveChannels()
         }
     }
@@ -266,12 +272,41 @@ object NeliAdminManager {
         return Result.success(newChannel)
     }
 
-    fun removeAdminChannel(context: Context, channelId: String) {
-        val updatedList = _customAddedChannels.value.filterNot { it.id == channelId }
-        _customAddedChannels.value = updatedList
-        saveCustomChannels(context, updatedList)
-        setSingleChannelLock(context, channelId, false)
+    /**
+     * Checks whether the Admin has hidden this channel from the viewer catalog.
+     * Note: Channels can NEVER be deleted (even newly added channels); they can only be hidden or unhidden.
+     */
+    fun isChannelHidden(channelId: String): Boolean {
+        return _hiddenChannelIds.value.contains(channelId)
+    }
+
+    fun setChannelHidden(context: Context, channelId: String, hidden: Boolean) {
+        val currentSet = _hiddenChannelIds.value.toMutableSet()
+        if (hidden) {
+            currentSet.add(channelId)
+        } else {
+            currentSet.remove(channelId)
+        }
+        val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit()
+            .putStringSet(KEY_HIDDEN_CHANNEL_IDS, currentSet)
+            .apply()
+        _hiddenChannelIds.value = currentSet.toSet()
         ChannelRepository.refreshLiveChannels()
+    }
+
+    fun toggleChannelHidden(context: Context, channelId: String): Boolean {
+        val nowHidden = !isChannelHidden(channelId)
+        setChannelHidden(context, channelId, nowHidden)
+        return nowHidden
+    }
+
+    /**
+     * Channels cannot be deleted in Admin (even newly added channels).
+     * Calling this hides the channel instead of deleting it.
+     */
+    fun removeAdminChannel(context: Context, channelId: String) {
+        setChannelHidden(context, channelId, true)
     }
 
     fun setAdminBannerPlacement(context: Context, placement: AdminBannerPlacement) {
@@ -396,6 +431,7 @@ object NeliAdminManager {
             ?.edit()?.clear()?.commit()
         _areAllChannelsLocked.value = false
         _lockedChannelIds.value = emptySet()
+        _hiddenChannelIds.value = emptySet()
         _customAddedChannels.value = emptyList()
         _activeAdminSms.value = null
     }

@@ -95,7 +95,8 @@ object ChannelRepository {
      */
     fun refreshLiveChannels(): List<LiveChannel> {
         val adminChannels = NeliAdminManager.customAddedChannels.value
-        val current = (adminChannels + _liveChannelsFlow.value.ifEmpty { channels }).distinctBy { it.id }
+        val current = (adminChannels + channels + _liveChannelsFlow.value).distinctBy { it.id }
+            .filter { !NeliAdminManager.isChannelHidden(it.id) }
         val refreshed = mergeWithBackupChannels(
             getPrioritizedAllChannels(current).map { ch ->
                 ch.copy(
@@ -103,11 +104,24 @@ object ChannelRepository {
                     backupStreamUrl = if (ch.backupStreamUrl.isNotBlank()) normalizeDashStreamUrl(ch.backupStreamUrl) else ""
                 )
             },
-            cachedBackupApiChannels
-        )
+            cachedBackupApiChannels.filter { !NeliAdminManager.isChannelHidden(it.id) }
+        ).filter { !NeliAdminManager.isChannelHidden(it.id) }
         _liveChannelsFlow.value = refreshed
         lastRefreshedEpochMs = System.currentTimeMillis()
         return refreshed
+    }
+
+    /**
+     * Returns ALL channels (built-in + custom Admin channels, including hidden ones) for the Mini Admin Panel
+     * so Admin can hide or unhide any channel without ever deleting it.
+     */
+    fun getAllChannelsIncludingHiddenForAdmin(): List<LiveChannel> {
+        val combined = (NeliAdminManager.customAddedChannels.value + channels + cachedBackupApiChannels)
+            .distinctBy { it.id }
+        return combined.map { ch ->
+            val resolvedLogo = resolveGuaranteedChannelLogoUrl(ch)
+            if (resolvedLogo != ch.thumbnailUrl) ch.copy(thumbnailUrl = resolvedLogo) else ch
+        }.sortedByDescending { it.priorityTier }
     }
 
     fun refreshCdnTokenFromEndpointSync(apiUrl: String = AZAM_TOKEN_ENDPOINT_URL): Boolean {
@@ -907,7 +921,9 @@ object ChannelRepository {
      */
     fun getPrioritizedAllChannels(source: List<LiveChannel> = _liveChannelsFlow.value): List<LiveChannel> {
         val combinedSource = (NeliAdminManager.customAddedChannels.value + source.ifEmpty { channels }).distinctBy { it.id }
-        val active = combinedSource.filter { it.enabled && it.published }.ifEmpty { channels }
+        val active = combinedSource
+            .filter { it.enabled && it.published && !NeliAdminManager.isChannelHidden(it.id) }
+            .ifEmpty { channels.filter { !NeliAdminManager.isChannelHidden(it.id) } }
         return active
             .map { ch ->
                 val resolvedLogo = resolveGuaranteedChannelLogoUrl(ch)
@@ -2153,7 +2169,7 @@ object ChannelRepository {
                     channel.channelTag.contains(trimmed, ignoreCase = true) ||
                     channel.country.contains(trimmed, ignoreCase = true)
 
-            matchesCategory && matchesName && channel.enabled && channel.published
+            matchesCategory && matchesName && channel.enabled && channel.published && !NeliAdminManager.isChannelHidden(channel.id)
         }
 
         // Prioritize Azam TV channels first (3), then Tanzania channels (2), then featured (1), then other channels (0)

@@ -1467,6 +1467,60 @@ class ExampleRobolectricTest {
             assertEquals("Juma Bakari", linkedState.linkedUserName)
             org.junit.Assert.assertFalse(linkedState.requiresPostPaymentAuth)
 
+            // Verify multiple accounts on the same device have isolated subscriptions and payment phone numbers
+            val secondUserState = com.example.data.NeliSubscriptionManager.switchActiveAccount(
+                context = context,
+                uid = "uid_neema_22",
+                email = "neema@nelitv.tz",
+                realName = "Neema Moses"
+            )
+            org.junit.Assert.assertFalse(secondUserState.isVerified)
+            assertEquals("", secondUserState.phoneNumber)
+            assertEquals("", secondUserState.pendingOrderId)
+            assertEquals("neema@nelitv.tz", secondUserState.linkedUserEmail)
+
+            // Switching back to Juma restores Juma's own verified subscription & phone number, with empty pendingOrderId
+            val restoredJumaState = com.example.data.NeliSubscriptionManager.switchActiveAccount(
+                context = context,
+                uid = "uid_juma_99",
+                email = "juma@nelitv.tz",
+                realName = "Juma Bakari"
+            )
+            assertTrue(restoredJumaState.isVerified)
+            assertEquals("0712345678", restoredJumaState.phoneNumber)
+            assertEquals("", restoredJumaState.pendingOrderId)
+
+            // Verify Admin can add and hide/unhide channels, and even newly added channels are NEVER deleted
+            val addedChRes = com.example.data.NeliAdminManager.addChannelByAdmin(
+                context = context,
+                name = "Azam Extra Live HD",
+                streamUrl = "https://example.com/live/azam_extra.m3u8",
+                thumbnailUrl = "",
+                category = "Sports"
+            )
+            assertTrue(addedChRes.isSuccess)
+            val addedCh = addedChRes.getOrThrow()
+            assertTrue(com.example.data.NeliAdminManager.customAddedChannels.value.any { it.id == addedCh.id })
+            org.junit.Assert.assertFalse(com.example.data.NeliAdminManager.isChannelHidden(addedCh.id))
+
+            // Hiding the channel (or calling removeAdminChannel) must NEVER delete it from customAddedChannels — only hide it!
+            com.example.data.NeliAdminManager.removeAdminChannel(context, addedCh.id)
+            assertTrue(com.example.data.NeliAdminManager.isChannelHidden(addedCh.id))
+            assertTrue(com.example.data.NeliAdminManager.customAddedChannels.value.any { it.id == addedCh.id })
+            org.junit.Assert.assertFalse(
+                com.example.data.ChannelRepository.getPrioritizedAllChannels().any { it.id == addedCh.id }
+            )
+            assertTrue(
+                com.example.data.ChannelRepository.getAllChannelsIncludingHiddenForAdmin().any { it.id == addedCh.id }
+            )
+
+            // Unhiding the channel restores it to the viewer channel list
+            com.example.data.NeliAdminManager.setChannelHidden(context, addedCh.id, false)
+            org.junit.Assert.assertFalse(com.example.data.NeliAdminManager.isChannelHidden(addedCh.id))
+            assertTrue(
+                com.example.data.ChannelRepository.getPrioritizedAllChannels().any { it.id == addedCh.id }
+            )
+
             // Verify Cast Manager syncs user info, subscription status, and High-Quality Anti-Stutter Stream
             com.example.player.NeliCastManager.syncUserAndSubscriptionInfo(
                 userName = linkedState.linkedUserName,

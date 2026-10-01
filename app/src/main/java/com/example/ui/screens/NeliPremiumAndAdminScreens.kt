@@ -52,6 +52,8 @@ import androidx.compose.material.icons.filled.SettingsRemote
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material.icons.filled.Verified
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.WorkspacePremium
 import com.example.ui.theme.rememberNeliScreenProfile
 import androidx.compose.material3.Button
@@ -235,22 +237,35 @@ fun PremiumTabContent(
         SubscriptionPlanType.entries.find { it.id == selectedPlanId } ?: SubscriptionPlanType.DAILY
     }
 
-    var checkoutStep by rememberSaveable {
-        mutableStateOf(
-            if (subState.pendingOrderId.isNotBlank() && !isPremiumActive) {
-                PremiumCheckoutStep.WAITING_VERIFICATION
-            } else {
-                PremiumCheckoutStep.CHOOSE_PLAN
-            }
-        )
+    // ALWAYS start on CHOOSE_PLAN ("Chagua Kifurushi") every time the user enters the Premium page!
+    // Never memorize or jump directly to WAITING_VERIFICATION from a previous session or another account.
+    var checkoutStep by remember {
+        mutableStateOf(PremiumCheckoutStep.CHOOSE_PLAN)
     }
 
-    // Every user MUST type their payment phone number fresh for every single payment (never pre-populated or guessed)
-    var phoneInput by rememberSaveable { mutableStateOf("") }
+    // Every account MUST have its own payment number, and every time the user enters Premium they
+    // start at CHOOSE_PLAN -> enter a fresh phone number -> then proceed to WAITING_VERIFICATION.
+    var phoneInput by remember { mutableStateOf("") }
     var isSubmittingPayment by remember { mutableStateOf(false) }
     var isVerifyingStatus by remember { mutableStateOf(false) }
     var statusFeedbackMessage by remember { mutableStateOf<String?>(null) }
     var isErrorFeedback by remember { mutableStateOf(false) }
+
+    LaunchedEffect(currentUser?.email, currentUser?.uid) {
+        checkoutStep = PremiumCheckoutStep.CHOOSE_PLAN
+        phoneInput = ""
+        statusFeedbackMessage = null
+        isErrorFeedback = false
+        NeliSubscriptionManager.clearPendingOrder(context)
+        if (currentUser != null && currentUser.email.isNotBlank()) {
+            NeliSubscriptionManager.switchActiveAccount(
+                context = context,
+                uid = currentUser.uid,
+                email = currentUser.email,
+                realName = currentUser.realName
+            )
+        }
+    }
 
     val handleStepOrScreenBack: () -> Unit = {
         when (checkoutStep) {
@@ -273,13 +288,6 @@ fun PremiumTabContent(
     }
 
     BackHandler(onBack = handleStepOrScreenBack)
-
-    // Keep step synced if pendingOrderId appears
-    LaunchedEffect(subState.pendingOrderId) {
-        if (subState.pendingOrderId.isNotBlank() && checkoutStep == PremiumCheckoutStep.ENTER_PHONE) {
-            checkoutStep = PremiumCheckoutStep.WAITING_VERIFICATION
-        }
-    }
 
     // Automatic background verification polling while waiting on WAITING_VERIFICATION step
     LaunchedEffect(checkoutStep, subState.pendingOrderId) {
@@ -1286,8 +1294,12 @@ fun MiniAdminPanelScreen(
     val currentSms = activeSmsObj?.message.orEmpty()
     val bannerPlacement by NeliAdminManager.adminBannerPlacement.collectAsState()
     val lockedChannelIds by NeliAdminManager.lockedChannelIds.collectAsState()
+    val hiddenChannelIds by NeliAdminManager.hiddenChannelIds.collectAsState()
     val lockAllForFree by NeliAdminManager.areAllChannelsLocked.collectAsState()
     val customAddedChannels by NeliAdminManager.customAddedChannels.collectAsState()
+    val adminAllChannels = remember(allChannels, customAddedChannels, hiddenChannelIds) {
+        com.example.data.ChannelRepository.getAllChannelsIncludingHiddenForAdmin()
+    }
 
     var smsInput by rememberSaveable { mutableStateOf(currentSms) }
     var sendPushNotification by rememberSaveable { mutableStateOf(true) }
@@ -1760,12 +1772,13 @@ fun MiniAdminPanelScreen(
                     if (customAddedChannels.isNotEmpty()) {
                         HorizontalDivider(color = NeliBorder)
                         Text(
-                            text = "Channels Zilizoongezwa na Admin (${customAddedChannels.size}):",
+                            text = "Channels Zilizoongezwa na Admin (${customAddedChannels.size}) — Zinaweza Kufichwa tu (Hazifutwi):",
                             color = NeliTextPrimary,
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Bold
                         )
                         customAddedChannels.forEach { customCh ->
+                            val isHidden = hiddenChannelIds.contains(customCh.id)
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -1783,22 +1796,38 @@ fun MiniAdminPanelScreen(
                                         fontWeight = FontWeight.Bold
                                     )
                                     Text(
-                                        text = customCh.category,
-                                        color = NeliTextSecondary,
+                                        text = if (isHidden) {
+                                            "${customCh.category} • IMEFICHWA (Hidden)"
+                                        } else {
+                                            "${customCh.category} • INAONEKANA (Visible)"
+                                        },
+                                        color = if (isHidden) Color(0xFFFBBF24) else Color(0xFF34D399),
                                         fontSize = 11.sp
                                     )
                                 }
-                                IconButton(
+                                OutlinedButton(
                                     onClick = {
-                                        NeliAdminManager.removeAdminChannel(context, customCh.id)
-                                        adminFeedback = "Channel '${customCh.name}' imeondolewa."
+                                        val nowHidden = NeliAdminManager.toggleChannelHidden(context, customCh.id)
+                                        adminFeedback = if (nowHidden) {
+                                            "Channel '${customCh.name}' imefichwa (Hidden)."
+                                        } else {
+                                            "Channel '${customCh.name}' imerudishwa hewani (Visible)."
+                                        }
                                     },
-                                    modifier = Modifier.testTag("admin_remove_channel_${customCh.id}")
+                                    modifier = Modifier.testTag("admin_hide_channel_${customCh.id}")
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Default.Delete,
-                                        contentDescription = "Futa Channel",
-                                        tint = NeliLiveRed
+                                        imageVector = if (isHidden) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                        contentDescription = if (isHidden) "Onyesha Channel" else "Ficha Channel",
+                                        tint = if (isHidden) Color(0xFF34D399) else Color(0xFFFBBF24),
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = if (isHidden) "Onyesha" else "Ficha",
+                                        color = if (isHidden) Color(0xFF34D399) else Color(0xFFFBBF24),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
                                     )
                                 }
                             }
@@ -1888,12 +1917,13 @@ fun MiniAdminPanelScreen(
             }
         }
 
-        // Individual Channels Lock List
+        // Individual Channels Lock & Hide List (No channel can be deleted — only hidden or locked)
         items(
-            items = allChannels,
+            items = adminAllChannels,
             key = { ch -> "admin_lock_row_${ch.id}" }
         ) { channel ->
             val isChannelLocked = lockAllForFree || lockedChannelIds.contains(channel.id)
+            val isChannelHidden = hiddenChannelIds.contains(channel.id)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1901,7 +1931,11 @@ fun MiniAdminPanelScreen(
                     .background(NeliSurface)
                     .border(
                         width = 1.dp,
-                        color = if (isChannelLocked) NeliLiveRed.copy(alpha = 0.5f) else NeliBorder,
+                        color = when {
+                            isChannelHidden -> Color(0xFFF59E0B).copy(alpha = 0.6f)
+                            isChannelLocked -> NeliLiveRed.copy(alpha = 0.5f)
+                            else -> NeliBorder
+                        },
                         shape = RoundedCornerShape(12.dp)
                     )
                     .padding(horizontal = 14.dp, vertical = 10.dp),
@@ -1914,9 +1948,17 @@ fun MiniAdminPanelScreen(
                     modifier = Modifier.weight(1f)
                 ) {
                     Icon(
-                        imageVector = if (isChannelLocked) Icons.Default.Lock else Icons.Default.LockOpen,
+                        imageVector = when {
+                            isChannelHidden -> Icons.Default.VisibilityOff
+                            isChannelLocked -> Icons.Default.Lock
+                            else -> Icons.Default.LockOpen
+                        },
                         contentDescription = null,
-                        tint = if (isChannelLocked) NeliLiveRed else Color(0xFF34D399),
+                        tint = when {
+                            isChannelHidden -> Color(0xFFF59E0B)
+                            isChannelLocked -> NeliLiveRed
+                            else -> Color(0xFF34D399)
+                        },
                         modifier = Modifier.size(20.dp)
                     )
                     Column {
@@ -1929,29 +1971,52 @@ fun MiniAdminPanelScreen(
                             overflow = TextOverflow.Ellipsis
                         )
                         Text(
-                            text = if (isChannelLocked) {
-                                "${channel.category} • IMEFUNGWA (Free Users)"
-                            } else {
-                                "${channel.category} • WAZI (Free & Premium)"
+                            text = when {
+                                isChannelHidden -> "${channel.category} • IMEFICHWA (Hidden)"
+                                isChannelLocked -> "${channel.category} • IMEFUNGWA (Free Users)"
+                                else -> "${channel.category} • WAZI (Free & Premium)"
                             },
-                            color = if (isChannelLocked) Color(0xFFFBBF24) else NeliTextSecondary,
+                            color = if (isChannelHidden || isChannelLocked) Color(0xFFFBBF24) else NeliTextSecondary,
                             fontSize = 11.sp
                         )
                     }
                 }
 
-                Switch(
-                    checked = isChannelLocked,
-                    onCheckedChange = { shouldLock ->
-                        NeliAdminManager.setSingleChannelLock(context, channel.id, shouldLock)
-                        adminFeedback = if (shouldLock) {
-                            "${channel.name} imefungwa kwa Free Users."
-                        } else {
-                            "${channel.name} imefunguliwa."
-                        }
-                    },
-                    modifier = Modifier.testTag("admin_toggle_lock_${channel.id}")
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    IconButton(
+                        onClick = {
+                            val nowHidden = NeliAdminManager.toggleChannelHidden(context, channel.id)
+                            adminFeedback = if (nowHidden) {
+                                "${channel.name} imefichwa (Hidden)."
+                            } else {
+                                "${channel.name} inaonekana sasa (Visible)."
+                            }
+                        },
+                        modifier = Modifier.testTag("admin_toggle_hide_${channel.id}")
+                    ) {
+                        Icon(
+                            imageVector = if (isChannelHidden) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                            contentDescription = if (isChannelHidden) "Onyesha Channel" else "Ficha Channel",
+                            tint = if (isChannelHidden) Color(0xFF34D399) else Color(0xFFFBBF24)
+                        )
+                    }
+
+                    Switch(
+                        checked = isChannelLocked,
+                        onCheckedChange = { shouldLock ->
+                            NeliAdminManager.setSingleChannelLock(context, channel.id, shouldLock)
+                            adminFeedback = if (shouldLock) {
+                                "${channel.name} imefungwa kwa Free Users."
+                            } else {
+                                "${channel.name} imefunguliwa."
+                            }
+                        },
+                        modifier = Modifier.testTag("admin_toggle_lock_${channel.id}")
+                    )
+                }
             }
         }
 

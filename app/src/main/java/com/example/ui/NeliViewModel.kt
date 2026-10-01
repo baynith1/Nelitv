@@ -253,7 +253,7 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
 
-        // Automatically link authenticated user account to subscription & sync Cast user info
+        // Automatically switch active account subscription context & sync Cast user info
         viewModelScope.launch(Dispatchers.IO) {
             combine(
                 authenticationRepository.currentUserFlow,
@@ -262,8 +262,8 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
                 Pair(user, subState)
             }.collect { (user, subState) ->
                 if (user != null && user.email.isNotBlank()) {
-                    if (subState.linkedUserEmail != user.email || subState.requiresPostPaymentAuth) {
-                        com.example.data.NeliSubscriptionManager.linkUserAccountToSubscription(
+                    if (!subState.linkedUserEmail.equals(user.email, ignoreCase = true) || subState.requiresPostPaymentAuth) {
+                        com.example.data.NeliSubscriptionManager.switchActiveAccount(
                             context = appContext,
                             uid = user.uid,
                             email = user.email,
@@ -634,10 +634,16 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
                 displayName = displayName
             )
             _isAuthLoading.value = false
-            result.onSuccess {
+            result.onSuccess { user ->
                 _showGoogleSignInSheet.value = false
                 _authError.value = null
                 _googleFallbackMessage.value = null
+                com.example.data.NeliSubscriptionManager.switchActiveAccount(
+                    context = appContext,
+                    uid = user.uid,
+                    email = user.email,
+                    realName = user.realName
+                )
             }.onFailure { err ->
                 _authError.value = err.message ?: "Please enter a valid Google email address."
             }
@@ -660,7 +666,7 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
             )
             _isAuthLoading.value = false
             result.onSuccess { user ->
-                com.example.data.NeliSubscriptionManager.linkUserAccountToSubscription(
+                com.example.data.NeliSubscriptionManager.switchActiveAccount(
                     context = appContext,
                     uid = user.uid,
                     email = user.email,
@@ -683,7 +689,7 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
             )
             _isAuthLoading.value = false
             result.onSuccess { user ->
-                com.example.data.NeliSubscriptionManager.linkUserAccountToSubscription(
+                com.example.data.NeliSubscriptionManager.switchActiveAccount(
                     context = appContext,
                     uid = user.uid,
                     email = user.email,
@@ -700,6 +706,12 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
             _authError.value = null
             _googleFallbackMessage.value = null
             authenticationRepository.signOut()
+            com.example.data.NeliSubscriptionManager.switchActiveAccount(
+                context = appContext,
+                uid = "",
+                email = "",
+                realName = ""
+            )
         }
     }
 

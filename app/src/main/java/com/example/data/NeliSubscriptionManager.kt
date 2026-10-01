@@ -260,6 +260,14 @@ object NeliSubscriptionManager {
         val linkedName = prefs.getString(KEY_LINKED_NAME, "").orEmpty()
         val requiresAuth = stillValid && linkedEmail.isBlank() && linkedUid.isBlank()
 
+        // Clear any stale pending order on app initialization so opening Premium always starts at CHOOSE_PLAN
+        prefs.edit()
+            .remove(KEY_PENDING_ORDER_ID)
+            .remove(KEY_PENDING_PLAN_ID)
+            .remove(KEY_PENDING_PHONE)
+            .remove(KEY_PENDING_AMOUNT)
+            .apply()
+
         _subscriptionState.value = PremiumSubscriptionState(
             isVerified = stillValid,
             planId = prefs.getString(KEY_PLAN_ID, "").orEmpty(),
@@ -275,22 +283,191 @@ object NeliSubscriptionManager {
             linkedUserEmail = linkedEmail,
             linkedUserName = linkedName,
             requiresPostPaymentAuth = requiresAuth,
-            pendingOrderId = prefs.getString(KEY_PENDING_ORDER_ID, "").orEmpty(),
-            pendingPlanId = prefs.getString(KEY_PENDING_PLAN_ID, "").orEmpty(),
-            pendingPhone = prefs.getString(KEY_PENDING_PHONE, "").orEmpty(),
-            pendingAmountTzs = prefs.getInt(KEY_PENDING_AMOUNT, 0)
+            pendingOrderId = "",
+            pendingPlanId = "",
+            pendingPhone = "",
+            pendingAmountTzs = 0
         )
+    }
 
-        // If local prefs didn't have an active subscription, also check Room by background Device IP / active user
-        if (!stillValid) {
+    private fun accountKeyPrefix(email: String): String {
+        val clean = email.trim().lowercase().replace(Regex("[^a-z0-9@._-]"), "_")
+        return "acc_${clean}_"
+    }
+
+    private fun saveAccountSubscriptionToPrefs(
+        context: Context,
+        email: String,
+        state: PremiumSubscriptionState
+    ) {
+        val cleanEmail = email.trim().lowercase()
+        if (cleanEmail.isBlank()) return
+        val prefix = accountKeyPrefix(cleanEmail)
+        val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit()
+            .putBoolean(prefix + KEY_IS_VERIFIED, state.isVerified)
+            .putString(prefix + KEY_PLAN_ID, state.planId)
+            .putString(prefix + KEY_PLAN_TITLE, state.planTitle)
+            .putInt(prefix + KEY_AMOUNT_TZS, state.amountTzs)
+            .putString(prefix + KEY_PHONE, state.phoneNumber)
+            .putString(prefix + KEY_ORDER_ID, state.orderId)
+            .putLong(prefix + KEY_ACTIVATED_AT, state.activatedAtMs)
+            .putLong(prefix + KEY_EXPIRES_AT, state.expiresAtMs)
+            .putString(prefix + KEY_LINKED_UID, state.linkedUserUid)
+            .putString(prefix + KEY_LINKED_EMAIL, state.linkedUserEmail.ifBlank { email.trim() })
+            .putString(prefix + KEY_LINKED_NAME, state.linkedUserName)
+            .apply()
+    }
+
+    private fun loadAccountSubscriptionFromPrefs(
+        context: Context,
+        uid: String,
+        email: String,
+        realName: String
+    ): PremiumSubscriptionState {
+        val cleanEmail = email.trim().lowercase()
+        val prefix = accountKeyPrefix(cleanEmail)
+        val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val now = System.currentTimeMillis()
+        val isVerified = prefs.getBoolean(prefix + KEY_IS_VERIFIED, false)
+        val expiresAt = prefs.getLong(prefix + KEY_EXPIRES_AT, 0L)
+        val stillValid = isVerified && expiresAt > now
+        if (isVerified && !stillValid) {
+            prefs.edit().putBoolean(prefix + KEY_IS_VERIFIED, false).apply()
+        }
+        val detectedIp = resolveDeviceIpAddress(context)
+        val deviceId = resolveDeviceIdentityId(context)
+        return PremiumSubscriptionState(
+            isVerified = stillValid,
+            planId = if (stillValid) prefs.getString(prefix + KEY_PLAN_ID, "").orEmpty() else "",
+            planTitle = if (stillValid) prefs.getString(prefix + KEY_PLAN_TITLE, "").orEmpty() else "",
+            amountTzs = if (stillValid) prefs.getInt(prefix + KEY_AMOUNT_TZS, 0) else 0,
+            phoneNumber = if (stillValid) prefs.getString(prefix + KEY_PHONE, "").orEmpty() else "",
+            orderId = if (stillValid) prefs.getString(prefix + KEY_ORDER_ID, "").orEmpty() else "",
+            deviceIpAddress = detectedIp,
+            deviceId = deviceId,
+            activatedAtMs = if (stillValid) prefs.getLong(prefix + KEY_ACTIVATED_AT, 0L) else 0L,
+            expiresAtMs = if (stillValid) expiresAt else 0L,
+            linkedUserUid = uid.trim(),
+            linkedUserEmail = email.trim(),
+            linkedUserName = realName.trim(),
+            requiresPostPaymentAuth = false,
+            pendingOrderId = "",
+            pendingPlanId = "",
+            pendingPhone = "",
+            pendingAmountTzs = 0
+        )
+    }
+
+    /**
+     * Switches the active subscription context whenever a user logs in, registers, or signs out on the device.
+     * Every account has its own isolated subscription and payment phone number — logging in with a different
+     * account on the same device NEVER reuses the previous account's subscription, phone number, or pending order.
+     */
+    fun switchActiveAccount(
+        context: Context,
+        uid: String,
+        email: String,
+        realName: String
+    ): PremiumSubscriptionState {
+        val cleanEmail = email.trim()
+        val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        if (cleanEmail.isBlank()) {
+            // Signed out -> clear active account session and pending orders so next user starts fresh
+            val detectedIp = resolveDeviceIpAddress(context)
+            val deviceId = resolveDeviceIdentityId(context)
+            prefs.edit()
+                .putBoolean(KEY_IS_VERIFIED, false)
+                .remove(KEY_PLAN_ID)
+                .remove(KEY_PLAN_TITLE)
+                .remove(KEY_AMOUNT_TZS)
+                .remove(KEY_PHONE)
+                .remove(KEY_ORDER_ID)
+                .remove(KEY_ACTIVATED_AT)
+                .remove(KEY_EXPIRES_AT)
+                .remove(KEY_LINKED_UID)
+                .remove(KEY_LINKED_EMAIL)
+                .remove(KEY_LINKED_NAME)
+                .putBoolean(KEY_REQUIRES_POST_PAYMENT_AUTH, false)
+                .remove(KEY_PENDING_ORDER_ID)
+                .remove(KEY_PENDING_PLAN_ID)
+                .remove(KEY_PENDING_PHONE)
+                .remove(KEY_PENDING_AMOUNT)
+                .apply()
+            val signedOutState = PremiumSubscriptionState(
+                deviceIpAddress = detectedIp,
+                deviceId = deviceId
+            )
+            _subscriptionState.value = signedOutState
+            return signedOutState
+        }
+
+        val current = _subscriptionState.value
+        // If the user JUST paid without logging in (requiresPostPaymentAuth == true and no account linked yet),
+        // bind that fresh payment to this account; otherwise load strictly this account's own subscription!
+        if (current.isVerified && current.isActiveNow && current.requiresPostPaymentAuth && current.linkedUserEmail.isBlank()) {
+            return linkUserAccountToSubscription(
+                context = context,
+                uid = uid,
+                email = cleanEmail,
+                realName = realName
+            )
+        }
+
+        val accountState = loadAccountSubscriptionFromPrefs(
+            context = context,
+            uid = uid,
+            email = cleanEmail,
+            realName = realName
+        )
+        _subscriptionState.value = accountState
+        prefs.edit()
+            .putBoolean(KEY_IS_VERIFIED, accountState.isVerified)
+            .putString(KEY_PLAN_ID, accountState.planId)
+            .putString(KEY_PLAN_TITLE, accountState.planTitle)
+            .putInt(KEY_AMOUNT_TZS, accountState.amountTzs)
+            .putString(KEY_PHONE, accountState.phoneNumber)
+            .putString(KEY_ORDER_ID, accountState.orderId)
+            .putLong(KEY_ACTIVATED_AT, accountState.activatedAtMs)
+            .putLong(KEY_EXPIRES_AT, accountState.expiresAtMs)
+            .putString(KEY_LINKED_UID, accountState.linkedUserUid)
+            .putString(KEY_LINKED_EMAIL, accountState.linkedUserEmail)
+            .putString(KEY_LINKED_NAME, accountState.linkedUserName)
+            .putBoolean(KEY_REQUIRES_POST_PAYMENT_AUTH, false)
+            .remove(KEY_PENDING_ORDER_ID)
+            .remove(KEY_PENDING_PLAN_ID)
+            .remove(KEY_PENDING_PHONE)
+            .remove(KEY_PENDING_AMOUNT)
+            .apply()
+
+        if (!accountState.isVerified) {
             ioScope.launch {
                 try {
                     val dao = NeliDatabase.getInstance(context).mediaDao()
-                    restoreFromDatabaseByDeviceIp(context, dao)
+                    val existingSub = dao.getDeviceSubscriptionByUserEmail(cleanEmail)
+                    val now = System.currentTimeMillis()
+                    if (existingSub != null && existingSub.isVerified && existingSub.expiresAtMs > now) {
+                        val restored = accountState.copy(
+                            isVerified = true,
+                            planId = existingSub.planId,
+                            planTitle = existingSub.planTitle,
+                            amountTzs = existingSub.amountTzs,
+                            phoneNumber = existingSub.phoneNumber,
+                            orderId = existingSub.orderId,
+                            activatedAtMs = existingSub.activatedAtMs,
+                            expiresAtMs = existingSub.expiresAtMs,
+                            requiresPostPaymentAuth = false
+                        )
+                        saveAccountSubscriptionToPrefs(context, cleanEmail, restored)
+                        if (_subscriptionState.value.linkedUserEmail.equals(cleanEmail, ignoreCase = true)) {
+                            _subscriptionState.value = restored
+                        }
+                    }
                 } catch (_: Throwable) {
                 }
             }
         }
+        return accountState
     }
 
     fun refreshDeviceIp(context: Context): String {
@@ -456,6 +633,9 @@ object NeliSubscriptionManager {
             pendingAmountTzs = 0
         )
         _subscriptionState.value = newState
+        if (newState.linkedUserEmail.isNotBlank()) {
+            saveAccountSubscriptionToPrefs(context, newState.linkedUserEmail, newState)
+        }
 
         ioScope.launch {
             try {
@@ -478,9 +658,10 @@ object NeliSubscriptionManager {
     }
 
     /**
-     * Links a logged-in or newly signed-up user account to the active device subscription
-     * so the user can log in on another device and carry over their verified VIP status
-     * and account details (including Cast display info).
+     * Links a logged-in or newly signed-up user account to the active subscription
+     * (only if the subscription was unlinked or already belongs to this same account).
+     * If a DIFFERENT user account logs in on the same device, switches to that account's
+     * own isolated subscription state so accounts never share payment phone numbers or subscriptions.
      */
     fun linkUserAccountToSubscription(
         context: Context? = null,
@@ -488,22 +669,49 @@ object NeliSubscriptionManager {
         email: String,
         realName: String
     ): PremiumSubscriptionState {
+        val cleanEmail = email.trim()
         val current = _subscriptionState.value
+
+        // If the current in-memory subscription belongs to a DIFFERENT account, switch to this account's own state!
+        if (context != null &&
+            cleanEmail.isNotBlank() &&
+            current.linkedUserEmail.isNotBlank() &&
+            !current.linkedUserEmail.equals(cleanEmail, ignoreCase = true)
+        ) {
+            return switchActiveAccount(
+                context = context,
+                uid = uid,
+                email = cleanEmail,
+                realName = realName
+            )
+        }
+
         val updated = current.copy(
             linkedUserUid = uid.trim(),
-            linkedUserEmail = email.trim(),
+            linkedUserEmail = cleanEmail,
             linkedUserName = realName.trim(),
-            requiresPostPaymentAuth = false
+            requiresPostPaymentAuth = false,
+            pendingOrderId = "",
+            pendingPlanId = "",
+            pendingPhone = "",
+            pendingAmountTzs = 0
         )
         _subscriptionState.value = updated
 
         if (context != null) {
+            if (updated.isVerified && cleanEmail.isNotBlank()) {
+                saveAccountSubscriptionToPrefs(context, cleanEmail, updated)
+            }
             val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             prefs.edit()
                 .putString(KEY_LINKED_UID, updated.linkedUserUid)
                 .putString(KEY_LINKED_EMAIL, updated.linkedUserEmail)
                 .putString(KEY_LINKED_NAME, updated.linkedUserName)
                 .putBoolean(KEY_REQUIRES_POST_PAYMENT_AUTH, false)
+                .remove(KEY_PENDING_ORDER_ID)
+                .remove(KEY_PENDING_PLAN_ID)
+                .remove(KEY_PENDING_PHONE)
+                .remove(KEY_PENDING_AMOUNT)
                 .apply()
 
             ioScope.launch {
@@ -511,8 +719,8 @@ object NeliSubscriptionManager {
                     val dao = NeliDatabase.getInstance(context).mediaDao()
                     if (updated.isVerified) {
                         saveRealSubscriptionDataByDeviceIp(dao, updated)
-                    } else if (email.isNotBlank()) {
-                        val existingSub = dao.getDeviceSubscriptionByUserEmail(email.trim())
+                    } else if (cleanEmail.isNotBlank()) {
+                        val existingSub = dao.getDeviceSubscriptionByUserEmail(cleanEmail)
                         val now = System.currentTimeMillis()
                         if (existingSub != null && existingSub.isVerified && existingSub.expiresAtMs > now) {
                             val restored = updated.copy(
@@ -526,6 +734,7 @@ object NeliSubscriptionManager {
                                 expiresAtMs = existingSub.expiresAtMs,
                                 requiresPostPaymentAuth = false
                             )
+                            saveAccountSubscriptionToPrefs(context, cleanEmail, restored)
                             _subscriptionState.value = restored
                             prefs.edit()
                                 .putBoolean(KEY_IS_VERIFIED, true)
