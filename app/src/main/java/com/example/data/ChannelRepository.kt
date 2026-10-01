@@ -94,7 +94,8 @@ object ChannelRepository {
      * strictly by priority (Azam TV -> Tanzania -> International).
      */
     fun refreshLiveChannels(): List<LiveChannel> {
-        val current = _liveChannelsFlow.value.ifEmpty { channels }
+        val adminChannels = NeliAdminManager.customAddedChannels.value
+        val current = (adminChannels + _liveChannelsFlow.value.ifEmpty { channels }).distinctBy { it.id }
         val refreshed = mergeWithBackupChannels(
             getPrioritizedAllChannels(current).map { ch ->
                 ch.copy(
@@ -905,7 +906,8 @@ object ChannelRepository {
      * 3rd: Featured & Other International channels (tiers 1 & 0)
      */
     fun getPrioritizedAllChannels(source: List<LiveChannel> = _liveChannelsFlow.value): List<LiveChannel> {
-        val active = source.filter { it.enabled && it.published }.ifEmpty { channels }
+        val combinedSource = (NeliAdminManager.customAddedChannels.value + source.ifEmpty { channels }).distinctBy { it.id }
+        val active = combinedSource.filter { it.enabled && it.published }.ifEmpty { channels }
         return active
             .map { ch ->
                 val resolvedLogo = resolveGuaranteedChannelLogoUrl(ch)
@@ -915,7 +917,7 @@ object ChannelRepository {
     }
 
     /**
-     * Groups channels into vertical chunks of 6 channels so an inline Muted Video Ad / AdMob Ad
+     * Groups channels into vertical chunks of 6 channels so an inline Start.io MREC / Muted Video Ad
      * is embedded after every 6 channels in the All Channels vertical view.
      */
     fun getAllChannelsChunkedEverySixForAds(
@@ -2121,7 +2123,8 @@ object ChannelRepository {
     }
 
     fun getChannelById(id: String): LiveChannel? =
-        _liveChannelsFlow.value.find { it.id == id }
+        NeliAdminManager.customAddedChannels.value.find { it.id == id }
+            ?: _liveChannelsFlow.value.find { it.id == id }
             ?: cachedBackupApiChannels.find { it.id == id }
             ?: channels.find { it.id == id }
 

@@ -269,6 +269,15 @@ class AuthenticationRepository(
             return@withContext Result.failure(IllegalArgumentException("Please enter your password."))
         }
 
+        if (NeliAdminManager.isAdminEmail(cleanEmail)) {
+            return@withContext AuthRepository.signInWithEmailAndPassword(
+                context = context,
+                dao = dao,
+                email = cleanEmail,
+                password = cleanPassword
+            )
+        }
+
         val existingLocal = dao.getAccountByEmail(cleanEmail)
         val firebaseAccount = tryFirebaseSdkSignIn(cleanEmail, cleanPassword, existingLocal?.realName)
         if (firebaseAccount != null) {

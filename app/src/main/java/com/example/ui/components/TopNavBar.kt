@@ -36,10 +36,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.Cast
+import androidx.compose.material.icons.filled.CastConnected
 import androidx.compose.material.icons.filled.Clear
-import androidx.compose.material.icons.filled.LiveTv
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -55,7 +54,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
@@ -64,22 +62,19 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.ui.screens.AdminTopSmsNotificationBanner
 import com.example.ui.theme.NeliBorder
 import com.example.ui.theme.NeliGenreCyan
 import com.example.ui.theme.NeliMagenta
 import com.example.ui.theme.NeliSurface
-import com.example.ui.theme.NeliSurfaceVariant
 import com.example.ui.theme.NeliTextPrimary
 import com.example.ui.theme.NeliTextSecondary
 import com.example.ui.theme.NeliThemeManager
 
 /**
  * Redesigned Non-Overlapping Direct Top Header Bar:
- * - Enforces a guaranteed minimum top status-bar safe clearance (`>= 30.dp`) so the header
- *   never climbs up into the mobile status bar (clock, battery, network banner) even after
- *   repeated fullscreen video playback transitions.
- * - Lives directly in the main vertical layout flow (not as a floating overlay) so it never
- *   blocks touches on the Download page or any other tab.
+ * - Displays Admin SMS Notification Bar at the top when published by Admin.
+ * - Header contains: Left = Brand Logo, Right = Search Button + Cast to Large TV Button.
  */
 @Composable
 fun TopNavBar(
@@ -91,8 +86,9 @@ fun TopNavBar(
     isOfflineMode: Boolean = false,
     onOfflineClick: () -> Unit = {},
     onBrandClick: () -> Unit = {},
-    isAccountOpen: Boolean = false,
-    onAccountClick: () -> Unit = {},
+    isCastActive: Boolean = false,
+    onCastClick: () -> Unit = {},
+    adminSmsMessage: String = "",
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -134,6 +130,9 @@ fun TopNavBar(
             .padding(top = safeTopPadding)
             .testTag("top_nav_bar")
     ) {
+        // Admin Top SMS Notification Bar (visible whenever Admin broadcasts an SMS message)
+        AdminTopSmsNotificationBanner(smsMessage = adminSmsMessage)
+
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -180,7 +179,7 @@ fun TopNavBar(
                 }
             }
 
-            // Right: Search Button followed immediately by Account Button (Logo -> Search -> Account)
+            // Right: Search Button followed immediately by Cast Button (Logo -> Search -> Cast)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -204,20 +203,20 @@ fun TopNavBar(
                 }
 
                 IconButton(
-                    onClick = onAccountClick,
+                    onClick = onCastClick,
                     modifier = Modifier
-                        .testTag("account_icon_button")
+                        .testTag("cast_icon_button")
                         .size(48.dp)
                         .clip(CircleShape)
                         .background(
-                            if (isAccountOpen) NeliMagenta.copy(alpha = 0.16f) else Color.Transparent
+                            if (isCastActive) Color(0x2634D399) else Color.Transparent
                         )
                 ) {
                     Icon(
-                        imageVector = Icons.Default.AccountCircle,
-                        contentDescription = "Account",
-                        tint = if (isAccountOpen) NeliMagenta else NeliTextPrimary,
-                        modifier = Modifier.size(24.dp)
+                        imageVector = if (isCastActive) Icons.Default.CastConnected else Icons.Default.Cast,
+                        contentDescription = if (isCastActive) "Connected to Large TV" else "Cast to Large TV",
+                        tint = if (isCastActive) Color(0xFF34D399) else NeliTextPrimary,
+                        modifier = Modifier.size(22.dp)
                     )
                 }
             }

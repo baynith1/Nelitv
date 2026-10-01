@@ -56,6 +56,7 @@ object NeliNotificationScheduler {
     const val SLOT_AFTERNOON_AZAM_LIVE = 103            // Saa 10:00 Jioni (16:00 EAT) -> Azam Sports 1 + ZBC2 International Matches
     const val SLOT_EVENING_AZAM_TWO_SINEMA = 104        // Saa 1:30 Usiku (19:30 EAT) -> Azam Two & Sinema Zetu
     const val NOTIFICATION_ID_ZBC2_INTERNATIONAL = 105  // Saa 10:00 Jioni (16:00 EAT) -> ZBC2 International Match Alert
+    const val NOTIFICATION_ID_ADMIN_SMS = 109           // Admin Broadcast SMS Notification
 
     val EAT_TIME_ZONE: TimeZone = TimeZone.getTimeZone("Africa/Dar_es_Salaam")
     private val notificationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -466,7 +467,38 @@ object NeliNotificationScheduler {
     fun triggerInstantPreviewNotification(context: Context) {
         val appContext = context.applicationContext
         scheduleAllDailyNotifications(appContext)
+        val activeAdminSms = com.example.data.NeliAdminManager.activeAdminSms.value
+        if (activeAdminSms != null && activeAdminSms.message.isNotBlank()) {
+            sendAdminBroadcastNotification(appContext, activeAdminSms.message)
+        }
         dispatchNotificationForSlot(appContext, SLOT_AFTERNOON_AZAM_LIVE)
+    }
+
+    /**
+     * Sends an immediate Android system notification with the Admin SMS message written in the Mini Admin Panel.
+     */
+    fun sendAdminBroadcastNotification(context: Context, smsMessage: String) {
+        val cleanMsg = smsMessage.trim()
+        if (cleanMsg.isBlank()) return
+        val appContext = context.applicationContext
+        ensureNotificationChannel(appContext)
+        val spec = liveChannelLogoSpecs.first()
+        postRichMediaNotification(
+            context = appContext,
+            notificationId = NOTIFICATION_ID_ADMIN_SMS,
+            title = "📢 Taarifa Muhimu • Nelitv",
+            message = cleanMsg,
+            badgeLabel = "NELITV ADMIN • TAARIFA MPYA",
+            subtitleLabel = cleanMsg.take(48),
+            primaryImageUrl = spec.logoUrl,
+            backdropImageUrl = spec.logoUrl,
+            primaryColorHex = 0xFF14052B.toInt(),
+            secondaryColorHex = 0xFF3B0764.toInt(),
+            accentColorHex = 0xFFFF2E7E.toInt(),
+            isChannelLogo = true,
+            launchMediaId = null,
+            launchChannelId = null
+        )
     }
 
     private fun postRichMediaNotification(

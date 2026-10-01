@@ -110,6 +110,7 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.data.ChannelRepository
 import com.example.data.MediaContentRepository
+import com.example.data.NeliAdminManager
 import com.example.data.local.DownloadedItemEntity
 import com.example.data.local.FirebaseConfigEntity
 import com.example.data.local.UserAccountEntity
@@ -120,9 +121,6 @@ import com.example.model.MediaContent
 import com.example.ui.components.CategoryChipRow
 import com.example.ui.components.ChannelCard
 import com.example.ui.components.NeliShareApkAndAutoUpdateSection
-import com.example.ui.components.NeliStartIoAdsCenterAndInstructionsSection
-import com.example.ui.components.StartIoBannerAdSlot
-import com.example.ui.components.StartIoNativeAdCard
 import com.example.ui.theme.NeliCardPurple
 import com.example.ui.theme.NeliDurationViolet
 import com.example.ui.theme.NeliGenreCyan
@@ -743,8 +741,6 @@ fun DiscoveryTabContent(
                                 )
                             }
                         }
-
-                        StartIoBannerAdSlot(placementTag = "discovery_spotlight")
                     }
                 }
             }
@@ -838,11 +834,6 @@ fun DiscoveryTabContent(
                             )
                         }
                     }
-
-                    StartIoNativeAdCard(
-                        slotIndex = 0,
-                        placementTag = "discovery_series"
-                    )
                 }
             }
         }
@@ -1157,51 +1148,11 @@ fun SearchTabContent(
             .fillMaxSize()
             .testTag("search_tab_screen")
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp)
-        ) {
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = onSearchQueryChange,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("search_tab_input"),
-                placeholder = {
-                    Text(
-                        text = "Search Live TV, Movies, Series & Adults...",
-                        color = NeliTextSecondary,
-                        fontSize = 14.sp
-                    )
-                },
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Default.Search,
-                        contentDescription = null,
-                        tint = NeliTextSecondary
-                    )
-                },
-                singleLine = true,
-                shape = RoundedCornerShape(24.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedContainerColor = NeliSurfaceVariant,
-                    unfocusedContainerColor = NeliSurfaceVariant,
-                    focusedBorderColor = NeliMagenta,
-                    unfocusedBorderColor = Color.Transparent,
-                    focusedTextColor = NeliTextPrimary,
-                    unfocusedTextColor = NeliTextPrimary
-                )
-            )
-        }
-
         CategoryChipRow(
             categories = searchFilterTabs,
             selectedCategory = selectedCategory,
             onCategorySelected = onCategorySelected
         )
-
-        StartIoBannerAdSlot(placementTag = "search_top")
 
         if (filteredChannels.isEmpty() && filteredMedia.isEmpty()) {
             Box(
@@ -1440,10 +1391,6 @@ fun DownloadTabContent(
                     )
                 }
             }
-        }
-
-        item(key = "downloads_startio_banner") {
-            StartIoBannerAdSlot(placementTag = "downloads_top")
         }
 
         if (downloads.isEmpty()) {
@@ -2193,6 +2140,20 @@ fun AccountTabContent(
         )
     }
 
+    var isAdminPanelOpen by rememberSaveable { mutableStateOf(false) }
+    val isCurrentUserAdmin = NeliAdminManager.isAdminUser(currentUser)
+
+    if (isAdminPanelOpen && isCurrentUserAdmin) {
+        val allLiveChannels by ChannelRepository.liveChannelsFlow.collectAsState()
+        MiniAdminPanelScreen(
+            currentUser = currentUser,
+            allChannels = allLiveChannels.ifEmpty { ChannelRepository.getPrioritizedAllChannels() },
+            onBack = { isAdminPanelOpen = false },
+            modifier = modifier
+        )
+        return
+    }
+
     if (activeInfoPage != null) {
         AccountInfoDetailScreen(
             pageType = activeInfoPage!!,
@@ -2278,8 +2239,37 @@ fun AccountTabContent(
                         }
                     }
 
+                    // Admin-Only Mini Admin Panel Button (Strictly visible ONLY when logged in with Admin@login.com)
+                    if (isCurrentUserAdmin) {
+                        Button(
+                            onClick = { isAdminPanelOpen = true },
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD97706)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp)
+                                .testTag("open_admin_panel_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CheckCircle,
+                                contentDescription = "Admin Panel",
+                                tint = Color.White,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Open Mini Admin Panel (Admin Only)",
+                                color = Color.White,
+                                fontWeight = FontWeight.Black
+                            )
+                        }
+                    }
+
                     OutlinedButton(
-                        onClick = onSignOut,
+                        onClick = {
+                            isAdminPanelOpen = false
+                            onSignOut()
+                        },
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier
                             .fillMaxWidth()
@@ -2918,18 +2908,6 @@ fun AccountTabContent(
         // Share APK (Scan to Download QR + Share Link) & Check/Auto-Update from GitHub Release (v1.0.0)
         item {
             NeliShareApkAndAutoUpdateSection()
-        }
-
-        // Start.io Ads Center (App ID: 209957114), All Ad Types & Step-by-Step Monetization Instructions
-        item(key = "account_startio_ads_center") {
-            NeliStartIoAdsCenterAndInstructionsSection()
-        }
-
-        item(key = "account_startio_native_ad") {
-            StartIoNativeAdCard(
-                slotIndex = 2,
-                placementTag = "account_native"
-            )
         }
 
         // Customer Care (+255760816851 • Neliplay Customercare • Alex Michael Baineth), About Us, Contact Us & Relevant Pages

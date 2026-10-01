@@ -589,9 +589,9 @@ class ExampleRobolectricTest {
 
     @Test
     fun `bottom menu 5 tabs homepage all channels priority discovery first genre deduplication and adult images work properly`() {
-        // 1. Verify BottomNavTab has exactly Home, Discovery, Search, Download, Account
+        // 1. Verify BottomNavTab has exactly Home, Discovery, Premium, Downloads, Account
         val tabs = com.example.ui.components.BottomNavTab.entries.map { it.label }
-        assertEquals(listOf("Home", "Discovery", "Search", "Download", "Account"), tabs)
+        assertEquals(listOf("Home", "Discovery", "Premium", "Downloads", "Account"), tabs)
 
         // 2. Verify Homepage includes all channels prioritized by Azam TV -> Tanzania -> Other
         val prioritized = com.example.data.ChannelRepository.getPrioritizedAllChannels()
@@ -758,7 +758,7 @@ class ExampleRobolectricTest {
             assertTrue(results.all { it.isAdultContent })
         }
 
-        // 10. Verify 5-tab Bottom Menu (Home, Discovery, Search, Download, Account) and complete removal of old Google AdMob
+        // 10. Verify 5-tab Bottom Menu (Home, Discovery, Premium, Downloads, Account) and complete removal of ads
         val neliApp = app as? com.example.NeliApplication
         assertNotNull("Expected Application context to be NeliApplication", neliApp)
 
@@ -767,7 +767,7 @@ class ExampleRobolectricTest {
             listOf(
                 com.example.ui.components.BottomNavTab.HOME,
                 com.example.ui.components.BottomNavTab.DISCOVERY,
-                com.example.ui.components.BottomNavTab.SEARCH,
+                com.example.ui.components.BottomNavTab.PREMIUM,
                 com.example.ui.components.BottomNavTab.DOWNLOAD,
                 com.example.ui.components.BottomNavTab.ACCOUNT
             ),
@@ -775,11 +775,11 @@ class ExampleRobolectricTest {
         )
         assertEquals("Home", com.example.ui.components.BottomNavTab.HOME.label)
         assertEquals("Discovery", com.example.ui.components.BottomNavTab.DISCOVERY.label)
-        assertEquals("Search", com.example.ui.components.BottomNavTab.SEARCH.label)
-        assertEquals("Download", com.example.ui.components.BottomNavTab.DOWNLOAD.label)
+        assertEquals("Premium", com.example.ui.components.BottomNavTab.PREMIUM.label)
+        assertEquals("Downloads", com.example.ui.components.BottomNavTab.DOWNLOAD.label)
         assertEquals("Account", com.example.ui.components.BottomNavTab.ACCOUNT.label)
 
-        // Verify old AdMob manager and app-ads.txt are removed
+        // Verify both old AdMob manager and Start.io ad manager are completely removed
         val adMobClassPresent = try {
             Class.forName("com.example.ads.NeliAdMobManager")
             true
@@ -787,6 +787,14 @@ class ExampleRobolectricTest {
             false
         }
         org.junit.Assert.assertFalse("Expected old Google AdMob manager class to be removed", adMobClassPresent)
+
+        val startIoClassPresent = try {
+            Class.forName("com.example.ads.NeliStartIoAdManager")
+            true
+        } catch (_: ClassNotFoundException) {
+            false
+        }
+        org.junit.Assert.assertFalse("Expected Start.io ad manager class to be removed", startIoClassPresent)
 
         // 11. Verify Homepage channel categories order (Azam TV -> Sports -> Entertainment -> Kids -> News -> Movies -> ...),
         // 6-channel vertical chunking, and guaranteed channel logos
@@ -1222,25 +1230,57 @@ class ExampleRobolectricTest {
         )
         assertTrue("Expected file:// URI when resolving by media ID, got $resolvedByIdUri", resolvedByIdUri.startsWith("file:"))
 
-        // 10. Verify Start.io Ad Manager (App ID: 209957114), app-ads.txt (start.io, 161782875, DIRECT),
-        //     all 6 ad formats (Banner, Native, MREC/Muted Video, Interstitial, Rewarded Video, Return/Splash) & Setup Instructions
-        assertEquals("209957114", com.example.ads.NeliStartIoAdManager.STARTIO_APP_ID)
-        assertEquals("161782875", com.example.ads.NeliStartIoAdManager.STARTIO_PUBLISHER_ID)
-        assertEquals("start.io, 161782875, DIRECT", com.example.ads.NeliStartIoAdManager.STARTIO_DIRECT_APP_ADS_ENTRY)
-        assertEquals(6, com.example.ads.StartIoAdFormat.entries.size)
-        assertEquals(5, com.example.ads.NeliStartIoAdManager.setupInstructions.size)
+        // 10. Verify Bottom Navigation Tabs (Home, Discovery, Premium, Downloads, Account),
+        //     HarakaPay TZS Subscription Plans (500 / 3,000 / 10,000 TSh),
+        //     Strict Payment Verification, Mini Admin Panel (Admin@login.com / 123456),
+        //     Channel Lock for Free Users vs Open for Premium Members, and Smart TV Cast
+        val navLabels = com.example.ui.components.BottomNavTab.entries.map { it.label }
+        assertEquals(listOf("Home", "Discovery", "Premium", "Downloads", "Account"), navLabels)
 
-        val appAdsLines = com.example.ads.NeliStartIoAdManager.readAppAdsTxtLines(context)
-        assertTrue("Expected at least 135 authorized seller lines in app-ads.txt, got ${appAdsLines.size}", appAdsLines.size >= 135)
-        assertEquals("start.io, 161782875, DIRECT", appAdsLines.first())
-        assertTrue(com.example.ads.NeliStartIoAdManager.isStartIoAppAdsTxtVerified(context))
+        assertEquals(500, com.example.data.SubscriptionPlanType.DAILY.amountTzs)
+        assertEquals(3000, com.example.data.SubscriptionPlanType.WEEKLY.amountTzs)
+        assertEquals(10000, com.example.data.SubscriptionPlanType.MONTHLY.amountTzs)
+        assertTrue(com.example.data.HarakaPayRepository.resolveApiKey().startsWith("hpk_"))
 
-        com.example.ads.NeliStartIoAdManager.initialize(context)
-        assertTrue(com.example.ads.NeliStartIoAdManager.isInitialized.value)
-        assertNotNull(com.example.ads.NeliStartIoAdManager.getNativeAdForSlot(0))
-        assertTrue(com.example.ads.NeliStartIoAdManager.showInterstitialAd(context, forceShow = true))
-        assertTrue(com.example.ads.NeliStartIoAdManager.interstitialShownCount.value >= 1)
-        assertTrue(com.example.ads.NeliStartIoAdManager.showRewardedVideoAd(context))
+        com.example.data.NeliSubscriptionManager.initialize(context)
+        com.example.data.NeliAdminManager.initialize(context)
+
+        // Verify Admin credential check (strictly Admin@login.com and 123456)
+        assertTrue(com.example.data.NeliAdminManager.isAdminCredentials("Admin@login.com", "123456"))
+        org.junit.Assert.assertFalse(com.example.data.NeliAdminManager.isAdminCredentials("user@gmail.com", "123456"))
+        org.junit.Assert.assertFalse(com.example.data.NeliAdminManager.isAdminCredentials("Admin@login.com", "wrong"))
+
+        // Verify Channel Lock for Free Users vs Open for Verified Premium Members
+        com.example.data.NeliAdminManager.setSingleChannelLock(context, "azam_sports_1", true)
+        assertTrue(
+            com.example.data.NeliAdminManager.isChannelLockedForUser(
+                channelId = "azam_sports_1",
+                currentUser = null,
+                isPremiumActive = false
+            )
+        )
+        org.junit.Assert.assertFalse(
+            com.example.data.NeliAdminManager.isChannelLockedForUser(
+                channelId = "azam_sports_1",
+                currentUser = null,
+                isPremiumActive = true
+            )
+        )
+        com.example.data.NeliAdminManager.setSingleChannelLock(context, "azam_sports_1", false)
+
+        // Verify Admin Top SMS Notification Bar publish & clear
+        com.example.data.NeliAdminManager.publishAdminSms(
+            context = context,
+            messageText = "Karibu Nelitv Live HD!",
+            sendPushNotification = false
+        )
+        assertEquals("Karibu Nelitv Live HD!", com.example.data.NeliAdminManager.activeAdminSms.value?.message)
+        com.example.data.NeliAdminManager.clearAdminSms(context)
+        assertEquals(null, com.example.data.NeliAdminManager.activeAdminSms.value)
+
+        // Verify Smart TV Cast Manager device discovery
+        com.example.player.NeliCastManager.refreshAvailableTvDevices(context)
+        assertTrue(com.example.player.NeliCastManager.availableDevices.value.isNotEmpty())
 
         completedFile.delete()
         controller.release()

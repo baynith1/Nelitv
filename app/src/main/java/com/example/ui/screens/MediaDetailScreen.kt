@@ -88,8 +88,6 @@ import com.example.model.DownloadQualityOption
 import com.example.model.EpisodeItem
 import com.example.model.LiveChannel
 import com.example.model.MediaContent
-import com.example.ui.components.StartIoBannerAdSlot
-import com.example.ui.components.StartIoNativeAdCard
 import com.example.ui.theme.NeliBackground
 import com.example.ui.theme.NeliCardPurple
 import com.example.ui.theme.NeliDurationViolet
@@ -643,17 +641,6 @@ fun MediaDetailScreen(
                     )
                 }
             }
-        }
-
-        // Start.io Banner Ad (320x50) & Native Ad on Media Detail Page
-        item(key = "detail_startio_banner") {
-            StartIoBannerAdSlot(placementTag = "detail_synopsis")
-        }
-        item(key = "detail_startio_native") {
-            StartIoNativeAdCard(
-                slotIndex = 1,
-                placementTag = "detail_native"
-            )
         }
 
         // Cast & Crew Section

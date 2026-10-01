@@ -221,18 +221,6 @@ fun NeliApp(
 ) {
     val context = LocalContext.current
 
-    LaunchedEffect(Unit) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            val granted = ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.POST_NOTIFICATIONS
-            ) == PackageManager.PERMISSION_GRANTED
-            if (granted) {
-                NeliNotificationScheduler.scheduleAllDailyNotifications(context)
-            }
-        }
-    }
-
     // Active channel currently playing in full-screen PlayerScreen or outside-app OS PiP
     var activeChannel by remember { mutableStateOf<LiveChannel?>(null) }
 

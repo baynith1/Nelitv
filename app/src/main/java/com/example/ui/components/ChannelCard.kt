@@ -17,12 +17,15 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Tv
+import androidx.compose.material.icons.filled.WorkspacePremium
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,6 +46,8 @@ import coil.compose.AsyncImage
 import coil.request.CachePolicy
 import coil.request.ImageRequest
 import com.example.data.ChannelRepository
+import com.example.data.NeliAdminManager
+import com.example.data.NeliSubscriptionManager
 import com.example.model.LiveChannel
 import com.example.ui.theme.NeliBorder
 import com.example.ui.theme.NeliMagenta
@@ -61,6 +66,13 @@ fun ChannelCard(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val lockedChannelIds by NeliAdminManager.lockedChannelIds.collectAsState()
+    val lockAllForFree by NeliAdminManager.areAllChannelsLocked.collectAsState()
+    val subState by NeliSubscriptionManager.subscriptionState.collectAsState()
+    val isPremiumActive = subState.isActiveNow
+    val isLockedByAdmin = lockAllForFree || lockedChannelIds.contains(channel.id)
+    val isLockedForCurrentUser = isLockedByAdmin && !isPremiumActive
+
     val primaryLogoUrl = remember(channel.id, channel.thumbnailUrl) {
         ChannelRepository.resolveGuaranteedChannelLogoUrl(channel)
     }
@@ -153,6 +165,36 @@ fun ChannelCard(
                         },
                         modifier = Modifier.fillMaxSize()
                     )
+                }
+
+                // Top-left Lock / VIP Unlocked badge when Admin locks channel
+                if (isLockedByAdmin) {
+                    Row(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(8.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(
+                                if (isLockedForCurrentUser) Color(0xDD991B1B) else Color(0xDD065F46)
+                            )
+                            .padding(horizontal = 6.dp, vertical = 3.dp)
+                            .testTag("channel_locked_badge_${channel.id}"),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (isLockedForCurrentUser) Icons.Default.Lock else Icons.Default.WorkspacePremium,
+                            contentDescription = if (isLockedForCurrentUser) "Locked Channel" else "Unlocked by Premium",
+                            tint = Color(0xFFFDE047),
+                            modifier = Modifier.size(11.dp)
+                        )
+                        Text(
+                            text = if (isLockedForCurrentUser) "LOCKED" else "VIP OPEN",
+                            color = Color.White,
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.Black
+                        )
+                    }
                 }
 
                 // YouTube-style LIVE badge at bottom-right

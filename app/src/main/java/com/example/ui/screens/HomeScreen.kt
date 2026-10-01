@@ -30,9 +30,11 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.LiveTv
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Tv
+import androidx.compose.material.icons.filled.WorkspacePremium
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -69,16 +71,17 @@ import coil.request.CachePolicy
 import coil.request.ImageRequest
 import com.example.data.ChannelRepository
 import com.example.data.MediaContentRepository
+import com.example.data.NeliAdminManager
+import com.example.data.NeliSubscriptionManager
 import com.example.data.OfflineDownloadManager
 import com.example.model.LiveChannel
+import com.example.player.NeliCastManager
 import com.example.ui.NeliViewModel
 import com.example.ui.components.BottomNavTab
 import com.example.ui.components.ChannelCard
 import com.example.ui.components.LiveIndicatorBadge
 import com.example.ui.components.NeliBottomBar
 import com.example.ui.components.NeliHomepageAutoUpdatePopupDialog
-import com.example.ui.components.StartIoBannerAdSlot
-import com.example.ui.components.StartIoInlineMutedVideoAdCard
 import com.example.ui.components.TopNavBar
 import com.example.ui.theme.NeliBackground
 import com.example.ui.theme.NeliGenreCyan
@@ -129,6 +132,28 @@ fun HomeScreen(
     val showGoogleSignInSheet by neliViewModel.showGoogleSignInSheet.collectAsState()
     val savedGoogleAccounts by neliViewModel.savedGoogleAccounts.collectAsState()
 
+    val connectedCastDevice by NeliCastManager.connectedDevice.collectAsState()
+    val isCastActive = connectedCastDevice != null
+    val activeAdminSms by NeliAdminManager.activeAdminSms.collectAsState()
+    val adminSmsMessage = activeAdminSms?.message.orEmpty()
+    val subState by NeliSubscriptionManager.subscriptionState.collectAsState()
+    val isPremiumActive = subState.isActiveNow
+    val lockedChannelIds by NeliAdminManager.lockedChannelIds.collectAsState()
+    val lockAllForFree by NeliAdminManager.areAllChannelsLocked.collectAsState()
+
+    var showCastDialog by rememberSaveable { mutableStateOf(false) }
+    var lockedChannelToPrompt by remember { mutableStateOf<LiveChannel?>(null) }
+
+    val handleChannelSelection: (LiveChannel) -> Unit = { ch ->
+        val isAdmin = NeliAdminManager.isAdminUser(currentUser)
+        val isLockedForUser = ch.isLiveBroadcast && (lockAllForFree || lockedChannelIds.contains(ch.id)) && !isPremiumActive && !isAdmin
+        if (isLockedForUser) {
+            lockedChannelToPrompt = ch
+        } else {
+            onChannelSelected(ch)
+        }
+    }
+
     val selectedMedia = remember(selectedMediaId, mediaCatalog) {
         val id = selectedMediaId ?: return@remember null
         mediaCatalog.find { it.id == id } ?: MediaContentRepository.getMediaById(id)
@@ -136,10 +161,34 @@ fun HomeScreen(
 
     LaunchedEffect(Unit) {
         neliViewModel.refreshConnectivityState()
+        NeliSubscriptionManager.initialize(context)
+        NeliAdminManager.initialize(context)
     }
 
     // Automatic popup on Homepage whenever a new update arrives in GitHub Releases
     NeliHomepageAutoUpdatePopupDialog()
+
+    if (showCastDialog) {
+        NeliCastModalSheet(
+            availableChannels = liveChannels.ifEmpty { ChannelRepository.getPrioritizedAllChannels() },
+            onDismiss = { showCastDialog = false },
+            onSelectChannelToWatchAndCast = { ch ->
+                handleChannelSelection(ch)
+            }
+        )
+    }
+
+    if (lockedChannelToPrompt != null) {
+        LockedChannelPremiumDialog(
+            channel = lockedChannelToPrompt!!,
+            onDismiss = { lockedChannelToPrompt = null },
+            onGoToPremium = {
+                lockedChannelToPrompt = null
+                isSearchOpen = false
+                neliViewModel.selectTab(BottomNavTab.PREMIUM)
+            }
+        )
+    }
 
     // Handle back button:
     // - From MediaDetailScreen -> return to Discovery
@@ -147,9 +196,10 @@ fun HomeScreen(
     BackHandler(enabled = selectedMedia != null || isSearchOpen || selectedTab != BottomNavTab.HOME) {
         if (selectedMedia != null) {
             neliViewModel.navigateBackFromMediaDetails()
-        } else {
+        } else if (isSearchOpen) {
             isSearchOpen = false
             searchQuery = ""
+        } else {
             neliViewModel.selectTab(BottomNavTab.HOME)
         }
     }
@@ -165,77 +215,79 @@ fun HomeScreen(
         val recommended = remember(selectedMedia.id, selectedMedia.genre, mediaCatalog) {
             MediaContentRepository.getRelatedMedia(selectedMedia.id, selectedMedia.genre)
         }
-        MediaDetailScreen(
-            media = selectedMedia,
-            episodes = seriesEpisodes,
-            recommendedMedia = recommended,
-            isInWatchlist = watchlistIds.contains(selectedMedia.id),
-            isDownloaded = downloadedIds.contains(selectedMedia.id),
-            downloadedIds = downloadedIds,
-            downloadProgress = downloadProgress,
-            downloadBannerMessage = downloadBannerMessage,
-            onBack = { neliViewModel.navigateBackFromMediaDetails() },
-            onPlayChannel = { playable ->
-                val resolvedChannel = OfflineDownloadManager.resolveOfflineAwareChannel(
-                    context = context,
-                    channel = playable,
-                    downloads = downloads
-                )
-                onChannelSelected(resolvedChannel)
-            },
-            onToggleWatchlist = { neliViewModel.toggleWatchlist(it) },
-            onDownloadMedia = { neliViewModel.addDownload(it) },
-            onDownloadEpisode = { ep ->
-                neliViewModel.addEpisodeDownload(
-                    episode = ep,
-                    seriesTitle = selectedMedia.title,
-                    seriesPoster = selectedMedia.posterUrl
-                )
-            },
-            onSelectRecommendedMedia = { rec ->
-                neliViewModel.openMediaDetails(rec.id)
-            },
-            onOpenDownloadsTab = {
-                neliViewModel.selectTab(BottomNavTab.DOWNLOAD)
-            },
-            onDismissDownloadBanner = {
-                neliViewModel.dismissDownloadBanner()
-            },
-            modifier = modifier
-        )
+        Box(modifier = modifier.fillMaxSize()) {
+            MediaDetailScreen(
+                media = selectedMedia,
+                episodes = seriesEpisodes,
+                recommendedMedia = recommended,
+                isInWatchlist = watchlistIds.contains(selectedMedia.id),
+                isDownloaded = downloadedIds.contains(selectedMedia.id),
+                downloadedIds = downloadedIds,
+                downloadProgress = downloadProgress,
+                downloadBannerMessage = downloadBannerMessage,
+                onBack = { neliViewModel.navigateBackFromMediaDetails() },
+                onPlayChannel = { playable ->
+                    val resolvedChannel = OfflineDownloadManager.resolveOfflineAwareChannel(
+                        context = context,
+                        channel = playable,
+                        downloads = downloads
+                    )
+                    onChannelSelected(resolvedChannel)
+                },
+                onToggleWatchlist = { neliViewModel.toggleWatchlist(it) },
+                onDownloadMedia = { neliViewModel.addDownload(it) },
+                onDownloadEpisode = { ep ->
+                    neliViewModel.addEpisodeDownload(
+                        episode = ep,
+                        seriesTitle = selectedMedia.title,
+                        seriesPoster = selectedMedia.posterUrl
+                    )
+                },
+                onSelectRecommendedMedia = { rec ->
+                    neliViewModel.openMediaDetails(rec.id)
+                },
+                onOpenDownloadsTab = {
+                    neliViewModel.selectTab(BottomNavTab.DOWNLOAD)
+                },
+                onDismissDownloadBanner = {
+                    neliViewModel.dismissDownloadBanner()
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+        }
         return
     }
 
-    // Deterministic non-overlapping Column layout:
-    // TopNavBar -> Main Tab Content -> NeliBottomBar (Home, Discovery, Search, Download, Account)
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .background(NeliBackground)
-            .testTag("home_screen")
-    ) {
+    // Deterministic non-overlapping layout:
+    // TopNavBar (Admin SMS + Logo + Search + Cast) -> Main Tab Content -> NeliBottomBar
+    Box(modifier = modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(NeliBackground)
+                .testTag("home_screen")
+        ) {
         TopNavBar(
             searchQuery = searchQuery,
             onSearchQueryChange = { query ->
                 searchQuery = query
-                if (selectedTab != BottomNavTab.SEARCH) {
-                    neliViewModel.selectTab(BottomNavTab.SEARCH)
+                if (!isSearchOpen) {
+                    isSearchOpen = true
                 }
             },
-            isSearchOpen = isSearchOpen || selectedTab == BottomNavTab.SEARCH,
+            isSearchOpen = isSearchOpen,
             onToggleSearch = {
-                if (selectedTab == BottomNavTab.SEARCH || isSearchOpen) {
+                if (isSearchOpen) {
                     isSearchOpen = false
                     searchQuery = ""
-                    neliViewModel.selectTab(BottomNavTab.HOME)
                 } else {
                     isSearchOpen = true
-                    neliViewModel.selectTab(BottomNavTab.SEARCH)
                 }
             },
             activeTabLabel = selectedTab.label,
             isOfflineMode = isOfflineMode,
             onOfflineClick = {
+                isSearchOpen = false
                 neliViewModel.selectTab(BottomNavTab.DOWNLOAD)
             },
             onBrandClick = {
@@ -243,15 +295,11 @@ fun HomeScreen(
                 searchQuery = ""
                 neliViewModel.selectTab(BottomNavTab.HOME)
             },
-            isAccountOpen = selectedTab == BottomNavTab.ACCOUNT,
-            onAccountClick = {
-                if (selectedTab == BottomNavTab.ACCOUNT) {
-                    neliViewModel.selectTab(BottomNavTab.HOME)
-                } else {
-                    isSearchOpen = false
-                    neliViewModel.selectTab(BottomNavTab.ACCOUNT)
-                }
-            }
+            isCastActive = isCastActive,
+            onCastClick = {
+                showCastDialog = true
+            },
+            adminSmsMessage = adminSmsMessage
         )
 
         Box(
@@ -259,153 +307,158 @@ fun HomeScreen(
                 .fillMaxWidth()
                 .weight(1f)
         ) {
-            when (selectedTab) {
-                BottomNavTab.DISCOVERY -> {
-                    DiscoveryTabContent(
-                        selectedFilter = selectedDiscoveryFilter,
-                        onFilterSelected = { selectedDiscoveryFilter = it },
-                        mediaCatalog = mediaCatalog,
-                        episodesCatalog = episodesCatalog,
-                        onMediaSelected = { media ->
-                            neliViewModel.openMediaDetails(media.id)
-                        },
-                        onPlayMedia = { media ->
-                            val playable = OfflineDownloadManager.resolveOfflineAwareChannel(
-                                context = context,
-                                channel = media.toPlayableChannel(),
-                                downloads = downloads
-                            )
-                            onChannelSelected(playable)
-                        },
-                        catalogRotationSeed = catalogRotationSeed,
-                        isRefreshing = isRefreshingDiscovery,
-                        onRefreshDiscovery = { neliViewModel.refreshDiscoveryCatalog(forceNetworkSync = true) },
-                        onRotateMovies = { neliViewModel.rotateDiscoveryMovies() }
-                    )
-                }
-
-                BottomNavTab.SEARCH -> {
-                    SearchTabContent(
-                        searchQuery = searchQuery,
-                        onSearchQueryChange = { searchQuery = it },
-                        selectedCategory = selectedSearchCategory,
-                        onCategorySelected = { selectedSearchCategory = it },
-                        mediaList = mediaCatalog,
-                        episodesList = episodesCatalog,
-                        liveChannels = liveChannels,
-                        onMediaSelected = { media ->
-                            neliViewModel.openMediaDetails(media.id)
-                        },
-                        onChannelSelected = { ch ->
-                            onChannelSelected(ch)
-                        }
-                    )
-                }
-
-                BottomNavTab.DOWNLOAD -> {
-                    DownloadTabContent(
-                        downloads = downloads,
-                        downloadProgress = downloadProgress,
-                        downloadedIds = downloadedIds,
-                        downloadingIds = downloadingIds,
-                        mediaCatalog = mediaCatalog,
-                        isOfflineMode = isOfflineMode,
-                        downloadBannerMessage = downloadBannerMessage,
-                        onDismissBanner = { neliViewModel.dismissDownloadBanner() },
-                        onStartQuickDownload = { media -> neliViewModel.addDownload(media) },
-                        onPauseDownload = { id -> neliViewModel.pauseDownload(id) },
-                        onRetryDownload = { item -> neliViewModel.retryDownload(item) },
-                        onCancelDownload = { id -> neliViewModel.cancelDownload(id) },
-                        onPlayDownloaded = { entity ->
-                            val resolvedPath = OfflineDownloadManager.resolvePlayableUriForDownloadedEntity(
-                                context = context,
-                                entity = entity
-                            )
-                            onChannelSelected(
-                                LiveChannel(
-                                    id = "dl_${entity.id}",
-                                    name = entity.title,
-                                    description = "${entity.genre} • ${entity.duration} • Offline In-App Playback",
-                                    streamUrl = resolvedPath,
-                                    streamFormat = if (resolvedPath.endsWith(".m3u8", true)) "hls" else "mp4",
-                                    thumbnailUrl = entity.posterUrl,
-                                    categories = listOf(entity.genre.lowercase()),
-                                    isLiveBroadcast = false
+            if (isSearchOpen) {
+                SearchTabContent(
+                    searchQuery = searchQuery,
+                    onSearchQueryChange = { searchQuery = it },
+                    selectedCategory = selectedSearchCategory,
+                    onCategorySelected = { selectedSearchCategory = it },
+                    mediaList = mediaCatalog,
+                    episodesList = episodesCatalog,
+                    liveChannels = liveChannels,
+                    onMediaSelected = { media ->
+                        isSearchOpen = false
+                        neliViewModel.openMediaDetails(media.id)
+                    },
+                    onChannelSelected = { ch ->
+                        handleChannelSelection(ch)
+                    }
+                )
+            } else {
+                when (selectedTab) {
+                    BottomNavTab.DISCOVERY -> {
+                        DiscoveryTabContent(
+                            selectedFilter = selectedDiscoveryFilter,
+                            onFilterSelected = { selectedDiscoveryFilter = it },
+                            mediaCatalog = mediaCatalog,
+                            episodesCatalog = episodesCatalog,
+                            onMediaSelected = { media ->
+                                neliViewModel.openMediaDetails(media.id)
+                            },
+                            onPlayMedia = { media ->
+                                val playable = OfflineDownloadManager.resolveOfflineAwareChannel(
+                                    context = context,
+                                    channel = media.toPlayableChannel(),
+                                    downloads = downloads
                                 )
-                            )
-                        },
-                        onPlayQuickMediaOffline = { media ->
-                            val playable = OfflineDownloadManager.resolveOfflineAwareChannel(
-                                context = context,
-                                channel = media.toPlayableChannel(),
-                                downloads = downloads
-                            )
-                            onChannelSelected(playable)
-                        },
-                        onDeleteDownload = { id -> neliViewModel.deleteDownload(id) }
-                    )
-                }
+                                onChannelSelected(playable)
+                            },
+                            catalogRotationSeed = catalogRotationSeed,
+                            isRefreshing = isRefreshingDiscovery,
+                            onRefreshDiscovery = { neliViewModel.refreshDiscoveryCatalog(forceNetworkSync = true) },
+                            onRotateMovies = { neliViewModel.rotateDiscoveryMovies() }
+                        )
+                    }
 
-                BottomNavTab.ACCOUNT -> {
-                    AccountTabContent(
-                        currentUser = currentUser,
-                        authError = authError,
-                        googleFallbackMessage = googleFallbackMessage,
-                        isAuthLoading = isAuthLoading,
-                        showGoogleSignInSheet = showGoogleSignInSheet,
-                        savedGoogleAccounts = savedGoogleAccounts,
-                        firebaseConfig = firebaseConfig,
-                        watchlist = watchlist,
-                        downloadsCount = downloads.count { it.downloadStatus == "COMPLETED" },
-                        onSignInWithGoogle = {
-                            neliViewModel.signInWithGoogle(context)
-                        },
-                        onCompleteGoogleSignIn = { googleEmail, googleName ->
-                            neliViewModel.completeGoogleSignIn(googleEmail, googleName)
-                        },
-                        onDismissGoogleSignInSheet = {
-                            neliViewModel.dismissGoogleSignInSheet()
-                        },
-                        onSignUp = { realName, email, password ->
-                            neliViewModel.signUpUser(realName, email, password)
-                        },
-                        onSignIn = { email, password ->
-                            neliViewModel.signInUser(email, password)
-                        },
-                        onSignOut = {
-                            neliViewModel.signOutUser()
-                        },
-                        onClearAuthError = {
-                            neliViewModel.clearAuthError()
-                        },
-                        onUpdateNetworkPreferences = { mode, allowMobile ->
-                            neliViewModel.updateNetworkPreferences(mode, allowMobile)
-                        },
-                        onPlayWatchlistItem = { wItem ->
-                            val existingChannel = ChannelRepository.getChannelById(wItem.id)
-                            if (existingChannel != null) {
-                                onChannelSelected(existingChannel)
-                            } else {
-                                val existingMedia = MediaContentRepository.getMediaById(wItem.id)
-                                if (existingMedia != null) {
-                                    neliViewModel.openMediaDetails(existingMedia.id)
+                    BottomNavTab.PREMIUM -> {
+                        PremiumTabContent()
+                    }
+
+                    BottomNavTab.DOWNLOAD -> {
+                        DownloadTabContent(
+                            downloads = downloads,
+                            downloadProgress = downloadProgress,
+                            downloadedIds = downloadedIds,
+                            downloadingIds = downloadingIds,
+                            mediaCatalog = mediaCatalog,
+                            isOfflineMode = isOfflineMode,
+                            downloadBannerMessage = downloadBannerMessage,
+                            onDismissBanner = { neliViewModel.dismissDownloadBanner() },
+                            onStartQuickDownload = { media -> neliViewModel.addDownload(media) },
+                            onPauseDownload = { id -> neliViewModel.pauseDownload(id) },
+                            onRetryDownload = { item -> neliViewModel.retryDownload(item) },
+                            onCancelDownload = { id -> neliViewModel.cancelDownload(id) },
+                            onPlayDownloaded = { entity ->
+                                val resolvedPath = OfflineDownloadManager.resolvePlayableUriForDownloadedEntity(
+                                    context = context,
+                                    entity = entity
+                                )
+                                onChannelSelected(
+                                    LiveChannel(
+                                        id = "dl_${entity.id}",
+                                        name = entity.title,
+                                        description = "${entity.genre} • ${entity.duration} • Offline In-App Playback",
+                                        streamUrl = resolvedPath,
+                                        streamFormat = if (resolvedPath.endsWith(".m3u8", true)) "hls" else "mp4",
+                                        thumbnailUrl = entity.posterUrl,
+                                        categories = listOf(entity.genre.lowercase()),
+                                        isLiveBroadcast = false
+                                    )
+                                )
+                            },
+                            onPlayQuickMediaOffline = { media ->
+                                val playable = OfflineDownloadManager.resolveOfflineAwareChannel(
+                                    context = context,
+                                    channel = media.toPlayableChannel(),
+                                    downloads = downloads
+                                )
+                                onChannelSelected(playable)
+                            },
+                            onDeleteDownload = { id -> neliViewModel.deleteDownload(id) }
+                        )
+                    }
+
+                    BottomNavTab.ACCOUNT -> {
+                        AccountTabContent(
+                            currentUser = currentUser,
+                            authError = authError,
+                            googleFallbackMessage = googleFallbackMessage,
+                            isAuthLoading = isAuthLoading,
+                            showGoogleSignInSheet = showGoogleSignInSheet,
+                            savedGoogleAccounts = savedGoogleAccounts,
+                            firebaseConfig = firebaseConfig,
+                            watchlist = watchlist,
+                            downloadsCount = downloads.count { it.downloadStatus == "COMPLETED" },
+                            onSignInWithGoogle = {
+                                neliViewModel.signInWithGoogle(context)
+                            },
+                            onCompleteGoogleSignIn = { googleEmail, googleName ->
+                                neliViewModel.completeGoogleSignIn(googleEmail, googleName)
+                            },
+                            onDismissGoogleSignInSheet = {
+                                neliViewModel.dismissGoogleSignInSheet()
+                            },
+                            onSignUp = { realName, email, password ->
+                                neliViewModel.signUpUser(realName, email, password)
+                            },
+                            onSignIn = { email, password ->
+                                neliViewModel.signInUser(email, password)
+                            },
+                            onSignOut = {
+                                neliViewModel.signOutUser()
+                            },
+                            onClearAuthError = {
+                                neliViewModel.clearAuthError()
+                            },
+                            onUpdateNetworkPreferences = { mode, allowMobile ->
+                                neliViewModel.updateNetworkPreferences(mode, allowMobile)
+                            },
+                            onPlayWatchlistItem = { wItem ->
+                                val existingChannel = ChannelRepository.getChannelById(wItem.id)
+                                if (existingChannel != null) {
+                                    handleChannelSelection(existingChannel)
+                                } else {
+                                    val existingMedia = MediaContentRepository.getMediaById(wItem.id)
+                                    if (existingMedia != null) {
+                                        neliViewModel.openMediaDetails(existingMedia.id)
+                                    }
                                 }
                             }
-                        }
-                    )
-                }
+                        )
+                    }
 
-                BottomNavTab.HOME -> {
-                    LiveTvHomeTab(
-                        liveChannels = liveChannels,
-                        selectedCategory = selectedLiveCategory,
-                        isOfflineMode = isOfflineMode,
-                        isRefreshing = isRefreshingLiveTv,
-                        onRefresh = { neliViewModel.refreshLiveTvFeed() },
-                        onOpenDownloads = { neliViewModel.selectTab(BottomNavTab.DOWNLOAD) },
-                        onCategorySelected = { selectedLiveCategory = it },
-                        onChannelSelected = { ch -> onChannelSelected(ch) }
-                    )
+                    BottomNavTab.HOME -> {
+                        LiveTvHomeTab(
+                            liveChannels = liveChannels,
+                            selectedCategory = selectedLiveCategory,
+                            isOfflineMode = isOfflineMode,
+                            isRefreshing = isRefreshingLiveTv,
+                            onRefresh = { neliViewModel.refreshLiveTvFeed() },
+                            onOpenDownloads = { neliViewModel.selectTab(BottomNavTab.DOWNLOAD) },
+                            onCategorySelected = { selectedLiveCategory = it },
+                            onChannelSelected = { ch -> handleChannelSelection(ch) }
+                        )
+                    }
                 }
             }
         }
@@ -413,11 +466,12 @@ fun HomeScreen(
         NeliBottomBar(
             selectedTab = selectedTab,
             onTabSelected = { tab ->
-                isSearchOpen = (tab == BottomNavTab.SEARCH)
+                isSearchOpen = false
                 neliViewModel.selectTab(tab)
             },
             activeDownloadCount = downloadingIds.size
         )
+        }
     }
 }
 
@@ -582,16 +636,13 @@ private fun LiveTvHomeTab(
             }
         }
 
-        // 2. Featured Live Spotlight Banner + Start.io Banner Ad (320x50)
+        // 2. Featured Live Spotlight Banner
         if (featuredHeroChannels.isNotEmpty() && selectedCategory.equals("All", ignoreCase = true)) {
             item {
                 LiveTvHeroBanner(
                     heroChannels = featuredHeroChannels,
                     onPlayChannel = onChannelSelected
                 )
-            }
-            item(key = "homepage_startio_top_banner") {
-                StartIoBannerAdSlot(placementTag = "homepage_top")
             }
         }
 
@@ -730,9 +781,6 @@ private fun LiveTvHomeTab(
                             Spacer(modifier = Modifier.weight(1f))
                         }
                     }
-                }
-                if (sixChannels.size == 6 || blockIndex == 0) {
-                    StartIoInlineMutedVideoAdCard(blockIndex = blockIndex)
                 }
             }
         }
@@ -1031,6 +1079,13 @@ private fun HomepageLiveChannelCard(
     onClick: () -> Unit
 ) {
     val context = LocalContext.current
+    val lockedChannelIds by NeliAdminManager.lockedChannelIds.collectAsState()
+    val lockAllForFree by NeliAdminManager.areAllChannelsLocked.collectAsState()
+    val subState by NeliSubscriptionManager.subscriptionState.collectAsState()
+    val isPremiumActive = subState.isActiveNow
+    val isLockedByAdmin = lockAllForFree || lockedChannelIds.contains(channel.id)
+    val isLockedForCurrentUser = isLockedByAdmin && !isPremiumActive
+
     val primaryLogoUrl = remember(channel.id, channel.thumbnailUrl) {
         ChannelRepository.resolveGuaranteedChannelLogoUrl(channel)
     }
@@ -1102,6 +1157,31 @@ private fun HomepageLiveChannelCard(
                     },
                     modifier = Modifier.fillMaxSize()
                 )
+            }
+
+            if (isLockedByAdmin) {
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(if (isLockedForCurrentUser) Color(0xDD991B1B) else Color(0xDD065F46))
+                        .padding(horizontal = 5.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                ) {
+                    Icon(
+                        imageVector = if (isLockedForCurrentUser) Icons.Default.Lock else Icons.Default.WorkspacePremium,
+                        contentDescription = null,
+                        tint = Color(0xFFFDE047),
+                        modifier = Modifier.size(9.dp)
+                    )
+                    Text(
+                        text = if (isLockedForCurrentUser) "LOCKED" else "VIP",
+                        color = Color.White,
+                        fontSize = 7.sp,
+                        fontWeight = FontWeight.Black
+                    )
+                }
             }
 
             LiveIndicatorBadge(

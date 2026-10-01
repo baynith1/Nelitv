@@ -258,6 +258,28 @@ object AuthRepository {
             return@withContext Result.failure(IllegalArgumentException("Please enter your password."))
         }
 
+        // Dedicated Admin Login verification (Email: Admin@login.com, Password: 123456)
+        if (NeliAdminManager.isAdminEmail(cleanEmail)) {
+            if (NeliAdminManager.isAdminCredentials(cleanEmail, cleanPassword)) {
+                dao.logoutAllUsers()
+                val adminAccount = UserAccountEntity(
+                    uid = "admin_neli_master",
+                    realName = "Admin Nelitv",
+                    email = NeliAdminManager.ADMIN_EMAIL,
+                    passwordHash = sha256(cleanPassword),
+                    isLoggedIn = true,
+                    createdAt = System.currentTimeMillis(),
+                    lastLoginAt = System.currentTimeMillis()
+                )
+                dao.upsertUserAccount(adminAccount)
+                return@withContext Result.success(adminAccount)
+            } else {
+                return@withContext Result.failure(
+                    IllegalArgumentException("Incorrect Admin password for Admin@login.com.")
+                )
+            }
+        }
+
         val apiKey = resolveApiKey(context)
         val passwordHash = sha256(cleanPassword)
         val existingLocal = dao.getAccountByEmail(cleanEmail)

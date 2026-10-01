@@ -353,7 +353,7 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         _selectedMediaId.value = null
-        if (_selectedTab.value != BottomNavTab.SEARCH && _selectedTab.value != BottomNavTab.ACCOUNT) {
+        if (_selectedTab.value != BottomNavTab.PREMIUM && _selectedTab.value != BottomNavTab.ACCOUNT) {
             _selectedTab.value = BottomNavTab.HOME
         }
     }

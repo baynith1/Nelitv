@@ -198,30 +198,14 @@ class NeliHomeWidgetProvider : AppWidgetProvider() {
          * repeated widget notifications or prompts once the widget is placed on the home screen.
          */
         fun ensureWidgetAutomaticallyPinnedAndUpdated(context: Context) {
-            updateAllWidgets(context)
             if (isWidgetPinned(context)) {
-                // Widget is already on the home screen — mark as pinned and never show pin prompts again
+                updateAllWidgets(context)
                 try {
                     context.getSharedPreferences(WIDGET_PREFS, Context.MODE_PRIVATE)
                         .edit()
                         .putBoolean(KEY_AUTO_PIN_REQUESTED, true)
                         .apply()
                 } catch (_: Exception) {
-                }
-                return
-            }
-
-            if (!autoPinCheckedThisSession) {
-                autoPinCheckedThisSession = true
-                val prefs = try {
-                    context.getSharedPreferences(WIDGET_PREFS, Context.MODE_PRIVATE)
-                } catch (_: Exception) {
-                    null
-                }
-                val alreadyRequestedOnce = prefs?.getBoolean(KEY_AUTO_PIN_REQUESTED, false) == true
-                if (!alreadyRequestedOnce) {
-                    prefs?.edit()?.putBoolean(KEY_AUTO_PIN_REQUESTED, true)?.apply()
-                    requestPinWidget(context)
                 }
             }
         }

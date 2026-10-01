@@ -27,12 +27,12 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.WorkspacePremium
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Person
-import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.WorkspacePremium
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -63,8 +63,8 @@ enum class BottomNavTab(
 ) {
     HOME("Home", Icons.Filled.Home, Icons.Outlined.Home, "nav_tab_home"),
     DISCOVERY("Discovery", Icons.Filled.Explore, Icons.Outlined.Explore, "nav_tab_discovery"),
-    SEARCH("Search", Icons.Filled.Search, Icons.Outlined.Search, "nav_tab_search"),
-    DOWNLOAD("Download", Icons.Filled.Download, Icons.Outlined.Download, "nav_tab_download"),
+    PREMIUM("Premium", Icons.Filled.WorkspacePremium, Icons.Outlined.WorkspacePremium, "nav_tab_premium"),
+    DOWNLOAD("Downloads", Icons.Filled.Download, Icons.Outlined.Download, "nav_tab_download"),
     ACCOUNT("Account", Icons.Filled.Person, Icons.Outlined.Person, "nav_tab_account")
 }
 

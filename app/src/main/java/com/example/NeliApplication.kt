@@ -6,7 +6,6 @@ import coil.ImageLoaderFactory
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import coil.request.CachePolicy
-import com.example.ads.NeliStartIoAdManager
 import com.example.player.NativeLogSuppressor
 import com.example.ui.theme.NeliThemeManager
 import okhttp3.OkHttpClient
@@ -15,7 +14,6 @@ import java.util.concurrent.TimeUnit
 /**
  * Application class for Neli TV.
  *
- * - Initializes Start.io In-App Ads SDK (App ID: 209957114).
  * - Provides a high-performance singleton Coil [ImageLoader] with browser User-Agent headers
  *   and memory/disk caching so all Live TV channel logos, Movie posters, Series, and Adult
  *   thumbnails load reliably and quickly.
@@ -26,7 +24,8 @@ class NeliApplication : Application(), ImageLoaderFactory {
         NativeLogSuppressor.suppressNonFatalNativeLogs()
         super.onCreate()
         NeliThemeManager.initialize(this)
-        NeliStartIoAdManager.initialize(this)
+        com.example.data.NeliSubscriptionManager.initialize(this)
+        com.example.data.NeliAdminManager.initialize(this)
     }
 
     override fun newImageLoader(): ImageLoader {
