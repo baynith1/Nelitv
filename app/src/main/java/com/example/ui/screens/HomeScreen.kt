@@ -92,6 +92,7 @@ import com.example.ui.theme.NeliSurface
 import com.example.ui.theme.NeliSurfaceVariant
 import com.example.ui.theme.NeliTextPrimary
 import com.example.ui.theme.NeliTextSecondary
+import com.example.ui.theme.rememberNeliScreenProfile
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -357,7 +358,18 @@ fun HomeScreen(
                             currentUser = currentUser,
                             onNavigateToLoginOrSignUp = {
                                 neliViewModel.selectTab(BottomNavTab.ACCOUNT)
-                            }
+                            },
+                            onBack = {
+                                neliViewModel.selectTab(BottomNavTab.HOME)
+                            },
+                            onSignInUser = { email, password ->
+                                neliViewModel.signInUser(email, password)
+                            },
+                            onSignUpUser = { realName, email, password ->
+                                neliViewModel.signUpUser(realName, email, password)
+                            },
+                            isAuthLoading = isAuthLoading,
+                            authErrorMessage = authError
                         )
                     }
 
@@ -550,13 +562,8 @@ private fun LiveTvHomeTab(
     val sixChannelBlocks = remember(filteredChannels) {
         ChannelRepository.getAllChannelsChunkedEverySixForAds(filteredChannels)
     }
-    val screenWidthDp = LocalConfiguration.current.screenWidthDp
-    val columnsPerRow = remember(screenWidthDp) {
-        when {
-            screenWidthDp >= 600 -> 3
-            else -> 2
-        }
-    }
+    val screenProfile = rememberNeliScreenProfile()
+    val columnsPerRow = screenProfile.liveChannelGridColumns
 
     PullToRefreshBox(
         isRefreshing = isRefreshing,
@@ -837,6 +844,7 @@ private fun LiveTvHeroBanner(
 ) {
     val pagerState = rememberPagerState(pageCount = { heroChannels.size })
     val coroutineScope = rememberCoroutineScope()
+    val screenProfile = rememberNeliScreenProfile()
 
     LaunchedEffect(heroChannels.size) {
         if (heroChannels.size > 1) {
@@ -854,8 +862,8 @@ private fun LiveTvHeroBanner(
             .padding(top = 8.dp, bottom = 4.dp)
             .testTag("azam_priority_hero_slider")
     ) {
-        val isTablet = maxWidth >= 600.dp
-        val bannerHeight = if (isTablet) 240.dp else 204.dp
+        val isTablet = maxWidth >= 600.dp || screenProfile.isTabletOrFoldable
+        val bannerHeight = screenProfile.heroBannerHeight
 
         Column(modifier = Modifier.fillMaxWidth()) {
             Box(
@@ -1150,9 +1158,11 @@ private fun HomepageLiveChannelCard(
             .build()
     }
 
+    val screenProfile = rememberNeliScreenProfile()
+
     Column(
         modifier = Modifier
-            .width(152.dp)
+            .width(screenProfile.horizontalChannelCardWidth)
             .clip(RoundedCornerShape(12.dp))
             .background(NeliSurface)
             .border(0.5.dp, Color(0xFF252D40), RoundedCornerShape(12.dp))

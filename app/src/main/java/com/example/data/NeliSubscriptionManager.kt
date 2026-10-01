@@ -1,18 +1,30 @@
 package com.example.data
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.os.Build
+import android.provider.Settings
+import com.example.data.local.DeviceSubscriptionEntity
+import com.example.data.local.NeliDatabase
+import com.example.data.local.NeliMediaDao
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import java.net.Inet4Address
+import java.net.NetworkInterface
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
 /**
  * Subscription plans available in the Premium tab:
- * - Kwa Siku: 500 TSh (24 hours)
- * - Kwa Wiki: 3,000 TSh (7 days)
- * - Kwa Mwezi: 10,000 TSh (30 days)
+ * - Kwa Siku Mbili: 1,000 TSh (48 hours / 2 days)
+ * - Kwa Wiki: 3,500 TSh (7 days)
+ * - Kwa Mwezi: 15,000 TSh (30 days)
  */
 enum class SubscriptionPlanType(
     val id: String,
@@ -25,35 +37,39 @@ enum class SubscriptionPlanType(
     val badgeText: String
 ) {
     DAILY(
-        id = "DAILY_500",
-        titleSwahili = "Kwa Siku",
-        subtitleSwahili = "Fungua channel zote za VIP kwa saa 24",
-        amountTzs = 500,
-        priceFormatted = "500 TSh",
-        durationMillis = 24L * 60L * 60L * 1000L,
-        durationLabel = "Siku 1 (Saa 24)",
-        badgeText = "MAARUFU KWA SIKU"
+        id = "TWO_DAYS_1000",
+        titleSwahili = "Kwa Siku Mbili",
+        subtitleSwahili = "Fungua channel zote za VIP kwa siku 2 (saa 48)",
+        amountTzs = 1000,
+        priceFormatted = "1,000 TSh",
+        durationMillis = 2L * 24L * 60L * 60L * 1000L,
+        durationLabel = "Siku 2 (Saa 48)",
+        badgeText = "MAARUFU KWA SIKU 2"
     ),
     WEEKLY(
-        id = "WEEKLY_3000",
+        id = "WEEKLY_3500",
         titleSwahili = "Kwa Wiki",
         subtitleSwahili = "Fungua channel zote za VIP kwa siku 7 mfululizo",
-        amountTzs = 3000,
-        priceFormatted = "3,000 TSh",
+        amountTzs = 3500,
+        priceFormatted = "3,500 TSh",
         durationMillis = 7L * 24L * 60L * 60L * 1000L,
         durationLabel = "Wiki 1 (Siku 7)",
         badgeText = "OFA BORA YA WIKI"
     ),
     MONTHLY(
-        id = "MONTHLY_10000",
+        id = "MONTHLY_15000",
         titleSwahili = "Kwa Mwezi",
         subtitleSwahili = "Fungua channel zote za VIP kwa siku 30 bila kikomo",
-        amountTzs = 10000,
-        priceFormatted = "10,000 TSh",
+        amountTzs = 15000,
+        priceFormatted = "15,000 TSh",
         durationMillis = 30L * 24L * 60L * 60L * 1000L,
         durationLabel = "Mwezi 1 (Siku 30)",
         badgeText = "VIP FULL ACCESS"
-    )
+    );
+
+    companion object {
+        val TWO_DAYS: SubscriptionPlanType get() = DAILY
+    }
 }
 
 data class PremiumSubscriptionState(
@@ -63,8 +79,14 @@ data class PremiumSubscriptionState(
     val amountTzs: Int = 0,
     val phoneNumber: String = "",
     val orderId: String = "",
+    val deviceIpAddress: String = "",
+    val deviceId: String = "",
     val activatedAtMs: Long = 0L,
     val expiresAtMs: Long = 0L,
+    val linkedUserUid: String = "",
+    val linkedUserEmail: String = "",
+    val linkedUserName: String = "",
+    val requiresPostPaymentAuth: Boolean = false,
     val pendingOrderId: String = "",
     val pendingPlanId: String = "",
     val pendingPhone: String = "",
@@ -72,6 +94,9 @@ data class PremiumSubscriptionState(
 ) {
     val isActiveNow: Boolean
         get() = isVerified && expiresAtMs > System.currentTimeMillis()
+
+    val isLinkedToUserAccount: Boolean
+        get() = linkedUserEmail.isNotBlank() || linkedUserUid.isNotBlank()
 
     val formattedExpiryDate: String
         get() {
@@ -103,6 +128,9 @@ data class PremiumSubscriptionState(
 /**
  * Manages user Premium Subscription state verified via HarakaPay (`https://harakapay.net`).
  *
+ * - Users can pay WITHOUT logging in or signing up: the app automatically reads the real
+ *   Device IP (`deviceIpAddress`) and Device ID (`deviceId`) to store and preserve their
+ *   real payment and verified Premium Member state even when not logged in.
  * - A user ONLY becomes a Premium Member after HarakaPay confirms `payment.status == "completed"`.
  * - While a user's Premium package is active (`isActiveNow == true`), ALL channels remain unlocked
  *   even if the Admin locks channels for free users, until the package expires (`expiresAtMs`).
@@ -116,16 +144,93 @@ object NeliSubscriptionManager {
     private const val KEY_AMOUNT_TZS = "amount_tzs"
     private const val KEY_PHONE = "phone_number"
     private const val KEY_ORDER_ID = "order_id"
+    private const val KEY_DEVICE_IP = "device_ip_address"
+    private const val KEY_DEVICE_ID = "device_hardware_id"
     private const val KEY_ACTIVATED_AT = "activated_at_ms"
     private const val KEY_EXPIRES_AT = "expires_at_ms"
+    private const val KEY_LINKED_UID = "linked_user_uid"
+    private const val KEY_LINKED_EMAIL = "linked_user_email"
+    private const val KEY_LINKED_NAME = "linked_user_name"
+    private const val KEY_REQUIRES_POST_PAYMENT_AUTH = "requires_post_payment_auth"
 
     private const val KEY_PENDING_ORDER_ID = "pending_order_id"
     private const val KEY_PENDING_PLAN_ID = "pending_plan_id"
     private const val KEY_PENDING_PHONE = "pending_phone"
     private const val KEY_PENDING_AMOUNT = "pending_amount_tzs"
 
+    private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
     private val _subscriptionState = MutableStateFlow(PremiumSubscriptionState())
     val subscriptionState: StateFlow<PremiumSubscriptionState> = _subscriptionState.asStateFlow()
+
+    /**
+     * Automatically detects the device's real IPv4/IPv6 network IP address from Android
+     * [ConnectivityManager] link properties and active [NetworkInterface]s so the user can pay
+     * and store real subscription data without needing to log in or sign up.
+     */
+    fun resolveDeviceIpAddress(context: Context? = null): String {
+        // 1. Query ConnectivityManager active network link addresses
+        if (context != null) {
+            try {
+                val cm = context.applicationContext.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+                val activeNet = cm?.activeNetwork
+                val linkProps = activeNet?.let { cm.getLinkProperties(it) }
+                val ipv4FromLink = linkProps?.linkAddresses
+                    ?.mapNotNull { it.address }
+                    ?.firstOrNull { !it.isLoopbackAddress && it is Inet4Address }
+                    ?.hostAddress
+                if (!ipv4FromLink.isNullOrBlank()) {
+                    return ipv4FromLink
+                }
+            } catch (_: Throwable) {
+            }
+        }
+
+        // 2. Query active NetworkInterfaces for non-loopback IPv4 address
+        try {
+            val interfaces = NetworkInterface.getNetworkInterfaces()
+            if (interfaces != null) {
+                while (interfaces.hasMoreElements()) {
+                    val intf = interfaces.nextElement()
+                    if (!intf.isUp || intf.isLoopback) continue
+                    val addrs = intf.inetAddresses
+                    while (addrs.hasMoreElements()) {
+                        val addr = addrs.nextElement()
+                        if (!addr.isLoopbackAddress && addr is Inet4Address) {
+                            val host = addr.hostAddress
+                            if (!host.isNullOrBlank()) {
+                                return host
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (_: Throwable) {
+        }
+
+        // 3. Fallback to any non-loopback address or deterministic device local IP
+        return "10.0.2.15"
+    }
+
+    /**
+     * Resolves a persistent real device identity combining Android Secure ID and hardware model
+     * so payments made without login/signup are reliably bound to this device.
+     */
+    fun resolveDeviceIdentityId(context: Context? = null): String {
+        val androidId = try {
+            context?.applicationContext?.contentResolver?.let { resolver ->
+                Settings.Secure.getString(resolver, Settings.Secure.ANDROID_ID)
+            }.orEmpty()
+        } catch (_: Throwable) {
+            ""
+        }
+        val modelTag = "${Build.MANUFACTURER}_${Build.MODEL}".replace(" ", "_")
+        return if (androidId.isNotBlank()) {
+            "${modelTag}_$androidId"
+        } else {
+            modelTag
+        }
+    }
 
     fun initialize(context: Context) {
         val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -133,11 +238,27 @@ object NeliSubscriptionManager {
         val expiresAt = prefs.getLong(KEY_EXPIRES_AT, 0L)
         val now = System.currentTimeMillis()
 
+        val liveIp = resolveDeviceIpAddress(context)
+        val liveDeviceId = resolveDeviceIdentityId(context)
+        val savedIp = prefs.getString(KEY_DEVICE_IP, "").orEmpty().ifBlank { liveIp }
+        val savedDeviceId = prefs.getString(KEY_DEVICE_ID, "").orEmpty().ifBlank { liveDeviceId }
+
+        // Persist automatic device IP and device ID immediately so real device metadata is always ready
+        prefs.edit()
+            .putString(KEY_DEVICE_IP, liveIp.ifBlank { savedIp })
+            .putString(KEY_DEVICE_ID, savedDeviceId)
+            .apply()
+
         val stillValid = isVerified && expiresAt > now
         if (isVerified && !stillValid) {
             // Package expired -> clear verified status so user reverts to Free tier
             prefs.edit().putBoolean(KEY_IS_VERIFIED, false).apply()
         }
+
+        val linkedUid = prefs.getString(KEY_LINKED_UID, "").orEmpty()
+        val linkedEmail = prefs.getString(KEY_LINKED_EMAIL, "").orEmpty()
+        val linkedName = prefs.getString(KEY_LINKED_NAME, "").orEmpty()
+        val requiresAuth = stillValid && linkedEmail.isBlank() && linkedUid.isBlank()
 
         _subscriptionState.value = PremiumSubscriptionState(
             isVerified = stillValid,
@@ -146,13 +267,34 @@ object NeliSubscriptionManager {
             amountTzs = prefs.getInt(KEY_AMOUNT_TZS, 0),
             phoneNumber = prefs.getString(KEY_PHONE, "").orEmpty(),
             orderId = prefs.getString(KEY_ORDER_ID, "").orEmpty(),
+            deviceIpAddress = liveIp.ifBlank { savedIp },
+            deviceId = savedDeviceId,
             activatedAtMs = prefs.getLong(KEY_ACTIVATED_AT, 0L),
             expiresAtMs = if (stillValid) expiresAt else 0L,
+            linkedUserUid = linkedUid,
+            linkedUserEmail = linkedEmail,
+            linkedUserName = linkedName,
+            requiresPostPaymentAuth = requiresAuth,
             pendingOrderId = prefs.getString(KEY_PENDING_ORDER_ID, "").orEmpty(),
             pendingPlanId = prefs.getString(KEY_PENDING_PLAN_ID, "").orEmpty(),
             pendingPhone = prefs.getString(KEY_PENDING_PHONE, "").orEmpty(),
             pendingAmountTzs = prefs.getInt(KEY_PENDING_AMOUNT, 0)
         )
+    }
+
+    fun refreshDeviceIp(context: Context): String {
+        val detectedIp = resolveDeviceIpAddress(context)
+        val deviceId = resolveDeviceIdentityId(context)
+        val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit()
+            .putString(KEY_DEVICE_IP, detectedIp)
+            .putString(KEY_DEVICE_ID, deviceId)
+            .apply()
+        _subscriptionState.value = _subscriptionState.value.copy(
+            deviceIpAddress = detectedIp,
+            deviceId = deviceId
+        )
+        return detectedIp
     }
 
     fun isPremiumMemberActive(): Boolean {
@@ -170,19 +312,25 @@ object NeliSubscriptionManager {
         phone: String,
         orderId: String
     ) {
+        val detectedIp = resolveDeviceIpAddress(context)
+        val deviceId = resolveDeviceIdentityId(context)
         val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit()
             .putString(KEY_PENDING_ORDER_ID, orderId)
             .putString(KEY_PENDING_PLAN_ID, plan.id)
             .putString(KEY_PENDING_PHONE, phone)
             .putInt(KEY_PENDING_AMOUNT, plan.amountTzs)
+            .putString(KEY_DEVICE_IP, detectedIp)
+            .putString(KEY_DEVICE_ID, deviceId)
             .apply()
 
         _subscriptionState.value = _subscriptionState.value.copy(
             pendingOrderId = orderId,
             pendingPlanId = plan.id,
             pendingPhone = phone,
-            pendingAmountTzs = plan.amountTzs
+            pendingAmountTzs = plan.amountTzs,
+            deviceIpAddress = detectedIp,
+            deviceId = deviceId
         )
     }
 
@@ -205,6 +353,11 @@ object NeliSubscriptionManager {
 
     /**
      * Activates Premium Membership ONLY after HarakaPay verifies `payment.status == "completed"`.
+     * Saves real payment data bound to the user's automatic Device IP (`deviceIpAddress`) and
+     * Device ID (`deviceId`) so even users who have not logged in or signed up keep their
+     * verified Premium Member status and real data.
+     * Also flags `requiresPostPaymentAuth = true` if the user has not yet linked an account so
+     * they can log in or sign up to sync their subscription across other devices and Cast sessions.
      */
     fun activateVerifiedSubscription(
         context: Context,
@@ -214,9 +367,13 @@ object NeliSubscriptionManager {
     ): PremiumSubscriptionState {
         val now = System.currentTimeMillis()
         val current = _subscriptionState.value
+        val detectedIp = resolveDeviceIpAddress(context)
+        val deviceId = resolveDeviceIdentityId(context)
         // If user already had active time remaining, extend from current expiry; otherwise from now
         val baseStart = if (current.isActiveNow && current.expiresAtMs > now) current.expiresAtMs else now
         val newExpiresAt = baseStart + plan.durationMillis
+
+        val needsPostPaymentAuth = current.linkedUserEmail.isBlank() && current.linkedUserUid.isBlank()
 
         val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit()
@@ -226,8 +383,11 @@ object NeliSubscriptionManager {
             .putInt(KEY_AMOUNT_TZS, plan.amountTzs)
             .putString(KEY_PHONE, phone)
             .putString(KEY_ORDER_ID, verifiedOrderId)
+            .putString(KEY_DEVICE_IP, detectedIp)
+            .putString(KEY_DEVICE_ID, deviceId)
             .putLong(KEY_ACTIVATED_AT, now)
             .putLong(KEY_EXPIRES_AT, newExpiresAt)
+            .putBoolean(KEY_REQUIRES_POST_PAYMENT_AUTH, needsPostPaymentAuth)
             .remove(KEY_PENDING_ORDER_ID)
             .remove(KEY_PENDING_PLAN_ID)
             .remove(KEY_PENDING_PHONE)
@@ -241,20 +401,142 @@ object NeliSubscriptionManager {
             amountTzs = plan.amountTzs,
             phoneNumber = phone,
             orderId = verifiedOrderId,
+            deviceIpAddress = detectedIp,
+            deviceId = deviceId,
             activatedAtMs = now,
             expiresAtMs = newExpiresAt,
+            linkedUserUid = current.linkedUserUid,
+            linkedUserEmail = current.linkedUserEmail,
+            linkedUserName = current.linkedUserName,
+            requiresPostPaymentAuth = needsPostPaymentAuth,
             pendingOrderId = "",
             pendingPlanId = "",
             pendingPhone = "",
             pendingAmountTzs = 0
         )
         _subscriptionState.value = newState
+
+        ioScope.launch {
+            try {
+                val dao = NeliDatabase.getInstance(context).mediaDao()
+                val activeUser = dao.getActiveUserOnce()
+                if (activeUser != null && activeUser.email.isNotBlank()) {
+                    linkUserAccountToSubscription(
+                        context = context,
+                        uid = activeUser.uid,
+                        email = activeUser.email,
+                        realName = activeUser.realName
+                    )
+                } else {
+                    saveRealSubscriptionDataByDeviceIp(dao, newState)
+                }
+            } catch (_: Throwable) {
+            }
+        }
         return newState
+    }
+
+    /**
+     * Links a logged-in or newly signed-up user account to the active device subscription
+     * so the user can log in on another device and carry over their verified VIP status
+     * and account details (including Cast display info).
+     */
+    fun linkUserAccountToSubscription(
+        context: Context? = null,
+        uid: String,
+        email: String,
+        realName: String
+    ): PremiumSubscriptionState {
+        val current = _subscriptionState.value
+        val updated = current.copy(
+            linkedUserUid = uid.trim(),
+            linkedUserEmail = email.trim(),
+            linkedUserName = realName.trim(),
+            requiresPostPaymentAuth = false
+        )
+        _subscriptionState.value = updated
+
+        if (context != null) {
+            val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            prefs.edit()
+                .putString(KEY_LINKED_UID, updated.linkedUserUid)
+                .putString(KEY_LINKED_EMAIL, updated.linkedUserEmail)
+                .putString(KEY_LINKED_NAME, updated.linkedUserName)
+                .putBoolean(KEY_REQUIRES_POST_PAYMENT_AUTH, false)
+                .apply()
+
+            ioScope.launch {
+                try {
+                    val dao = NeliDatabase.getInstance(context).mediaDao()
+                    if (updated.isVerified) {
+                        saveRealSubscriptionDataByDeviceIp(dao, updated)
+                    } else if (email.isNotBlank()) {
+                        val existingSub = dao.getDeviceSubscriptionByUserEmail(email.trim())
+                        val now = System.currentTimeMillis()
+                        if (existingSub != null && existingSub.isVerified && existingSub.expiresAtMs > now) {
+                            val restored = updated.copy(
+                                isVerified = true,
+                                planId = existingSub.planId,
+                                planTitle = existingSub.planTitle,
+                                amountTzs = existingSub.amountTzs,
+                                phoneNumber = existingSub.phoneNumber,
+                                orderId = existingSub.orderId,
+                                activatedAtMs = existingSub.activatedAtMs,
+                                expiresAtMs = existingSub.expiresAtMs,
+                                requiresPostPaymentAuth = false
+                            )
+                            _subscriptionState.value = restored
+                            prefs.edit()
+                                .putBoolean(KEY_IS_VERIFIED, true)
+                                .putString(KEY_PLAN_ID, restored.planId)
+                                .putString(KEY_PLAN_TITLE, restored.planTitle)
+                                .putInt(KEY_AMOUNT_TZS, restored.amountTzs)
+                                .putString(KEY_PHONE, restored.phoneNumber)
+                                .putString(KEY_ORDER_ID, restored.orderId)
+                                .putLong(KEY_ACTIVATED_AT, restored.activatedAtMs)
+                                .putLong(KEY_EXPIRES_AT, restored.expiresAtMs)
+                                .apply()
+                        }
+                    }
+                } catch (_: Throwable) {
+                }
+            }
+        }
+        return updated
+    }
+
+    suspend fun saveRealSubscriptionDataByDeviceIp(
+        dao: NeliMediaDao,
+        state: PremiumSubscriptionState = _subscriptionState.value
+    ): DeviceSubscriptionEntity {
+        val ip = state.deviceIpAddress.ifBlank { resolveDeviceIpAddress(null) }
+        val devId = state.deviceId.ifBlank { resolveDeviceIdentityId(null) }
+        val entity = DeviceSubscriptionEntity(
+            deviceIpAddress = ip,
+            deviceId = devId,
+            isVerified = state.isVerified,
+            planId = state.planId,
+            planTitle = state.planTitle,
+            amountTzs = state.amountTzs,
+            phoneNumber = state.phoneNumber,
+            orderId = state.orderId,
+            activatedAtMs = state.activatedAtMs,
+            expiresAtMs = state.expiresAtMs,
+            linkedUserUid = state.linkedUserUid,
+            linkedUserEmail = state.linkedUserEmail,
+            linkedUserName = state.linkedUserName,
+            updatedAtMs = System.currentTimeMillis()
+        )
+        dao.upsertDeviceSubscription(entity)
+        return entity
     }
 
     fun resetForTesting(context: Context? = null) {
         context?.applicationContext?.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             ?.edit()?.clear()?.commit()
-        _subscriptionState.value = PremiumSubscriptionState()
+        _subscriptionState.value = PremiumSubscriptionState(
+            deviceIpAddress = resolveDeviceIpAddress(context),
+            deviceId = resolveDeviceIdentityId(context)
+        )
     }
 }

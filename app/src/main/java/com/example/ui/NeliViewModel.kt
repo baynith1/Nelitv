@@ -253,6 +253,34 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
 
+        // Automatically link authenticated user account to subscription & sync Cast user info
+        viewModelScope.launch(Dispatchers.IO) {
+            combine(
+                authenticationRepository.currentUserFlow,
+                com.example.data.NeliSubscriptionManager.subscriptionState
+            ) { user, subState ->
+                Pair(user, subState)
+            }.collect { (user, subState) ->
+                if (user != null && user.email.isNotBlank()) {
+                    if (subState.linkedUserEmail != user.email || subState.requiresPostPaymentAuth) {
+                        com.example.data.NeliSubscriptionManager.linkUserAccountToSubscription(
+                            context = appContext,
+                            uid = user.uid,
+                            email = user.email,
+                            realName = user.realName
+                        )
+                    }
+                }
+                com.example.player.NeliCastManager.syncUserAndSubscriptionInfo(
+                    userName = user?.realName ?: subState.linkedUserName,
+                    email = user?.email ?: subState.linkedUserEmail,
+                    planTitle = subState.planTitle,
+                    isVerified = subState.isActiveNow,
+                    deviceIp = subState.deviceIpAddress
+                )
+            }
+        }
+
         // Refresh Azam TV CDN token and Discovery catalog in background
         viewModelScope.launch(Dispatchers.IO) {
             while (isActive) {
@@ -631,7 +659,14 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
                 password = password
             )
             _isAuthLoading.value = false
-            result.onFailure { err ->
+            result.onSuccess { user ->
+                com.example.data.NeliSubscriptionManager.linkUserAccountToSubscription(
+                    context = appContext,
+                    uid = user.uid,
+                    email = user.email,
+                    realName = user.realName
+                )
+            }.onFailure { err ->
                 _authError.value = err.message ?: "Unable to create account."
             }
         }
@@ -647,7 +682,14 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
                 password = password
             )
             _isAuthLoading.value = false
-            result.onFailure { err ->
+            result.onSuccess { user ->
+                com.example.data.NeliSubscriptionManager.linkUserAccountToSubscription(
+                    context = appContext,
+                    uid = user.uid,
+                    email = user.email,
+                    realName = user.realName
+                )
+            }.onFailure { err ->
                 _authError.value = err.message ?: "Invalid email or password."
             }
         }

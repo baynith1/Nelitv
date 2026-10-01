@@ -113,6 +113,7 @@ import com.example.data.ChannelRepository
 import com.example.data.MediaContentRepository
 import com.example.data.NeliAdminManager
 import com.example.data.NeliSubscriptionManager
+import com.example.ui.theme.rememberNeliScreenProfile
 import com.example.data.local.DownloadedItemEntity
 import com.example.data.local.FirebaseConfigEntity
 import com.example.data.local.UserAccountEntity
@@ -141,6 +142,7 @@ fun MediaPosterCard(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val screenProfile = rememberNeliScreenProfile()
     val primaryImageUrl = remember(media.id, media.posterUrl, media.backdropUrl, media.streamUrl) {
         MediaContentRepository.resolveGuaranteedMediaImageUrl(
             media.posterUrl,
@@ -158,7 +160,7 @@ fun MediaPosterCard(
 
     Column(
         modifier = modifier
-            .width(152.dp)
+            .width(screenProfile.posterCardWidth)
             .clip(RoundedCornerShape(16.dp))
             .background(NeliSurface)
             .border(
@@ -2167,12 +2169,14 @@ fun AccountTabContent(
         return
     }
 
+    val screenProfile = rememberNeliScreenProfile()
+
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
-            .padding(horizontal = 16.dp)
+            .padding(horizontal = screenProfile.horizontalPadding)
             .testTag("account_tab_screen"),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        verticalArrangement = Arrangement.spacedBy(screenProfile.cardSpacing),
         contentPadding = PaddingValues(top = 12.dp, bottom = 100.dp)
     ) {
         if (currentUser != null) {
@@ -2326,6 +2330,116 @@ fun AccountTabContent(
                 }
             }
         } else {
+            // Automatic Ready Device IP & Verified Premium Member Card (when user has NOT logged in or signed up)
+            item {
+                val localCtx = LocalContext.current
+                val detectedDeviceIp = subState.deviceIpAddress.ifBlank {
+                    NeliSubscriptionManager.resolveDeviceIpAddress(localCtx)
+                }
+                if (isVerifiedPremiumMember) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(22.dp))
+                            .background(Color(0xFF1A160B))
+                            .border(1.5.dp, Color(0xFFF59E0B), RoundedCornerShape(22.dp))
+                            .padding(18.dp)
+                            .testTag("account_device_ip_premium_card"),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.testTag("account_premium_verified_badge")
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0x3310B981)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Verified,
+                                    contentDescription = "Verified Premium Member Tick",
+                                    tint = Color(0xFF34D399),
+                                    modifier = Modifier.size(26.dp)
+                                )
+                            }
+                            Column {
+                                Text(
+                                    text = "✓ VERIFIED ACCOUNT (AUTO DEVICE IP)",
+                                    color = Color(0xFF34D399),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                                Text(
+                                    text = "Premium Member ✓",
+                                    color = Color(0xFFFBBF24),
+                                    fontSize = 19.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                            }
+                        }
+                        Text(
+                            text = "Real Data Imesajiliwa (Bila Login/Sign Up) • Device IP: $detectedDeviceIp",
+                            color = NeliGenreCyan,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                        Text(
+                            text = "Kifurushi: ${subState.planTitle.ifBlank { "VIP" }} • TZS ${subState.amountTzs}",
+                            color = Color.White,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Simu: ${subState.phoneNumber} • Order ID: ${subState.orderId}",
+                            color = NeliTextSecondary,
+                            fontSize = 12.sp
+                        )
+                        Text(
+                            text = "${subState.remainingDaysOrHoursLabel} (Inaisha: ${subState.formattedExpiryDate})",
+                            color = Color(0xFF34D399),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(Color(0xFF10222E))
+                            .border(1.dp, NeliGenreCyan.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
+                            .padding(14.dp)
+                            .testTag("account_auto_device_ip_ready_banner"),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Verified,
+                            contentDescription = "Auto Ready Device IP",
+                            tint = Color(0xFF34D399),
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Auto-Ready Device IP: $detectedDeviceIp",
+                                color = NeliGenreCyan,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.ExtraBold
+                            )
+                            Text(
+                                text = "Unaweza kulipia Premium moja kwa moja bila Login au Sign Up — taarifa zako halisi zinahifadhiwa kwa Device IP yako.",
+                                color = NeliTextSecondary,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+                }
+            }
+
             // Sign Up / Sign In Authentication Card (Automatic login upon registration)
             item {
                 Column(
@@ -2679,6 +2793,11 @@ fun AccountTabContent(
             }
         }
 
+        // Share APK (Scan to Download QR + Share Link) ABOVE Home Screen Widget & Check/Auto-Update from GitHub Release
+        item {
+            NeliShareApkAndAutoUpdateSection()
+        }
+
         // Theme Colour Changer Card (Black Mode <-> White Mode)
         item {
             val context = LocalContext.current
@@ -2937,11 +3056,6 @@ fun AccountTabContent(
                     )
                 }
             }
-        }
-
-        // Share APK (Scan to Download QR + Share Link) & Check/Auto-Update from GitHub Release (v1.0.0)
-        item {
-            NeliShareApkAndAutoUpdateSection()
         }
 
         // Customer Care (+255760816851 • Neliplay Customercare • Alex Michael Baineth), About Us, Contact Us & Relevant Pages

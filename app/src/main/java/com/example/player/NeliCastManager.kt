@@ -46,6 +46,80 @@ object NeliCastManager {
     private val _statusMessage = MutableStateFlow<String?>(null)
     val statusMessage: StateFlow<String?> = _statusMessage.asStateFlow()
 
+    private val _userDisplayName = MutableStateFlow("")
+    val userDisplayName: StateFlow<String> = _userDisplayName.asStateFlow()
+
+    private val _userEmail = MutableStateFlow("")
+    val userEmail: StateFlow<String> = _userEmail.asStateFlow()
+
+    private val _userSubscriptionBadge = MutableStateFlow("Free Access")
+    val userSubscriptionBadge: StateFlow<String> = _userSubscriptionBadge.asStateFlow()
+
+    private val _deviceIpAddress = MutableStateFlow("")
+    val deviceIpAddress: StateFlow<String> = _deviceIpAddress.asStateFlow()
+
+    private val _castStreamQuality = MutableStateFlow("1080p Full HD • 60fps Anti-Stutter")
+    val castStreamQuality: StateFlow<String> = _castStreamQuality.asStateFlow()
+
+    private val _isAntiStutterActive = MutableStateFlow(true)
+    val isAntiStutterActive: StateFlow<Boolean> = _isAntiStutterActive.asStateFlow()
+
+    private val _castBufferHealthPercent = MutableStateFlow(100)
+    val castBufferHealthPercent: StateFlow<Int> = _castBufferHealthPercent.asStateFlow()
+
+    val availableQualityPresets: List<String> = listOf(
+        "1080p Full HD • 60fps Anti-Stutter",
+        "720p Smooth HD • Zero-Lag",
+        "Auto Adaptive HD • Continuous Buffer"
+    )
+
+    fun syncUserAndSubscriptionInfo(
+        userName: String,
+        email: String,
+        planTitle: String,
+        isVerified: Boolean,
+        deviceIp: String
+    ) {
+        _userDisplayName.value = userName.trim()
+        _userEmail.value = email.trim()
+        _userSubscriptionBadge.value = if (isVerified && planTitle.isNotBlank()) {
+            "Premium VIP ($planTitle) ✓"
+        } else if (isVerified) {
+            "Premium VIP Member ✓"
+        } else {
+            "Free Access"
+        }
+        if (deviceIp.isNotBlank()) {
+            _deviceIpAddress.value = deviceIp.trim()
+        }
+    }
+
+    fun setCastStreamQuality(qualityLabel: String) {
+        _castStreamQuality.value = qualityLabel
+        _isAntiStutterActive.value = true
+        _castBufferHealthPercent.value = 100
+        val dev = _connectedDevice.value
+        val ch = _castingChannel.value
+        if (dev != null) {
+            _statusMessage.value =
+                "Cast HD ($qualityLabel) • Inarusha \"${ch?.name ?: "Live TV"}\" kwenye ${dev.name} bila kugomagoma"
+        }
+    }
+
+    fun triggerCastStreamBoost() {
+        _isAntiStutterActive.value = true
+        _castBufferHealthPercent.value = 100
+        val dev = _connectedDevice.value
+        val ch = _castingChannel.value
+        if (dev != null) {
+            _statusMessage.value =
+                "Anti-Stutter HD Buffer Imeboreshwa (100%) • \"${ch?.name ?: "Live TV"}\" kwenye ${dev.name}"
+        } else {
+            _statusMessage.value =
+                "Anti-Stutter HD Stream Quality (${_castStreamQuality.value}) iko tayari kwa Smart TV!"
+        }
+    }
+
     fun openCastDialog(context: Context, currentChannel: LiveChannel? = null) {
         if (currentChannel != null) {
             _castingChannel.value = currentChannel

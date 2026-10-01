@@ -505,10 +505,7 @@ fun NeliShareApkAndAutoUpdateSection(
             .testTag("share_apk_and_update_section"),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // 0. Home Screen Widget Setup & Instant Home Screen Placement Card
-        NeliHomeWidgetAccountSetupCard()
-
-        // 1. Share APK by Scan to Download QR & Share by Link Card
+        // 1. Share APK by Scan to Download QR & Share by Link Card (Positioned ABOVE Home Screen Widget)
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -674,6 +671,9 @@ fun NeliShareApkAndAutoUpdateSection(
                 }
             }
         }
+
+        // 2. Home Screen Widget Setup & Instant Home Screen Placement Card (Below Share APK • Scan to Download)
+        NeliHomeWidgetAccountSetupCard()
 
         // 2. Check for New Update & Automatic Update Card (GitHub Release + What's New)
         Column(
@@ -1016,6 +1016,13 @@ fun NeliHomeWidgetAccountSetupCard(
                 )
             )
             .border(1.dp, NeliGenreCyan.copy(alpha = 0.6f), RoundedCornerShape(22.dp))
+            .clickable {
+                NeliHomeWidgetProvider.setAndShowWidgetOnHomeScreen(
+                    context = context,
+                    navigateToHomeScreen = true
+                )
+                isPinnedLocal = true
+            }
             .padding(16.dp)
             .testTag("account_widget_setup_card"),
         verticalArrangement = Arrangement.spacedBy(12.dp)

@@ -1231,15 +1231,16 @@ class ExampleRobolectricTest {
         assertTrue("Expected file:// URI when resolving by media ID, got $resolvedByIdUri", resolvedByIdUri.startsWith("file:"))
 
         // 10. Verify Bottom Navigation Tabs (Home, Discovery, Premium, Downloads, Account),
-        //     HarakaPay TZS Subscription Plans (500 / 3,000 / 10,000 TSh),
+        //     HarakaPay TZS Subscription Plans (1,000 TSh for 2 days / 3,500 TSh for week / 15,000 TSh for month),
         //     Strict Payment Verification, Mini Admin Panel (Admin@login.com / 123456),
         //     Channel Lock for Free Users vs Open for Premium Members, and Smart TV Cast
         val navLabels = com.example.ui.components.BottomNavTab.entries.map { it.label }
         assertEquals(listOf("Home", "Discovery", "Premium", "Downloads", "Account"), navLabels)
 
-        assertEquals(500, com.example.data.SubscriptionPlanType.DAILY.amountTzs)
-        assertEquals(3000, com.example.data.SubscriptionPlanType.WEEKLY.amountTzs)
-        assertEquals(10000, com.example.data.SubscriptionPlanType.MONTHLY.amountTzs)
+        assertEquals(1000, com.example.data.SubscriptionPlanType.DAILY.amountTzs)
+        assertEquals("Kwa Siku Mbili", com.example.data.SubscriptionPlanType.DAILY.titleSwahili)
+        assertEquals(3500, com.example.data.SubscriptionPlanType.WEEKLY.amountTzs)
+        assertEquals(15000, com.example.data.SubscriptionPlanType.MONTHLY.amountTzs)
         assertTrue(com.example.data.HarakaPayRepository.resolveApiKey().startsWith("hpk_"))
 
         com.example.data.NeliSubscriptionManager.initialize(context)
@@ -1324,6 +1325,133 @@ class ExampleRobolectricTest {
         assertEquals("sw", swahiliOnlyController.switchAzamAudioLanguage("en"))
         assertEquals("sw", swahiliOnlyController.playbackInfo.value.activeAudioLanguage)
         swahiliOnlyController.release()
+
+        // 12. Verify PaymentService (HarakaPay API USSD push initiation, order status verification, headers, and error handling)
+        var capturedMethod = ""
+        var capturedUrl = ""
+        var capturedHeaders: Map<String, String> = emptyMap()
+        var capturedBody: String? = null
+
+        val fakeTransport = com.example.data.PaymentHttpTransport { method, url, headers, requestBody ->
+            capturedMethod = method
+            capturedUrl = url
+            capturedHeaders = headers
+            capturedBody = requestBody
+            when {
+                url.endsWith("/api/v1/collect") -> com.example.data.PaymentHttpResponse(
+                    statusCode = 200,
+                    body = """{"success":true,"message":"USSD push sent","order_id":"HP_ORD_998877","amount":3000,"net_amount":2910,"fee":90}"""
+                )
+                url.endsWith("/api/v1/status/HP_ORD_998877") -> com.example.data.PaymentHttpResponse(
+                    statusCode = 200,
+                    body = """{"success":true,"payment":{"order_id":"HP_ORD_998877","status":"completed","amount":3000,"net_amount":2910,"fee_amount":90}}"""
+                )
+                url.endsWith("/api/v1/status/HP_ORD_FAIL") -> com.example.data.PaymentHttpResponse(
+                    statusCode = 401,
+                    body = """{"success":false,"error":"Invalid API key"}"""
+                )
+                else -> com.example.data.PaymentHttpResponse(statusCode = 404, body = """{"success":false,"error":"Not found"}""")
+            }
+        }
+
+        val paymentService = com.example.data.PaymentService(
+            apiKey = "hpk_93b63ba05db51f1963b174570c71762a73541195bdbc5538",
+            baseUrl = "https://harakapay.net",
+            httpTransport = fakeTransport
+        )
+
+        val collectResult = paymentService.initiateUssdPushPaymentBlocking(
+            phone = "+255712345678",
+            amount = 3000,
+            description = "Nelitv Weekly VIP"
+        )
+        assertTrue(collectResult.isSuccess)
+        assertEquals("POST", capturedMethod)
+        assertEquals("https://harakapay.net/api/v1/collect", capturedUrl)
+        assertEquals(
+            "hpk_93b63ba05db51f1963b174570c71762a73541195bdbc5538",
+            capturedHeaders[com.example.data.PaymentService.HEADER_API_KEY]
+        )
+        assertEquals("application/json", capturedHeaders[com.example.data.PaymentService.HEADER_CONTENT_TYPE])
+        assertTrue(capturedBody.orEmpty().contains("0712345678"))
+        assertEquals("HP_ORD_998877", collectResult.getOrNull()?.orderId)
+
+        val statusResult = paymentService.verifyOrderStatusBlocking("HP_ORD_998877")
+        assertTrue(statusResult.isSuccess)
+        assertEquals("GET", capturedMethod)
+        assertEquals("https://harakapay.net/api/v1/status/HP_ORD_998877", capturedUrl)
+        assertTrue(statusResult.getOrNull()!!.isCompleted)
+
+        // Verify error responses (invalid phone, amount < 100, and HTTP 401 error response)
+        val badPhoneRes = paymentService.initiateUssdPushPaymentBlocking("12345", 500, "Test")
+        assertTrue(badPhoneRes.isFailure)
+        val badAmountRes = paymentService.initiateUssdPushPaymentBlocking("0712345678", 50, "Test")
+        assertTrue(badAmountRes.isFailure)
+        val unauthorizedStatusRes = paymentService.verifyOrderStatusBlocking("HP_ORD_FAIL")
+        assertTrue(unauthorizedStatusRes.isFailure)
+
+        // 13. Verify Automatic Ready Device IP payment without login or signup saves real data
+        com.example.data.NeliSubscriptionManager.resetForTesting(context)
+        val detectedIp = com.example.data.NeliSubscriptionManager.refreshDeviceIp(context)
+        assertTrue(detectedIp.isNotBlank())
+
+        val verifiedNoLoginState = com.example.data.NeliSubscriptionManager.activateVerifiedSubscription(
+            context = context,
+            plan = com.example.data.SubscriptionPlanType.WEEKLY,
+            phone = "0712345678",
+            verifiedOrderId = "HP_ORD_998877"
+        )
+        assertTrue(verifiedNoLoginState.isActiveNow)
+        assertTrue(verifiedNoLoginState.isVerified)
+        assertEquals(detectedIp, verifiedNoLoginState.deviceIpAddress)
+        assertEquals("0712345678", verifiedNoLoginState.phoneNumber)
+        assertEquals("HP_ORD_998877", verifiedNoLoginState.orderId)
+
+        val dbSub = androidx.room.Room.inMemoryDatabaseBuilder(
+            context,
+            com.example.data.local.NeliDatabase::class.java
+        ).allowMainThreadQueries().build()
+        kotlinx.coroutines.runBlocking {
+            val savedEntity = com.example.data.NeliSubscriptionManager.saveRealSubscriptionDataByDeviceIp(
+                dao = dbSub.mediaDao(),
+                state = verifiedNoLoginState
+            )
+            assertEquals(detectedIp, savedEntity.deviceIpAddress)
+            val queriedEntity = dbSub.mediaDao().getDeviceSubscriptionByIp(detectedIp)
+            assertNotNull(queriedEntity)
+            assertTrue(queriedEntity!!.isVerified)
+            assertEquals("HP_ORD_998877", queriedEntity.orderId)
+            assertEquals(3000, queriedEntity.amountTzs)
+        }
+        dbSub.close()
+
+        // 14. Verify Live Stream Freeze / Stall Auto-Fix Engine automatically recovers stuck live stream
+        val liveAutoFixController = com.example.player.LivePlayerController(context, azamSportsChannel)
+        // Initial healthy tick at t = 1,000ms, position = 5,000ms
+        org.junit.Assert.assertFalse(
+            liveAutoFixController.checkAndAutoFixLiveStreamStall(
+                currentPositionMs = 5_000L,
+                playbackState = androidx.media3.common.Player.STATE_READY,
+                isPlaying = true,
+                elapsedRealtimeMs = 1_000L
+            )
+        )
+        // Frozen position at 5,000ms for 2,500ms (t = 3,500ms) -> Auto-Fix must trigger automatically!
+        assertTrue(
+            liveAutoFixController.checkAndAutoFixLiveStreamStall(
+                currentPositionMs = 5_000L,
+                playbackState = androidx.media3.common.Player.STATE_READY,
+                isPlaying = true,
+                elapsedRealtimeMs = 3_500L
+            )
+        )
+        assertEquals(1, liveAutoFixController.playbackInfo.value.liveAutoFixCount)
+        assertTrue(
+            liveAutoFixController.playbackInfo.value.lastAutoFixReason
+                .orEmpty()
+                .contains("live_position_frozen")
+        )
+        liveAutoFixController.release()
 
         completedFile.delete()
         controller.release()

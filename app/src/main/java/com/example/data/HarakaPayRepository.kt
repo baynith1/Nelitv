@@ -59,8 +59,7 @@ data class HarakaPayBalanceResponse(
  */
 object HarakaPayRepository {
 
-    const val BASE_URL = "https://harakapay.net"
-    private const val FALLBACK_PROTOTYPE_KEY = "hpk_93b63ba05db51f1963b174570c71762a73541195bdbc5538"
+    const val BASE_URL = PaymentService.DEFAULT_BASE_URL
 
     /**
      * Test hook for unit/Robolectric tests to intercept network requests deterministically without
@@ -72,272 +71,46 @@ object HarakaPayRepository {
     @Volatile
     var testStatusInterceptor: ((orderId: String) -> HarakaPayStatusResponse)? = null
 
-    fun resolveApiKey(): String {
-        val fromBuildConfig = try {
-            BuildConfig.HARAKAPAY_API_KEY.trim()
-        } catch (_: Throwable) {
-            ""
-        }
-        return if (fromBuildConfig.isNotBlank() && fromBuildConfig != "YOUR_HARAKAPAY_API_KEY") {
-            fromBuildConfig
-        } else {
-            FALLBACK_PROTOTYPE_KEY
-        }
-    }
+    val paymentService: PaymentService
+        get() = PaymentService(apiKey = resolveApiKey(), baseUrl = BASE_URL)
+
+    fun resolveApiKey(): String = PaymentService.resolveConfiguredApiKey()
 
     /**
      * Normalizes Tanzanian mobile phone numbers into the `07XXXXXXXX` / `06XXXXXXXX` format expected by HarakaPay.
-     * Examples:
-     * - `+255 712 345 678` -> `0712345678`
-     * - `255712345678` -> `0712345678`
-     * - `0712345678` -> `0712345678`
-     * - `712345678` -> `0712345678`
      */
-    fun normalizeTzPhoneNumber(rawPhone: String): String {
-        val digitsOnly = rawPhone.trim().filter { it.isDigit() }
-        return when {
-            digitsOnly.startsWith("255") && digitsOnly.length == 12 -> "0" + digitsOnly.substring(3)
-            digitsOnly.length == 9 && (digitsOnly.startsWith("7") || digitsOnly.startsWith("6")) -> "0$digitsOnly"
-            else -> digitsOnly
-        }
-    }
+    fun normalizeTzPhoneNumber(rawPhone: String): String =
+        PaymentService.normalizePhoneNumber(rawPhone)
 
-    fun isValidTzPhoneNumber(rawPhone: String): Boolean {
-        val normalized = normalizeTzPhoneNumber(rawPhone)
-        return normalized.length == 10 && (normalized.startsWith("07") || normalized.startsWith("06"))
-    }
+    fun isValidTzPhoneNumber(rawPhone: String): Boolean =
+        PaymentService.isValidPhoneNumber(rawPhone)
 
     /**
-     * Sends a USSD push payment collection request to the customer's phone (`POST /api/v1/collect`).
+     * Sends a USSD push payment collection request to the customer's phone (`POST /api/v1/collect`)
+     * via [PaymentService].
      */
     suspend fun collectPayment(
         phone: String,
         amount: Int,
         description: String
-    ): Result<HarakaPayCollectResponse> = withContext(Dispatchers.IO) {
-        val normalizedPhone = normalizeTzPhoneNumber(phone)
-        if (!isValidTzPhoneNumber(normalizedPhone)) {
-            return@withContext Result.failure(
-                IllegalArgumentException("Tafadhali weka namba sahihi ya simu ya Tanzania (mfano: 0712345678 au 0655123456).")
-            )
-        }
-        if (amount < 100) {
-            return@withContext Result.failure(
-                IllegalArgumentException("Kiasi cha chini cha malipo ni 100 TSh.")
-            )
-        }
-
-        testCollectInterceptor?.let { interceptor ->
-            val resp = interceptor(normalizedPhone, amount, description)
-            return@withContext if (resp.success && resp.orderId.isNotBlank()) {
-                Result.success(resp)
-            } else {
-                Result.failure(IllegalStateException(resp.errorMessage.ifBlank { resp.message.ifBlank { "Malipo yameshindikana kuanzishwa." } }))
-            }
-        }
-
-        try {
-            val apiKey = resolveApiKey()
-            val url = URL("$BASE_URL/api/v1/collect")
-            val payload = JSONObject().apply {
-                put("phone", normalizedPhone)
-                put("amount", amount)
-                put("description", description)
-            }
-
-            val conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "POST"
-                connectTimeout = 15_000
-                readTimeout = 20_000
-                doOutput = true
-                doInput = true
-                setRequestProperty("Content-Type", "application/json")
-                setRequestProperty("Accept", "application/json")
-                setRequestProperty("X-API-Key", apiKey)
-            }
-
-            conn.outputStream.use { os ->
-                os.write(payload.toString().toByteArray(Charsets.UTF_8))
-            }
-
-            val responseCode = conn.responseCode
-            val rawBody = try {
-                val stream = if (responseCode in 200..299) conn.inputStream else conn.errorStream
-                stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
-            } catch (_: Exception) {
-                ""
-            }
-
-            if (rawBody.isBlank()) {
-                return@withContext Result.failure(
-                    IllegalStateException("HarakaPay haijajibu (HTTP $responseCode). Hakikisha una internet kisha jaribu tena.")
-                )
-            }
-
-            val json = JSONObject(rawBody)
-            val success = json.optBoolean("success", false)
-            val message = json.optString("message", "")
-            val errorMsg = json.optString("error", json.optString("detail", message))
-            val orderId = json.optString("order_id", "").trim()
-            val respAmount = json.optInt("amount", amount)
-            val netAmount = json.optInt("net_amount", respAmount)
-            val fee = json.optInt("fee", (respAmount - netAmount).coerceAtLeast(0))
-
-            if (success && orderId.isNotBlank()) {
-                Result.success(
-                    HarakaPayCollectResponse(
-                        success = true,
-                        message = message.ifBlank { "USSD push imetumwa kwenye simu yako ($normalizedPhone)." },
-                        orderId = orderId,
-                        amount = respAmount,
-                        netAmount = netAmount,
-                        fee = fee
-                    )
-                )
-            } else {
-                Result.failure(
-                    IllegalStateException(
-                        errorMsg.ifBlank { "Imeshindikana kutuma USSD push kwenye namba $normalizedPhone. Jaribu tena." }
-                    )
-                )
-            }
-        } catch (e: Exception) {
-            Result.failure(
-                IllegalStateException(
-                    "Tatizo la mtandao wakati wa kuwasiliana na HarakaPay: ${e.localizedMessage ?: "Angalia internet yako"}"
-                )
-            )
-        }
-    }
+    ): Result<HarakaPayCollectResponse> =
+        paymentService.initiateUssdPushPayment(
+            phone = phone,
+            amount = amount,
+            description = description
+        )
 
     /**
-     * Checks payment verification status on HarakaPay (`GET /api/v1/status/{order_id}`).
-     * Only when `payment.status == "completed"` is the user verified as paid.
+     * Checks payment verification status on HarakaPay (`GET /api/v1/status/{order_id}`)
+     * via [PaymentService].
      */
-    suspend fun checkPaymentStatus(orderId: String): Result<HarakaPayStatusResponse> = withContext(Dispatchers.IO) {
-        val cleanOrderId = orderId.trim()
-        if (cleanOrderId.isBlank()) {
-            return@withContext Result.failure(IllegalArgumentException("Order ID haipo."))
-        }
-
-        testStatusInterceptor?.let { interceptor ->
-            val resp = interceptor(cleanOrderId)
-            return@withContext if (resp.success) {
-                Result.success(resp)
-            } else {
-                Result.failure(IllegalStateException(resp.errorMessage.ifBlank { "Imeshindikana kuhakiki malipo." }))
-            }
-        }
-
-        try {
-            val apiKey = resolveApiKey()
-            val url = URL("$BASE_URL/api/v1/status/$cleanOrderId")
-            val conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "GET"
-                connectTimeout = 12_000
-                readTimeout = 15_000
-                doInput = true
-                setRequestProperty("Accept", "application/json")
-                setRequestProperty("X-API-Key", apiKey)
-            }
-
-            val responseCode = conn.responseCode
-            val rawBody = try {
-                val stream = if (responseCode in 200..299) conn.inputStream else conn.errorStream
-                stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
-            } catch (_: Exception) {
-                ""
-            }
-
-            if (rawBody.isBlank()) {
-                return@withContext Result.failure(
-                    IllegalStateException("Imeshindikana kusoma hali ya malipo (HTTP $responseCode).")
-                )
-            }
-
-            val json = JSONObject(rawBody)
-            val success = json.optBoolean("success", responseCode in 200..299)
-            val paymentObj = json.optJSONObject("payment") ?: json
-            val statusStr = paymentObj.optString("status", json.optString("status", "pending")).trim().lowercase()
-            val parsedOrderId = paymentObj.optString("order_id", cleanOrderId).ifBlank { cleanOrderId }
-            val amount = paymentObj.optInt("amount", 0)
-            val netAmount = paymentObj.optInt("net_amount", 0)
-            val feeAmount = paymentObj.optInt("fee_amount", paymentObj.optInt("fee", 0))
-            val createdAt = paymentObj.optString("created_at", "")
-            val completedAt = paymentObj.optString("completed_at", "")
-            val errorMsg = json.optString("error", json.optString("message", ""))
-
-            Result.success(
-                HarakaPayStatusResponse(
-                    success = success,
-                    orderId = parsedOrderId,
-                    status = statusStr,
-                    amount = amount,
-                    netAmount = netAmount,
-                    feeAmount = feeAmount,
-                    createdAt = createdAt,
-                    completedAt = completedAt,
-                    errorMessage = errorMsg
-                )
-            )
-        } catch (e: Exception) {
-            Result.failure(
-                IllegalStateException(
-                    "Imeshindikana kuhakiki malipo kwenye HarakaPay: ${e.localizedMessage ?: "Angalia internet yako"}"
-                )
-            )
-        }
-    }
+    suspend fun checkPaymentStatus(orderId: String): Result<HarakaPayStatusResponse> =
+        paymentService.verifyOrderStatus(orderId)
 
     /**
-     * Fetches wallet and float balance from HarakaPay (`GET /api/v1/balance`).
+     * Fetches wallet and float balance from HarakaPay (`GET /api/v1/balance`)
+     * via [PaymentService].
      */
-    suspend fun getBalance(): Result<HarakaPayBalanceResponse> = withContext(Dispatchers.IO) {
-        try {
-            val apiKey = resolveApiKey()
-            val url = URL("$BASE_URL/api/v1/balance")
-            val conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "GET"
-                connectTimeout = 10_000
-                readTimeout = 12_000
-                doInput = true
-                setRequestProperty("Accept", "application/json")
-                setRequestProperty("X-API-Key", apiKey)
-            }
-
-            val responseCode = conn.responseCode
-            val rawBody = try {
-                val stream = if (responseCode in 200..299) conn.inputStream else conn.errorStream
-                stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
-            } catch (_: Exception) {
-                ""
-            }
-
-            if (rawBody.isBlank()) {
-                return@withContext Result.failure(
-                    IllegalStateException("Imeshindikana kupata salio (HTTP $responseCode).")
-                )
-            }
-
-            val json = JSONObject(rawBody)
-            val success = json.optBoolean("success", false)
-            val walletBalance = json.optLong("wallet_balance", 0L)
-            val floatBalance = json.optLong("float_balance", 0L)
-            val errorMsg = json.optString("error", json.optString("message", ""))
-
-            if (success) {
-                Result.success(
-                    HarakaPayBalanceResponse(
-                        success = true,
-                        walletBalance = walletBalance,
-                        floatBalance = floatBalance
-                    )
-                )
-            } else {
-                Result.failure(IllegalStateException(errorMsg.ifBlank { "Imeshindikana kupata salio la HarakaPay." }))
-            }
-        } catch (e: Exception) {
-            Result.failure(IllegalStateException("Tatizo la mtandao: ${e.localizedMessage ?: "Jaribu tena"}"))
-        }
-    }
+    suspend fun getBalance(): Result<HarakaPayBalanceResponse> =
+        paymentService.getBalance()
 }

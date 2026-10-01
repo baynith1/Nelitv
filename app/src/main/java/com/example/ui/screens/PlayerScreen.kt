@@ -551,6 +551,18 @@ fun PlayerScreen(
             modifier = Modifier.fillMaxSize()
         )
 
+        // Always-On Live Stream Freeze / Stall Auto-Fix Watchdog (runs even when player controls are hidden):
+        // Automatically detects and fixes any live stream stall or freeze so the user never has to manually
+        // press the bottom "LIVE STREAM • CONTINUOUS REAL-TIME PLAYBACK" button.
+        LaunchedEffect(activeChannel.id, activeChannel.isLiveBroadcast) {
+            if (activeChannel.isLiveBroadcast) {
+                while (true) {
+                    delay(900L)
+                    playerController.checkAndAutoFixLiveStreamStall()
+                }
+            }
+        }
+
         // Interactive Gesture Surface:
         // - Single Tap: Toggle overlay controls
         // - Double Tap Left / Right: Custom 10s backward / forward seek with cumulative multi-tap counter
@@ -1357,21 +1369,14 @@ fun PlayerScreen(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         if (activeChannel.isLiveBroadcast) {
-                            // Automatic watchdog: if Live TV ever pauses while ready, automatically invoke syncToLiveEdge()
-                            // so the user never has to manually click the bottom "LIVE STREAM • CONTINUOUS REAL-TIME PLAYBACK" button.
-                            LaunchedEffect(activeChannel.id, playbackInfo.isPlaying, uiState) {
-                                if (!playbackInfo.isPlaying && uiState is PlayerUiState.Ready) {
-                                    kotlinx.coroutines.delay(1200L)
-                                    playerController.syncToLiveEdge()
-                                }
-                            }
-                            // Live Real-Time Broadcast Badge (No timeline, no pause!)
+                            // Live Real-Time Broadcast Badge with Auto-Fix (No timeline, no pause!)
                             Row(
                                 modifier = Modifier
+                                    .testTag("live_stream_continuous_playback_button")
                                     .clip(RoundedCornerShape(20.dp))
                                     .background(Color(0xAA2B1055))
                                     .border(1.dp, NeliMagenta, RoundedCornerShape(20.dp))
-                                    .clickable { playerController.syncToLiveEdge() }
+                                    .clickable { playerController.syncToLiveEdge("manual_live_edge_button") }
                                     .padding(horizontal = 14.dp, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -1389,7 +1394,7 @@ fun PlayerScreen(
                                     modifier = Modifier.size(16.dp)
                                 )
                                 Text(
-                                    text = "LIVE STREAM • CONTINUOUS REAL-TIME PLAYBACK",
+                                    text = "LIVE STREAM • CONTINUOUS REAL-TIME PLAYBACK (AUTO-FIX)",
                                     color = Color.White,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold

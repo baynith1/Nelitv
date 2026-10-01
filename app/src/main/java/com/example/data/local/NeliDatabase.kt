@@ -85,6 +85,24 @@ data class UserAccountEntity(
     val lastLoginAt: Long = System.currentTimeMillis()
 )
 
+@Entity(tableName = "device_ip_subscriptions")
+data class DeviceSubscriptionEntity(
+    @PrimaryKey val deviceIpAddress: String,
+    val deviceId: String,
+    val isVerified: Boolean,
+    val planId: String,
+    val planTitle: String,
+    val amountTzs: Int,
+    val phoneNumber: String,
+    val orderId: String,
+    val activatedAtMs: Long,
+    val expiresAtMs: Long,
+    val linkedUserUid: String = "",
+    val linkedUserEmail: String = "",
+    val linkedUserName: String = "",
+    val updatedAtMs: Long = System.currentTimeMillis()
+)
+
 @Dao
 interface NeliMediaDao {
     @Query("SELECT * FROM downloaded_items ORDER BY timestamp DESC")
@@ -149,6 +167,18 @@ interface NeliMediaDao {
 
     @Query("UPDATE user_accounts SET isLoggedIn = 1, lastLoginAt = :lastLoginAt WHERE uid = :uid")
     suspend fun markUserLoggedIn(uid: String, lastLoginAt: Long = System.currentTimeMillis())
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertDeviceSubscription(subscription: DeviceSubscriptionEntity)
+
+    @Query("SELECT * FROM device_ip_subscriptions WHERE deviceIpAddress = :deviceIp LIMIT 1")
+    suspend fun getDeviceSubscriptionByIp(deviceIp: String): DeviceSubscriptionEntity?
+
+    @Query("SELECT * FROM device_ip_subscriptions WHERE LOWER(linkedUserEmail) = LOWER(:email) ORDER BY updatedAtMs DESC LIMIT 1")
+    suspend fun getDeviceSubscriptionByUserEmail(email: String): DeviceSubscriptionEntity?
+
+    @Query("SELECT * FROM device_ip_subscriptions ORDER BY updatedAtMs DESC LIMIT 1")
+    suspend fun getLatestDeviceSubscription(): DeviceSubscriptionEntity?
 }
 
 @Database(
@@ -156,9 +186,10 @@ interface NeliMediaDao {
         DownloadedItemEntity::class,
         WatchlistItemEntity::class,
         FirebaseConfigEntity::class,
-        UserAccountEntity::class
+        UserAccountEntity::class,
+        DeviceSubscriptionEntity::class
     ],
-    version = 2,
+    version = 4,
     exportSchema = false
 )
 abstract class NeliDatabase : RoomDatabase() {

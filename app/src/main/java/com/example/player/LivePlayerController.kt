@@ -279,7 +279,10 @@ data class PlayerPlaybackInfo(
     val autoSkipNotice: String? = null,
     val activeAudioLanguage: String = "sw",
     val preferredAudioLanguage: String = "sw",
-    val languageSwitchNotice: String? = null
+    val languageSwitchNotice: String? = null,
+    val liveAutoFixCount: Int = 0,
+    val isLiveAutoFixEnabled: Boolean = true,
+    val lastAutoFixReason: String? = null
 )
 
 private enum class ForcedContainerMode {
@@ -334,6 +337,15 @@ class LivePlayerController(
          */
         const val LOW_BATTERY_THRESHOLD_PCT = 25
         const val CRITICAL_BATTERY_THRESHOLD_PCT = 12
+
+        /**
+         * Live Stream Freeze / Stall Auto-Fix thresholds:
+         * Automatically invokes [syncToLiveEdge] and stream recovery whenever a Live TV stream freezes
+         * or stalls for >= 2,000 ms so the user never needs to manually click the bottom
+         * "LIVE STREAM • CONTINUOUS REAL-TIME PLAYBACK" button.
+         */
+        const val LIVE_STREAM_STALL_AUTO_FIX_THRESHOLD_MS = 2_000L
+        const val LIVE_STREAM_AUTO_FIX_COOLDOWN_MS = 1_500L
 
         /**
          * Computes the target [BatteryPowerProfile] based on real-time device battery level,
@@ -463,6 +475,14 @@ class LivePlayerController(
     private var lastAppliedTrackSelectorKey: String = ""
     private var cachedOfflineStreamChannelId: String = ""
     private var cachedIsLocalOfflineStream: Boolean = false
+
+    // Live Stream Freeze / Stall Auto-Fix Telemetry
+    private var lastLiveObservedPositionMs: Long = C.TIME_UNSET
+    private var lastLivePositionProgressRealtimeMs: Long = 0L
+    private var lastLiveAutoFixRealtimeMs: Long = 0L
+    private var consecutiveLiveStallAutoFixes: Int = 0
+    private var totalLiveAutoFixCount: Int = 0
+    private var lastAutoFixReasonLabel: String? = null
 
     private val sharedBaseHttpDataSourceFactory: DefaultHttpDataSource.Factory by lazy {
         val factory = DefaultHttpDataSource.Factory()
@@ -745,12 +765,9 @@ class LivePlayerController(
             }
 
             if (channel.isLiveBroadcast) {
-                // Ensure Live TV stays playing unless paused by phone call, external music player, or off-screen background
-                if (!pausedByCallOrExternalAudio && !isBackgroundLoadingActive &&
-                    !player.isPlaying && player.playbackState == Player.STATE_READY
-                ) {
-                    player.playWhenReady = true
-                    player.play()
+                // Ensure Live TV never freezes or gets stuck: run continuous Auto-Fix stall detection
+                if (!pausedByCallOrExternalAudio && !isBackgroundLoadingActive) {
+                    checkAndAutoFixLiveStreamStall(elapsedRealtimeMs = now)
                 }
                 updatePlaybackInfo()
                 mainHandler.postDelayed(this, activePowerProfile.telemetryPollIntervalLiveMs)
@@ -1436,6 +1453,9 @@ class LivePlayerController(
         consecutiveRebufferCount = 0
         bufferingEnteredAtRealtimeMs = 0L
         healthyPlaybackSinceRealtimeMs = 0L
+        lastLiveObservedPositionMs = C.TIME_UNSET
+        lastLivePositionProgressRealtimeMs = 0L
+        consecutiveLiveStallAutoFixes = 0
         forcedContainerMode = ForcedContainerMode.NONE
         hasAppliedSwahiliMovieIntroSkip = false
         lastKnownVodPositionMs = if (newChannel.shouldAutoSkipSwahiliMovieIntro) {
@@ -1483,7 +1503,10 @@ class LivePlayerController(
             } else null,
             activeAudioLanguage = "sw",
             preferredAudioLanguage = "sw",
-            languageSwitchNotice = null
+            languageSwitchNotice = null,
+            liveAutoFixCount = totalLiveAutoFixCount,
+            isLiveAutoFixEnabled = true,
+            lastAutoFixReason = lastAutoFixReasonLabel
         )
         val player = exoPlayer ?: initializePlayer()
         _uiState.value = PlayerUiState.Loading
@@ -1637,16 +1660,126 @@ class LivePlayerController(
     }
 
     /**
-     * Ensures Live TV playback jumps directly to the current live broadcast edge without rewinding.
+     * Ensures Live TV playback jumps directly to the current live broadcast edge without rewinding,
+     * and recovers immediately if ExoPlayer was in IDLE, ENDED, or a frozen segment state.
      */
-    fun syncToLiveEdge() {
+    fun syncToLiveEdge(reason: String = "manual_or_auto_live_edge_sync") {
         exoPlayer?.let { player ->
-            if (player.isCurrentMediaItemLive) {
+            if (player.playbackState == Player.STATE_IDLE || player.playbackState == Player.STATE_ENDED) {
+                player.prepare()
+            }
+            if (player.isCurrentMediaItemLive || (channel.isLiveBroadcast && !channel.isMp4)) {
                 player.seekToDefaultPosition()
             }
             player.playWhenReady = true
             player.play()
+            lastLivePositionProgressRealtimeMs = android.os.SystemClock.elapsedRealtime()
+            lastLiveObservedPositionMs = player.currentPosition
         }
+    }
+
+    /**
+     * Automatic Live Stream Freeze / Stall Watchdog & Auto-Fix Engine:
+     * Detects when a Live TV stream freezes or gets stuck (e.g. playback position stops advancing,
+     * prolonged buffering stall, paused while ready, or idle/ended state) and automatically executes
+     * [triggerLiveStreamAutoFix] (which invokes [syncToLiveEdge] + adaptive track step-down + media
+     * source reload if needed) so the user NEVER has to manually press the bottom
+     * "LIVE STREAM • CONTINUOUS REAL-TIME PLAYBACK" button.
+     */
+    fun checkAndAutoFixLiveStreamStall(
+        currentPositionMs: Long? = null,
+        playbackState: Int? = null,
+        isPlaying: Boolean? = null,
+        elapsedRealtimeMs: Long = android.os.SystemClock.elapsedRealtime()
+    ): Boolean {
+        if (!channel.isLiveBroadcast || pausedByCallOrExternalAudio || isBackgroundLoadingActive) {
+            return false
+        }
+        val player = exoPlayer
+        val pos = currentPositionMs ?: player?.currentPosition ?: 0L
+        val state = playbackState ?: player?.playbackState ?: Player.STATE_READY
+        val playing = isPlaying ?: (player?.isPlaying == true)
+
+        if (lastLivePositionProgressRealtimeMs == 0L) {
+            lastLivePositionProgressRealtimeMs = elapsedRealtimeMs
+            lastLiveObservedPositionMs = pos
+        }
+
+        val positionDeltaMs = if (lastLiveObservedPositionMs == C.TIME_UNSET) {
+            0L
+        } else {
+            kotlin.math.abs(pos - lastLiveObservedPositionMs)
+        }
+
+        // If playback position is advancing normally while playing in STATE_READY, stream is healthy
+        if (playing && state == Player.STATE_READY && positionDeltaMs >= 60L) {
+            lastLiveObservedPositionMs = pos
+            lastLivePositionProgressRealtimeMs = elapsedRealtimeMs
+            consecutiveLiveStallAutoFixes = 0
+            return false
+        }
+
+        val stalledDurationMs = (elapsedRealtimeMs - lastLivePositionProgressRealtimeMs).coerceAtLeast(0L)
+        val stallReason = when {
+            state == Player.STATE_IDLE || state == Player.STATE_ENDED ->
+                "live_state_idle_or_ended"
+            state == Player.STATE_READY && !playing ->
+                "live_ready_not_playing"
+            state == Player.STATE_BUFFERING && stalledDurationMs >= LIVE_STREAM_STALL_AUTO_FIX_THRESHOLD_MS ->
+                "live_buffering_stall_${stalledDurationMs}ms"
+            state == Player.STATE_READY && playing && positionDeltaMs < 60L && stalledDurationMs >= LIVE_STREAM_STALL_AUTO_FIX_THRESHOLD_MS ->
+                "live_position_frozen_${stalledDurationMs}ms"
+            else -> null
+        } ?: return false
+
+        val canRunAutoFixNow = lastLiveAutoFixRealtimeMs == 0L ||
+            (elapsedRealtimeMs - lastLiveAutoFixRealtimeMs >= LIVE_STREAM_AUTO_FIX_COOLDOWN_MS)
+        if (!canRunAutoFixNow) {
+            return false
+        }
+
+        return triggerLiveStreamAutoFix(reason = stallReason, elapsedRealtimeMs = elapsedRealtimeMs)
+    }
+
+    /**
+     * Immediately unfreezes a stuck Live TV stream by automatically running the live-edge recovery
+     * ([syncToLiveEdge]), stepping down adaptive bitrate if needed, and reloading the live manifest
+     * if repeated stalls occur.
+     */
+    fun triggerLiveStreamAutoFix(
+        reason: String = "auto_fix_live_stall",
+        elapsedRealtimeMs: Long = android.os.SystemClock.elapsedRealtime()
+    ): Boolean {
+        if (!channel.isLiveBroadcast) return false
+        lastLiveAutoFixRealtimeMs = elapsedRealtimeMs
+        lastLivePositionProgressRealtimeMs = elapsedRealtimeMs
+        consecutiveLiveStallAutoFixes = (consecutiveLiveStallAutoFixes + 1).coerceAtMost(6)
+        totalLiveAutoFixCount++
+        lastAutoFixReasonLabel = reason
+
+        if (_playbackInfo.value.networkMode == NetworkQualityMode.AUTO_ADAPTIVE) {
+            consecutiveRebufferCount = (consecutiveRebufferCount + 1).coerceAtMost(4)
+            evaluateAndApplyAdaptiveTrackSelection(forceBufferingState = true)
+        }
+
+        val player = exoPlayer
+        if (player != null) {
+            if (consecutiveLiveStallAutoFixes >= 3) {
+                // Escalated self-healing: reload live stream manifest at live edge
+                consecutiveLiveStallAutoFixes = 0
+                loadChannelStream(player, preserveVodPosition = false)
+            } else {
+                syncToLiveEdge(reason = reason)
+            }
+            lastLiveObservedPositionMs = player.currentPosition
+        }
+
+        _playbackInfo.value = _playbackInfo.value.copy(
+            liveAutoFixCount = totalLiveAutoFixCount,
+            isLiveAutoFixEnabled = true,
+            lastAutoFixReason = reason
+        )
+        return true
     }
 
     private fun isPlayingLocalOfflineStream(targetChannel: LiveChannel = channel): Boolean {
@@ -2123,7 +2256,10 @@ class LivePlayerController(
             isBackgroundLoadingActive = isBackgroundLoadingActive,
             isCpuSavingActive = currentBatteryProfile.isCpuSavingActive,
             activeMaxFrameRate = currentBatteryProfile.maxFrameRate,
-            connectionLabel = detectConnectionLabel()
+            connectionLabel = detectConnectionLabel(),
+            liveAutoFixCount = totalLiveAutoFixCount,
+            isLiveAutoFixEnabled = true,
+            lastAutoFixReason = lastAutoFixReasonLabel
         )
     }
 

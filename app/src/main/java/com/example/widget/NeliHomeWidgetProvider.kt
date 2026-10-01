@@ -155,18 +155,30 @@ class NeliHomeWidgetProvider : AppWidgetProvider() {
             val pinRequested = try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     val appWidgetManager = AppWidgetManager.getInstance(context)
+                    val provider = ComponentName(context, NeliHomeWidgetProvider::class.java)
+                    // Always push RemoteViews directly to ComponentName so any bound host has fresh views immediately
+                    val previewViews = buildRemoteViews(context)
+                    appWidgetManager.updateAppWidget(provider, previewViews)
+
                     if (appWidgetManager.isRequestPinAppWidgetSupported) {
-                        val provider = ComponentName(context, NeliHomeWidgetProvider::class.java)
                         val callbackIntent = Intent(context, NeliHomeWidgetProvider::class.java).apply {
                             action = ACTION_WIDGET_PINNED_SUCCESS
+                        }
+                        val pendingFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
+                        } else {
+                            PendingIntent.FLAG_UPDATE_CURRENT
                         }
                         val successCallback = PendingIntent.getBroadcast(
                             context,
                             1099,
                             callbackIntent,
-                            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                            pendingFlags
                         )
-                        appWidgetManager.requestPinAppWidget(provider, null, successCallback)
+                        val extras = android.os.Bundle().apply {
+                            putParcelable(AppWidgetManager.EXTRA_APPWIDGET_PREVIEW, previewViews)
+                        }
+                        appWidgetManager.requestPinAppWidget(provider, extras, successCallback)
                     } else {
                         false
                     }
@@ -214,6 +226,8 @@ class NeliHomeWidgetProvider : AppWidgetProvider() {
             try {
                 val appWidgetManager = AppWidgetManager.getInstance(context)
                 val componentName = ComponentName(context, NeliHomeWidgetProvider::class.java)
+                val views = buildRemoteViews(context)
+                appWidgetManager.updateAppWidget(componentName, views)
                 val ids = appWidgetManager.getAppWidgetIds(componentName)
                 if (ids != null && ids.isNotEmpty()) {
                     for (id in ids) {
@@ -225,19 +239,7 @@ class NeliHomeWidgetProvider : AppWidgetProvider() {
         }
 
         fun requestPinWidget(context: Context): Boolean {
-            if (isWidgetPinned(context)) return true
-            return try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    val appWidgetManager = AppWidgetManager.getInstance(context)
-                    if (appWidgetManager.isRequestPinAppWidgetSupported) {
-                        val provider = ComponentName(context, NeliHomeWidgetProvider::class.java)
-                        return appWidgetManager.requestPinAppWidget(provider, null, null)
-                    }
-                }
-                false
-            } catch (_: Exception) {
-                false
-            }
+            return setAndShowWidgetOnHomeScreen(context, navigateToHomeScreen = false)
         }
 
         fun updateSingleWidget(
