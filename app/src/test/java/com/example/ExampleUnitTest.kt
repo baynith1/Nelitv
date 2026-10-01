@@ -39,6 +39,16 @@ class ExampleUnitTest {
 
         val m3u8Stream = "https://cdn4.skygo.mn/live/disk1/Cartoon_Network/HLSv3-FTA/Cartoon_Network.m3u8"
         assertEquals(m3u8Stream, ChannelRepository.normalizeDashStreamUrl(m3u8Stream))
+
+        // Verify -init.mp4 segment URLs (e.g., ZBC2 / ZBC) resolve to playable .mpd manifest URLs
+        val zbc2InitUrl = "https://cdnedgch2.azamtvltd.co.tz/live/eds/ZBC2/DASH/ZBC2-mp4a_160000=20000-p=363288647000000-init.mp4?cdntoken=${ChannelRepository.AZAM_SECONDARY_CDN_TOKEN}"
+        val resolvedZbc2Mpd = ChannelRepository.resolvePlayableAzamManifestUrl(zbc2InitUrl)
+        assertTrue(resolvedZbc2Mpd.startsWith("https://cdnedgch2.azamtvltd.co.tz/live/eds/ZBC2/DASH/ZBC2.mpd?cdntoken="))
+
+        // Verify /tok_<JWT>/ path URLs preserve /tok_<JWT>/ and attach cdntoken=
+        val tokSport1Url = "https://cdnedgch2.azamtvltd.co.tz/tok_${ChannelRepository.AZAM_SPORT_1_TOKEN}/live/eds/AzamSport1/DASH/AzamSport1.mpd"
+        val normalizedTokSport1 = ChannelRepository.normalizeDashStreamUrl(tokSport1Url)
+        assertTrue(normalizedTokSport1.contains("/tok_${ChannelRepository.AZAM_SPORT_1_TOKEN}/live/eds/AzamSport1/DASH/AzamSport1.mpd?cdntoken="))
     }
 
     @Test
@@ -265,6 +275,7 @@ class ExampleUnitTest {
         assertTrue(names.any { it.contains("Azam Sports 2", ignoreCase = true) })
         assertTrue(names.any { it.contains("Azam Sports 3", ignoreCase = true) })
         assertTrue(names.any { it.contains("Azam Sports 4", ignoreCase = true) })
+        assertTrue(names.any { it.contains("Azam Sports 5", ignoreCase = true) })
         assertTrue(names.any { it.equals("Azam One", ignoreCase = true) })
         assertTrue(names.any { it.equals("Azam Two", ignoreCase = true) })
         assertTrue(names.any { it.equals("Sinema Zetu", ignoreCase = true) })

@@ -118,6 +118,54 @@ class ClearKeyDecryptingDataSource(
             val len = upstream.open(attemptSpec)
             attemptSpec to len
         } catch (e: HttpDataSource.InvalidResponseCodeException) {
+            val attemptUriStr = attemptSpec.uri.toString()
+            val isAzamStream = attemptUriStr.contains("azamtvltd.co.tz", ignoreCase = true) ||
+                attemptUriStr.contains("/live/eds/", ignoreCase = true)
+
+            if (isAzamStream) {
+                val base = attemptUriStr.substringBefore("?")
+                val query = attemptUriStr.substringAfter("?", "")
+                val alternateUris = mutableListOf<String>()
+
+                if (base.contains("/tok_", ignoreCase = true)) {
+                    // 1. Pure /tok_<JWT>/live/eds/... without query string
+                    if (query.isNotEmpty()) {
+                        alternateUris.add(base)
+                    }
+                    // 2. Strip /tok_<JWT> from path and use ?cdntoken=<JWT>
+                    val beforeTok = base.substringBefore("/tok_")
+                    val tokInPath = base.substringAfter("/tok_").substringBefore("/")
+                    val afterTok = base.substringAfter("/tok_").substringAfter("/", "")
+                    if (afterTok.isNotEmpty()) {
+                        val tokenToUse = tokInPath.ifBlank { TokenManager.currentToken }
+                        alternateUris.add("$beforeTok/$afterTok?cdntoken=$tokenToUse")
+                    }
+                } else if (base.contains("/live/eds/", ignoreCase = true)) {
+                    // Inject /tok_<JWT>/ into path before /live/eds/
+                    val edsIdx = base.indexOf("/live/eds/", ignoreCase = true)
+                    val hostPrefix = base.substring(0, edsIdx)
+                    val pathAfterHost = base.substring(edsIdx)
+                    alternateUris.add("$hostPrefix/tok_${TokenManager.currentToken}$pathAfterHost")
+                }
+
+                for (altUrl in alternateUris) {
+                    try {
+                        upstream.close()
+                    } catch (_: Exception) {
+                    }
+                    try {
+                        val altSpec = attemptSpec.buildUpon()
+                            .setUri(Uri.parse(altUrl))
+                            .setPosition(attemptSpec.position)
+                            .setLength(attemptSpec.length)
+                            .build()
+                        val altLen = upstream.open(altSpec)
+                        return altSpec to altLen
+                    } catch (_: Exception) {
+                    }
+                }
+            }
+
             if (TokenManager.isAuthenticationFailure(e.responseCode, e.message)) {
                 try {
                     upstream.close()

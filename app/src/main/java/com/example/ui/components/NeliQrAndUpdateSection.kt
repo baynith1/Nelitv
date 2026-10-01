@@ -939,6 +939,30 @@ fun NeliShareApkAndAutoUpdateSection(
             }
 
             OutlinedButton(
+                onClick = {
+                    NeliAppUpdateManager.resolvePackageConflictAndUpdate(context)
+                },
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("fix_package_conflict_update_button")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.SystemUpdate,
+                    contentDescription = null,
+                    tint = Color(0xFF10B981),
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Fix Package Conflict & Update In-App (${releaseInfo.versionTag})",
+                    color = Color(0xFFA7F3D0),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.ExtraBold
+                )
+            }
+
+            OutlinedButton(
                 onClick = { NeliAppUpdateManager.openGitHubWhatsNewPage(context) },
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier

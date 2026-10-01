@@ -1,6 +1,47 @@
 package com.example.model
 
 /**
+ * Represents a linear EPG / schedule event item (e.g., DStv / Showmax schedule payload).
+ */
+data class ChannelScheduleEvent(
+    val id: String,
+    val genRef: String = "",
+    val correlationId: String = "",
+    val correlationGroupId: String = "",
+    val mainTitle: String,
+    val episodeTitle: String = "",
+    val synopsis: String = "",
+    val seasonNumber: String = "0",
+    val episodeNumber: String = "0",
+    val live: Boolean = false,
+    val startDateTime: String = "",
+    val endDateTime: String = "",
+    val duration: String = "",
+    val maturityClassification: String = "",
+    val rating: String = "",
+    val ratingSummary: String = "",
+    val year: Int = 0,
+    val genres: List<String> = emptyList(),
+    val channelTag: String = "",
+    val blockStream: Boolean = false,
+    val scheduleId: String = "",
+    val product: String = "",
+    val scheduling: String = "",
+    val packages: String = "",
+    val pulseHost: String = "",
+    val timeShiftDashUrl: String = "",
+    val timeShiftHlsUrl: String = "",
+    val timeShiftMssUrl: String = "",
+    val streamable: Boolean = true,
+    val recordable: Boolean = false,
+    val allowPastEventRewatch: Boolean = false,
+    val previousEventId: String = "",
+    val nextEventId: String = "",
+    val restricted: Boolean = false,
+    val ageRestriction: Int = 0
+)
+
+/**
  * Represents a Live TV channel in Neli TV.
  *
  * Supports both built-in priority channels and Cloud Firestore `tvChannels` documents:
@@ -33,7 +74,10 @@ data class LiveChannel(
     val episodeNumber: Int = 0,
     val isSwahiliNarratedMovie: Boolean = false,
     val isAdultContent: Boolean = false,
-    val backupStreamUrl: String = ""
+    val backupStreamUrl: String = "",
+    val channelTag: String = "",
+    val rating: String = "",
+    val scheduleEvents: List<ChannelScheduleEvent> = emptyList()
 ) {
     val category: String
         get() = categories.firstOrNull()?.replaceFirstChar { it.uppercase() } ?: "Live TV"
@@ -41,8 +85,12 @@ data class LiveChannel(
     private val cleanUrlPath: String
         get() = streamUrl.substringBefore("?").lowercase()
 
+    private val isAzamDashSegmentPath: Boolean
+        get() = cleanUrlPath.contains("/live/eds/") && cleanUrlPath.contains("/dash/")
+
     val isDash: Boolean
-        get() = !cleanUrlPath.endsWith(".m3u8") &&
+        get() = isAzamDashSegmentPath || (
+                !cleanUrlPath.endsWith(".m3u8") &&
                 !cleanUrlPath.endsWith(".mp4") &&
                 !cleanUrlPath.endsWith(".ts") &&
                 !streamUrl.startsWith("file:", ignoreCase = true) &&
@@ -51,6 +99,7 @@ data class LiveChannel(
                         cleanUrlPath.contains("/dash/") ||
                         isClearKey ||
                         streamFormat.equals("dash", ignoreCase = true))
+                )
 
     val isHls: Boolean
         get() = cleanUrlPath.endsWith(".m3u8") ||
@@ -63,12 +112,14 @@ data class LiveChannel(
                                 streamFormat.equals("m3u8", ignoreCase = true)))
 
     val isMp4: Boolean
-        get() = cleanUrlPath.endsWith(".mp4") ||
+        get() = !isAzamDashSegmentPath && (
+                cleanUrlPath.endsWith(".mp4") ||
                 cleanUrlPath.endsWith(".ts") ||
                 cleanUrlPath.endsWith(".mkv") ||
                 cleanUrlPath.endsWith(".webm") ||
                 streamUrl.startsWith("file:", ignoreCase = true) ||
                 (!isDash && !isHls && streamFormat.equals("mp4", ignoreCase = true))
+                )
 
     /**
      * Strictly true ONLY for Movies narrated in Swahili/Kiswahili.

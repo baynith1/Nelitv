@@ -1,5 +1,6 @@
 package com.example.data
 
+import com.example.model.ChannelScheduleEvent
 import com.example.model.LiveChannel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -13,7 +14,22 @@ object ChannelRepository {
 
     const val DEFAULT_AZAM_CDN_HOST = "https://cdnedgch2.azamtvltd.co.tz"
     const val DEFAULT_AZAM_CDN_TOKEN =
-        "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJleHAiOiIxNzkwNDEyNTgyIiwic2lwIjoiIiwicGF0aCI6IiIsInNlc3Npb25fY2RuX2lkIjoiYmUwMDBmMzQ4ZTQ5YzNkNyIsInNlc3Npb25faWQiOiIiLCJjbGllbnRfaWQiOiI0ODQwODMyIiwiZGV2aWNlX2lkIjoiIiwibWF4X3Nlc3Npb25zIjowLCJzZXNzaW9uX2R1cmF0aW9uIjowLCJ1cmwiOiJodHRwczovLzEwMi4yMDguMjQ0LjkiLCJzZXNzaW9uX3RpbWVvdXQiOjAsImF1ZCI6IjciLCJzb3VyY2VzIjpbM119.z4T4_JTuuKiSdDRerpMCMmVGB0r9MFgpMuFIcE8nWbdYthDTLLqwwfxEyYR5_oSDIg5YtL73RqFT-FrhWEb61w=="
+        "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJleHAiOiIxNzkwODc0MzAyIiwic2lwIjoiIiwicGF0aCI6IiIsInNlc3Npb25fY2RuX2lkIjoiYWQ2NTc1OGZlMjc0NWRhZiIsInNlc3Npb25faWQiOiIiLCJjbGllbnRfaWQiOiI0ODUxNDgzIiwiZGV2aWNlX2lkIjoiIiwibWF4X3Nlc3Npb25zIjowLCJzZXNzaW9uX2R1cmF0aW9uIjowLCJ1cmwiOiJodHRwczovLzEwMi4yMDguMjQ0LjkiLCJzZXNzaW9uX3RpbWVvdXQiOjAsImF1ZCI6IjciLCJzb3VyY2VzIjpbM119.xIO2NbWKCzsUvnaovYl2ob-epo1u3kXYWG3OyJ9Y2oTwKoBGm94LcRWYZgRoQpwFlunKFHVP1xAi7D7j83Mveg=="
+    const val AZAM_SPORT_1_TOKEN =
+        "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJleHAiOiIxNzkwODc0MjkxIiwic2lwIjoiIiwicGF0aCI6IiIsInNlc3Npb25fY2RuX2lkIjoiNGVhN2EwM2VmN2EwMzQwNSIsInNlc3Npb25faWQiOiIiLCJjbGllbnRfaWQiOiI0ODUxNDgzIiwiZGV2aWNlX2lkIjoiIiwibWF4X3Nlc3Npb25zIjowLCJzZXNzaW9uX2R1cmF0aW9uIjowLCJ1cmwiOiJodHRwczovLzEwMi4yMDguMjQ0LjkiLCJzZXNzaW9uX3RpbWVvdXQiOjAsImF1ZCI6IjciLCJzb3VyY2VzIjpbM119.2Qx1WInw0wNDddGQfHfh8kA-fAbrvjRYWxGBvt7ZBXIv2N5XwlHSSJAR_mTeeflTZKmr3b5IxZxvdQf6_JcNcQ=="
+    const val AZAM_SPORT_2_TOKEN =
+        "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJleHAiOiIxNzkwODc0MjkzIiwic2lwIjoiIiwicGF0aCI6IiIsInNlc3Npb25fY2RuX2lkIjoiZDVkNzgyZmM4MDhmNjhhYiIsInNlc3Npb25faWQiOiIiLCJjbGllbnRfaWQiOiI0ODUxNDgzIiwiZGV2aWNlX2lkIjoiIiwibWF4X3Nlc3Npb25zIjowLCJzZXNzaW9uX2R1cmF0aW9uIjowLCJ1cmwiOiJodHRwczovLzEwMi4yMDguMjQ0LjkiLCJzZXNzaW9uX3RpbWVvdXQiOjAsImF1ZCI6IjciLCJzb3VyY2VzIjpbM119.ySUpwzClcOiz0j0aV6T43cuw2Rc1vRUKAkHc7DofPiQNL-n3kKtLxKjBjPnefshiCeQ3aMyAUtzDiQ0gO7Ru3g=="
+    const val AZAM_SPORT_3_TOKEN =
+        "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJleHAiOiIxNzkwODc0Mjk2Iiwic2lwIjoiIiwicGF0aCI6IiIsInNlc3Npb25fY2RuX2lkIjoiZWE3ZDAyYzNlN2UyOWUzMSIsInNlc3Npb25faWQiOiIiLCJjbGllbnRfaWQiOiI0ODUxNDgzIiwiZGV2aWNlX2lkIjoiIiwibWF4X3Nlc3Npb25zIjowLCJzZXNzaW9uX2R1cmF0aW9uIjowLCJ1cmwiOiJodHRwczovLzEwMi4yMDguMjQ0LjkiLCJzZXNzaW9uX3RpbWVvdXQiOjAsImF1ZCI6IjciLCJzb3VyY2VzIjpbM119.Jxy_beEHRKb4_7EzBLl-JKWYdukRW7glsVmRrowjF_gf7ytaKkHLIxlF_Ni5XA6sptKMvWhr4Qv8BT6iGj3fcg=="
+    const val AZAM_SPORT_4_TOKEN =
+        "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJleHAiOiIxNzkwODc0Mjk3Iiwic2lwIjoiIiwicGF0aCI6IiIsInNlc3Npb25fY2RuX2lkIjoiZjgyZmFlMzg1MWJmMGUwYiIsInNlc3Npb25faWQiOiIiLCJjbGllbnRfaWQiOiI0ODUxNDgzIiwiZGV2aWNlX2lkIjoiIiwibWF4X3Nlc3Npb25zIjowLCJzZXNzaW9uX2R1cmF0aW9uIjowLCJ1cmwiOiJodHRwczovLzEwMi4yMDguMjQ0LjkiLCJzZXNzaW9uX3RpbWVvdXQiOjAsImF1ZCI6IjciLCJzb3VyY2VzIjpbM119.1es6sojSGK2bFlDIO6ti-AQf_YfnYA_1go9dHk_uUwFHMVpVJq8JYUxcckKwA6hBOfNv4CP9fmnZc4RBIKFMiQ=="
+    const val AZAM_ONE_TOKEN =
+        "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJleHAiOiIxNzkwODc0Mjk4Iiwic2lwIjoiIiwicGF0aCI6IiIsInNlc3Npb25fY2RuX2lkIjoiOWRiYjRjYWM3ZGE4MWM4ZCIsInNlc3Npb25faWQiOiIiLCJjbGllbnRfaWQiOiI0ODUxNDgzIiwiZGV2aWNlX2lkIjoiIiwibWF4X3Nlc3Npb25zIjowLCJzZXNzaW9uX2R1cmF0aW9uIjowLCJ1cmwiOiJodHRwczovLzEwMi4yMDguMjQ0LjkiLCJzZXNzaW9uX3RpbWVvdXQiOjAsImF1ZCI6IjciLCJzb3VyY2VzIjpbM119.NFjc0OiEJehylTD_Ili4gC-9EvzGsb7LmWJxtFgvEOsTIVIipARWhtoAm1J3U4xtogCiXYU3uZY1fD1mhnX-1Q=="
+    const val AZAM_TWO_TOKEN =
+        "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJleHAiOiIxNzkwODc0MzAwIiwic2lwIjoiIiwicGF0aCI6IiIsInNlc3Npb25fY2RuX2lkIjoiZWYwM2JhZjI3OWE4NTI1NiIsInNlc3Npb25faWQiOiIiLCJjbGllbnRfaWQiOiI0ODUxNDgzIiwiZGV2aWNlX2lkIjoiIiwibWF4X3Nlc3Npb25zIjowLCJzZXNzaW9uX2R1cmF0aW9uIjowLCJ1cmwiOiJodHRwczovLzEwMi4yMDguMjQ0LjkiLCJzZXNzaW9uX3RpbWVvdXQiOjAsImF1ZCI6IjciLCJzb3VyY2VzIjpbM119.b-YVd1deg7AEi6pODOndBm5IxXHpBoXK_e1LnM9cbaled0nlItj3_Dxz6ktE2YXboPnoIuWrdr0f2AMa-46esw=="
+    const val SINEMA_ZETU_TOKEN = DEFAULT_AZAM_CDN_TOKEN
+    const val AZAM_SECONDARY_CDN_TOKEN =
+        "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJleHAiOiIxNzkwMzc2NTgyIiwic2lwIjoiIiwicGF0aCI6IiIsInNlc3Npb25fY2RuX2lkIjoiOTdmYmY3NWU2ZWU2MmJkYSIsInNlc3Npb25faWQiOiIiLCJjbGllbnRfaWQiOiI0ODQwODMyIiwiZGV2aWNlX2lkIjoiIiwibWF4X3Nlc3Npb25zIjowLCJzZXNzaW9uX2R1cmF0aW9uIjowLCJ1cmwiOiJodHRwczovLzEwMi4yMDguMjQ0LjkiLCJzZXNzaW9uX3RpbWVvdXQiOjAsImF1ZCI6IjciLCJzb3VyY2VzIjpbM119.zW07ft5kqXHOkbPguYYGgrBwihIVJIjoGvhVqTN3cjjWZEp4NWJfpQUQyDYUkyuhNVKmLYSHxO5EwEegjYQ84A=="
     const val DEFAULT_AZAM_CDN_SOURCE = "cache"
     const val DEFAULT_TOKEN_ENDPOINT_URL = "https://streamzone.fun/api/cdn-token"
     const val DEFAULT_CHANNELS_BACKUP_API_URL = "https://streamzone.fun/api/channels"
@@ -119,7 +135,8 @@ object ChannelRepository {
             id = "R17JUvbCEzu2eTbjnE74",
             name = "Azam Sports 1 HD",
             description = "mpira live",
-            streamUrl = "$DEFAULT_AZAM_CDN_HOST/live/eds/AzamSport1/DASH/AzamSport1.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            streamUrl = "$DEFAULT_AZAM_CDN_HOST/tok_$AZAM_SPORT_1_TOKEN/live/eds/AzamSport1/DASH/AzamSport1.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            backupStreamUrl = "$DEFAULT_AZAM_CDN_HOST/live/eds/AzamSport1/DASH/AzamSport1.mpd?cdntoken=$AZAM_SPORT_1_TOKEN",
             streamFormat = "dash",
             thumbnailUrl = "https://i.ibb.co/B29Xvb5P/azam-sport-1-01.png",
             categories = listOf("sport", "entertainment", "tanzania"),
@@ -134,7 +151,8 @@ object ChannelRepository {
             id = "f74ba826-f031-4e64-9ec1-f7ffa4e6ec0f",
             name = "Azam Sports 2 HD",
             description = "mpira live",
-            streamUrl = "$DEFAULT_AZAM_CDN_HOST/live/eds/AzamSport2/DASH/AzamSport2.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            streamUrl = "$DEFAULT_AZAM_CDN_HOST/tok_$AZAM_SPORT_2_TOKEN/live/eds/AzamSport2/DASH/AzamSport2.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            backupStreamUrl = "$DEFAULT_AZAM_CDN_HOST/live/eds/AzamSport2/DASH/AzamSport2.mpd?cdntoken=$AZAM_SPORT_2_TOKEN",
             streamFormat = "dash",
             thumbnailUrl = "https://i.ibb.co/Y7Cj3Wtj/azam-sport-2-01.png",
             categories = listOf("sport", "entertainment", "tanzania"),
@@ -149,7 +167,8 @@ object ChannelRepository {
             id = "1c976127-e8a4-4bd6-8e73-5da0edce369b",
             name = "Azam Sports 3 HD",
             description = "mpiraa live",
-            streamUrl = "$DEFAULT_AZAM_CDN_HOST/live/eds/AzamSport3/DASH/AzamSport3.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            streamUrl = "$DEFAULT_AZAM_CDN_HOST/tok_$AZAM_SPORT_3_TOKEN/live/eds/AzamSport3/DASH/AzamSport3.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            backupStreamUrl = "$DEFAULT_AZAM_CDN_HOST/live/eds/AzamSport3/DASH/AzamSport3.mpd?cdntoken=$AZAM_SPORT_3_TOKEN",
             streamFormat = "dash",
             thumbnailUrl = "https://i.ibb.co/2YfLQ545/1000221070.png",
             categories = listOf("sport", "entertainment", "tanzania"),
@@ -164,7 +183,8 @@ object ChannelRepository {
             id = "244bcd50-b3bf-4d5e-8419-08cc7bad1a7c",
             name = "Azam Sports 4 HD",
             description = "Mpira Live",
-            streamUrl = "$DEFAULT_AZAM_CDN_HOST/live/eds/AzamSport4/DASH/AzamSport4.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            streamUrl = "$DEFAULT_AZAM_CDN_HOST/tok_$AZAM_SPORT_4_TOKEN/live/eds/AzamSport4/DASH/AzamSport4.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            backupStreamUrl = "$DEFAULT_AZAM_CDN_HOST/live/eds/AzamSport4/DASH/AzamSport4.mpd?cdntoken=$AZAM_SPORT_4_TOKEN",
             streamFormat = "dash",
             thumbnailUrl = "https://i.ibb.co/SwtFQNsh/1000221063.jpg",
             categories = listOf("sport", "entertainment", "tanzania"),
@@ -174,12 +194,34 @@ object ChannelRepository {
             country = "Tanzania",
             featured = true
         ),
-        // 5. AZAM ONE (MPD + ClearKey + CDN Token)
+        // 5. AZAM SPORT 5 HD (MPD + ClearKey + CDN Token)
+        LiveChannel(
+            id = "azam_sport_5_hd",
+            name = "Azam Sports 5 HD",
+            description = "Mpira Live • Azam TV",
+            streamUrl = "$DEFAULT_AZAM_CDN_HOST/tok_$DEFAULT_AZAM_CDN_TOKEN/live/eds/AzamSport5/DASH/AzamSport5.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            backupStreamUrl = "$DEFAULT_AZAM_CDN_HOST/live/eds/AzamSport5/DASH/AzamSport5.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            streamFormat = "dash",
+            thumbnailUrl = "https://i.ibb.co/SwtFQNsh/1000221063.jpg",
+            categories = listOf("sport", "entertainment", "tanzania"),
+            language = "en",
+            encryptionType = "clearkey",
+            clearKeys = mapOf(
+                "fbcac74e355b3b5d9b6cbc56c7597dbf" to "5f980e872b378d88b46f656a806205c3",
+                "c31df1600afc33799ecac543331803f2" to "dd2101530e222f545997d4c553787f85",
+                "739e7499125b31cc9948da8057b84cf9" to "1b7d44d798c351acc02f33ddfbb7682a",
+                "2f12d7b889de381a9fb5326ca3aa166d" to "51c2d733a54306fdf89acd4c9d4f6005"
+            ),
+            country = "Tanzania",
+            featured = true
+        ),
+        // 6. AZAM ONE (MPD + ClearKey + CDN Token)
         LiveChannel(
             id = "c405ae74-c4c5-4842-9f26-130ce380b307",
             name = "Azam One",
             description = "Burudani na Filamu za Afrika Mashariki",
-            streamUrl = "$DEFAULT_AZAM_CDN_HOST/live/eds/AzamOne/DASH/AzamOne.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            streamUrl = "$DEFAULT_AZAM_CDN_HOST/tok_$AZAM_ONE_TOKEN/live/eds/AzamOne/DASH/AzamOne.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            backupStreamUrl = "$DEFAULT_AZAM_CDN_HOST/live/eds/AzamOne/DASH/AzamOne.mpd?cdntoken=$AZAM_ONE_TOKEN",
             streamFormat = "dash",
             thumbnailUrl = "https://i.ibb.co/8gtr1n42/1000221072.jpg",
             categories = listOf("entertainment", "movies", "tanzania"),
@@ -189,12 +231,13 @@ object ChannelRepository {
             country = "Tanzania",
             featured = true
         ),
-        // 6. AZAM TWO (MPD + ClearKey + CDN Token)
+        // 7. AZAM TWO (MPD + ClearKey + CDN Token)
         LiveChannel(
             id = "008ffe6e-a30f-4ed1-9ddb-4033dde18576",
             name = "Azam Two",
             description = "Tamthilia za Kiswahili na Burudani Live",
-            streamUrl = "$DEFAULT_AZAM_CDN_HOST/live/eds/AzamTwo/DASH/AzamTwo.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            streamUrl = "$DEFAULT_AZAM_CDN_HOST/tok_$AZAM_TWO_TOKEN/live/eds/AzamTwo/DASH/AzamTwo.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            backupStreamUrl = "$DEFAULT_AZAM_CDN_HOST/live/eds/AzamTwo/DASH/AzamTwo.mpd?cdntoken=$AZAM_TWO_TOKEN",
             streamFormat = "dash",
             thumbnailUrl = "https://i.ibb.co/Z6sdp2tg/1000221074.jpg",
             categories = listOf("entertainment", "tanzania"),
@@ -204,12 +247,13 @@ object ChannelRepository {
             country = "Tanzania",
             featured = true
         ),
-        // 7. SINEMA ZETU (MPD + ClearKey + CDN Token)
+        // 8. SINEMA ZETU (MPD + ClearKey + CDN Token)
         LiveChannel(
             id = "f56ca8c1-3d3f-4dd2-8d9d-b0b54b559f6e",
             name = "Sinema Zetu",
             description = "Filamu za Kiswahili & Bongo Movies 24/7",
-            streamUrl = "$DEFAULT_AZAM_CDN_HOST/live/eds/SinemaZetu/DASH/SinemaZetu.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            streamUrl = "$DEFAULT_AZAM_CDN_HOST/tok_$SINEMA_ZETU_TOKEN/live/eds/SinemaZetu/DASH/SinemaZetu.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            backupStreamUrl = "$DEFAULT_AZAM_CDN_HOST/live/eds/SinemaZetu/DASH/SinemaZetu.mpd?cdntoken=$SINEMA_ZETU_TOKEN",
             streamFormat = "dash",
             thumbnailUrl = "https://i.ibb.co/twBGTs4s/1000221073.jpg",
             categories = listOf("entertainment", "movies", "tanzania"),
@@ -219,12 +263,13 @@ object ChannelRepository {
             country = "Tanzania",
             featured = true
         ),
-        // 8. AZAM XTRA HD (Added Azam TV Channel #1 - MPD + ClearKey + CDN Token)
+        // 9. AZAM XTRA HD (Added Azam TV Channel #1 - MPD + ClearKey + CDN Token)
         LiveChannel(
             id = "azam_xtra_hd_14",
             name = "Azam Xtra HD",
             description = "Tamthilia, Reality & Vipindi Maalum vya Azam TV",
-            streamUrl = "$DEFAULT_AZAM_CDN_HOST/live/eds/AzamOne/DASH/AzamOne.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            streamUrl = "$DEFAULT_AZAM_CDN_HOST/tok_$AZAM_ONE_TOKEN/live/eds/AzamOne/DASH/AzamOne.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            backupStreamUrl = "$DEFAULT_AZAM_CDN_HOST/live/eds/AzamOne/DASH/AzamOne.mpd?cdntoken=$AZAM_ONE_TOKEN",
             streamFormat = "dash",
             thumbnailUrl = "https://i.ibb.co/8gtr1n42/1000221072.jpg",
             categories = listOf("entertainment", "movies", "tanzania"),
@@ -234,12 +279,13 @@ object ChannelRepository {
             country = "Tanzania",
             featured = true
         ),
-        // 9. AZAM MOVIES HD (Added Azam TV Channel #2 - MPD + ClearKey + CDN Token)
+        // 10. AZAM MOVIES HD (Added Azam TV Channel #2 - MPD + ClearKey + CDN Token)
         LiveChannel(
             id = "azam_movies_hd_15",
             name = "Azam Movies HD",
             description = "Sinema Mpya & Action Cinema 24/7 • Azam TV",
-            streamUrl = "$DEFAULT_AZAM_CDN_HOST/live/eds/SinemaZetu/DASH/SinemaZetu.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            streamUrl = "$DEFAULT_AZAM_CDN_HOST/tok_$SINEMA_ZETU_TOKEN/live/eds/SinemaZetu/DASH/SinemaZetu.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            backupStreamUrl = "$DEFAULT_AZAM_CDN_HOST/live/eds/SinemaZetu/DASH/SinemaZetu.mpd?cdntoken=$SINEMA_ZETU_TOKEN",
             streamFormat = "dash",
             thumbnailUrl = "https://i.ibb.co/twBGTs4s/1000221073.jpg",
             categories = listOf("movies", "entertainment", "tanzania"),
@@ -249,12 +295,13 @@ object ChannelRepository {
             country = "Tanzania",
             featured = true
         ),
-        // 10. CLOUDS TV HD (Added Azam TV Channel #3 - MPD + ClearKey + CDN Token)
+        // 11. CLOUDS TV HD (Added Azam TV Channel #3 - MPD + ClearKey + CDN Token)
         LiveChannel(
             id = "azam_clouds_tv_16",
             name = "Clouds TV HD",
             description = "The People's Station • Burudani & Muziki Live (Azam TV)",
-            streamUrl = "$DEFAULT_AZAM_CDN_HOST/live/eds/WasafiTV/DASH/WasafiTV.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            streamUrl = "$DEFAULT_AZAM_CDN_HOST/tok_$DEFAULT_AZAM_CDN_TOKEN/live/eds/WasafiTV/DASH/WasafiTV.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            backupStreamUrl = "$DEFAULT_AZAM_CDN_HOST/live/eds/WasafiTV/DASH/WasafiTV.mpd?cdntoken=$AZAM_SECONDARY_CDN_TOKEN",
             streamFormat = "dash",
             thumbnailUrl = "https://i.ibb.co/Z6sdp2tg/1000221074.jpg",
             categories = listOf("music", "entertainment", "tanzania"),
@@ -264,12 +311,13 @@ object ChannelRepository {
             country = "Tanzania",
             featured = true
         ),
-        // 11. ITV TANZANIA HD (Added Azam TV Channel #4 - MPD + ClearKey + CDN Token)
+        // 12. ITV TANZANIA HD (Added Azam TV Channel #4 - MPD + ClearKey + CDN Token)
         LiveChannel(
             id = "azam_itv_tz_17",
             name = "ITV Tanzania HD",
             description = "Super Brand • Habari, Tamthilia & Vipindi Live (Azam TV)",
-            streamUrl = "$DEFAULT_AZAM_CDN_HOST/live/eds/UTV/DASH/UTV.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            streamUrl = "$DEFAULT_AZAM_CDN_HOST/tok_$DEFAULT_AZAM_CDN_TOKEN/live/eds/UTV/DASH/UTV.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            backupStreamUrl = "$DEFAULT_AZAM_CDN_HOST/live/eds/UTV/DASH/UTV.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
             streamFormat = "dash",
             thumbnailUrl = "https://i.ibb.co/N2nCDLwD/1000221071.png",
             categories = listOf("news", "entertainment", "tanzania"),
@@ -279,12 +327,13 @@ object ChannelRepository {
             country = "Tanzania",
             featured = true
         ),
-        // 12. UTV (MPD + ClearKey + CDN Token)
+        // 13. UTV (MPD + ClearKey + CDN Token)
         LiveChannel(
             id = "d7b415f7-d024-4c7f-a570-653367e8dc5c",
             name = "UTV",
             description = "Habari, Michezo na Burudani • Azam TV",
-            streamUrl = "$DEFAULT_AZAM_CDN_HOST/live/eds/UTV/DASH/UTV.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            streamUrl = "$DEFAULT_AZAM_CDN_HOST/tok_$DEFAULT_AZAM_CDN_TOKEN/live/eds/UTV/DASH/UTV.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            backupStreamUrl = "$DEFAULT_AZAM_CDN_HOST/live/eds/UTV/DASH/UTV.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
             streamFormat = "dash",
             thumbnailUrl = "https://i.ibb.co/N2nCDLwD/1000221071.png",
             categories = listOf("entertainment", "tanzania"),
@@ -294,12 +343,13 @@ object ChannelRepository {
             country = "Tanzania",
             featured = true
         ),
-        // 13. ZBC2 (MPD + ClearKey + CDN Token)
+        // 14. ZBC2 (MPD + ClearKey + CDN Token)
         LiveChannel(
             id = "b502217f-a9d0-4aef-99e6-8a784adedc65",
             name = "ZBC2",
             description = "Zanzibar Broadcasting Corporation 2",
-            streamUrl = "$DEFAULT_AZAM_CDN_HOST/live/eds/ZBC2/DASH/ZBC2.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            streamUrl = "$DEFAULT_AZAM_CDN_HOST/tok_$DEFAULT_AZAM_CDN_TOKEN/live/eds/ZBC2/DASH/ZBC2.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            backupStreamUrl = "$DEFAULT_AZAM_CDN_HOST/live/eds/ZBC2/DASH/ZBC2.mpd?cdntoken=$AZAM_SECONDARY_CDN_TOKEN",
             streamFormat = "dash",
             thumbnailUrl = "https://i.imgur.com/5HqOXH0.jpeg",
             categories = listOf("tanzania", "entertainment"),
@@ -309,12 +359,13 @@ object ChannelRepository {
             country = "Tanzania",
             featured = true
         ),
-        // 14. ZBC (MPD + ClearKey + CDN Token)
+        // 15. ZBC (MPD + ClearKey + CDN Token)
         LiveChannel(
             id = "101e9c3f-de90-47fb-a69c-342be8a0bb80",
             name = "ZBC",
             description = "Zanzibar Broadcasting Corporation",
-            streamUrl = "$DEFAULT_AZAM_CDN_HOST/live/eds/ZBC/DASH/ZBC.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            streamUrl = "$DEFAULT_AZAM_CDN_HOST/tok_$DEFAULT_AZAM_CDN_TOKEN/live/eds/ZBC/DASH/ZBC.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            backupStreamUrl = "$DEFAULT_AZAM_CDN_HOST/live/eds/ZBC/DASH/ZBC.mpd?cdntoken=$AZAM_SECONDARY_CDN_TOKEN",
             streamFormat = "dash",
             thumbnailUrl = "https://i.ibb.co/xtynWQsN/1000221078.png",
             categories = listOf("tanzania", "other"),
@@ -324,12 +375,13 @@ object ChannelRepository {
             country = "Tanzania",
             featured = true
         ),
-        // 15. KIX (MPD + ClearKey + CDN Token)
+        // 16. KIX (MPD + ClearKey + CDN Token)
         LiveChannel(
             id = "4f36f2d1-ff7f-467b-b4f2-6f303263f28b",
             name = "KIX",
             description = "Action Movies • Azam TV",
-            streamUrl = "$DEFAULT_AZAM_CDN_HOST/live/eds/KIXMovies/DASH/KIXMovies.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            streamUrl = "$DEFAULT_AZAM_CDN_HOST/tok_$DEFAULT_AZAM_CDN_TOKEN/live/eds/KIXMovies/DASH/KIXMovies.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            backupStreamUrl = "$DEFAULT_AZAM_CDN_HOST/live/eds/KIXMovies/DASH/KIXMovies.mpd?cdntoken=$AZAM_SECONDARY_CDN_TOKEN",
             streamFormat = "dash",
             thumbnailUrl = "https://i.ibb.co/ch6qGQT3/KIX-logo-svg.png",
             categories = listOf("movies"),
@@ -338,12 +390,13 @@ object ChannelRepository {
             clearKeys = mapOf("a7e155b282f33335ae8d553f169f443c" to "c3fdcfd5d509f1ed8550d76a525e34e5"),
             featured = true
         ),
-        // 16. Crown Tv (MPD + ClearKey + CDN Token)
+        // 17. Crown Tv (MPD + ClearKey + CDN Token)
         LiveChannel(
             id = "bba104f4-f5ac-41c9-aa36-7af71aaa1993",
             name = "Crown Tv",
             description = "Muziki na Burudani Live • Tanzania",
-            streamUrl = "$DEFAULT_AZAM_CDN_HOST/live/eds/CrownTv/DASH/CrownTv.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            streamUrl = "$DEFAULT_AZAM_CDN_HOST/tok_$DEFAULT_AZAM_CDN_TOKEN/live/eds/CrownTv/DASH/CrownTv.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            backupStreamUrl = "$DEFAULT_AZAM_CDN_HOST/live/eds/CrownTv/DASH/CrownTv.mpd?cdntoken=$AZAM_SECONDARY_CDN_TOKEN",
             streamFormat = "dash",
             thumbnailUrl = "https://i.ibb.co/GfWDtdQT/1000221075.png",
             categories = listOf("music", "tanzania"),
@@ -353,12 +406,13 @@ object ChannelRepository {
             country = "Tanzania",
             featured = true
         ),
-        // 17. Wasafi (MPD + ClearKey + CDN Token)
+        // 18. Wasafi (MPD + ClearKey + CDN Token)
         LiveChannel(
             id = "80e54146-1d9b-4c91-8f71-de0ea4866833",
             name = "Wasafi",
             description = "Muziki na Burudani Live • Tanzania",
-            streamUrl = "$DEFAULT_AZAM_CDN_HOST/live/eds/WasafiTV/DASH/WasafiTV.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            streamUrl = "$DEFAULT_AZAM_CDN_HOST/tok_$DEFAULT_AZAM_CDN_TOKEN/live/eds/WasafiTV/DASH/WasafiTV.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            backupStreamUrl = "$DEFAULT_AZAM_CDN_HOST/live/eds/WasafiTV/DASH/WasafiTV.mpd?cdntoken=$AZAM_SECONDARY_CDN_TOKEN",
             streamFormat = "dash",
             thumbnailUrl = "https://i.ibb.co/W4PYYhRV/157731247083407-Y3-Jvc-Cwx-MTQ0-LDg5-NCww-LDU4-OA.png",
             categories = listOf("music", "entertainment", "tanzania"),
@@ -603,6 +657,198 @@ object ChannelRepository {
             categories = listOf("documentary"),
             language = "en",
             encryptionType = "none"
+        ),
+        // 37. Dish on TV (DC7 • DStv / Showmax Linear Entertainment Channel)
+        LiveChannel(
+            id = "DC7152673681",
+            name = "Dish on TV",
+            description = "This video channel is a complimentary and supportive entertainment channel to Dish on TV, showcasing the best programming , highlights and so much more on DStv. To access the Dish on TV Application, press OK on your remote control.",
+            streamUrl = "https://amc-absolutereality-1-us.plex.wurl.tv/playlist.m3u8",
+            streamFormat = "hls",
+            thumbnailUrl = "https://i.ibb.co/8gtr1n42/1000221072.jpg",
+            categories = listOf("other", "entertainment"),
+            language = "en",
+            encryptionType = "none",
+            channelTag = "DC7",
+            rating = "FAM",
+            scheduleEvents = listOf(
+                ChannelScheduleEvent(
+                    id = "DC7152673681",
+                    correlationId = "0x841EDF",
+                    correlationGroupId = "0x00000000",
+                    mainTitle = "Dish on TV",
+                    synopsis = "This video channel is a complimentary and supportive entertainment channel to Dish on TV, showcasing the best programming , highlights and so much more on DStv. To access the Dish on TV Application, press OK on your remote control.",
+                    startDateTime = "2026-09-30T10:00:00.000+0000",
+                    endDateTime = "2026-09-30T16:00:00.000+0000",
+                    duration = "06:00:00",
+                    rating = "FAM",
+                    ratingSummary = "FAM",
+                    genres = listOf("Other"),
+                    channelTag = "DC7",
+                    scheduleId = "2843879f-7c62-42e2-a026-bb423fb13e5f",
+                    product = "DStv",
+                    scheduling = "Linear",
+                    packages = "DSTV_NOW,SHOWMAX",
+                    pulseHost = "https://za-mc.videoplaza.tv",
+                    streamable = true,
+                    previousEventId = "DC7152673680",
+                    nextEventId = "DC7152673682"
+                ),
+                ChannelScheduleEvent(
+                    id = "DC7152673682",
+                    correlationId = "0x841EDF",
+                    correlationGroupId = "0x00000000",
+                    mainTitle = "Dish on TV",
+                    synopsis = "This video channel is a complimentary and supportive entertainment channel to Dish on TV, showcasing the best programming , highlights and so much more on DStv. To access the Dish on TV Application, press OK on your remote control.",
+                    startDateTime = "2026-09-30T16:00:00.000+0000",
+                    endDateTime = "2026-09-30T22:00:00.000+0000",
+                    duration = "06:00:00",
+                    rating = "FAM",
+                    ratingSummary = "FAM",
+                    genres = listOf("Other"),
+                    channelTag = "DC7",
+                    scheduleId = "af000a5f-0e5b-4ed8-a0bd-dddb603f1175",
+                    product = "DStv",
+                    scheduling = "Linear",
+                    packages = "DSTV_NOW,SHOWMAX",
+                    pulseHost = "https://za-mc.videoplaza.tv",
+                    streamable = true,
+                    previousEventId = "DC7152673681",
+                    nextEventId = "DC7152673683"
+                ),
+                ChannelScheduleEvent(
+                    id = "DC7152673683",
+                    correlationId = "0x841EDF",
+                    correlationGroupId = "0x00000000",
+                    mainTitle = "Dish on TV",
+                    synopsis = "This video channel is a complimentary and supportive entertainment channel to Dish on TV, showcasing the best programming , highlights and so much more on DStv. To access the Dish on TV Application, press OK on your remote control.",
+                    startDateTime = "2026-09-30T22:00:00.000+0000",
+                    endDateTime = "2026-10-01T04:00:00.000+0000",
+                    duration = "06:00:00",
+                    rating = "FAM",
+                    ratingSummary = "FAM",
+                    genres = listOf("Other"),
+                    channelTag = "DC7",
+                    scheduleId = "9d88e656-9666-4472-919d-bc2a88ffa3a0",
+                    product = "DStv",
+                    scheduling = "Linear",
+                    packages = "DSTV_NOW,SHOWMAX",
+                    pulseHost = "https://za-mc.videoplaza.tv",
+                    streamable = true,
+                    previousEventId = "DC7152673682",
+                    nextEventId = "DC7152673684"
+                ),
+                ChannelScheduleEvent(
+                    id = "DC7152673684",
+                    correlationId = "0x841EDF",
+                    correlationGroupId = "0x00000000",
+                    mainTitle = "Dish on TV",
+                    synopsis = "This video channel is a complimentary and supportive entertainment channel to Dish on TV, showcasing the best programming , highlights and so much more on DStv. To access the Dish on TV Application, press OK on your remote control.",
+                    startDateTime = "2026-10-01T04:00:00.000+0000",
+                    endDateTime = "2026-10-01T10:00:00.000+0000",
+                    duration = "06:00:00",
+                    rating = "FAM",
+                    ratingSummary = "FAM",
+                    genres = listOf("Other"),
+                    channelTag = "DC7",
+                    scheduleId = "3f1520b7-9d33-4ba3-9428-9a3f202742c9",
+                    product = "DStv",
+                    scheduling = "Linear",
+                    packages = "DSTV_NOW,SHOWMAX",
+                    pulseHost = "https://za-mc.videoplaza.tv",
+                    streamable = true,
+                    previousEventId = "DC7152673683",
+                    nextEventId = "DC7152673685"
+                ),
+                ChannelScheduleEvent(
+                    id = "DC7152673685",
+                    correlationId = "0x841EDF",
+                    correlationGroupId = "0x00000000",
+                    mainTitle = "Dish on TV",
+                    synopsis = "This video channel is a complimentary and supportive entertainment channel to Dish on TV, showcasing the best programming , highlights and so much more on DStv. To access the Dish on TV Application, press OK on your remote control.",
+                    startDateTime = "2026-10-01T10:00:00.000+0000",
+                    endDateTime = "2026-10-01T16:00:00.000+0000",
+                    duration = "06:00:00",
+                    rating = "FAM",
+                    ratingSummary = "FAM",
+                    genres = listOf("Other"),
+                    channelTag = "DC7",
+                    scheduleId = "d68b2d9b-398d-4421-92ba-9abe575ebed2",
+                    product = "DStv",
+                    scheduling = "Linear",
+                    packages = "DSTV_NOW,SHOWMAX",
+                    pulseHost = "https://za-mc.videoplaza.tv",
+                    streamable = true,
+                    previousEventId = "DC7152673684",
+                    nextEventId = "DC7152673686"
+                ),
+                ChannelScheduleEvent(
+                    id = "DC7152673686",
+                    correlationId = "0x841EDF",
+                    correlationGroupId = "0x00000000",
+                    mainTitle = "Dish on TV",
+                    synopsis = "This video channel is a complimentary and supportive entertainment channel to Dish on TV, showcasing the best programming , highlights and so much more on DStv. To access the Dish on TV Application, press OK on your remote control.",
+                    startDateTime = "2026-10-01T16:00:00.000+0000",
+                    endDateTime = "2026-10-01T22:00:00.000+0000",
+                    duration = "06:00:00",
+                    rating = "FAM",
+                    ratingSummary = "FAM",
+                    genres = listOf("Other"),
+                    channelTag = "DC7",
+                    scheduleId = "6e41c9c2-8b14-4d0e-9e12-54c9b2e13c86",
+                    product = "DStv",
+                    scheduling = "Linear",
+                    packages = "DSTV_NOW,SHOWMAX",
+                    pulseHost = "https://za-mc.videoplaza.tv",
+                    streamable = true,
+                    previousEventId = "DC7152673685",
+                    nextEventId = "DC7152673687"
+                ),
+                ChannelScheduleEvent(
+                    id = "DC7152673687",
+                    correlationId = "0x841EDF",
+                    correlationGroupId = "0x00000000",
+                    mainTitle = "Dish on TV",
+                    synopsis = "This video channel is a complimentary and supportive entertainment channel to Dish on TV, showcasing the best programming , highlights and so much more on DStv. To access the Dish on TV Application, press OK on your remote control.",
+                    startDateTime = "2026-10-01T22:00:00.000+0000",
+                    endDateTime = "2026-10-02T04:00:00.000+0000",
+                    duration = "06:00:00",
+                    rating = "FAM",
+                    ratingSummary = "FAM",
+                    genres = listOf("Other"),
+                    channelTag = "DC7",
+                    scheduleId = "7b52d8d3-9c25-4e1f-af23-65dac3f24d97",
+                    product = "DStv",
+                    scheduling = "Linear",
+                    packages = "DSTV_NOW,SHOWMAX",
+                    pulseHost = "https://za-mc.videoplaza.tv",
+                    streamable = true,
+                    previousEventId = "DC7152673686",
+                    nextEventId = "DC7152673688"
+                ),
+                ChannelScheduleEvent(
+                    id = "DC7152673688",
+                    correlationId = "0x841EDF",
+                    correlationGroupId = "0x00000000",
+                    mainTitle = "Dish on TV",
+                    synopsis = "This video channel is a complimentary and supportive entertainment channel to Dish on TV, showcasing the best programming , highlights and so much more on DStv. To access the Dish on TV Application, press OK on your remote control.",
+                    startDateTime = "2026-10-02T04:00:00.000+0000",
+                    endDateTime = "2026-10-02T10:00:00.000+0000",
+                    duration = "06:00:00",
+                    rating = "FAM",
+                    ratingSummary = "FAM",
+                    genres = listOf("Other"),
+                    channelTag = "DC7",
+                    scheduleId = "8c63e9e4-ad36-4f20-b034-76ebd4035ea8",
+                    product = "DStv",
+                    scheduling = "Linear",
+                    packages = "DSTV_NOW,SHOWMAX",
+                    pulseHost = "https://za-mc.videoplaza.tv",
+                    streamable = true,
+                    previousEventId = "DC7152673687",
+                    nextEventId = "DC7152673689"
+                )
+            )
         )
     )
 
@@ -614,6 +860,7 @@ object ChannelRepository {
         "f74ba826-f031-4e64-9ec1-f7ffa4e6ec0f", // Azam Sports 2 HD
         "1c976127-e8a4-4bd6-8e73-5da0edce369b", // Azam Sports 3 HD
         "244bcd50-b3bf-4d5e-8419-08cc7bad1a7c", // Azam Sports 4 HD
+        "azam_sport_5_hd",                      // Azam Sports 5 HD
         "c405ae74-c4c5-4842-9f26-130ce380b307", // Azam One
         "008ffe6e-a30f-4ed1-9ddb-4033dde18576", // Azam Two
         "f56ca8c1-3d3f-4dd2-8d9d-b0b54b559f6e", // Sinema Zetu
@@ -638,10 +885,10 @@ object ChannelRepository {
         }
 
     /**
-     * All 17 Azam TV priority channels placed first for the Live TV screen and slider.
+     * All Azam TV priority channels placed first for the Live TV screen and slider.
      */
     val azamPriorityChannels: List<LiveChannel>
-        get() = _liveChannelsFlow.value.filter { it.isAzamPriority }.ifEmpty { channels.take(17) }
+        get() = _liveChannelsFlow.value.filter { it.isAzamPriority }.ifEmpty { channels.filter { it.isAzamPriority } }
 
     /**
      * All Tanzania Live TV channels (including Azam bouquet + Tanzania Firestore channels).
@@ -1050,7 +1297,7 @@ object ChannelRepository {
             } else {
                 matchingLocal?.clearKeys.orEmpty()
             }
-            val normalizedUrl = normalizeDashStreamUrl(rem.streamUrl)
+            val normalizedUrl = resolvePlayableAzamManifestUrl(rem.streamUrl)
             val isDash = normalizedUrl.contains(".mpd", ignoreCase = true) ||
                 normalizedUrl.contains("/live/eds/", ignoreCase = true)
             val resolvedLogo = rem.thumbnailUrl.trim()
@@ -1066,7 +1313,7 @@ object ChannelRepository {
                 clearKeys = mergedKeys
             )
         }
-        val azamFirst = channels.take(17).map { ch ->
+        val azamFirst = channels.filter { it.isAzamPriority }.map { ch ->
             val chKey = normalizeChannelMatchKey(ch.name)
             val matchingRemote = activeRemote.find {
                 it.id.equals(ch.id, ignoreCase = true) ||
@@ -1079,17 +1326,21 @@ object ChannelRepository {
             } else {
                 ch.clearKeys
             }
+            val preferredPrimaryUrl = selectPreferredAzamStreamUrl(
+                localUrl = ch.streamUrl,
+                remoteOrBackupUrl = matchingRemote?.streamUrl.orEmpty()
+            )
             ch.copy(
-                streamUrl = normalizeDashStreamUrl(matchingRemote?.streamUrl?.ifBlank { ch.streamUrl } ?: ch.streamUrl),
-                backupStreamUrl = matchingRemote?.streamUrl?.takeIf { it.isNotBlank() }?.let { normalizeDashStreamUrl(it) } ?: ch.backupStreamUrl,
+                streamUrl = preferredPrimaryUrl,
+                backupStreamUrl = matchingRemote?.streamUrl?.takeIf { it.isNotBlank() }?.let { resolvePlayableAzamManifestUrl(it) } ?: ch.backupStreamUrl,
                 clearKeys = mergedKeys,
                 encryptionType = if (mergedKeys.isNotEmpty()) "clearkey" else ch.encryptionType,
                 thumbnailUrl = resolveGuaranteedChannelLogoUrl(ch.copy(thumbnailUrl = mergedLogo))
             )
         }
-        val remainingLocal = channels.drop(17).map { ch ->
+        val remainingLocal = channels.filterNot { it.isAzamPriority }.map { ch ->
             ch.copy(
-                streamUrl = normalizeDashStreamUrl(ch.streamUrl),
+                streamUrl = resolvePlayableAzamManifestUrl(ch.streamUrl),
                 thumbnailUrl = resolveGuaranteedChannelLogoUrl(ch)
             )
         }
@@ -1194,8 +1445,87 @@ object ChannelRepository {
     private fun extractStreamIdentityPath(url: String): String {
         val base = url.substringBefore("?").trim().lowercase()
         if (base.isEmpty()) return ""
+        val liveEdsIdx = base.indexOf("/live/eds/")
+        if (liveEdsIdx >= 0) {
+            val afterEds = base.substring(liveEdsIdx + "/live/eds/".length)
+            val channelDir = afterEds.substringBefore("/").trim()
+            if (channelDir.isNotEmpty()) {
+                return "/live/eds/$channelDir/dash/$channelDir.mpd"
+            }
+        }
         val liveIdx = base.indexOf("/live/")
         return if (liveIdx >= 0) base.substring(liveIdx) else base
+    }
+
+    private fun extractEmbeddedTokenFromUrl(url: String): String {
+        val trimmed = url.trim()
+        if (trimmed.isEmpty()) return ""
+        val basePath = trimmed.substringBefore("?")
+        if (basePath.contains("/tok_", ignoreCase = true)) {
+            val tokPart = basePath.substringAfter("/tok_").substringBefore("/").trim()
+            if (tokPart.startsWith("eyJ")) {
+                return tokPart.replace("%3D", "=", ignoreCase = true)
+            }
+        }
+        val query = trimmed.substringAfter("?", "")
+        val queryTok = query.split("&")
+            .firstOrNull { it.startsWith("cdntoken=", ignoreCase = true) }
+            ?.substringAfter("=")
+            ?.trim()
+            .orEmpty()
+        return queryTok.replace("%3D", "=", ignoreCase = true)
+    }
+
+    private fun selectPreferredAzamStreamUrl(localUrl: String, remoteOrBackupUrl: String): String {
+        val cleanLocal = localUrl.trim()
+        val cleanRemote = remoteOrBackupUrl.trim()
+        if (cleanRemote.isEmpty()) return resolvePlayableAzamManifestUrl(cleanLocal)
+        if (cleanLocal.isEmpty()) return resolvePlayableAzamManifestUrl(cleanRemote)
+
+        val localHasTokPath = cleanLocal.substringBefore("?").contains("/tok_", ignoreCase = true)
+        val remoteHasTokPath = cleanRemote.substringBefore("?").contains("/tok_", ignoreCase = true)
+        val localExp = extractJwtExpEpochSeconds(extractEmbeddedTokenFromUrl(cleanLocal)) ?: 0L
+        val remoteExp = extractJwtExpEpochSeconds(extractEmbeddedTokenFromUrl(cleanRemote)) ?: 0L
+
+        return when {
+            remoteExp > localExp && (remoteHasTokPath || !localHasTokPath) -> resolvePlayableAzamManifestUrl(cleanRemote)
+            localHasTokPath && !remoteHasTokPath -> resolvePlayableAzamManifestUrl(cleanLocal)
+            localExp >= remoteExp && localExp > 0L -> resolvePlayableAzamManifestUrl(cleanLocal)
+            else -> resolvePlayableAzamManifestUrl(cleanRemote)
+        }
+    }
+
+    /**
+     * Converts Azam TV `/live/eds/<Channel>/DASH/<Segment>.mp4` (such as `-init.mp4` segment URLs)
+     * into the playable DASH manifest path `/live/eds/<Channel>/DASH/<Channel>.mpd` while preserving
+     * any `/tok_<JWT>/` path prefix and `?cdntoken=` query parameters.
+     */
+    fun resolvePlayableAzamManifestUrl(rawUrl: String): String {
+        val trimmed = rawUrl.trim()
+        if (trimmed.isEmpty()) return trimmed
+        val basePath = trimmed.substringBefore("?")
+        val query = trimmed.substringAfter("?", "")
+
+        val rewrittenPath = if (
+            basePath.contains("/live/eds/", ignoreCase = true) &&
+            basePath.contains("/DASH/", ignoreCase = true) &&
+            (basePath.endsWith(".mp4", ignoreCase = true) || basePath.endsWith(".m4s", ignoreCase = true))
+        ) {
+            val edsIdx = basePath.indexOf("/live/eds/", ignoreCase = true)
+            val prefixBeforeEds = basePath.substring(0, edsIdx)
+            val afterEds = basePath.substring(edsIdx + "/live/eds/".length)
+            val channelDir = afterEds.substringBefore("/").trim()
+            if (channelDir.isNotEmpty()) {
+                "$prefixBeforeEds/live/eds/$channelDir/DASH/$channelDir.mpd"
+            } else {
+                basePath
+            }
+        } else {
+            basePath
+        }
+
+        val combined = if (query.isNotEmpty()) "$rewrittenPath?$query" else rewrittenPath
+        return normalizeDashStreamUrl(combined)
     }
 
     /**
@@ -1267,14 +1597,142 @@ object ChannelRepository {
         }
     }
 
+    /**
+     * Parses a DStv / Showmax / Linear EPG schedule payload (`total`, `count`, `page`, `items`)
+     * into [ChannelScheduleEvent] items and attaches them to the matching [LiveChannel] by `channel_tag` or `main_title`.
+     */
+    fun parseChannelSchedulePayload(jsonStr: String): List<ChannelScheduleEvent> {
+        val trimmed = jsonStr.trim()
+        if (trimmed.isEmpty()) return emptyList()
+        return try {
+            val itemObjects = mutableListOf<JSONObject>()
+            if (trimmed.startsWith("[")) {
+                val arr = JSONArray(trimmed)
+                for (i in 0 until arr.length()) {
+                    arr.optJSONObject(i)?.let { itemObjects.add(it) }
+                }
+            } else if (trimmed.startsWith("{")) {
+                val root = JSONObject(trimmed)
+                val itemsArr = root.optJSONArray("items")
+                    ?: root.optJSONArray("schedule")
+                    ?: root.optJSONArray("events")
+                    ?: root.optJSONArray("data")
+                if (itemsArr != null) {
+                    for (i in 0 until itemsArr.length()) {
+                        itemsArr.optJSONObject(i)?.let { itemObjects.add(it) }
+                    }
+                } else if (root.has("main_title") || root.has("channel_tag") || root.has("schedule_id")) {
+                    itemObjects.add(root)
+                }
+            }
+
+            val events = itemObjects.mapNotNull { obj ->
+                val id = obj.optString("id").trim()
+                val adRequestObj = obj.optJSONObject("ad_request")
+                val acpObj = adRequestObj?.optJSONObject("acp")
+                val mainTitle = obj.optString("main_title")
+                    .ifBlank { acpObj?.optString("title").orEmpty() }
+                    .ifBlank { obj.optString("title") }
+                    .trim()
+                val channelTag = obj.optString("channel_tag").trim()
+                if (id.isEmpty() && mainTitle.isEmpty() && channelTag.isEmpty()) return@mapNotNull null
+
+                val genresList = mutableListOf<String>()
+                val genresArr = obj.optJSONArray("genres")
+                if (genresArr != null) {
+                    for (i in 0 until genresArr.length()) {
+                        val g = genresArr.optString(i).trim()
+                        if (g.isNotEmpty()) genresList.add(g)
+                    }
+                }
+                val timeShiftObj = obj.optJSONObject("time_shift_stream")
+                val featuresObj = obj.optJSONObject("features")
+
+                ChannelScheduleEvent(
+                    id = id.ifEmpty { "${channelTag}_${obj.optString("schedule_id")}" },
+                    genRef = obj.optString("gen_ref"),
+                    correlationId = obj.optString("correlation_id"),
+                    correlationGroupId = obj.optString("correlation_group_id"),
+                    mainTitle = mainTitle.ifEmpty { channelTag },
+                    episodeTitle = obj.optString("episode_title"),
+                    synopsis = obj.optString("synopsis"),
+                    seasonNumber = obj.optString("season_number", "0"),
+                    episodeNumber = obj.optString("episode_number", "0"),
+                    live = obj.optBoolean("live", false),
+                    startDateTime = obj.optString("start_date_time"),
+                    endDateTime = obj.optString("end_date_time"),
+                    duration = obj.optString("duration"),
+                    maturityClassification = obj.optString("maturity_classification"),
+                    rating = obj.optString("rating"),
+                    ratingSummary = obj.optString("rating_summary"),
+                    year = obj.optInt("year", 0),
+                    genres = genresList,
+                    channelTag = channelTag,
+                    blockStream = obj.optBoolean("block_stream", false),
+                    scheduleId = obj.optString("schedule_id"),
+                    product = acpObj?.optString("product").orEmpty(),
+                    scheduling = acpObj?.optString("scheduling").orEmpty(),
+                    packages = acpObj?.optString("package").orEmpty(),
+                    pulseHost = adRequestObj?.optString("pulse_host").orEmpty(),
+                    timeShiftDashUrl = timeShiftObj?.optString("dash").orEmpty(),
+                    timeShiftHlsUrl = timeShiftObj?.optString("hls").orEmpty(),
+                    timeShiftMssUrl = timeShiftObj?.optString("mss").orEmpty(),
+                    streamable = featuresObj?.optBoolean("streamable", true) ?: true,
+                    recordable = featuresObj?.optBoolean("recordable", false) ?: false,
+                    allowPastEventRewatch = featuresObj?.optBoolean("allowPastEventRewatch", false) ?: false,
+                    previousEventId = obj.optString("previous_event_id"),
+                    nextEventId = obj.optString("next_event_id"),
+                    restricted = obj.optBoolean("restricted", false),
+                    ageRestriction = obj.optInt("age_restriction", 0)
+                )
+            }
+
+            if (events.isNotEmpty()) {
+                val first = events.first()
+                val updatedChannels = _liveChannelsFlow.value.map { ch ->
+                    val matchesTag = first.channelTag.isNotEmpty() &&
+                        (ch.channelTag.equals(first.channelTag, ignoreCase = true) ||
+                            ch.id.startsWith(first.channelTag, ignoreCase = true))
+                    val matchesTitle = first.mainTitle.isNotEmpty() &&
+                        ch.name.equals(first.mainTitle, ignoreCase = true)
+                    if (matchesTag || matchesTitle) {
+                        val timeShiftStream = events.firstNotNullOfOrNull { ev ->
+                            ev.timeShiftDashUrl.ifBlank { ev.timeShiftHlsUrl }
+                                .ifBlank { ev.timeShiftMssUrl }
+                                .takeIf { it.isNotBlank() }
+                        }
+                        ch.copy(
+                            description = first.synopsis.ifBlank { ch.description },
+                            channelTag = first.channelTag.ifBlank { ch.channelTag },
+                            rating = first.rating.ifBlank { ch.rating },
+                            streamUrl = timeShiftStream ?: ch.streamUrl,
+                            scheduleEvents = events
+                        )
+                    } else {
+                        ch
+                    }
+                }
+                _liveChannelsFlow.value = updatedChannels
+            }
+            events
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
     private fun parseSingleBackupChannelObject(obj: JSONObject, index: Int): LiveChannel? {
+        val adRequestObj = obj.optJSONObject("ad_request")
+        val acpObj = adRequestObj?.optJSONObject("acp")
         val name = obj.optString("name")
             .ifBlank { obj.optString("title") }
+            .ifBlank { obj.optString("main_title") }
+            .ifBlank { acpObj?.optString("title").orEmpty() }
             .ifBlank { obj.optString("channelName") }
             .ifBlank { obj.optString("channel_name") }
             .ifBlank { obj.optString("label") }
             .trim()
 
+        val timeShiftObj = obj.optJSONObject("time_shift_stream")
         val rawUrl = obj.optString("streamUrl")
             .ifBlank { obj.optString("stream_url") }
             .ifBlank { obj.optString("url") }
@@ -1290,6 +1748,9 @@ object ChannelRepository {
             .ifBlank { obj.optString("src") }
             .ifBlank { obj.optString("stream") }
             .ifBlank { obj.optString("link") }
+            .ifBlank { timeShiftObj?.optString("dash").orEmpty() }
+            .ifBlank { timeShiftObj?.optString("hls").orEmpty() }
+            .ifBlank { timeShiftObj?.optString("mss").orEmpty() }
             .trim()
 
         if (name.isBlank() || rawUrl.isBlank()) return null
@@ -1302,9 +1763,9 @@ object ChannelRepository {
             .trim()
 
         val clearKeysMap = extractClearKeysMapFromChannelJson(obj)
-        val normalizedUrl = normalizeDashStreamUrl(rawUrl)
+        val normalizedUrl = resolvePlayableAzamManifestUrl(rawUrl)
         val normalizedBackupUrl = if (rawBackupUrl.isNotBlank()) {
-            normalizeDashStreamUrl(rawBackupUrl)
+            resolvePlayableAzamManifestUrl(rawBackupUrl)
         } else {
             ""
         }
@@ -1352,9 +1813,12 @@ object ChannelRepository {
 
         val country = obj.optString("country").ifBlank { matchingLocal?.country ?: "Tanzania" }
         val description = obj.optString("description")
+            .ifBlank { obj.optString("synopsis") }
             .ifBlank { obj.optString("tagline") }
             .ifBlank { matchingLocal?.description.orEmpty() }
             .ifBlank { "${categories.firstOrNull() ?: "Live TV"} • $country" }
+        val channelTag = obj.optString("channel_tag").ifBlank { matchingLocal?.channelTag.orEmpty() }
+        val rating = obj.optString("rating").ifBlank { matchingLocal?.rating.orEmpty() }
 
         val provisional = LiveChannel(
             id = rawId,
@@ -1371,7 +1835,9 @@ object ChannelRepository {
             encryptionType = if (finalClearKeys.isNotEmpty()) "clearkey" else "none",
             clearKeys = finalClearKeys,
             enabled = obj.optBoolean("enabled", true),
-            published = obj.optBoolean("published", true)
+            published = obj.optBoolean("published", true),
+            channelTag = channelTag,
+            rating = rating
         )
         val guaranteedLogo = if (rawLogo.isNotBlank()) rawLogo else resolveGuaranteedChannelLogoUrl(provisional)
         return provisional.copy(thumbnailUrl = guaranteedLogo)
@@ -1519,9 +1985,10 @@ object ChannelRepository {
 
             if (matchedBackup != null) {
                 matchedBackupIds.add(matchedBackup.id)
-                val normalizedBackupUrl = normalizeDashStreamUrl(matchedBackup.streamUrl)
-                val normalizedPrimaryUrl = normalizeDashStreamUrl(
-                    matchedBackup.streamUrl.ifBlank { primary.streamUrl }
+                val normalizedBackupUrl = resolvePlayableAzamManifestUrl(matchedBackup.streamUrl)
+                val normalizedPrimaryUrl = selectPreferredAzamStreamUrl(
+                    localUrl = primary.streamUrl,
+                    remoteOrBackupUrl = matchedBackup.streamUrl
                 )
                 val mergedClearKeys = resolveClearKeysForChannel(
                     primary.copy(clearKeys = matchedBackup.clearKeys + primary.clearKeys)
@@ -1602,8 +2069,10 @@ object ChannelRepository {
         val isAzamCdn = basePath.contains("azamtvltd.co.tz", ignoreCase = true) ||
                 basePath.contains("/live/eds/", ignoreCase = true)
         val hasCdnTokenParam = existingQuery.contains("cdntoken=", ignoreCase = true)
+        val hasPathTokenPrefix = basePath.contains("/tok_", ignoreCase = true)
         val isCdnMp4OrMpd = isAzamCdn ||
                 hasCdnTokenParam ||
+                hasPathTokenPrefix ||
                 (basePath.endsWith(".mpd", ignoreCase = true) && isAzamCdn) ||
                 (basePath.endsWith(".mp4", ignoreCase = true) && isAzamCdn)
 
@@ -1611,24 +2080,35 @@ object ChannelRepository {
             return rewrittenHostUrl
         }
 
-        // If rawUrl itself embeds a fresher cdntoken (e.g., from https://streamzone.fun/api/channels), promote and keep it!
+        val pathToken = if (hasPathTokenPrefix) {
+            basePath.substringAfter("/tok_").substringBefore("/").trim()
+                .replace("%3D", "=", ignoreCase = true)
+        } else {
+            ""
+        }
+
+        // If rawUrl itself embeds a fresher cdntoken or /tok_<JWT>/, promote and keep it!
         val embeddedTokenParam = existingQuery
             .split("&")
             .firstOrNull { it.startsWith("cdntoken=", ignoreCase = true) }
             ?.substringAfter("=")
             ?.trim()
+            ?.replace("%3D", "=", ignoreCase = true)
             .orEmpty()
 
         var effectiveToken = AZAM_CDN_TOKEN
-        if (embeddedTokenParam.isNotEmpty() && !isSupersededOrRevokedToken(embeddedTokenParam)) {
-            val embeddedExp = extractJwtExpEpochSeconds(embeddedTokenParam) ?: 0L
+        val candidateTokens = listOf(pathToken, embeddedTokenParam).filter {
+            it.isNotEmpty() && !isSupersededOrRevokedToken(it)
+        }
+        for (candToken in candidateTokens) {
+            val candExp = extractJwtExpEpochSeconds(candToken) ?: 0L
             val activeExp = extractJwtExpEpochSeconds(AZAM_CDN_TOKEN) ?: 0L
-            if (embeddedExp > activeExp) {
-                AZAM_CDN_TOKEN = embeddedTokenParam
-                effectiveToken = embeddedTokenParam
+            if (candExp > activeExp) {
+                AZAM_CDN_TOKEN = candToken
+                effectiveToken = candToken
             } else if (activeExp == 0L && AZAM_CDN_TOKEN == DEFAULT_AZAM_CDN_TOKEN) {
-                AZAM_CDN_TOKEN = embeddedTokenParam
-                effectiveToken = embeddedTokenParam
+                AZAM_CDN_TOKEN = candToken
+                effectiveToken = candToken
             }
         }
 
@@ -1667,6 +2147,7 @@ object ChannelRepository {
 
             val matchesName = trimmed.isEmpty() ||
                     channel.name.contains(trimmed, ignoreCase = true) ||
+                    channel.channelTag.contains(trimmed, ignoreCase = true) ||
                     channel.country.contains(trimmed, ignoreCase = true)
 
             matchesCategory && matchesName && channel.enabled && channel.published

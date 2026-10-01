@@ -21,6 +21,13 @@ class ExampleRobolectricTest {
         val appName = context.getString(R.string.app_name)
         assertEquals("Nelitv", appName)
         assertEquals("com.nelitv.app", BuildConfig.APPLICATION_ID)
+
+        val dishChannel = com.example.data.ChannelRepository.getChannelById("DC7152673681")
+        assertNotNull(dishChannel)
+        assertEquals("Dish on TV", dishChannel!!.name)
+        assertEquals("DC7", dishChannel.channelTag)
+        assertEquals("FAM", dishChannel.rating)
+        assertEquals(8, dishChannel.scheduleEvents.size)
     }
 
     @Test
@@ -472,6 +479,21 @@ class ExampleRobolectricTest {
         assertTrue(com.example.data.NeliAppUpdateManager.showHomepageUpdatePopup.value)
         com.example.data.NeliAppUpdateManager.dismissHomepageUpdatePopup("v1.0.1")
         org.junit.Assert.assertFalse(com.example.data.NeliAppUpdateManager.showHomepageUpdatePopup.value)
+
+        // Verify Package Conflict inspection & conflict-free in-app update resolution
+        val conflictCheck = com.example.data.NeliAppUpdateManager.inspectApkPackageConflict(
+            context = context,
+            apkFile = null,
+            targetVersionTag = "v1.0.0"
+        )
+        assertTrue(conflictCheck.wouldCausePackageConflict)
+        assertTrue(com.example.data.NeliAppUpdateManager.resolvePackageConflictAndUpdate(context))
+        org.junit.Assert.assertFalse(com.example.data.NeliAppUpdateManager.releaseInfo.value.isNewUpdateAvailable)
+        assertTrue(
+            com.example.data.NeliAppUpdateManager.apkDownloadStatusMessage.value
+                .orEmpty()
+                .contains("bila Package Conflict", ignoreCase = true)
+        )
         com.example.data.NeliAppUpdateManager.parseGitHubReleaseJson(sampleReleaseJson, currentVersionTag = "v1.0.0")
 
         // Verify Account Widget Setup sets and displays widget on Home Screen

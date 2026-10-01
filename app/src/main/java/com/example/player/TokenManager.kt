@@ -140,12 +140,22 @@ object TokenManager {
         encodedManifestQuery: String? = null
     ): DataSpec {
         val rawUriStr = dataSpec.uri.toString()
+        val basePart = rawUriStr.substringBefore("?")
+        val rewrittenBasePart = if (forceLatestToken && basePart.contains("/tok_", ignoreCase = true)) {
+            val beforeTok = basePart.substringBefore("/tok_")
+            val afterTok = basePart.substringAfter("/tok_").substringAfter("/", "")
+            if (afterTok.isNotEmpty()) "$beforeTok/tok_$currentToken/$afterTok" else basePart
+        } else {
+            basePart
+        }
         val inputUrl = if (forceLatestToken && rawUriStr.contains("?")) {
-            val base = rawUriStr.substringBefore("?")
             val otherParams = rawUriStr.substringAfter("?")
                 .split("&")
                 .filter { it.isNotBlank() && !it.startsWith("cdntoken=", ignoreCase = true) }
-            if (otherParams.isEmpty()) base else "$base?${otherParams.joinToString("&")}"
+            if (otherParams.isEmpty()) rewrittenBasePart else "$rewrittenBasePart?${otherParams.joinToString("&")}"
+        } else if (rewrittenBasePart != basePart) {
+            val q = rawUriStr.substringAfter("?", "")
+            if (q.isEmpty()) rewrittenBasePart else "$rewrittenBasePart?$q"
         } else {
             rawUriStr
         }

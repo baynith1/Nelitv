@@ -1723,7 +1723,7 @@ class LivePlayerController(
         val effectiveStreamUrl = if (isLocalOfflineFile) {
             resolvedOfflineOrOnlineUrl
         } else {
-            com.example.data.ChannelRepository.normalizeDashStreamUrl(resolvedOfflineOrOnlineUrl)
+            com.example.data.ChannelRepository.resolvePlayableAzamManifestUrl(resolvedOfflineOrOnlineUrl)
         }
         val manifestUri = if (effectiveStreamUrl.startsWith("/")) {
             Uri.fromFile(java.io.File(effectiveStreamUrl))
@@ -1864,12 +1864,12 @@ class LivePlayerController(
                     val mergedClearKeys = com.example.data.ChannelRepository.resolveClearKeysForChannel(
                         channel.copy(clearKeys = (backupMatch?.clearKeys ?: emptyMap()) + channel.clearKeys)
                     )
-                    val normalizedStreamUrl = com.example.data.ChannelRepository.normalizeDashStreamUrl(failoverUrl)
+                    val normalizedStreamUrl = com.example.data.ChannelRepository.resolvePlayableAzamManifestUrl(failoverUrl)
                     TokenManager.injectHeadersIntoFactory(sharedBaseHttpDataSourceFactory, normalizedStreamUrl)
                     channel = channel.copy(
                         streamUrl = normalizedStreamUrl,
                         backupStreamUrl = channel.backupStreamUrl.ifBlank {
-                            backupMatch?.streamUrl?.let { com.example.data.ChannelRepository.normalizeDashStreamUrl(it) }.orEmpty()
+                            backupMatch?.streamUrl?.let { com.example.data.ChannelRepository.resolvePlayableAzamManifestUrl(it) }.orEmpty()
                         },
                         clearKeys = mergedClearKeys,
                         encryptionType = if (mergedClearKeys.isNotEmpty()) "clearkey" else channel.encryptionType
