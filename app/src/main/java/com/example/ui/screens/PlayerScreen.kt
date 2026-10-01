@@ -1308,14 +1308,11 @@ fun PlayerScreen(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         if (activeChannel.isLiveBroadcast) {
-                            // Automatic watchdog: if Live TV ever pauses or stalls, automatically invoke syncToLiveEdge()
+                            // Automatic watchdog: if Live TV ever pauses while ready, automatically invoke syncToLiveEdge()
                             // so the user never has to manually click the bottom "LIVE STREAM • CONTINUOUS REAL-TIME PLAYBACK" button.
                             LaunchedEffect(activeChannel.id, playbackInfo.isPlaying, uiState) {
                                 if (!playbackInfo.isPlaying && uiState is PlayerUiState.Ready) {
                                     kotlinx.coroutines.delay(1200L)
-                                    playerController.syncToLiveEdge()
-                                } else if (uiState is PlayerUiState.Error) {
-                                    kotlinx.coroutines.delay(2000L)
                                     playerController.syncToLiveEdge()
                                 }
                             }

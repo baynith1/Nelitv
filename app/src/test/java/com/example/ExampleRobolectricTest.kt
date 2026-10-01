@@ -1146,6 +1146,14 @@ class ExampleRobolectricTest {
         val specialFolder = com.example.data.OfflineDownloadManager.ensureSpecialDeviceDownloadFolder(context)
         assertTrue(specialFolder.exists())
         assertEquals(com.example.data.OfflineDownloadManager.SPECIAL_DEVICE_FOLDER_NAME, specialFolder.name)
+        assertTrue(
+            "Downloads must be stored strictly inside app-internal filesDir",
+            specialFolder.absolutePath.startsWith(context.filesDir.absolutePath)
+        )
+        assertEquals(
+            "In-App Private Storage (Nelitv Only)",
+            com.example.data.OfflineDownloadManager.SPECIAL_DEVICE_FOLDER_DISPLAY_PATH
+        )
 
         val cleanName = com.example.data.OfflineDownloadManager.buildCleanDeviceFileName(
             title = "Never a Thief (Swahili)",

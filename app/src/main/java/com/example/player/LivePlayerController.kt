@@ -464,8 +464,8 @@ class LivePlayerController(
     private val sharedBaseHttpDataSourceFactory: DefaultHttpDataSource.Factory by lazy {
         val factory = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(8_000)
-            .setReadTimeoutMs(12_000)
+            .setConnectTimeoutMs(5_000)
+            .setReadTimeoutMs(7_000)
             .setUserAgent(TokenManager.USER_AGENT)
         TokenManager.injectHeadersIntoFactory(factory, channel.streamUrl)
     }
@@ -708,7 +708,7 @@ class LivePlayerController(
             // Dynamic buffering, bandwidth & battery-aware adaptation during active playback/buffering
             if (_playbackInfo.value.networkMode == NetworkQualityMode.AUTO_ADAPTIVE) {
                 if (player.playbackState == Player.STATE_BUFFERING) {
-                    if (bufferingEnteredAtRealtimeMs > 0L && now - bufferingEnteredAtRealtimeMs >= 2_200L) {
+                    if (bufferingEnteredAtRealtimeMs > 0L && now - bufferingEnteredAtRealtimeMs >= 4_500L) {
                         // Prolonged buffering stall -> step down another quality tier dynamically
                         consecutiveRebufferCount = (consecutiveRebufferCount + 1).coerceAtMost(4)
                         bufferingEnteredAtRealtimeMs = now
@@ -928,7 +928,8 @@ class LivePlayerController(
             }
 
             val httpCode = extractHttpErrorCode(error)
-            if (autoReconnectAttempts < 3) {
+            val maxReconnects = if (channel.isLiveBroadcast) 1 else 2
+            if (autoReconnectAttempts < maxReconnects) {
                 autoReconnectAttempts++
                 _uiState.value = PlayerUiState.Buffering
                 // Dynamically downscale on transient network errors to ensure seamless recovery
@@ -939,7 +940,6 @@ class LivePlayerController(
                     applyNetworkQualityMode(NetworkQualityMode.ULTRA_LOW_BANDO_SAVER)
                 }
                 val resumePos = lastKnownVodPositionMs
-                val attemptNum = autoReconnectAttempts
                 if (channel.isLiveBroadcast) {
                     Thread {
                         try {
@@ -952,15 +952,9 @@ class LivePlayerController(
                         mainHandler.post {
                             exoPlayer?.let { p ->
                                 val backupMatch = com.example.data.ChannelRepository.findBackupChannelFor(channel)
-                                val candidateUrl = if (attemptNum >= 2) {
-                                    channel.backupStreamUrl
-                                        .ifBlank { backupMatch?.streamUrl.orEmpty() }
-                                        .ifBlank { channel.streamUrl }
-                                } else {
-                                    channel.streamUrl.ifBlank {
-                                        channel.backupStreamUrl.ifBlank { backupMatch?.streamUrl.orEmpty() }
-                                    }
-                                }
+                                val candidateUrl = channel.backupStreamUrl
+                                    .ifBlank { backupMatch?.streamUrl.orEmpty() }
+                                    .ifBlank { channel.streamUrl }
                                 val mergedClearKeys = com.example.data.ChannelRepository.resolveClearKeysForChannel(
                                     channel.copy(clearKeys = (backupMatch?.clearKeys ?: emptyMap()) + channel.clearKeys)
                                 )
@@ -988,14 +982,14 @@ class LivePlayerController(
                             p.prepare()
                             p.play()
                         }
-                    }, 450L)
+                    }, 300L)
                 }
                 return
             }
 
             val friendlyMsg = mapPlaybackError(error)
-            val techMsg = if (httpCode != null) {
-                "HTTP $httpCode - Stream authorization or token required by provider"
+            val techMsg = if (channel.isLiveBroadcast || httpCode == 401 || httpCode == 403) {
+                null
             } else {
                 "${error.errorCodeName}: ${error.message ?: "Unable to connect"}"
             }
@@ -1371,16 +1365,16 @@ class LivePlayerController(
         }
         trackSelector = selector
 
-        val minBufMs = if (lowBandoActive) 3_500 else minOf(6_000, initialBatteryProfile.minBufferMs)
-        val maxBufMs = if (lowBandoActive) minOf(24_000, initialBatteryProfile.maxBufferMs) else minOf(36_000, initialBatteryProfile.maxBufferMs)
-        val backBufMs = minOf(8_000, initialBatteryProfile.backBufferMs)
+        val minBufMs = if (lowBandoActive) 2_000 else minOf(3_500, initialBatteryProfile.minBufferMs)
+        val maxBufMs = if (lowBandoActive) minOf(16_000, initialBatteryProfile.maxBufferMs) else minOf(24_000, initialBatteryProfile.maxBufferMs)
+        val backBufMs = minOf(6_000, initialBatteryProfile.backBufferMs)
 
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
                 /* minBufferMs = */ minBufMs,
                 /* maxBufferMs = */ maxBufMs,
-                /* bufferForPlaybackMs = */ if (lowBandoActive || initialBatteryProfile.isCpuSavingActive) 200 else 250,
-                /* bufferForPlaybackAfterRebufferMs = */ if (lowBandoActive || initialBatteryProfile.isCpuSavingActive) 450 else 550
+                /* bufferForPlaybackMs = */ 150,
+                /* bufferForPlaybackAfterRebufferMs = */ 300
             )
             .setBackBuffer(
                 /* backBufferDurationMs = */ backBufMs,
@@ -2075,7 +2069,8 @@ class LivePlayerController(
         val message = error.message ?: ""
         val causeMsg = error.cause?.message ?: ""
 
-        if (httpCode == 401 || httpCode == 403 ||
+        if (channel.isLiveBroadcast ||
+            httpCode == 401 || httpCode == 403 ||
             error.errorCode in listOf(
                 PlaybackException.ERROR_CODE_DRM_LICENSE_ACQUISITION_FAILED,
                 PlaybackException.ERROR_CODE_DRM_PROVISIONING_FAILED,
@@ -2085,7 +2080,7 @@ class LivePlayerController(
                 PlaybackException.ERROR_CODE_DRM_UNSPECIFIED
             ) || message.contains("drm", ignoreCase = true) || causeMsg.contains("drm", ignoreCase = true)
         ) {
-            return "Stream requires authorization"
+            return "Tafadhari badilisha mtandao unaotumia au wifi inaonekana ina low quality"
         }
 
         if (httpCode == 404 || httpCode == 410) {
@@ -2098,10 +2093,10 @@ class LivePlayerController(
                 PlaybackException.ERROR_CODE_IO_UNSPECIFIED
             ) || message.contains("timeout", ignoreCase = true) || causeMsg.contains("timeout", ignoreCase = true)
         ) {
-            return "Stream temporarily offline"
+            return "Tafadhari badilisha mtandao unaotumia au wifi inaonekana ina low quality"
         }
 
-        return "Unable to load stream"
+        return "Tafadhari badilisha mtandao unaotumia au wifi inaonekana ina low quality"
     }
 
     private class LiveStreamLoadErrorHandlingPolicy : DefaultLoadErrorHandlingPolicy() {
@@ -2110,12 +2105,12 @@ class LivePlayerController(
             val responseCode = (ex as? HttpDataSource.InvalidResponseCodeException)?.responseCode
                 ?: (ex.cause as? HttpDataSource.InvalidResponseCodeException)?.responseCode
 
-            if ((responseCode == 401 || responseCode == 403 || responseCode == 410) && loadErrorInfo.errorCount > 2) {
+            if ((responseCode == 401 || responseCode == 403 || responseCode == 404 || responseCode == 410) && loadErrorInfo.errorCount >= 1) {
                 return C.TIME_UNSET
             }
-            return minOf(loadErrorInfo.errorCount * 500L, 2000L)
+            return minOf(loadErrorInfo.errorCount * 300L, 900L)
         }
 
-        override fun getMinimumLoadableRetryCount(dataType: Int): Int = 4
+        override fun getMinimumLoadableRetryCount(dataType: Int): Int = 1
     }
 }

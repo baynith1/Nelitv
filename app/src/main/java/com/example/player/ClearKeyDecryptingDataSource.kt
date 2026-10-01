@@ -50,19 +50,6 @@ class ClearKeyDecryptingDataSource(
     override fun open(dataSpec: DataSpec): Long {
         transferInitializing(dataSpec)
 
-        val initialUriStr = dataSpec.uri.toString()
-        val isAzamOrTokenStream = initialUriStr.contains("azamtvltd.co.tz", ignoreCase = true) ||
-            initialUriStr.contains("/live/eds/", ignoreCase = true) ||
-            initialUriStr.contains("cdntoken=", ignoreCase = true)
-
-        // Ensure we have synced the live token at least once before opening the first Azam manifest
-        if (isAzamOrTokenStream && com.example.data.ChannelRepository.lastLiveTokenSyncEpochMs == 0L) {
-            val pathLower = initialUriStr.substringBefore("?").lowercase()
-            if (pathLower.endsWith(".mpd")) {
-                TokenManager.fetchLiveTokenBlocking(forceRefresh = false)
-            }
-        }
-
         var effectiveDataSpec = resolveDataSpecToken(dataSpec, forceLatestRepoToken = false)
         val uriString = effectiveDataSpec.uri.toString()
         val pathPart = uriString.substringBefore("?").lowercase()

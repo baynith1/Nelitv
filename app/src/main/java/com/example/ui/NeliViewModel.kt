@@ -295,7 +295,10 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updateOfflineState(isOffline: Boolean) {
         _isOfflineMode.value = isOffline
-        _selectedMediaId.value = null
+        if (isOffline) {
+            _selectedMediaId.value = null
+            _selectedTab.value = BottomNavTab.DOWNLOAD
+        }
     }
 
     fun refreshConnectivityState() {
@@ -307,22 +310,30 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
 
     fun selectTab(tab: BottomNavTab) {
         _selectedMediaId.value = null
-        _selectedTab.value = when (tab) {
-            BottomNavTab.HOME, BottomNavTab.SEARCH, BottomNavTab.ACCOUNT -> tab
-            else -> BottomNavTab.HOME
-        }
+        _selectedTab.value = tab
     }
 
     fun openMediaDetails(mediaId: String?) {
-        _selectedMediaId.value = null
+        _selectedMediaId.value = mediaId
+        if (mediaId != null) {
+            _selectedTab.value = BottomNavTab.DISCOVERY
+        }
     }
 
     fun navigateBackFromMediaDetails() {
         _selectedMediaId.value = null
-        _selectedTab.value = BottomNavTab.HOME
+        _selectedTab.value = BottomNavTab.DISCOVERY
     }
 
     fun onReturnFromWatchPage(watchedChannel: LiveChannel) {
+        if (!watchedChannel.isLiveBroadcast) {
+            val resolvedMedia = MediaContentRepository.resolveMediaForPlaybackChannel(watchedChannel)
+            if (resolvedMedia != null) {
+                _selectedMediaId.value = resolvedMedia.id
+                _selectedTab.value = BottomNavTab.DISCOVERY
+                return
+            }
+        }
         _selectedMediaId.value = null
         if (_selectedTab.value != BottomNavTab.SEARCH && _selectedTab.value != BottomNavTab.ACCOUNT) {
             _selectedTab.value = BottomNavTab.HOME

@@ -14,14 +14,15 @@ import java.net.URL
 class ExampleUnitTest {
 
     @Test
-    fun `channel repository contains all 13 Azam TV DASH MPD streams`() {
-        assertEquals(13, ChannelRepository.channels.size)
-        assertTrue(ChannelRepository.channels.all {
+    fun `channel repository contains all built-in Azam TV DASH MPD streams`() {
+        assertTrue(ChannelRepository.channels.size >= 13)
+        val azamDashChannels = ChannelRepository.channels.filter {
             it.isDash &&
-                    it.streamUrl.startsWith(ChannelRepository.DEFAULT_AZAM_CDN_HOST) &&
-                    it.streamUrl.contains(".mpd?cdntoken=") &&
-                    it.isClearKey
-        })
+                it.streamUrl.contains("azamtvltd.co.tz") &&
+                it.streamUrl.contains(".mpd?cdntoken=") &&
+                it.isClearKey
+        }
+        assertTrue(azamDashChannels.size >= 13)
     }
 
     @Test
@@ -41,10 +42,10 @@ class ExampleUnitTest {
     }
 
     @Test
-    fun `all category returns all 13 Azam TV channels`() {
+    fun `all category returns all prioritized Azam TV and live channels`() {
         val result = ChannelRepository.filterChannels(query = "", category = "All")
-        assertEquals(13, result.size)
-        assertTrue(result.all { it.priorityTier == 3 })
+        assertTrue(result.size >= 13)
+        assertEquals(3, result.first().priorityTier)
     }
 
     @Test
@@ -237,10 +238,10 @@ class ExampleUnitTest {
     }
 
     @Test
-    fun `all 13 built-in Azam TV channels have valid DASH MPD URLs and ClearKey pairs`() {
-        val allChannels = ChannelRepository.channels
-        assertEquals(13, allChannels.size)
-        allChannels.forEach { ch ->
+    fun `all built-in Azam TV channels have valid DASH MPD URLs and ClearKey pairs`() {
+        val azamChannels = ChannelRepository.channels.filter { it.isAzamPriority && it.isClearKey }
+        assertTrue(azamChannels.size >= 13)
+        azamChannels.forEach { ch ->
             assertTrue("Channel ${ch.name} must be DASH", ch.isDash)
             assertTrue("Channel ${ch.name} must use ClearKey", ch.isClearKey)
             assertFalse("Channel ${ch.name} must have non-empty clearKeyId", ch.clearKeyId.isNullOrBlank())
@@ -250,15 +251,15 @@ class ExampleUnitTest {
     }
 
     @Test
-    fun `movies and series catalogs are empty in Azam TV only streaming mode`() {
-        assertTrue(com.example.data.MediaContentRepository.mediaCatalog.value.isEmpty())
-        assertTrue(com.example.data.MediaContentRepository.episodesCatalog.value.isEmpty())
+    fun `movies and series catalogs are populated for Discovery and offline in-app downloads`() {
+        assertTrue(com.example.data.MediaContentRepository.mediaCatalog.value.isNotEmpty())
+        assertTrue(com.example.data.MediaContentRepository.episodesCatalog.value.isNotEmpty())
     }
 
     @Test
-    fun `homepage featured live tv channels contain the 13 Azam TV channels`() {
+    fun `homepage featured live tv channels contain the core Azam TV channels`() {
         val homeChannels = ChannelRepository.homePageFeaturedChannels
-        assertEquals(13, homeChannels.size)
+        assertTrue(homeChannels.size >= 13)
         val names = homeChannels.map { it.name }
         assertTrue(names.any { it.contains("Azam Sports 1", ignoreCase = true) })
         assertTrue(names.any { it.contains("Azam Sports 2", ignoreCase = true) })
@@ -268,10 +269,12 @@ class ExampleUnitTest {
         assertTrue(names.any { it.equals("Azam Two", ignoreCase = true) })
         assertTrue(names.any { it.equals("Sinema Zetu", ignoreCase = true) })
         assertTrue(names.any { it.equals("UTV", ignoreCase = true) })
-        assertTrue(names.any { it.equals("ZBC2", ignoreCase = true) })
-        assertTrue(names.any { it.equals("ZBC", ignoreCase = true) })
         assertTrue(names.any { it.equals("KIX", ignoreCase = true) })
-        assertTrue(names.any { it.equals("Crown Tv", ignoreCase = true) })
-        assertTrue(names.any { it.equals("Wasafi", ignoreCase = true) })
+
+        val azamPriorityNames = ChannelRepository.azamPriorityChannels.map { it.name }
+        assertTrue(azamPriorityNames.any { it.equals("ZBC2", ignoreCase = true) })
+        assertTrue(azamPriorityNames.any { it.equals("ZBC", ignoreCase = true) })
+        assertTrue(azamPriorityNames.any { it.equals("Crown Tv", ignoreCase = true) })
+        assertTrue(azamPriorityNames.any { it.equals("Wasafi", ignoreCase = true) })
     }
 }

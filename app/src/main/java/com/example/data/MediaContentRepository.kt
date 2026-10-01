@@ -1,5 +1,6 @@
 package com.example.data
 
+import android.content.Context
 import com.example.data.local.DownloadedItemEntity
 import com.example.model.CastMember
 import com.example.model.EpisodeItem
@@ -38,7 +39,7 @@ object MediaContentRepository {
     )
 
     private val edgeResponseCache = ConcurrentHashMap<String, CachedEdgePayload>()
-    private const val EDGE_CACHE_TTL_MS = 45_000L
+    private const val EDGE_CACHE_TTL_MS = 300_000L
     private val catalogSyncMutex = Mutex()
     private val tokenSyncMutex = Mutex()
 
@@ -51,8 +52,8 @@ object MediaContentRepository {
         OkHttpClient.Builder()
             .dispatcher(dispatcher)
             .connectionPool(ConnectionPool(64, 5, TimeUnit.MINUTES))
-            .connectTimeout(8, TimeUnit.SECONDS)
-            .readTimeout(10, TimeUnit.SECONDS)
+            .connectTimeout(4, TimeUnit.SECONDS)
+            .readTimeout(5, TimeUnit.SECONDS)
             .retryOnConnectionFailure(true)
             .build()
     }
@@ -470,14 +471,57 @@ object MediaContentRepository {
         )
     )
 
+    val DEMO_FALLBACK_MOVIE_IDS = setOf(
+        "mov_2026_shadow_protocol",
+        "mov_2026_crimson_horizon",
+        "mov_2026_dar_express"
+    )
+
     private val _mediaCatalog = MutableStateFlow<List<MediaContent>>(initialProductionCatalog)
     val mediaCatalog: StateFlow<List<MediaContent>> = _mediaCatalog.asStateFlow()
 
     private val _episodesCatalog = MutableStateFlow<List<EpisodeItem>>(initialProductionEpisodes)
     val episodesCatalog: StateFlow<List<EpisodeItem>> = _episodesCatalog.asStateFlow()
 
+    private val _catalogRotationSeed = MutableStateFlow(System.currentTimeMillis())
+    val catalogRotationSeed: StateFlow<Long> = _catalogRotationSeed.asStateFlow()
+
+    private val _hasSyncedRealFirebaseMovies = MutableStateFlow(false)
+    val hasSyncedRealFirebaseMovies: StateFlow<Boolean> = _hasSyncedRealFirebaseMovies.asStateFlow()
+
     private val _firebaseSyncStatus = MutableStateFlow("Online • Live & On-Demand Catalog Ready")
     val firebaseSyncStatus: StateFlow<String> = _firebaseSyncStatus.asStateFlow()
+
+    fun initializeAndPrewarmFromCache(context: Context) {
+        // Catalog is prewarmed in memory immediately without blocking UI
+    }
+
+    fun rotateMovieCatalogOrder(): Long {
+        val nextSeed = System.currentTimeMillis() + Random.Default.nextLong(1L, 10_000L)
+        _catalogRotationSeed.value = nextSeed
+        return nextSeed
+    }
+
+    fun rotateMediaListForSeed(
+        items: List<MediaContent>,
+        seed: Long = _catalogRotationSeed.value,
+        sectionKey: String = "default"
+    ): List<MediaContent> {
+        if (items.size <= 1 || seed == 0L) return items
+        val combinedSeed = seed xor sectionKey.hashCode().toLong()
+        return items.shuffled(java.util.Random(combinedSeed))
+    }
+
+    fun getRotatingSpotlightMovies(
+        catalog: List<MediaContent> = _mediaCatalog.value,
+        rotationSeed: Long = _catalogRotationSeed.value,
+        limit: Int = 12
+    ): List<MediaContent> {
+        val candidates = catalog.filter { it.published && !it.isAdultContent }
+            .distinctBy { it.id }
+        if (candidates.isEmpty()) return emptyList()
+        return rotateMediaListForSeed(candidates, rotationSeed, "spotlight").take(limit)
+    }
 
     /**
      * Returns the top [limit] New 2026 Movies from the catalog, strictly excluding any adult content (`!it.isAdultContent`).
@@ -921,8 +965,9 @@ object MediaContentRepository {
      * Alias for [getMoviesGroupedByPrimaryGenreOnly] used by Discovery tab to group movies strictly by their 1st genre only.
      */
     fun getMoviesStrictlyByFirstGenre(
-        catalog: List<MediaContent> = _mediaCatalog.value
-    ): List<Pair<String, List<MediaContent>>> = getMoviesGroupedByPrimaryGenreOnly(catalog)
+        catalog: List<MediaContent> = _mediaCatalog.value,
+        rotationSeed: Long = 0L
+    ): List<Pair<String, List<MediaContent>>> = getMoviesGroupedByPrimaryGenreOnly(catalog, rotationSeed)
 
     /**
      * Groups Movies strictly by their FIRST genre only (`extractPrimaryGenre`) so that each movie
@@ -930,7 +975,8 @@ object MediaContentRepository {
      * Example: If Movie A has genres ["Action", "Animation", "Drama"], it is placed ONLY in "Action".
      */
     fun getMoviesGroupedByPrimaryGenreOnly(
-        catalog: List<MediaContent> = _mediaCatalog.value
+        catalog: List<MediaContent> = _mediaCatalog.value,
+        rotationSeed: Long = 0L
     ): List<Pair<String, List<MediaContent>>> {
         val publishedMovies = catalog.filter { it.published && it.isMovie && !it.isAdult }
         if (publishedMovies.isEmpty()) return emptyList()
@@ -971,7 +1017,14 @@ object MediaContentRepository {
         )
 
         return sortedGenres.mapNotNull { (genreName, items) ->
-            if (items.isNotEmpty()) genreName to items else null
+            if (items.isNotEmpty()) {
+                val ordered = if (rotationSeed != 0L) {
+                    rotateMediaListForSeed(items, rotationSeed, "genre_$genreName")
+                } else {
+                    items
+                }
+                genreName to ordered
+            } else null
         }
     }
 
@@ -1055,9 +1108,13 @@ object MediaContentRepository {
     suspend fun syncFromFirebaseEndpoint(
         databaseUrl: String = DEFAULT_DATABASE_URL,
         apiKey: String = "",
-        projectId: String = DEFAULT_PROJECT_ID
+        projectId: String = DEFAULT_PROJECT_ID,
+        forceRefresh: Boolean = false
     ): Result<Int> = withContext(Dispatchers.IO) {
         catalogSyncMutex.withLock {
+            if (!forceRefresh && _hasSyncedRealFirebaseMovies.value) {
+                return@withLock Result.success(_mediaCatalog.value.size)
+            }
             val cleanUrl = databaseUrl.trim().removeSuffix("/").ifEmpty { DEFAULT_DATABASE_URL }
             val cleanProjectId = projectId.trim().ifEmpty {
                 extractProjectIdFromUrl(cleanUrl).ifEmpty { DEFAULT_PROJECT_ID }
@@ -1086,6 +1143,10 @@ object MediaContentRepository {
                     }
 
                     totalSynced = firestoreDeferred.await() + rtdbDeferred.await() + backupChannelsDeferred.await()
+                }
+
+                if (totalSynced > 0) {
+                    _hasSyncedRealFirebaseMovies.value = true
                 }
 
                 // Enrich top featured movies/series with real TMDB casters & posters

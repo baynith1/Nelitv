@@ -93,6 +93,11 @@ object ChannelRepository {
         return refreshed
     }
 
+    fun refreshCdnTokenFromEndpointSync(apiUrl: String = AZAM_TOKEN_ENDPOINT_URL): Boolean {
+        val fetched = TokenManager.fetchLiveTokenBlocking(forceRefresh = true, apiUrl = apiUrl)
+        return fetched.isNotBlank()
+    }
+
     val categories = listOf(
         "All",
         "Azam TV",
@@ -316,7 +321,8 @@ object ChannelRepository {
             language = "en",
             encryptionType = "clearkey",
             clearKeys = mapOf("e91fec140bc5316f919b4dc9c16287d7" to "79884fad0dbfcdc43d3e33c82a1f1cfa"),
-            country = "Tanzania"
+            country = "Tanzania",
+            featured = true
         ),
         // 15. KIX (MPD + ClearKey + CDN Token)
         LiveChannel(

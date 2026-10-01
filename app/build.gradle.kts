@@ -165,7 +165,7 @@ tasks.matching { it.name.startsWith("ksp") }.configureEach {
       }
       if (prev != null) {
         prev.uncaughtException(thread, throwable)
-      } else if (throwable !is ThreadDeath) {
+      } else if (throwable.javaClass.name != "java.lang.ThreadDeath") {
         System.err.print("Exception in thread \"${thread.name}\" ")
         throwable.printStackTrace(System.err)
       }

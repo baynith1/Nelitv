@@ -526,7 +526,7 @@ fun DiscoveryTabContent(
     val effectiveSeed = if (catalogRotationSeed != 0L) catalogRotationSeed else liveRotationSeed
     val pullToRefreshState = rememberPullToRefreshState()
 
-    // Ensure real Firebase movies are synced immediately when entering Discovery for the first time
+    // Pre-warm from cache immediately; only sync from network if catalog has not been loaded yet
     LaunchedEffect(hasSyncedRealMovies) {
         if (!hasSyncedRealMovies) {
             MediaContentRepository.initializeAndPrewarmFromCache(context)
@@ -535,16 +535,8 @@ fun DiscoveryTabContent(
                 databaseUrl = MediaContentRepository.DEFAULT_DATABASE_URL,
                 apiKey = apiKey,
                 projectId = MediaContentRepository.DEFAULT_PROJECT_ID,
-                forceRefresh = true
+                forceRefresh = false
             )
-        }
-    }
-
-    // Automatic periodic rotation while browsing Discovery so movies feel alive and varied ("zibadilike badilike")
-    LaunchedEffect(selectedFilter) {
-        while (true) {
-            delay(45_000L)
-            onRotateMovies()
         }
     }
 
@@ -1332,13 +1324,13 @@ fun DownloadTabContent(
                 )
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Phone Storage Folder: ${com.example.data.OfflineDownloadManager.SPECIAL_DEVICE_FOLDER_DISPLAY_PATH}",
+                        text = "In-App Storage: ${com.example.data.OfflineDownloadManager.SPECIAL_DEVICE_FOLDER_DISPLAY_PATH}",
                         color = Color.White,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.ExtraBold
                     )
                     Text(
-                        text = "All downloaded movies & series play inside the app and are saved in your phone's NeliPlay folder for offline access anytime.",
+                        text = "All downloaded movies, videos & series stay strictly inside the app without going to external phone folders, saving your device storage.",
                         color = NeliTextSecondary,
                         fontSize = 10.sp
                     )
@@ -1425,7 +1417,7 @@ fun DownloadTabContent(
                         fontSize = 15.sp
                     )
                     Text(
-                        text = "Videos you download will appear here and in your phone's NeliPlay folder.",
+                        text = "Videos, movies, and series you download stay inside the app only to save your phone storage.",
                         color = NeliTextSecondary,
                         fontSize = 12.sp
                     )
@@ -1591,7 +1583,7 @@ fun DownloadTabContent(
                                             "Paused at $displayPct% • Tap Resume"
                                         }
                                         else -> item.fileSizeLabel.ifBlank {
-                                            "Offline Ready • Saved in NeliPlay"
+                                            "Offline Ready • Saved Inside App"
                                         }
                                     },
                                     color = when {

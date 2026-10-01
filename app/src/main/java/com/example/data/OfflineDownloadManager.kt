@@ -50,7 +50,7 @@ import kotlin.coroutines.coroutineContext
 object OfflineDownloadManager {
 
     const val SPECIAL_DEVICE_FOLDER_NAME = "NeliPlay"
-    const val SPECIAL_DEVICE_FOLDER_DISPLAY_PATH = "Internal Storage / Movies / NeliPlay"
+    const val SPECIAL_DEVICE_FOLDER_DISPLAY_PATH = "In-App Private Storage (Nelitv Only)"
 
     private const val NOTIFICATION_CHANNEL_ID = "neli_offline_downloads_channel"
     private const val NOTIFICATION_CHANNEL_NAME = "Nelitv Background Downloads"
@@ -104,48 +104,14 @@ object OfflineDownloadManager {
     }
 
     /**
-     * Automatically creates and returns the special `NeliPlay` folder on the device when a user starts
-     * downloading any movie or series.
+     * Automatically creates and returns the private in-app `NeliPlay` offline storage directory.
      *
-     * Creates:
-     * 1. Public shared device folders (`/storage/emulated/0/Movies/NeliPlay` and `/storage/emulated/0/Download/NeliPlay`)
-     *    when accessible on the device so the user can browse downloaded videos directly in their phone's Files app.
-     * 2. App-accessible external media directory (`Android/data/<pkg>/files/Movies/NeliPlay`).
-     * 3. Internal offline storage directory (`filesDir/offline_media/NeliPlay`).
+     * All downloaded movies, series, and videos are stored strictly inside the app's private internal
+     * storage (`filesDir/offline_media/NeliPlay`) and are never exported or duplicated to external
+     * phone folders, minimizing device storage usage.
      */
     fun ensureSpecialDeviceDownloadFolder(context: Context): File {
         val appContext = context.applicationContext
-        // 1. Try creating visible public Movies/NeliPlay & Download/NeliPlay directories
-        try {
-            val publicMoviesDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES)
-            if (publicMoviesDir != null) {
-                File(publicMoviesDir, SPECIAL_DEVICE_FOLDER_NAME).mkdirs()
-            }
-        } catch (_: Exception) {
-        }
-        try {
-            val publicDownloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-            if (publicDownloadsDir != null) {
-                File(publicDownloadsDir, SPECIAL_DEVICE_FOLDER_NAME).mkdirs()
-            }
-        } catch (_: Exception) {
-        }
-
-        // 2. Try external app-specific Movies/NeliPlay directory (visible in Android file managers)
-        try {
-            val extMovies = appContext.getExternalFilesDir(Environment.DIRECTORY_MOVIES)
-            if (extMovies != null) {
-                val specialExt = File(extMovies, SPECIAL_DEVICE_FOLDER_NAME)
-                if (specialExt.exists() || specialExt.mkdirs()) {
-                    // Also ensure internal fallback dir exists
-                    File(File(appContext.filesDir, "offline_media"), SPECIAL_DEVICE_FOLDER_NAME).mkdirs()
-                    return specialExt
-                }
-            }
-        } catch (_: Exception) {
-        }
-
-        // 3. Guaranteed internal storage fallback (`filesDir/offline_media/NeliPlay`)
         val internalBase = File(appContext.filesDir, "offline_media").apply {
             if (!exists()) mkdirs()
         }
@@ -155,7 +121,7 @@ object OfflineDownloadManager {
     }
 
     /**
-     * Returns all candidate directories where offline files or partial resumes may be stored.
+     * Returns all candidate in-app directories where offline files or partial resumes may be stored.
      */
     private fun getOfflineStorageDirectories(context: Context): List<File> {
         val appContext = context.applicationContext
@@ -170,28 +136,6 @@ object OfflineDownloadManager {
         }
         if (dirs.none { it.absolutePath == legacyInternal.absolutePath }) {
             dirs.add(legacyInternal)
-        }
-        val internalSpecial = File(legacyInternal, SPECIAL_DEVICE_FOLDER_NAME).apply {
-            if (!exists()) mkdirs()
-        }
-        if (dirs.none { it.absolutePath == internalSpecial.absolutePath }) {
-            dirs.add(internalSpecial)
-        }
-        try {
-            val publicMovies = File(
-                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES),
-                SPECIAL_DEVICE_FOLDER_NAME
-            )
-            if (publicMovies.exists()) dirs.add(publicMovies)
-        } catch (_: Exception) {
-        }
-        try {
-            val publicDownloads = File(
-                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-                SPECIAL_DEVICE_FOLDER_NAME
-            )
-            if (publicDownloads.exists()) dirs.add(publicDownloads)
-        } catch (_: Exception) {
         }
         return dirs.distinctBy { it.absolutePath }
     }
@@ -214,9 +158,8 @@ object OfflineDownloadManager {
     }
 
     /**
-     * Exports/copies the completed video file into the mobile device's visible shared storage folder
-     * (`Movies/NeliPlay` and `Download/NeliPlay`) so the user can open their phone's Files / Gallery app
-     * and watch the downloaded movie or series episode even without opening the app.
+     * Keeps the completed video file strictly inside the app's private internal storage folder
+     * without copying or exporting to external/public phone folders, saving user device storage.
      */
     private fun exportCompletedVideoToDeviceFilesFolder(
         context: Context,
@@ -226,96 +169,29 @@ object OfflineDownloadManager {
         if (!sourceFile.exists() || sourceFile.length() <= MIN_VALID_VIDEO_BYTES) {
             return sourceFile
         }
+        val specialFolder = ensureSpecialDeviceDownloadFolder(context)
+        if (sourceFile.parentFile?.absolutePath == specialFolder.absolutePath) {
+            return sourceFile
+        }
         val ext = sourceFile.extension.lowercase(Locale.US).ifBlank { "mp4" }
         val cleanFileName = buildCleanDeviceFileName(item.title, item.id, ext)
-        val mimeType = when (ext) {
-            "ts" -> "video/mp2t"
-            "mkv" -> "video/x-matroska"
-            else -> "video/mp4"
-        }
-
-        // 1. Ensure human-readable file exists inside our primary NeliPlay folder
-        var primaryDeviceFile = sourceFile
-        try {
-            val specialFolder = ensureSpecialDeviceDownloadFolder(context)
-            val namedFileInSpecial = File(specialFolder, cleanFileName)
-            if (sourceFile.absolutePath != namedFileInSpecial.absolutePath) {
-                sourceFile.copyTo(namedFileInSpecial, overwrite = true)
+        return try {
+            val targetInAppFile = File(specialFolder, cleanFileName)
+            if (sourceFile.absolutePath != targetInAppFile.absolutePath) {
+                val moved = sourceFile.renameTo(targetInAppFile)
+                if (!moved) {
+                    sourceFile.copyTo(targetInAppFile, overwrite = true)
+                    sourceFile.delete()
+                }
             }
-            if (namedFileInSpecial.exists() && namedFileInSpecial.length() > MIN_VALID_VIDEO_BYTES) {
-                primaryDeviceFile = namedFileInSpecial
+            if (targetInAppFile.exists() && targetInAppFile.length() > MIN_VALID_VIDEO_BYTES) {
+                targetInAppFile
+            } else {
+                sourceFile
             }
         } catch (_: Exception) {
+            sourceFile
         }
-
-        // 2. Also try writing directly to public `/storage/emulated/0/Movies/NeliPlay/<cleanFileName>`
-        var wroteDirectlyToPublicMovies = false
-        try {
-            val publicMoviesRoot = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES)
-            if (publicMoviesRoot != null) {
-                val neliPublicFolder = File(publicMoviesRoot, SPECIAL_DEVICE_FOLDER_NAME)
-                if (neliPublicFolder.exists() || neliPublicFolder.mkdirs()) {
-                    val publicTarget = File(neliPublicFolder, cleanFileName)
-                    if (publicTarget.absolutePath != primaryDeviceFile.absolutePath) {
-                        primaryDeviceFile.copyTo(publicTarget, overwrite = true)
-                    }
-                    if (publicTarget.exists() && publicTarget.length() > MIN_VALID_VIDEO_BYTES) {
-                        wroteDirectlyToPublicMovies = true
-                        try {
-                            MediaScannerConnection.scanFile(
-                                context,
-                                arrayOf(publicTarget.absolutePath),
-                                arrayOf(mimeType),
-                                null
-                            )
-                        } catch (_: Exception) {
-                        }
-                    }
-                }
-            }
-        } catch (_: Exception) {
-        }
-
-        // 3. On Android 10+ (API 29+), also publish to MediaStore under `Movies/NeliPlay` if direct write wasn't used,
-        //    so the phone's Files app ("Movies > NeliPlay" & "Videos") always lists it immediately.
-        if (!wroteDirectlyToPublicMovies && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            try {
-                val resolver = context.contentResolver
-                val relativePath = "${Environment.DIRECTORY_MOVIES}/$SPECIAL_DEVICE_FOLDER_NAME"
-                // Avoid duplicate MediaStore rows if re-downloaded
-                try {
-                    resolver.delete(
-                        MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
-                        "${MediaStore.MediaColumns.DISPLAY_NAME} = ?",
-                        arrayOf(cleanFileName)
-                    )
-                } catch (_: Exception) {
-                }
-
-                val values = ContentValues().apply {
-                    put(MediaStore.MediaColumns.DISPLAY_NAME, cleanFileName)
-                    put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
-                    put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
-                    put(MediaStore.Video.Media.TITLE, item.title)
-                    put(MediaStore.MediaColumns.IS_PENDING, 1)
-                }
-                val uri = resolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values)
-                if (uri != null) {
-                    resolver.openOutputStream(uri)?.use { outStream ->
-                        FileInputStream(primaryDeviceFile).use { inStream ->
-                            inStream.copyTo(outStream, bufferSize = 128 * 1024)
-                        }
-                    }
-                    val doneValues = ContentValues().apply {
-                        put(MediaStore.MediaColumns.IS_PENDING, 0)
-                    }
-                    resolver.update(uri, doneValues, null, null)
-                }
-            } catch (_: Exception) {
-            }
-        }
-
-        return primaryDeviceFile
     }
 
     /**
@@ -1399,38 +1275,6 @@ object OfflineDownloadManager {
 
             localPlaylistFile.writeText(rewrittenPlaylistLines.joinToString("\n"), Charsets.UTF_8)
 
-            // Also assemble a standalone playable video file in the special NeliPlay folder when unencrypted
-            // so the user can directly open & play the movie from their phone's Files app!
-            if (!hasEncryptionKey) {
-                try {
-                    val firstSegExt = segmentTasks.firstOrNull()?.localSegName?.substringAfterLast(".", "ts") ?: "ts"
-                    val mergedExt = if (firstSegExt.equals("m4s", true) || firstSegExt.equals("mp4", true) || initMapFiles.isNotEmpty()) {
-                        "mp4"
-                    } else {
-                        "ts"
-                    }
-                    val mergedFile = File(specialDeviceFolder, "$safeId.$mergedExt")
-                    FileOutputStream(mergedFile, false).use { out ->
-                        for (initMap in initMapFiles) {
-                            if (initMap.exists()) {
-                                FileInputStream(initMap).use { it.copyTo(out, 64 * 1024) }
-                            }
-                        }
-                        for (task in segmentTasks.sortedBy { it.segmentIndex }) {
-                            val segFile = File(bundleDir, task.localSegName)
-                            if (segFile.exists()) {
-                                FileInputStream(segFile).use { it.copyTo(out, 64 * 1024) }
-                            }
-                        }
-                        out.flush()
-                    }
-                    if (mergedFile.exists() && mergedFile.length() > MIN_VALID_VIDEO_BYTES) {
-                        exportCompletedVideoToDeviceFilesFolder(appContext, mergedFile, initialEntity)
-                    }
-                } catch (_: Exception) {
-                }
-            }
-
             StreamDownloadAttemptResult.Completed(localPlaylistFile, finalTotalBytes)
         } catch (e: CancellationException) {
             throw e
@@ -1913,8 +1757,8 @@ object OfflineDownloadManager {
                     else "Downloading $title"
                 )
                 .setContentText(
-                    if (isCompleted) "$title is ready in app & in device folder Movies/NeliPlay"
-                    else "$progressPct% • Saving to app & device folder NeliPlay"
+                    if (isCompleted) "$title is saved inside Nelitv app (offline ready)"
+                    else "$progressPct% • Saving inside Nelitv app only"
                 )
                 .setPriority(NotificationCompat.PRIORITY_LOW)
                 .setOnlyAlertOnce(true)

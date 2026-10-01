@@ -242,7 +242,8 @@ object TokenManager {
         apiUrl: String = ChannelRepository.AZAM_TOKEN_ENDPOINT_URL
     ): String = synchronized(blockingLock) {
         val now = System.currentTimeMillis()
-        if (!forceRefresh && lastNetworkRefreshAttemptMs > 0L && (now - lastNetworkRefreshAttemptMs) < 5_000L) {
+        val minCooldownMs = if (forceRefresh) 10_000L else 30_000L
+        if (lastNetworkRefreshAttemptMs > 0L && (now - lastNetworkRefreshAttemptMs) < minCooldownMs) {
             return currentToken
         }
         lastNetworkRefreshAttemptMs = now
@@ -294,16 +295,14 @@ object TokenManager {
         failedUrl: String? = null,
         httpStatusCode: Int? = null
     ): String = synchronized(blockingLock) {
+        val now = System.currentTimeMillis()
+        if (lastNetworkRefreshAttemptMs > 0L && (now - lastNetworkRefreshAttemptMs) < 10_000L) {
+            return currentToken
+        }
         // 1. Fetch fresh token from the primary token API endpoint
         fetchLiveTokenBlocking(forceRefresh = true)
 
-        // 2. Also trigger MediaContentRepository's backup channel & token refresh
-        try {
-            MediaContentRepository.refreshLiveCdnTokenAndBackupBlocking(forceRefresh = true)
-        } catch (_: Exception) {
-        }
-
-        // 3. Re-normalize all live channel URLs and update registered ExoPlayer HTTP factories
+        // 2. Re-normalize all live channel URLs and update registered ExoPlayer HTTP factories
         ChannelRepository.refreshLiveChannels()
         syncStateFromRepository()
         return currentToken
@@ -330,8 +329,8 @@ object TokenManager {
             val url = URL(urlStr)
             connection = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "GET"
-                connectTimeout = 6_000
-                readTimeout = 6_000
+                connectTimeout = 2_500
+                readTimeout = 2_500
                 instanceFollowRedirects = true
                 useCaches = false
                 setRequestProperty("User-Agent", USER_AGENT)
