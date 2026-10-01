@@ -69,6 +69,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import coil.request.CachePolicy
 import coil.request.ImageRequest
+import com.example.data.AdminBannerPlacement
 import com.example.data.ChannelRepository
 import com.example.data.MediaContentRepository
 import com.example.data.NeliAdminManager
@@ -136,6 +137,7 @@ fun HomeScreen(
     val isCastActive = connectedCastDevice != null
     val activeAdminSms by NeliAdminManager.activeAdminSms.collectAsState()
     val adminSmsMessage = activeAdminSms?.message.orEmpty()
+    val adminBannerPlacement by NeliAdminManager.adminBannerPlacement.collectAsState()
     val subState by NeliSubscriptionManager.subscriptionState.collectAsState()
     val isPremiumActive = subState.isActiveNow
     val lockedChannelIds by NeliAdminManager.lockedChannelIds.collectAsState()
@@ -351,7 +353,12 @@ fun HomeScreen(
                     }
 
                     BottomNavTab.PREMIUM -> {
-                        PremiumTabContent()
+                        PremiumTabContent(
+                            currentUser = currentUser,
+                            onNavigateToLoginOrSignUp = {
+                                neliViewModel.selectTab(BottomNavTab.ACCOUNT)
+                            }
+                        )
                     }
 
                     BottomNavTab.DOWNLOAD -> {
@@ -456,7 +463,9 @@ fun HomeScreen(
                             onRefresh = { neliViewModel.refreshLiveTvFeed() },
                             onOpenDownloads = { neliViewModel.selectTab(BottomNavTab.DOWNLOAD) },
                             onCategorySelected = { selectedLiveCategory = it },
-                            onChannelSelected = { ch -> handleChannelSelection(ch) }
+                            onChannelSelected = { ch -> handleChannelSelection(ch) },
+                            adminSmsMessage = adminSmsMessage,
+                            adminBannerPlacement = adminBannerPlacement
                         )
                     }
                 }
@@ -491,7 +500,9 @@ private fun LiveTvHomeTab(
     onRefresh: () -> Unit,
     onOpenDownloads: () -> Unit,
     onCategorySelected: (String) -> Unit,
-    onChannelSelected: (LiveChannel) -> Unit
+    onChannelSelected: (LiveChannel) -> Unit,
+    adminSmsMessage: String = "",
+    adminBannerPlacement: AdminBannerPlacement = AdminBannerPlacement.BELOW_SLIDER
 ) {
     val pullToRefreshState = rememberPullToRefreshState()
 
@@ -636,12 +647,43 @@ private fun LiveTvHomeTab(
             }
         }
 
-        // 2. Featured Live Spotlight Banner
+        // 2. Featured Live Spotlight Banner + Admin Notification (Strictly Above or Below Slider on Home Page ONLY)
         if (featuredHeroChannels.isNotEmpty() && selectedCategory.equals("All", ignoreCase = true)) {
+            if (adminSmsMessage.isNotBlank() && adminBannerPlacement == AdminBannerPlacement.ABOVE_SLIDER) {
+                item(key = "admin_sms_above_slider") {
+                    AdminTopSmsNotificationBanner(
+                        smsMessage = adminSmsMessage,
+                        modifier = Modifier
+                            .padding(horizontal = 16.dp, vertical = 6.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                    )
+                }
+            }
+
             item {
                 LiveTvHeroBanner(
                     heroChannels = featuredHeroChannels,
                     onPlayChannel = onChannelSelected
+                )
+            }
+
+            if (adminSmsMessage.isNotBlank() && adminBannerPlacement == AdminBannerPlacement.BELOW_SLIDER) {
+                item(key = "admin_sms_below_slider") {
+                    AdminTopSmsNotificationBanner(
+                        smsMessage = adminSmsMessage,
+                        modifier = Modifier
+                            .padding(horizontal = 16.dp, vertical = 6.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                    )
+                }
+            }
+        } else if (adminSmsMessage.isNotBlank()) {
+            item(key = "admin_sms_home_filtered") {
+                AdminTopSmsNotificationBanner(
+                    smsMessage = adminSmsMessage,
+                    modifier = Modifier
+                        .padding(horizontal = 16.dp, vertical = 6.dp)
+                        .clip(RoundedCornerShape(14.dp))
                 )
             }
         }

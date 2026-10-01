@@ -90,6 +90,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.example.data.AdminBannerPlacement
 import com.example.data.HarakaPayBalanceResponse
 import com.example.data.HarakaPayRepository
 import com.example.data.NeliAdminManager
@@ -198,6 +199,8 @@ fun AdminTopSmsNotificationBanner(
  */
 @Composable
 fun PremiumTabContent(
+    currentUser: UserAccountEntity? = null,
+    onNavigateToLoginOrSignUp: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -205,6 +208,7 @@ fun PremiumTabContent(
 
     val subState by NeliSubscriptionManager.subscriptionState.collectAsState()
     val isPremiumActive = subState.isActiveNow
+    val isUserLoggedIn = currentUser != null && currentUser.isLoggedIn
     val lockedChannelIds by NeliAdminManager.lockedChannelIds.collectAsState()
     val lockAllForFree by NeliAdminManager.areAllChannelsLocked.collectAsState()
 
@@ -215,7 +219,7 @@ fun PremiumTabContent(
 
     var checkoutStep by rememberSaveable {
         mutableStateOf(
-            if (subState.pendingOrderId.isNotBlank() && !isPremiumActive) {
+            if (subState.pendingOrderId.isNotBlank() && !isPremiumActive && isUserLoggedIn) {
                 PremiumCheckoutStep.WAITING_VERIFICATION
             } else {
                 PremiumCheckoutStep.CHOOSE_PLAN
@@ -223,7 +227,8 @@ fun PremiumTabContent(
         )
     }
 
-    var phoneInput by rememberSaveable { mutableStateOf(subState.pendingPhone) }
+    // Every user MUST type their payment phone number fresh for every single payment (never pre-populated or guessed)
+    var phoneInput by rememberSaveable { mutableStateOf("") }
     var isSubmittingPayment by remember { mutableStateOf(false) }
     var isVerifyingStatus by remember { mutableStateOf(false) }
     var statusFeedbackMessage by remember { mutableStateOf<String?>(null) }
@@ -375,19 +380,44 @@ fun PremiumTabContent(
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.testTag("premium_verified_tick_badge")
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Verified,
-                                contentDescription = "Verified Premium",
-                                tint = Color(0xFFFBBF24),
-                                modifier = Modifier.size(24.dp)
-                            )
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0x3310B981)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Verified,
+                                    contentDescription = "Verified Premium Tick",
+                                    tint = Color(0xFF34D399),
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                            Column {
+                                Text(
+                                    text = "✓ VERIFIED ACCOUNT",
+                                    color = Color(0xFF34D399),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                                Text(
+                                    text = "Premium Member ✓",
+                                    color = Color(0xFFFBBF24),
+                                    fontSize = 17.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                            }
+                        }
+                        if (currentUser != null) {
                             Text(
-                                text = "PREMIUM MEMBER (VERIFIED)",
-                                color = Color(0xFFFBBF24),
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Black
+                                text = "Mwanachama: ${currentUser.realName} (${currentUser.email})",
+                                color = NeliGenreCyan,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold
                             )
                         }
                         Text(
@@ -510,10 +540,83 @@ fun PremiumTabContent(
                             }
                         }
 
+                        if (!isUserLoggedIn) {
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("premium_login_required_card"),
+                                shape = RoundedCornerShape(14.dp),
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFF231433))
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .border(1.dp, NeliMagenta.copy(alpha = 0.7f), RoundedCornerShape(14.dp))
+                                        .padding(14.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Lock,
+                                            contentDescription = null,
+                                            tint = Color(0xFFFBBF24),
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                        Text(
+                                            text = "Login au Sign Up Inahitajika Kabla ya Kulipia",
+                                            color = Color.White,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.ExtraBold
+                                        )
+                                    }
+                                    Text(
+                                        text = "Ili kufanya malipo ya kifurushi cha Premium na kupewa alama ya Premium Member ✓, unatakiwa ku-Login au kutengeneza akaunti (Sign Up) kwanza.",
+                                        color = NeliTextSecondary,
+                                        fontSize = 12.sp
+                                    )
+                                    if (!statusFeedbackMessage.isNullOrBlank()) {
+                                        Text(
+                                            text = statusFeedbackMessage!!,
+                                            color = Color(0xFFFCA5A5),
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                    Button(
+                                        onClick = onNavigateToLoginOrSignUp,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(46.dp)
+                                            .testTag("premium_require_login_button"),
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = NeliGenreCyan)
+                                    ) {
+                                        Text(
+                                            text = "Login / Sign Up Kwenye Account Sasa",
+                                            color = Color.Black,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Black
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
                         Spacer(modifier = Modifier.height(4.dp))
 
                         Button(
                             onClick = {
+                                if (!isUserLoggedIn) {
+                                    isErrorFeedback = true
+                                    statusFeedbackMessage = "Tafadhali Login au Sign Up kwanza kwenye Account ili uweze kufanya malipo!"
+                                    onNavigateToLoginOrSignUp()
+                                    return@Button
+                                }
+                                // Always clear phoneInput so the user must write their payment phone number for every payment
+                                phoneInput = ""
                                 statusFeedbackMessage = null
                                 checkoutStep = PremiumCheckoutStep.ENTER_PHONE
                             },
@@ -525,7 +628,11 @@ fun PremiumTabContent(
                             colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta)
                         ) {
                             Text(
-                                text = "Next • Endelea (${selectedPlan.titleSwahili} - ${selectedPlan.priceFormatted})",
+                                text = if (isUserLoggedIn) {
+                                    "Next • Endelea (${selectedPlan.titleSwahili} - ${selectedPlan.priceFormatted})"
+                                } else {
+                                    "Login / Sign Up Ili Kulipia (${selectedPlan.priceFormatted})"
+                                },
                                 color = Color.White,
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.ExtraBold
@@ -873,6 +980,7 @@ fun PremiumTabContent(
                             OutlinedButton(
                                 onClick = {
                                     NeliSubscriptionManager.clearPendingOrder(context)
+                                    phoneInput = ""
                                     statusFeedbackMessage = null
                                     checkoutStep = PremiumCheckoutStep.ENTER_PHONE
                                 },
@@ -903,15 +1011,21 @@ fun PremiumTabContent(
                             verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             Icon(
-                                imageVector = Icons.Default.CheckCircle,
-                                contentDescription = "Verified",
+                                imageVector = Icons.Default.Verified,
+                                contentDescription = "Verified Tick",
                                 tint = Color(0xFF34D399),
-                                modifier = Modifier.size(54.dp)
+                                modifier = Modifier.size(58.dp)
                             )
                             Text(
-                                text = "Hongera! Wewe sasa ni Premium Member",
-                                color = Color.White,
-                                fontSize = 18.sp,
+                                text = "✓ VERIFIED",
+                                color = Color(0xFF34D399),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Black
+                            )
+                            Text(
+                                text = "Premium Member ✓",
+                                color = Color(0xFFFBBF24),
+                                fontSize = 20.sp,
                                 fontWeight = FontWeight.Black,
                                 textAlign = TextAlign.Center
                             )
@@ -923,6 +1037,7 @@ fun PremiumTabContent(
                             )
                             Button(
                                 onClick = {
+                                    phoneInput = ""
                                     checkoutStep = PremiumCheckoutStep.CHOOSE_PLAN
                                 },
                                 colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta)
@@ -1000,6 +1115,7 @@ fun MiniAdminPanelScreen(
 
     val activeSmsObj by NeliAdminManager.activeAdminSms.collectAsState()
     val currentSms = activeSmsObj?.message.orEmpty()
+    val bannerPlacement by NeliAdminManager.adminBannerPlacement.collectAsState()
     val lockedChannelIds by NeliAdminManager.lockedChannelIds.collectAsState()
     val lockAllForFree by NeliAdminManager.areAllChannelsLocked.collectAsState()
     val customAddedChannels by NeliAdminManager.customAddedChannels.collectAsState()
@@ -1128,7 +1244,7 @@ fun MiniAdminPanelScreen(
                             tint = Color(0xFFFBBF24)
                         )
                         Text(
-                            text = "1. Andika SMS / Notification ya Juu ya App",
+                            text = "1. Add au Futa Notification (Juu au Chini ya Slider)",
                             color = NeliTextPrimary,
                             fontSize = 15.sp,
                             fontWeight = FontWeight.ExtraBold
@@ -1136,10 +1252,98 @@ fun MiniAdminPanelScreen(
                     }
 
                     Text(
-                        text = "SMS hii itapita juu kabisa ya App kama Notification Bar na pia inaenda kama Notification kwenye simu za watumiaji.",
+                        text = "Tangazo hili linakaa Juu ya Slider au Chini ya Slider kwenye ukurasa wa Home pekee (sio kwenye kurasa zingine) na pia linaweza kwenda kama Push Notification.",
                         color = NeliTextSecondary,
                         fontSize = 12.sp
                     )
+
+                    if (currentSms.isNotBlank()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color(0xFF1F122B))
+                                .border(1.dp, NeliMagenta.copy(alpha = 0.6f), RoundedCornerShape(12.dp))
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Current Notification (${bannerPlacement.labelSwahili}):",
+                                    color = Color(0xFFFBBF24),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = currentSms,
+                                    color = Color.White,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                            IconButton(
+                                onClick = {
+                                    smsInput = ""
+                                    NeliAdminManager.clearAdminSms(context)
+                                    adminFeedback = "Current notification imefutwa kikamilifu."
+                                },
+                                modifier = Modifier.testTag("admin_delete_active_sms_icon_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Delete,
+                                    contentDescription = "Futa Current Notification",
+                                    tint = NeliLiveRed
+                                )
+                            }
+                        }
+                    }
+
+                    // Position Selector: Above Slider vs Below Slider (Home Page Only)
+                    Text(
+                        text = "Nafasi ya Tangazo kwenye Home Page:",
+                        color = NeliTextPrimary,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        AdminBannerPlacement.entries.forEach { option ->
+                            val isSelected = bannerPlacement == option
+                            val tag = if (option == AdminBannerPlacement.ABOVE_SLIDER) {
+                                "admin_banner_above_slider_chip"
+                            } else {
+                                "admin_banner_below_slider_chip"
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(if (isSelected) NeliMagenta else NeliSurfaceVariant)
+                                    .border(
+                                        1.dp,
+                                        if (isSelected) NeliMagenta else NeliBorder,
+                                        RoundedCornerShape(10.dp)
+                                    )
+                                    .clickable {
+                                        NeliAdminManager.setAdminBannerPlacement(context, option)
+                                        adminFeedback = "Tangazo litakaa: ${option.labelSwahili} (Home pekee)"
+                                    }
+                                    .padding(vertical = 10.dp, horizontal = 8.dp)
+                                    .testTag(tag),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = option.labelSwahili,
+                                    color = Color.White,
+                                    fontSize = 12.sp,
+                                    fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
 
                     OutlinedTextField(
                         value = smsInput,
@@ -1147,7 +1351,7 @@ fun MiniAdminPanelScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("admin_sms_input"),
-                        label = { Text("Ujumbe wa SMS / Tangazo la Juu") },
+                        label = { Text("Andika Notification / Tangazo") },
                         placeholder = { Text("Mfano: Mechi ya Yanga vs Simba ipo LIVE Azam Sports 1 HD sasa hivi!") },
                         minLines = 2,
                         maxLines = 4,
@@ -1188,9 +1392,12 @@ fun MiniAdminPanelScreen(
                                     NeliAdminManager.publishAdminSms(
                                         context = context,
                                         messageText = smsInput,
-                                        sendPushNotification = sendPushNotification
+                                        sendPushNotification = sendPushNotification,
+                                        placement = bannerPlacement
                                     )
-                                    adminFeedback = "SMS imechapishwa juu ya App na kutumwa kama Notification!"
+                                    adminFeedback = "Notification imeongezwa (${bannerPlacement.labelSwahili} kwenye Home)!"
+                                } else {
+                                    adminFeedback = "Tafadhali andika ujumbe wa notification kwanza."
                                 }
                             },
                             modifier = Modifier
@@ -1200,20 +1407,25 @@ fun MiniAdminPanelScreen(
                         ) {
                             Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Tuma SMS Juu", color = Color.White, fontWeight = FontWeight.Bold)
+                            Text("Add Notification", color = Color.White, fontWeight = FontWeight.Bold)
                         }
 
-                        if (currentSms.isNotBlank()) {
-                            OutlinedButton(
-                                onClick = {
-                                    smsInput = ""
-                                    NeliAdminManager.clearAdminSms(context)
-                                    adminFeedback = "SMS ya juu ya App imeondolewa."
-                                },
-                                modifier = Modifier.testTag("admin_clear_sms_button")
-                            ) {
-                                Text("Futa SMS", color = NeliLiveRed)
-                            }
+                        OutlinedButton(
+                            onClick = {
+                                smsInput = ""
+                                NeliAdminManager.clearAdminSms(context)
+                                adminFeedback = "Current notification imefutwa."
+                            },
+                            modifier = Modifier.testTag("admin_clear_sms_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = null,
+                                tint = NeliLiveRed,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Futa Notification", color = NeliLiveRed, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -1671,19 +1883,33 @@ fun NeliCastModalSheet(
     onSelectChannelToWatchAndCast: (LiveChannel) -> Unit = {}
 ) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     val connectedDevice by NeliCastManager.connectedDevice.collectAsState()
     val isCasting = connectedDevice != null
     val connectedTvName = connectedDevice?.name
     val castingChannel by NeliCastManager.castingChannel.collectAsState()
     val discoveredDevices by NeliCastManager.availableDevices.collectAsState()
     val castStatusMessage by NeliCastManager.statusMessage.collectAsState()
+    var isSearchingTv by remember { mutableStateOf(true) }
 
     var selectedCastChannel by remember(currentChannel, castingChannel, availableChannels) {
         mutableStateOf(castingChannel ?: currentChannel ?: availableChannels.firstOrNull())
     }
 
+    val triggerTvSearch: () -> Unit = {
+        coroutineScope.launch {
+            isSearchingTv = true
+            NeliCastManager.refreshAvailableTvDevices(context)
+            delay(550L)
+            isSearchingTv = false
+        }
+    }
+
     LaunchedEffect(Unit) {
+        isSearchingTv = true
         NeliCastManager.refreshAvailableTvDevices(context)
+        delay(550L)
+        isSearchingTv = false
     }
 
     Dialog(
@@ -1830,21 +2056,27 @@ fun NeliCastModalSheet(
                     }
                 }
 
-                // Discovered TV devices list
+                // Discovered TV devices list (only real discovered TVs, no hardcoded room TVs)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
-                        text = "Smart TV Zinazopatikana (${discoveredDevices.size}):",
+                        text = if (isSearchingTv) {
+                            "Inatafuta TV zilizo karibu..."
+                        } else {
+                            "TV Zilizopatikana (${discoveredDevices.size}):"
+                        },
                         color = NeliTextPrimary,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold
                     )
                     IconButton(
-                        onClick = { NeliCastManager.refreshAvailableTvDevices(context) },
-                        modifier = Modifier.size(32.dp)
+                        onClick = triggerTvSearch,
+                        modifier = Modifier
+                            .size(32.dp)
+                            .testTag("cast_search_again_button")
                     ) {
                         Icon(
                             imageVector = Icons.Default.Refresh,
@@ -1855,66 +2087,130 @@ fun NeliCastModalSheet(
                     }
                 }
 
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    discoveredDevices.forEach { device: CastTvDevice ->
-                        val isThisDeviceConnected = isCasting && connectedTvName == device.name
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(
-                                    if (isThisDeviceConnected) Color(0xFF0E2923) else NeliSurface
-                                )
-                                .border(
-                                    width = 1.dp,
-                                    color = if (isThisDeviceConnected) Color(0xFF10B981) else NeliBorder,
-                                    shape = RoundedCornerShape(12.dp)
-                                )
-                                .clickable {
-                                    NeliCastManager.connectAndCastToTv(
-                                        device = device,
-                                        channel = selectedCastChannel
-                                    )
-                                }
-                                .padding(12.dp)
-                                .testTag("cast_device_item_${device.id}"),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                if (isSearchingTv) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(NeliSurface)
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        CircularProgressIndicator(
+                            color = NeliGenreCyan,
+                            strokeWidth = 2.5.dp,
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Text(
+                            text = "Inatafuta Smart TV / Wireless Display zilizo wazi kwenye Wi-Fi...",
+                            color = NeliTextSecondary,
+                            fontSize = 12.sp
+                        )
+                    }
+                } else if (discoveredDevices.isEmpty()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(NeliSurface)
+                            .border(1.dp, NeliBorder, RoundedCornerShape(12.dp))
+                            .padding(14.dp)
+                            .testTag("cast_no_devices_found_box"),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Tv,
+                            contentDescription = null,
+                            tint = NeliTextSecondary,
+                            modifier = Modifier.size(28.dp)
+                        )
+                        Text(
+                            text = "Hakuna TV iliyogunduliwa bado.",
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center
+                        )
+                        Text(
+                            text = "Washa Smart TV / Cast kwenye TV yako (Wi-Fi moja na simu), kisha bonyeza 'Tafuta TV Tena' hapa chini. TV itakayoonekana utai-tap ili ku-connect moja kwa moja.",
+                            color = NeliTextSecondary,
+                            fontSize = 11.sp,
+                            textAlign = TextAlign.Center
+                        )
+                        OutlinedButton(
+                            onClick = triggerTvSearch,
+                            modifier = Modifier.fillMaxWidth()
                         ) {
+                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Tafuta TV Tena (Search)", fontSize = 12.sp)
+                        }
+                    }
+                } else {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        discoveredDevices.forEach { device: CastTvDevice ->
+                            val isThisDeviceConnected = isCasting && connectedTvName == device.name
                             Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(
+                                        if (isThisDeviceConnected) Color(0xFF0E2923) else NeliSurface
+                                    )
+                                    .border(
+                                        width = 1.dp,
+                                        color = if (isThisDeviceConnected) Color(0xFF10B981) else NeliBorder,
+                                        shape = RoundedCornerShape(12.dp)
+                                    )
+                                    .clickable {
+                                        NeliCastManager.connectAndCastToTv(
+                                            device = device,
+                                            channel = selectedCastChannel
+                                        )
+                                        selectedCastChannel?.let { onSelectChannelToWatchAndCast(it) }
+                                    }
+                                    .padding(12.dp)
+                                    .testTag("cast_device_item_${device.id}"),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                modifier = Modifier.weight(1f)
+                                horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Icon(
-                                    imageVector = if (isThisDeviceConnected) Icons.Default.CastConnected else Icons.Default.Tv,
-                                    contentDescription = null,
-                                    tint = if (isThisDeviceConnected) Color(0xFF34D399) else NeliGenreCyan
-                                )
-                                Column {
-                                    Text(
-                                        text = device.name,
-                                        color = Color.White,
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.Bold
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(
+                                        imageVector = if (isThisDeviceConnected) Icons.Default.CastConnected else Icons.Default.Tv,
+                                        contentDescription = null,
+                                        tint = if (isThisDeviceConnected) Color(0xFF34D399) else NeliGenreCyan
                                     )
-                                    Text(
-                                        text = "${device.protocol} • ${device.subtitle}",
-                                        color = NeliTextSecondary,
-                                        fontSize = 11.sp
-                                    )
+                                    Column {
+                                        Text(
+                                            text = device.name,
+                                            color = Color.White,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            text = "${device.protocol} • ${device.subtitle}",
+                                            color = NeliTextSecondary,
+                                            fontSize = 11.sp
+                                        )
+                                    }
                                 }
-                            }
 
-                            Text(
-                                text = if (isThisDeviceConnected) "Connected ✓" else "Connect",
-                                color = if (isThisDeviceConnected) Color(0xFF34D399) else NeliMagenta,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.ExtraBold
-                            )
+                                Text(
+                                    text = if (isThisDeviceConnected) "Connected ✓" else "Tap to Connect",
+                                    color = if (isThisDeviceConnected) Color(0xFF34D399) else NeliMagenta,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.ExtraBold
+                                )
+                            }
                         }
                     }
                 }

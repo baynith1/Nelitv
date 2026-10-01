@@ -1268,19 +1268,62 @@ class ExampleRobolectricTest {
         )
         com.example.data.NeliAdminManager.setSingleChannelLock(context, "azam_sports_1", false)
 
-        // Verify Admin Top SMS Notification Bar publish & clear
+        // Verify Admin Notification Bar publish, placement (Above/Below Slider on Home only) & clear
         com.example.data.NeliAdminManager.publishAdminSms(
             context = context,
             messageText = "Karibu Nelitv Live HD!",
-            sendPushNotification = false
+            sendPushNotification = false,
+            placement = com.example.data.AdminBannerPlacement.ABOVE_SLIDER
         )
         assertEquals("Karibu Nelitv Live HD!", com.example.data.NeliAdminManager.activeAdminSms.value?.message)
+        assertEquals(
+            com.example.data.AdminBannerPlacement.ABOVE_SLIDER,
+            com.example.data.NeliAdminManager.adminBannerPlacement.value
+        )
+        com.example.data.NeliAdminManager.setAdminBannerPlacement(
+            context,
+            com.example.data.AdminBannerPlacement.BELOW_SLIDER
+        )
+        assertEquals(
+            com.example.data.AdminBannerPlacement.BELOW_SLIDER,
+            com.example.data.NeliAdminManager.adminBannerPlacement.value
+        )
         com.example.data.NeliAdminManager.clearAdminSms(context)
         assertEquals(null, com.example.data.NeliAdminManager.activeAdminSms.value)
 
-        // Verify Smart TV Cast Manager device discovery
+        // Verify Smart TV Cast Manager device discovery (no hardcoded Sebuleni/Chumbani TVs)
         com.example.player.NeliCastManager.refreshAvailableTvDevices(context)
-        assertTrue(com.example.player.NeliCastManager.availableDevices.value.isNotEmpty())
+        org.junit.Assert.assertFalse(
+            com.example.player.NeliCastManager.availableDevices.value.any {
+                it.name.contains("Sebuleni", ignoreCase = true) || it.name.contains("Chumbani", ignoreCase = true)
+            }
+        )
+
+        // Verify Azam TV Language Switcher (Kiswahili Primary & Kiswahili-only preservation)
+        val azamSportsChannel = com.example.data.ChannelRepository.channels.first {
+            it.name.contains("Azam Sports 1", ignoreCase = true)
+        }
+        val sinemaZetuChannel = com.example.data.ChannelRepository.channels.first {
+            it.name.contains("Sinema Zetu", ignoreCase = true)
+        }
+        assertTrue(azamSportsChannel.isAzamTvChannel)
+        org.junit.Assert.assertFalse(azamSportsChannel.isKiswahiliOnlyProgram)
+        assertTrue(sinemaZetuChannel.isAzamTvChannel)
+        assertTrue(sinemaZetuChannel.isKiswahiliOnlyProgram)
+
+        val sportsController = com.example.player.LivePlayerController(context, azamSportsChannel)
+        assertEquals("sw", sportsController.playbackInfo.value.activeAudioLanguage)
+        assertEquals("en", sportsController.switchAzamAudioLanguage("en"))
+        assertEquals("en", sportsController.playbackInfo.value.activeAudioLanguage)
+        assertEquals("sw", sportsController.switchAzamAudioLanguage("sw"))
+        assertEquals("sw", sportsController.playbackInfo.value.activeAudioLanguage)
+        sportsController.release()
+
+        val swahiliOnlyController = com.example.player.LivePlayerController(context, sinemaZetuChannel)
+        assertEquals("sw", swahiliOnlyController.playbackInfo.value.activeAudioLanguage)
+        assertEquals("sw", swahiliOnlyController.switchAzamAudioLanguage("en"))
+        assertEquals("sw", swahiliOnlyController.playbackInfo.value.activeAudioLanguage)
+        swahiliOnlyController.release()
 
         completedFile.delete()
         controller.release()

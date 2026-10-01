@@ -150,6 +150,37 @@ data class LiveChannel(
                 name.contains("ITV", ignoreCase = true) ||
                 name.contains("KIX", ignoreCase = true)
 
+    /**
+     * True for all Azam TV channels that support the in-player Language Switcher
+     * (Kiswahili primary vs English).
+     */
+    val isAzamTvChannel: Boolean
+        get() = isAzamPriority
+
+    /**
+     * True when the current channel / program is strictly in Kiswahili (e.g., Sinema Zetu, Azam Two,
+     * Azam Xtra, Clouds TV, ITV, Wasafi TV, ZBC, UTV, Crown TV, or any program marked `language == "sw"`).
+     * When true, even if the user attempts to switch to English (`"en"`), the audio language
+     * MUST remain Kiswahili (`"sw"`).
+     */
+    val isKiswahiliOnlyProgram: Boolean
+        get() = language.equals("sw", ignoreCase = true) ||
+                language.equals("swa", ignoreCase = true) ||
+                isSwahiliNarratedMovie ||
+                name.contains("Sinema Zetu", ignoreCase = true) ||
+                name.contains("Azam Two", ignoreCase = true) ||
+                name.contains("Azam Xtra", ignoreCase = true) ||
+                name.contains("Azam Movies", ignoreCase = true) ||
+                name.contains("UTV", ignoreCase = true) ||
+                name.contains("ZBC", ignoreCase = true) ||
+                name.contains("Crown", ignoreCase = true) ||
+                name.contains("Wasafi", ignoreCase = true) ||
+                name.contains("Clouds", ignoreCase = true) ||
+                name.contains("ITV", ignoreCase = true) ||
+                description.contains("Kiswahili", ignoreCase = true) ||
+                description.contains("Bongo", ignoreCase = true) ||
+                description.contains("Tamthilia", ignoreCase = true)
+
     val isTanzaniaChannel: Boolean
         get() = isAzamPriority ||
                 country.equals("Tanzania", ignoreCase = true) ||

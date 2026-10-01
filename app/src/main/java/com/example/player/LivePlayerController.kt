@@ -276,7 +276,10 @@ data class PlayerPlaybackInfo(
     val isCpuSavingActive: Boolean = false,
     val activeMaxFrameRate: Int = 60,
     val connectionLabel: String = "Mobile Data / Wi-Fi",
-    val autoSkipNotice: String? = null
+    val autoSkipNotice: String? = null,
+    val activeAudioLanguage: String = "sw",
+    val preferredAudioLanguage: String = "sw",
+    val languageSwitchNotice: String? = null
 )
 
 private enum class ForcedContainerMode {
@@ -1361,6 +1364,7 @@ class LivePlayerController(
                     .setExceedRendererCapabilitiesIfNecessary(true)
                     .setAllowVideoMixedMimeTypeAdaptiveness(true)
                     .setAllowVideoNonSeamlessAdaptiveness(true)
+                    .setPreferredAudioLanguages("sw", "swa", "kis", "en", "eng")
             )
         }
         trackSelector = selector
@@ -1476,7 +1480,10 @@ class LivePlayerController(
             connectionLabel = detectConnectionLabel(),
             autoSkipNotice = if (newChannel.shouldAutoSkipSwahiliMovieIntro) {
                 "Auto-skipped to 05:30 • Swahili Movie Intro Ads Skipped"
-            } else null
+            } else null,
+            activeAudioLanguage = "sw",
+            preferredAudioLanguage = "sw",
+            languageSwitchNotice = null
         )
         val player = exoPlayer ?: initializePlayer()
         _uiState.value = PlayerUiState.Loading
@@ -1935,6 +1942,84 @@ class LivePlayerController(
             volume = clamped,
             isMuted = clamped == 0f
         )
+    }
+
+    /**
+     * Switches the audio language for Azam TV channels between Kiswahili (`"sw"`, Primary) and English (`"en"`).
+     *
+     * Rules:
+     * 1. Primary language is always Kiswahili (`"sw"`).
+     * 2. If the user selects English (`"en"`) while watching a program that is strictly Kiswahili
+     *    (`channel.isKiswahiliOnlyProgram == true` or the active stream tracks only contain Swahili audio),
+     *    the active language MUST NOT change — it stays `"sw"` (Kiswahili) and notifies the user.
+     */
+    fun switchAzamAudioLanguage(targetLanguageCode: String): String {
+        val normalizedTarget = if (targetLanguageCode.lowercase().startsWith("en")) "en" else "sw"
+
+        // Check if current ExoPlayer tracks haveloaded and only have Kiswahili audio
+        val hasLoadedTracksButNoEnglish = exoPlayer?.currentTracks?.let { tracks ->
+            val audioGroups = tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
+            if (audioGroups.isEmpty()) {
+                false
+            } else {
+                val allLangs = mutableListOf<String>()
+                for (group in audioGroups) {
+                    for (i in 0 until group.length) {
+                        val lang = group.getTrackFormat(i).language?.lowercase().orEmpty()
+                        if (lang.isNotBlank()) allLangs.add(lang)
+                    }
+                }
+                allLangs.isNotEmpty() && allLangs.none { it.startsWith("en") }
+            }
+        } ?: false
+
+        if (normalizedTarget == "en" && (channel.isKiswahiliOnlyProgram || hasLoadedTracksButNoEnglish)) {
+            // Do NOT change the language when the program is in Kiswahili!
+            applyPreferredAudioLanguagesToPlayer("sw")
+            _playbackInfo.value = _playbackInfo.value.copy(
+                activeAudioLanguage = "sw",
+                preferredAudioLanguage = "en",
+                languageSwitchNotice = "Kipindi hiki ni cha Kiswahili pekee — lugha haijabadilika (imebaki Kiswahili)."
+            )
+            return "sw"
+        }
+
+        applyPreferredAudioLanguagesToPlayer(normalizedTarget)
+        val notice = if (normalizedTarget == "sw") {
+            "Lugha ya Sauti: Kiswahili (Primary Language)"
+        } else {
+            "Lugha ya Sauti: English (Azam TV Dual Audio)"
+        }
+        _playbackInfo.value = _playbackInfo.value.copy(
+            activeAudioLanguage = normalizedTarget,
+            preferredAudioLanguage = normalizedTarget,
+            languageSwitchNotice = notice
+        )
+        return normalizedTarget
+    }
+
+    fun clearLanguageSwitchNotice() {
+        _playbackInfo.value = _playbackInfo.value.copy(languageSwitchNotice = null)
+    }
+
+    private fun applyPreferredAudioLanguagesToPlayer(langCode: String) {
+        val preferredOrder = if (langCode == "en") {
+            arrayOf("en", "eng", "sw", "swa", "kis")
+        } else {
+            arrayOf("sw", "swa", "kis", "en", "eng")
+        }
+        trackSelector?.let { selector ->
+            selector.setParameters(
+                selector.buildUponParameters()
+                    .setPreferredAudioLanguages(*preferredOrder)
+            )
+        }
+        exoPlayer?.let { player ->
+            player.trackSelectionParameters = player.trackSelectionParameters
+                .buildUpon()
+                .setPreferredAudioLanguages(*preferredOrder)
+                .build()
+        }
     }
 
     fun seekTo(positionMs: Long) {

@@ -39,6 +39,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.DownloadDone
@@ -111,6 +112,7 @@ import coil.request.ImageRequest
 import com.example.data.ChannelRepository
 import com.example.data.MediaContentRepository
 import com.example.data.NeliAdminManager
+import com.example.data.NeliSubscriptionManager
 import com.example.data.local.DownloadedItemEntity
 import com.example.data.local.FirebaseConfigEntity
 import com.example.data.local.UserAccountEntity
@@ -2142,6 +2144,8 @@ fun AccountTabContent(
 
     var isAdminPanelOpen by rememberSaveable { mutableStateOf(false) }
     val isCurrentUserAdmin = NeliAdminManager.isAdminUser(currentUser)
+    val subState by NeliSubscriptionManager.subscriptionState.collectAsState()
+    val isVerifiedPremiumMember = subState.isActiveNow
 
     if (isAdminPanelOpen && isCurrentUserAdmin) {
         val allLiveChannels by ChannelRepository.liveChannelsFlow.collectAsState()
@@ -2219,11 +2223,37 @@ fun AccountTabContent(
                                     fontWeight = FontWeight.ExtraBold
                                 )
                                 Icon(
-                                    imageVector = Icons.Default.CheckCircle,
-                                    contentDescription = "Active Member",
-                                    tint = Color(0xFF10B981),
-                                    modifier = Modifier.size(16.dp)
+                                    imageVector = if (isVerifiedPremiumMember) Icons.Default.Verified else Icons.Default.CheckCircle,
+                                    contentDescription = if (isVerifiedPremiumMember) "Verified Premium Member Tick" else "Active Member",
+                                    tint = if (isVerifiedPremiumMember) Color(0xFF34D399) else Color(0xFF10B981),
+                                    modifier = Modifier.size(18.dp)
                                 )
+                            }
+                            if (isVerifiedPremiumMember) {
+                                Row(
+                                    modifier = Modifier
+                                        .padding(top = 4.dp, bottom = 2.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(Color(0x3310B981))
+                                        .border(1.dp, Color(0xFF34D399), RoundedCornerShape(8.dp))
+                                        .padding(horizontal = 8.dp, vertical = 3.dp)
+                                        .testTag("account_premium_verified_badge"),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Verified,
+                                        contentDescription = "Verified Tick",
+                                        tint = Color(0xFF34D399),
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Text(
+                                        text = "Premium Member ✓ (Verified • ${subState.planTitle.ifBlank { "VIP" }})",
+                                        color = Color(0xFFFBBF24),
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Black
+                                    )
+                                }
                             }
                             Text(
                                 text = currentUser.email,
@@ -2232,7 +2262,11 @@ fun AccountTabContent(
                                 fontWeight = FontWeight.Medium
                             )
                             Text(
-                                text = "Account Synced • Azam TV Live Streaming",
+                                text = if (isVerifiedPremiumMember) {
+                                    "Verified Premium Member ✓ • Azam TV Live Streaming"
+                                } else {
+                                    "Account Synced • Azam TV Live Streaming"
+                                },
                                 color = NeliTextSecondary,
                                 fontSize = 11.sp
                             )

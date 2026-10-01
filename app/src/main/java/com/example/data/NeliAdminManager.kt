@@ -11,11 +11,23 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
 
+enum class AdminBannerPlacement(val key: String, val labelSwahili: String) {
+    ABOVE_SLIDER("ABOVE_SLIDER", "Juu ya Slider"),
+    BELOW_SLIDER("BELOW_SLIDER", "Chini ya Slider");
+
+    companion object {
+        fun fromKey(key: String?): AdminBannerPlacement {
+            return entries.find { it.key.equals(key, ignoreCase = true) } ?: BELOW_SLIDER
+        }
+    }
+}
+
 data class AdminBroadcastMessage(
     val id: String,
     val message: String,
     val createdAtMs: Long,
-    val sendAsPushNotification: Boolean = true
+    val sendAsPushNotification: Boolean = true,
+    val placement: AdminBannerPlacement = AdminBannerPlacement.BELOW_SLIDER
 )
 
 /**
@@ -27,8 +39,8 @@ data class AdminBroadcastMessage(
  *    - By default, all channels are unlocked (free).
  *    - When Admin locks a single channel or all channels, Free Users cannot watch locked channels until they subscribe.
  *    - For verified Premium Members, all channels remain OPEN even if Admin locks them, until their package expires.
- * 4. Writing & publishing top notification bar SMS messages (`publishAdminSms`) that scroll at the top of the app
- *    and are also dispatched as system notifications.
+ * 4. Writing, adding & deleting Admin notifications (`publishAdminSms`, `clearAdminSms`) that sit strictly
+ *    either ABOVE the Slider (`Juu ya Slider`) or BELOW the Slider (`Chini ya Slider`) on the Home page only.
  */
 object NeliAdminManager {
 
@@ -42,6 +54,7 @@ object NeliAdminManager {
     private const val KEY_ADMIN_SMS_TEXT = "admin_sms_text"
     private const val KEY_ADMIN_SMS_ID = "admin_sms_id"
     private const val KEY_ADMIN_SMS_TIME = "admin_sms_time"
+    private const val KEY_ADMIN_SMS_PLACEMENT = "admin_sms_placement"
 
     private val _areAllChannelsLocked = MutableStateFlow(false)
     val areAllChannelsLocked: StateFlow<Boolean> = _areAllChannelsLocked.asStateFlow()
@@ -54,6 +67,9 @@ object NeliAdminManager {
 
     private val _activeAdminSms = MutableStateFlow<AdminBroadcastMessage?>(null)
     val activeAdminSms: StateFlow<AdminBroadcastMessage?> = _activeAdminSms.asStateFlow()
+
+    private val _adminBannerPlacement = MutableStateFlow(AdminBannerPlacement.BELOW_SLIDER)
+    val adminBannerPlacement: StateFlow<AdminBannerPlacement> = _adminBannerPlacement.asStateFlow()
 
     fun isAdminCredentials(email: String, password: String): Boolean {
         return email.trim().equals(ADMIN_EMAIL, ignoreCase = true) && password.trim() == ADMIN_PASSWORD
@@ -77,12 +93,16 @@ object NeliAdminManager {
         val parsedCustom = parseCustomChannelsJson(customJson)
         _customAddedChannels.value = parsedCustom
 
+        val savedPlacement = AdminBannerPlacement.fromKey(prefs.getString(KEY_ADMIN_SMS_PLACEMENT, AdminBannerPlacement.BELOW_SLIDER.key))
+        _adminBannerPlacement.value = savedPlacement
+
         val smsText = prefs.getString(KEY_ADMIN_SMS_TEXT, "").orEmpty().trim()
         if (smsText.isNotBlank()) {
             _activeAdminSms.value = AdminBroadcastMessage(
                 id = prefs.getString(KEY_ADMIN_SMS_ID, "sms_default").orEmpty(),
                 message = smsText,
-                createdAtMs = prefs.getLong(KEY_ADMIN_SMS_TIME, System.currentTimeMillis())
+                createdAtMs = prefs.getLong(KEY_ADMIN_SMS_TIME, System.currentTimeMillis()),
+                placement = savedPlacement
             )
         } else {
             _activeAdminSms.value = null
@@ -242,32 +262,43 @@ object NeliAdminManager {
         ChannelRepository.refreshLiveChannels()
     }
 
+    fun setAdminBannerPlacement(context: Context, placement: AdminBannerPlacement) {
+        val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putString(KEY_ADMIN_SMS_PLACEMENT, placement.key).apply()
+        _adminBannerPlacement.value = placement
+        _activeAdminSms.value = _activeAdminSms.value?.copy(placement = placement)
+    }
+
     /**
      * Publishes an SMS / Announcement message from the Mini Admin Panel:
-     * 1. Displays it immediately in the Top Notification Bar at the top of the app.
+     * 1. Displays it strictly Above or Below the Hero Slider on the Home page only.
      * 2. Sends it as an Android system notification when [sendPushNotification] is true.
      */
     fun publishAdminSms(
         context: Context,
         messageText: String,
-        sendPushNotification: Boolean = true
+        sendPushNotification: Boolean = true,
+        placement: AdminBannerPlacement = _adminBannerPlacement.value
     ): Result<AdminBroadcastMessage> {
         val cleanText = messageText.trim()
         if (cleanText.isBlank()) {
             return Result.failure(IllegalArgumentException("Tafadhali andika ujumbe wa SMS kwanza."))
         }
 
+        _adminBannerPlacement.value = placement
         val msg = AdminBroadcastMessage(
             id = "sms_${System.currentTimeMillis()}",
             message = cleanText,
             createdAtMs = System.currentTimeMillis(),
-            sendAsPushNotification = sendPushNotification
+            sendAsPushNotification = sendPushNotification,
+            placement = placement
         )
         val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit()
             .putString(KEY_ADMIN_SMS_TEXT, msg.message)
             .putString(KEY_ADMIN_SMS_ID, msg.id)
             .putLong(KEY_ADMIN_SMS_TIME, msg.createdAtMs)
+            .putString(KEY_ADMIN_SMS_PLACEMENT, placement.key)
             .apply()
 
         _activeAdminSms.value = msg

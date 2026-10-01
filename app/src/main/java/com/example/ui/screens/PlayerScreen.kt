@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -44,6 +45,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Forward10
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.NetworkCell
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PictureInPictureAlt
@@ -223,6 +225,7 @@ fun PlayerScreen(
     var areControlsVisible by remember { mutableStateOf(true) }
     var isEpisodeDrawerOpen by remember { mutableStateOf(false) }
     var isSettingsDrawerOpen by remember { mutableStateOf(false) }
+    var isAzamLanguageMenuOpen by remember { mutableStateOf(false) }
     var resizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FILL) }
     var orientationMode by remember {
         mutableStateOf(PlayerGestureHelper.readSavedOrientationMode(context))
@@ -845,6 +848,52 @@ fun PlayerScreen(
 
                         if (activeChannel.isLiveBroadcast) {
                             LiveIndicatorBadge()
+                        }
+
+                        // Azam TV Language Switcher Button (Kiswahili Primary / English)
+                        if (activeChannel.isAzamTvChannel) {
+                            val activeLangLabel = if (playbackInfo.activeAudioLanguage == "en") {
+                                "ENG"
+                            } else {
+                                "KISW (Primary)"
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .testTag("player_azam_language_button")
+                                    .clip(RoundedCornerShape(20.dp))
+                                    .background(
+                                        if (isAzamLanguageMenuOpen) NeliMagenta else Color(0xCC122238)
+                                    )
+                                    .border(
+                                        1.dp,
+                                        NeliGenreCyan,
+                                        RoundedCornerShape(20.dp)
+                                    )
+                                    .clickable {
+                                        isEpisodeDrawerOpen = false
+                                        isSettingsDrawerOpen = false
+                                        isAzamLanguageMenuOpen = !isAzamLanguageMenuOpen
+                                    }
+                                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Language,
+                                        contentDescription = "Badilisha Lugha (Azam TV)",
+                                        tint = NeliGenreCyan,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Text(
+                                        text = "Lugha: $activeLangLabel",
+                                        color = Color.White,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.ExtraBold
+                                    )
+                                }
+                            }
                         }
 
                         // Video Player Settings Button (Screen Orientation Lock, Fit & Audio/Display)
@@ -1605,6 +1654,132 @@ fun PlayerScreen(
                 .align(Alignment.TopCenter)
                 .padding(top = 28.dp)
         )
+
+        // Azam TV Language Switcher Floating Card & Notice
+        if (activeChannel.isAzamTvChannel && (isAzamLanguageMenuOpen || !playbackInfo.languageSwitchNotice.isNullOrBlank())) {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 86.dp, end = 24.dp)
+                    .widthIn(max = 340.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color(0xEE101626))
+                    .border(1.dp, NeliGenreCyan.copy(alpha = 0.7f), RoundedCornerShape(16.dp))
+                    .padding(14.dp)
+                    .testTag("player_azam_language_panel"),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Language,
+                            contentDescription = null,
+                            tint = NeliGenreCyan,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text(
+                            text = "Lugha ya Azam TV (Primary: Kiswahili)",
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                    }
+                    IconButton(
+                        onClick = {
+                            isAzamLanguageMenuOpen = false
+                            playerController.clearLanguageSwitchNotice()
+                        },
+                        modifier = Modifier.size(24.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Funga",
+                            tint = NeliTextSecondary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val isSwActive = playbackInfo.activeAudioLanguage != "en"
+                    val isEnActive = playbackInfo.activeAudioLanguage == "en"
+
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(if (isSwActive) NeliMagenta else Color(0xFF1E293B))
+                            .border(
+                                1.dp,
+                                if (isSwActive) Color(0xFF34D399) else Color(0x44FFFFFF),
+                                RoundedCornerShape(10.dp)
+                            )
+                            .clickable {
+                                playerController.switchAzamAudioLanguage("sw")
+                            }
+                            .padding(vertical = 10.dp, horizontal = 8.dp)
+                            .testTag("player_lang_option_sw"),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = if (isSwActive) "Kiswahili ✓ (Primary)" else "Kiswahili (Primary)",
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(if (isEnActive) NeliMagenta else Color(0xFF1E293B))
+                            .border(
+                                1.dp,
+                                if (isEnActive) Color(0xFF34D399) else Color(0x44FFFFFF),
+                                RoundedCornerShape(10.dp)
+                            )
+                            .clickable {
+                                playerController.switchAzamAudioLanguage("en")
+                            }
+                            .padding(vertical = 10.dp, horizontal = 8.dp)
+                            .testTag("player_lang_option_en"),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = if (isEnActive) "English ✓" else "English",
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                    }
+                }
+
+                if (!playbackInfo.languageSwitchNotice.isNullOrBlank()) {
+                    Text(
+                        text = playbackInfo.languageSwitchNotice!!,
+                        color = if (activeChannel.isKiswahiliOnlyProgram && playbackInfo.preferredAudioLanguage == "en") {
+                            Color(0xFFFBBF24)
+                        } else {
+                            Color(0xFF34D399)
+                        },
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.testTag("player_language_switch_notice")
+                    )
+                }
+            }
+        }
 
         // In-Player Video Settings Drawer (Screen Orientation Lock, Aspect Ratio, Quality & Audio/Display)
         AnimatedVisibility(

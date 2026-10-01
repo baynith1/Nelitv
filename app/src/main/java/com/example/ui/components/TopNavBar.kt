@@ -130,9 +130,6 @@ fun TopNavBar(
             .padding(top = safeTopPadding)
             .testTag("top_nav_bar")
     ) {
-        // Admin Top SMS Notification Bar (visible whenever Admin broadcasts an SMS message)
-        AdminTopSmsNotificationBanner(smsMessage = adminSmsMessage)
-
         Row(
             modifier = Modifier
                 .fillMaxWidth()

@@ -28,29 +28,11 @@ data class CastTvDevice(
  */
 object NeliCastManager {
 
-    private val defaultSmartTvReceivers = listOf(
-        CastTvDevice(
-            id = "cast_smart_tv_living_room",
-            name = "Smart TV • Sebuleni (Large TV)",
-            subtitle = "Google Cast / DLNA HD Receiver • Ready",
-            protocol = "Google Cast / DLNA"
-        ),
-        CastTvDevice(
-            id = "cast_android_tv_4k",
-            name = "Android TV 4K (Azam & Live TV)",
-            subtitle = "Chromecast Built-in • 1080p/4K Stream",
-            protocol = "Chromecast Built-in"
-        ),
-        CastTvDevice(
-            id = "cast_samsung_lg_miracast",
-            name = "Wireless Display / Miracast TV",
-            subtitle = "Samsung / LG / Hisense / TCL Smart View",
-            protocol = "Miracast / Wi-Fi Direct"
-        )
-    )
-
-    private val _availableDevices = MutableStateFlow<List<CastTvDevice>>(defaultSmartTvReceivers)
+    private val _availableDevices = MutableStateFlow<List<CastTvDevice>>(emptyList())
     val availableDevices: StateFlow<List<CastTvDevice>> = _availableDevices.asStateFlow()
+
+    private val _isScanning = MutableStateFlow(false)
+    val isScanning: StateFlow<Boolean> = _isScanning.asStateFlow()
 
     private val _connectedDevice = MutableStateFlow<CastTvDevice?>(null)
     val connectedDevice: StateFlow<CastTvDevice?> = _connectedDevice.asStateFlow()
@@ -79,10 +61,11 @@ object NeliCastManager {
     }
 
     /**
-     * Scans Android [DisplayManager] and [MediaRouter] for real external/wireless displays and combines
-     * them with Smart TV network receivers.
+     * Scans Android [DisplayManager] and [MediaRouter] for real external/wireless TV displays
+     * currently visible on the user's network/device without any fake hardcoded room TVs.
      */
     fun refreshAvailableTvDevices(context: Context) {
+        _isScanning.value = true
         val discovered = mutableListOf<CastTvDevice>()
         try {
             val dm = context.getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager
@@ -111,7 +94,9 @@ object NeliCastManager {
                     val isDefaultPhone = name.contains("Phone", ignoreCase = true) ||
                         name.contains("Speaker", ignoreCase = true) ||
                         name.contains("Simu", ignoreCase = true) ||
-                        name.contains("Headphone", ignoreCase = true)
+                        name.contains("Headphone", ignoreCase = true) ||
+                        name.contains("Handset", ignoreCase = true) ||
+                        name.contains("Tablet", ignoreCase = true)
                     if (name.isNotBlank() && !isDefaultPhone) {
                         val routeId = "route_${name.lowercase().replace(" ", "_")}"
                         if (discovered.none { it.id == routeId }) {
@@ -121,7 +106,7 @@ object NeliCastManager {
                                     name = name,
                                     subtitle = route.description?.toString()?.takeIf { it.isNotBlank() }
                                         ?: "Wireless TV Media Route",
-                                    protocol = "MediaRouter TV",
+                                    protocol = "Smart TV / Cast",
                                     isSystemRoute = true
                                 )
                             )
@@ -132,8 +117,8 @@ object NeliCastManager {
         } catch (_: Throwable) {
         }
 
-        val combined = (discovered + defaultSmartTvReceivers).distinctBy { it.id }
-        _availableDevices.value = combined
+        _availableDevices.value = discovered.distinctBy { it.id }
+        _isScanning.value = false
     }
 
     fun connectAndCastToTv(device: CastTvDevice, channel: LiveChannel? = null) {
