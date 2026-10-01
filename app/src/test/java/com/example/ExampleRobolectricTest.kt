@@ -1222,6 +1222,26 @@ class ExampleRobolectricTest {
         )
         assertTrue("Expected file:// URI when resolving by media ID, got $resolvedByIdUri", resolvedByIdUri.startsWith("file:"))
 
+        // 10. Verify Start.io Ad Manager (App ID: 209957114), app-ads.txt (start.io, 161782875, DIRECT),
+        //     all 6 ad formats (Banner, Native, MREC/Muted Video, Interstitial, Rewarded Video, Return/Splash) & Setup Instructions
+        assertEquals("209957114", com.example.ads.NeliStartIoAdManager.STARTIO_APP_ID)
+        assertEquals("161782875", com.example.ads.NeliStartIoAdManager.STARTIO_PUBLISHER_ID)
+        assertEquals("start.io, 161782875, DIRECT", com.example.ads.NeliStartIoAdManager.STARTIO_DIRECT_APP_ADS_ENTRY)
+        assertEquals(6, com.example.ads.StartIoAdFormat.entries.size)
+        assertEquals(5, com.example.ads.NeliStartIoAdManager.setupInstructions.size)
+
+        val appAdsLines = com.example.ads.NeliStartIoAdManager.readAppAdsTxtLines(context)
+        assertTrue("Expected at least 135 authorized seller lines in app-ads.txt, got ${appAdsLines.size}", appAdsLines.size >= 135)
+        assertEquals("start.io, 161782875, DIRECT", appAdsLines.first())
+        assertTrue(com.example.ads.NeliStartIoAdManager.isStartIoAppAdsTxtVerified(context))
+
+        com.example.ads.NeliStartIoAdManager.initialize(context)
+        assertTrue(com.example.ads.NeliStartIoAdManager.isInitialized.value)
+        assertNotNull(com.example.ads.NeliStartIoAdManager.getNativeAdForSlot(0))
+        assertTrue(com.example.ads.NeliStartIoAdManager.showInterstitialAd(context, forceShow = true))
+        assertTrue(com.example.ads.NeliStartIoAdManager.interstitialShownCount.value >= 1)
+        assertTrue(com.example.ads.NeliStartIoAdManager.showRewardedVideoAd(context))
+
         completedFile.delete()
         controller.release()
     }

@@ -77,6 +77,8 @@ import com.example.ui.components.ChannelCard
 import com.example.ui.components.LiveIndicatorBadge
 import com.example.ui.components.NeliBottomBar
 import com.example.ui.components.NeliHomepageAutoUpdatePopupDialog
+import com.example.ui.components.StartIoBannerAdSlot
+import com.example.ui.components.StartIoInlineMutedVideoAdCard
 import com.example.ui.components.TopNavBar
 import com.example.ui.theme.NeliBackground
 import com.example.ui.theme.NeliGenreCyan
@@ -580,13 +582,16 @@ private fun LiveTvHomeTab(
             }
         }
 
-        // 2. Featured Live Spotlight Banner
+        // 2. Featured Live Spotlight Banner + Start.io Banner Ad (320x50)
         if (featuredHeroChannels.isNotEmpty() && selectedCategory.equals("All", ignoreCase = true)) {
             item {
                 LiveTvHeroBanner(
                     heroChannels = featuredHeroChannels,
                     onPlayChannel = onChannelSelected
                 )
+            }
+            item(key = "homepage_startio_top_banner") {
+                StartIoBannerAdSlot(placementTag = "homepage_top")
             }
         }
 
@@ -725,6 +730,9 @@ private fun LiveTvHomeTab(
                             Spacer(modifier = Modifier.weight(1f))
                         }
                     }
+                }
+                if (sixChannels.size == 6 || blockIndex == 0) {
+                    StartIoInlineMutedVideoAdCard(blockIndex = blockIndex)
                 }
             }
         }
