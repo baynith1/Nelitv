@@ -1421,9 +1421,72 @@ class ExampleRobolectricTest {
             assertNotNull(queriedEntity)
             assertTrue(queriedEntity!!.isVerified)
             assertEquals("HP_ORD_998877", queriedEntity.orderId)
-            assertEquals(3000, queriedEntity.amountTzs)
+            assertEquals(3500, queriedEntity.amountTzs)
+
+            // Verify post-payment login/signup links user account for cross-device sync
+            assertTrue(verifiedNoLoginState.requiresPostPaymentAuth)
+            val linkedState = com.example.data.NeliSubscriptionManager.linkUserAccountToSubscription(
+                context = context,
+                uid = "uid_juma_99",
+                email = "juma@nelitv.tz",
+                realName = "Juma Bakari"
+            )
+            assertEquals("uid_juma_99", linkedState.linkedUserUid)
+            assertEquals("juma@nelitv.tz", linkedState.linkedUserEmail)
+            assertEquals("Juma Bakari", linkedState.linkedUserName)
+            org.junit.Assert.assertFalse(linkedState.requiresPostPaymentAuth)
+
+            // Verify Cast Manager syncs user info, subscription status, and High-Quality Anti-Stutter Stream
+            com.example.player.NeliCastManager.syncUserAndSubscriptionInfo(
+                userName = linkedState.linkedUserName,
+                email = linkedState.linkedUserEmail,
+                planTitle = linkedState.planTitle,
+                isVerified = linkedState.isActiveNow,
+                deviceIp = linkedState.deviceIpAddress
+            )
+            assertEquals("Juma Bakari", com.example.player.NeliCastManager.userDisplayName.value)
+            assertEquals("juma@nelitv.tz", com.example.player.NeliCastManager.userEmail.value)
+            assertTrue(com.example.player.NeliCastManager.userSubscriptionBadge.value.contains("Premium VIP"))
+            com.example.player.NeliCastManager.setCastStreamQuality("1080p Full HD • 60fps Anti-Stutter")
+            assertEquals(
+                "1080p Full HD • 60fps Anti-Stutter",
+                com.example.player.NeliCastManager.castStreamQuality.value
+            )
+            com.example.player.NeliCastManager.triggerCastStreamBoost()
+            assertTrue(com.example.player.NeliCastManager.isAntiStutterActive.value)
+            assertEquals(100, com.example.player.NeliCastManager.castBufferHealthPercent.value)
         }
         dbSub.close()
+
+        // 15. Verify Responsive Layout Profiles for small phones (Itel/Tecno), standard/large phones (Samsung/Infinix), and tablets
+        val smallItelProfile = com.example.ui.theme.NeliResponsiveLayout.resolveProfileForDimensions(
+            widthDp = 320,
+            heightDp = 640,
+            manufacturer = "itel",
+            model = "itel A60"
+        )
+        assertTrue(smallItelProfile.isSmallPhone)
+        assertEquals("Itel", smallItelProfile.deviceBrandLabel)
+        assertEquals(2, smallItelProfile.liveChannelGridColumns)
+
+        val infinixPhoneProfile = com.example.ui.theme.NeliResponsiveLayout.resolveProfileForDimensions(
+            widthDp = 392,
+            heightDp = 850,
+            manufacturer = "Infinix",
+            model = "Infinix NOTE 40"
+        )
+        assertEquals("Infinix", infinixPhoneProfile.deviceBrandLabel)
+        assertEquals(2, infinixPhoneProfile.liveChannelGridColumns)
+
+        val samsungTabletProfile = com.example.ui.theme.NeliResponsiveLayout.resolveProfileForDimensions(
+            widthDp = 900,
+            heightDp = 1280,
+            manufacturer = "Samsung",
+            model = "SM-X710"
+        )
+        assertTrue(samsungTabletProfile.isTabletOrFoldable)
+        assertEquals("Samsung", samsungTabletProfile.deviceBrandLabel)
+        assertEquals(4, samsungTabletProfile.liveChannelGridColumns)
 
         // 14. Verify Live Stream Freeze / Stall Auto-Fix Engine automatically recovers stuck live stream
         val liveAutoFixController = com.example.player.LivePlayerController(context, azamSportsChannel)
