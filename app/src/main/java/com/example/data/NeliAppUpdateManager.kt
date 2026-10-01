@@ -536,8 +536,8 @@ object NeliAppUpdateManager {
             }
         }
 
-        // If a newer update appeared on GitHub and Auto-Update is enabled, download it automatically
-        if (finalInfo.isNewUpdateAvailable && _autoUpdateEnabled.value) {
+        // If a newer update appeared on GitHub and user requested check with Auto-Update enabled, download it
+        if (triggeredByUser && finalInfo.isNewUpdateAvailable && _autoUpdateEnabled.value) {
             val alreadyDownloadedTag = prefs.getString(KEY_LAST_AUTO_DOWNLOADED_TAG, null)
             if (lastAutoTriggeredTagInSession != finalInfo.versionTag &&
                 alreadyDownloadedTag != finalInfo.versionTag
@@ -690,9 +690,11 @@ object NeliAppUpdateManager {
      */
     fun cleanUpStaleApkDownloads(context: Context? = null, targetFileName: String? = null) {
         val candidateDirs = buildList {
-            try {
-                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)?.let { add(it) }
-            } catch (_: Exception) {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+                try {
+                    Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)?.let { add(it) }
+                } catch (_: Exception) {
+                }
             }
             if (context != null) {
                 try {

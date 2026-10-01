@@ -262,14 +262,22 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private val isSyncCycleRunning = java.util.concurrent.atomic.AtomicBoolean(false)
+    @Volatile
+    private var lastSyncCompletedAtMs: Long = 0L
+
     private fun triggerAutomaticBackgroundSync() {
+        val now = System.currentTimeMillis()
+        if (now - lastSyncCompletedAtMs < 15_000L) return
         viewModelScope.launch(Dispatchers.IO) {
             performAutomaticSyncCycle()
         }
     }
 
     private suspend fun performAutomaticSyncCycle() = withContext(Dispatchers.IO) {
+        if (!isSyncCycleRunning.compareAndSet(false, true)) return@withContext
         try {
+            lastSyncCompletedAtMs = System.currentTimeMillis()
             ChannelRepository.refreshLiveChannels()
             val apiKey = AuthRepository.resolveApiKey(appContext)
             MediaContentRepository.syncFromFirebaseEndpoint(
@@ -282,6 +290,8 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
             com.example.widget.NeliHomeWidgetProvider.updateAllWidgets(appContext)
             NeliAppUpdateManager.checkForUpdates(appContext, triggeredByUser = false)
         } catch (_: Exception) {
+        } finally {
+            isSyncCycleRunning.set(false)
         }
     }
 

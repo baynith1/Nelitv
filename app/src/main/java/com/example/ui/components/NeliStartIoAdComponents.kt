@@ -168,8 +168,8 @@ fun StartIoBannerAdSlot(
             }
         }
 
-        // Embed native Start.io SDK Banner View when running in an Activity
-        if (context is Activity) {
+        // Embed native Start.io SDK Banner View only on physical devices (avoids emulator WebView/SELinux audit rate-limit bursts)
+        if (context is Activity && !NeliStartIoAdManager.isRunningOnEmulatorOrVirtualDevice()) {
             AndroidView(
                 factory = { ctx ->
                     NeliStartIoAdManager.createBannerAdView(
@@ -525,7 +525,7 @@ fun StartIoInlineMutedVideoAdCard(
             }
         }
 
-        if (context is Activity) {
+        if (context is Activity && !NeliStartIoAdManager.isRunningOnEmulatorOrVirtualDevice()) {
             AndroidView(
                 factory = { ctx ->
                     NeliStartIoAdManager.createMrecAdView(
