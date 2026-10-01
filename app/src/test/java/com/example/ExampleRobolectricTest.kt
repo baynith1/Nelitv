@@ -1251,20 +1251,51 @@ class ExampleRobolectricTest {
         org.junit.Assert.assertFalse(com.example.data.NeliAdminManager.isAdminCredentials("user@gmail.com", "123456"))
         org.junit.Assert.assertFalse(com.example.data.NeliAdminManager.isAdminCredentials("Admin@login.com", "wrong"))
 
-        // Verify Channel Lock for Free Users vs Open for Verified Premium Members
+        // Verify Channel Lock for Free Users vs Open for Verified Premium Members:
+        // 1) Channels are initially FREE, user pays early while channels are free
+        com.example.data.NeliSubscriptionManager.resetForTesting(context)
+        com.example.data.NeliAdminManager.setSingleChannelLock(context, "azam_sports_1", false)
+        val paidEarlyState = com.example.data.NeliSubscriptionManager.activateVerifiedSubscription(
+            context = context,
+            plan = com.example.data.SubscriptionPlanType.DAILY,
+            phone = "0712345678",
+            verifiedOrderId = "HP_ORD_EARLY_1"
+        )
+        assertTrue(paidEarlyState.isActiveNow)
+
+        // 2) Later, Admin locks the channel -> because user already paid and subscription is active, it MUST NOT lock!
         com.example.data.NeliAdminManager.setSingleChannelLock(context, "azam_sports_1", true)
+        org.junit.Assert.assertFalse(
+            com.example.data.NeliAdminManager.isChannelLockedForUser(
+                channelId = "azam_sports_1",
+                currentUser = null,
+                context = context
+            )
+        )
+
+        // 3) Once subscription expires (nowMs > expiresAtMs) -> channel MUST lock!
         assertTrue(
             com.example.data.NeliAdminManager.isChannelLockedForUser(
                 channelId = "azam_sports_1",
                 currentUser = null,
-                isPremiumActive = false
+                isPremiumActive = false,
+                nowMs = paidEarlyState.expiresAtMs + 5_000L,
+                context = context
             )
+        )
+
+        // 4) As soon as user pays again and payment succeeds -> channel MUST unlock immediately!
+        com.example.data.NeliSubscriptionManager.activateVerifiedSubscription(
+            context = context,
+            plan = com.example.data.SubscriptionPlanType.WEEKLY,
+            phone = "0712345678",
+            verifiedOrderId = "HP_ORD_RENEW_2"
         )
         org.junit.Assert.assertFalse(
             com.example.data.NeliAdminManager.isChannelLockedForUser(
                 channelId = "azam_sports_1",
                 currentUser = null,
-                isPremiumActive = true
+                context = context
             )
         )
         com.example.data.NeliAdminManager.setSingleChannelLock(context, "azam_sports_1", false)

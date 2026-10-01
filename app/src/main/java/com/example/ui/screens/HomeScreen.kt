@@ -146,13 +146,39 @@ fun HomeScreen(
 
     var showCastDialog by rememberSaveable { mutableStateOf(false) }
     var lockedChannelToPrompt by remember { mutableStateOf<LiveChannel?>(null) }
+    var pendingUnlockedChannelAfterPayment by remember { mutableStateOf<LiveChannel?>(null) }
+
+    // Continuously evaluate subscription status & expiry so channels stay unlocked while active,
+    // lock immediately when subscription expires, and unlock immediately when payment succeeds.
+    LaunchedEffect(subState.isVerified, subState.expiresAtMs, lockAllForFree, lockedChannelIds) {
+        NeliSubscriptionManager.expireSubscriptionIfNeeded(context)
+        if (subState.isVerified && subState.expiresAtMs > 0L) {
+            lockedChannelToPrompt = null
+            while (true) {
+                val remaining = subState.expiresAtMs - System.currentTimeMillis()
+                if (remaining <= 0L) {
+                    NeliSubscriptionManager.expireSubscriptionIfNeeded(context)
+                    break
+                }
+                delay(minOf(remaining + 250L, 15_000L).coerceAtLeast(500L))
+                NeliSubscriptionManager.expireSubscriptionIfNeeded(context)
+            }
+        }
+    }
 
     val handleChannelSelection: (LiveChannel) -> Unit = { ch ->
-        val isAdmin = NeliAdminManager.isAdminUser(currentUser)
-        val isLockedForUser = ch.isLiveBroadcast && (lockAllForFree || lockedChannelIds.contains(ch.id)) && !isPremiumActive && !isAdmin
+        val isLockedForUser = ch.isLiveBroadcast && NeliAdminManager.isChannelLockedForUser(
+            channelId = ch.id,
+            currentUser = currentUser,
+            isPremiumActive = isPremiumActive,
+            context = context
+        )
         if (isLockedForUser) {
             lockedChannelToPrompt = ch
+            pendingUnlockedChannelAfterPayment = ch
         } else {
+            lockedChannelToPrompt = null
+            pendingUnlockedChannelAfterPayment = null
             onChannelSelected(ch)
         }
     }
@@ -181,11 +207,12 @@ fun HomeScreen(
         )
     }
 
-    if (lockedChannelToPrompt != null) {
+    if (lockedChannelToPrompt != null && !isPremiumActive) {
         LockedChannelPremiumDialog(
             channel = lockedChannelToPrompt!!,
             onDismiss = { lockedChannelToPrompt = null },
             onGoToPremium = {
+                pendingUnlockedChannelAfterPayment = lockedChannelToPrompt
                 lockedChannelToPrompt = null
                 isSearchOpen = false
                 neliViewModel.selectTab(BottomNavTab.PREMIUM)

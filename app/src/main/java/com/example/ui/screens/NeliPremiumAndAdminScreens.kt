@@ -321,7 +321,7 @@ fun PremiumTabContent(
         ),
         verticalArrangement = Arrangement.spacedBy(screenProfile.cardSpacing)
     ) {
-        // 0. Universal Back Button Header Bar on EVERY Premium Payment Page
+        // 0. Single Clean Back Button Header Bar on EVERY Premium Payment Page
         item {
             Row(
                 modifier = Modifier
@@ -349,128 +349,30 @@ fun PremiumTabContent(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = when (checkoutStep) {
-                            PremiumCheckoutStep.CHOOSE_PLAN -> "Premium Payment • Chagua Kifurushi"
-                            PremiumCheckoutStep.ENTER_PHONE -> "Premium Payment • Namba ya Simu"
-                            PremiumCheckoutStep.WAITING_VERIFICATION -> "Premium Payment • Thibitisha Malipo"
-                            PremiumCheckoutStep.VERIFIED_SUCCESS -> "Premium Payment • Malipo Yamethibitishwa"
+                            PremiumCheckoutStep.CHOOSE_PLAN -> "Chagua Kifurushi cha Premium"
+                            PremiumCheckoutStep.ENTER_PHONE -> "Weka Namba ya Simu"
+                            PremiumCheckoutStep.WAITING_VERIFICATION -> "Thibitisha Malipo"
+                            PremiumCheckoutStep.VERIFIED_SUCCESS -> "Malipo Yamethibitishwa"
                         },
                         color = Color.White,
-                        fontSize = 16.sp,
+                        fontSize = 17.sp,
                         fontWeight = FontWeight.Black
                     )
                     Text(
-                        text = "Rudi nyuma wakati wowote • ${screenProfile.brandOptimizationLabel}",
+                        text = when (checkoutStep) {
+                            PremiumCheckoutStep.CHOOSE_PLAN -> "Chagua kifurushi chako (Siku Mbili, Wiki au Mwezi)"
+                            PremiumCheckoutStep.ENTER_PHONE -> "${selectedPlan.titleSwahili} • ${selectedPlan.priceFormatted}"
+                            PremiumCheckoutStep.WAITING_VERIFICATION -> "Kamilisha malipo kwenye simu yako"
+                            PremiumCheckoutStep.VERIFIED_SUCCESS -> "Kifurushi chako cha VIP kiko hai sasa"
+                        },
                         color = NeliTextSecondary,
-                        fontSize = 11.sp
-                    )
-                }
-
-                OutlinedButton(
-                    onClick = handleStepOrScreenBack,
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.testTag("premium_header_back_text_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = null,
-                        tint = NeliGenreCyan,
-                        modifier = Modifier.size(15.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = "Rudi Nyuma",
-                        color = Color.White,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold
+                        fontSize = 12.sp
                     )
                 }
             }
         }
 
-        // 1. Free App Notice Banner + Premium Header
-        item {
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("premium_free_notice_card"),
-                shape = RoundedCornerShape(18.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF131B2E))
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .border(1.dp, Color(0x4400E5FF), RoundedCornerShape(18.dp))
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clip(CircleShape)
-                                .background(Color(0x2200E5FF)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.WorkspacePremium,
-                                contentDescription = "Premium",
-                                tint = NeliGenreCyan,
-                                modifier = Modifier.size(24.dp)
-                            )
-                        }
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Nelitv VIP & Premium",
-                                color = Color.White,
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Black
-                            )
-                            Text(
-                                text = "Malipo ya Haraka kwa Simu (HarakaPay TZS)",
-                                color = NeliGenreCyan,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(Color(0xFF0E2923))
-                            .border(1.dp, Color(0xFF10B981).copy(alpha = 0.5f), RoundedCornerShape(12.dp))
-                            .padding(12.dp)
-                    ) {
-                        Text(
-                            text = "NOTE: Kwa sasa App ni FREE kabisa kutumia! Hata hivyo, ukiwa Premium Member unafungua channels zote hata kama Admin amezifunga kwa watumiaji wa bure mpaka kifurushi chako kiishe.",
-                            color = Color(0xFFA7F3D0),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-
-                    if (lockAllForFree || lockedChannelIds.isNotEmpty()) {
-                        val lockSummary = if (lockAllForFree) {
-                            "Channels zote zimefungwa kwa Free Users — Jiunge na Premium kufungua zote sasa!"
-                        } else {
-                            "Channels ${lockedChannelIds.size} zimefungwa kwa Free Users — Premium inafungua zote!"
-                        }
-                        Text(
-                            text = lockSummary,
-                            color = Color(0xFFFBBF24),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-            }
-        }
-
-        // 2. Active Premium Membership Status Card + Post-Payment Login/SignUp Sync Card
+        // 1. Active Premium Membership Status Card + Post-Payment Login/SignUp Sync Card
         if (isPremiumActive) {
             item {
                 Card(
@@ -535,21 +437,7 @@ fun PremiumTabContent(
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold
                             )
-                        } else {
-                            Text(
-                                text = "Mwanachama (Bila Login/Sign Up) • Real Data Imesajiliwa kwa Device IP",
-                                color = NeliGenreCyan,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold
-                            )
                         }
-                        Text(
-                            text = "Device IP (Auto-Saved Real Data): $detectedDeviceIp",
-                            color = NeliGenreCyan,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.testTag("premium_active_device_ip_text")
-                        )
                         Text(
                             text = "Kifurushi: ${subState.planTitle} • TZS ${subState.amountTzs}",
                             color = Color.White,
@@ -568,7 +456,7 @@ fun PremiumTabContent(
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "Channels zote ziko WAZI kwako hata kama Admin akizifunga kwa Free Users!",
+                            text = "Channels zote ziko WAZI kwako mpaka kifurushi chako kiishe!",
                             color = Color.White.copy(alpha = 0.85f),
                             fontSize = 12.sp
                         )
@@ -590,7 +478,7 @@ fun PremiumTabContent(
             }
         }
 
-        // 3. Step-by-Step Subscription Flow
+        // 2. Step-by-Step Subscription Flow (Simple & Clean with a Single Top Back Button)
         item {
             when (checkoutStep) {
                 PremiumCheckoutStep.CHOOSE_PLAN -> {
@@ -598,35 +486,6 @@ fun PremiumTabContent(
                         modifier = Modifier.fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                text = "Hatua ya 1: Chagua Kifurushi cha Premium",
-                                color = NeliTextPrimary,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                modifier = Modifier.weight(1f)
-                            )
-                            IconButton(
-                                onClick = onBack,
-                                modifier = Modifier
-                                    .size(40.dp)
-                                    .clip(CircleShape)
-                                    .background(NeliSurfaceVariant)
-                                    .testTag("premium_choose_plan_back_button")
-                            ) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                    contentDescription = "Rudi Nyuma",
-                                    tint = NeliTextPrimary,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-                        }
-
                         SubscriptionPlanType.entries.forEach { plan ->
                             val isSelected = plan.id == selectedPlan.id
                             Card(
@@ -705,44 +564,6 @@ fun PremiumTabContent(
                             }
                         }
 
-                        // Automatic Ready Device IP Card (saves real payment data even without login or signup)
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("premium_auto_device_ip_card"),
-                            shape = RoundedCornerShape(14.dp),
-                            colors = CardDefaults.cardColors(containerColor = Color(0xFF10222E))
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .border(1.dp, NeliGenreCyan.copy(alpha = 0.55f), RoundedCornerShape(14.dp))
-                                    .padding(12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Verified,
-                                    contentDescription = "Auto Ready Device IP",
-                                    tint = Color(0xFF34D399),
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = "Auto-Ready Device IP: $detectedDeviceIp",
-                                        color = NeliGenreCyan,
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.ExtraBold
-                                    )
-                                    Text(
-                                        text = "Unaweza kulipia moja kwa moja hata bila Login au Sign Up — kisha baada ya malipo utaweza ku-Login au Sign Up ili uingie kwenye simu nyingine yoyote na data zako ziendelee kuwepo!",
-                                        color = NeliTextSecondary,
-                                        fontSize = 11.sp
-                                    )
-                                }
-                            }
-                        }
-
                         Spacer(modifier = Modifier.height(4.dp))
 
                         Button(
@@ -761,7 +582,7 @@ fun PremiumTabContent(
                             colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta)
                         ) {
                             Text(
-                                text = "Next • Endelea (${selectedPlan.titleSwahili} - ${selectedPlan.priceFormatted})",
+                                text = "Endelea (${selectedPlan.titleSwahili} • ${selectedPlan.priceFormatted})",
                                 color = Color.White,
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.ExtraBold
@@ -784,52 +605,6 @@ fun PremiumTabContent(
                                 .padding(16.dp),
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    IconButton(
-                                        onClick = {
-                                            statusFeedbackMessage = null
-                                            checkoutStep = PremiumCheckoutStep.CHOOSE_PLAN
-                                        },
-                                        modifier = Modifier
-                                            .size(40.dp)
-                                            .clip(CircleShape)
-                                            .background(NeliSurfaceVariant)
-                                            .testTag("premium_enter_phone_back_button")
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                            contentDescription = "Rudi kwenye vifurushi",
-                                            tint = Color.White,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                    }
-                                    Text(
-                                        text = "Hatua ya 2: Weka Namba ya Simu",
-                                        color = NeliTextPrimary,
-                                        fontSize = 15.sp,
-                                        fontWeight = FontWeight.ExtraBold
-                                    )
-                                }
-                                OutlinedButton(
-                                    onClick = {
-                                        statusFeedbackMessage = null
-                                        checkoutStep = PremiumCheckoutStep.CHOOSE_PLAN
-                                    },
-                                    modifier = Modifier.testTag("premium_step_back_button")
-                                ) {
-                                    Text("Badili Kifurushi", fontSize = 12.sp)
-                                }
-                            }
-
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -937,7 +712,7 @@ fun PremiumTabContent(
                                         val collectRes = paymentService.initiateUssdPushPayment(
                                             phone = cleanPhone,
                                             amount = selectedPlan.amountTzs,
-                                            description = "Nelitv Premium (${selectedPlan.titleSwahili}) • IP $detectedDeviceIp"
+                                            description = "Nelitv Premium (${selectedPlan.titleSwahili})"
                                         )
                                         isSubmittingPayment = false
                                         collectRes.onSuccess { resp ->
@@ -978,7 +753,7 @@ fun PremiumTabContent(
                                     )
                                 } else {
                                     Text(
-                                        text = "Pay • Lipa ${selectedPlan.priceFormatted} Sasa",
+                                        text = "Lipa ${selectedPlan.priceFormatted} Sasa",
                                         color = Color.White,
                                         fontSize = 15.sp,
                                         fontWeight = FontWeight.ExtraBold
@@ -1001,76 +776,30 @@ fun PremiumTabContent(
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(18.dp),
+                                .padding(20.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                            verticalArrangement = Arrangement.spacedBy(14.dp)
                         ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                IconButton(
-                                    onClick = {
-                                        statusFeedbackMessage = null
-                                        checkoutStep = PremiumCheckoutStep.ENTER_PHONE
-                                    },
-                                    modifier = Modifier
-                                        .size(40.dp)
-                                        .clip(CircleShape)
-                                        .background(NeliSurfaceVariant)
-                                        .testTag("premium_waiting_back_button")
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                        contentDescription = "Rudi Nyuma",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                                Text(
-                                    text = "Hatua ya 3: Thibitisha Malipo",
-                                    color = NeliGenreCyan,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.ExtraBold
-                                )
-                                Spacer(modifier = Modifier.width(40.dp))
-                            }
-
                             CircularProgressIndicator(
                                 color = NeliGenreCyan,
                                 strokeWidth = 3.dp,
-                                modifier = Modifier.size(42.dp)
+                                modifier = Modifier.size(40.dp)
                             )
 
                             Text(
-                                text = "Inasubiri Uthibitisho wa Malipo...",
+                                text = "Thibitisha Malipo Kwenye Simu",
                                 color = NeliTextPrimary,
-                                fontSize = 17.sp,
+                                fontSize = 18.sp,
                                 fontWeight = FontWeight.Black,
                                 textAlign = TextAlign.Center
                             )
 
                             Text(
-                                text = "Ujumbe wa USSD umetumwa kwenye simu ${subState.pendingPhone.ifBlank { phoneInput }} kwa kiasi cha ${pendingPlan.priceFormatted} (Order ID: ${subState.pendingOrderId.ifBlank { "---" }}).",
+                                text = "Weka PIN yako kwenye ujumbe wa USSD uliotumwa kwenye namba ${subState.pendingPhone.ifBlank { phoneInput }} kulipia ${pendingPlan.titleSwahili} (${pendingPlan.priceFormatted}).",
                                 color = NeliTextSecondary,
                                 fontSize = 13.sp,
                                 textAlign = TextAlign.Center
                             )
-
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(NeliSurfaceVariant)
-                                    .padding(12.dp)
-                            ) {
-                                Text(
-                                    text = "1. Weka PIN yako ya malipo kwenye ujumbe ulioingia kwenye simu.\n2. App inafanya Auto-Confirm yenyewe mara tu ukilipa.\n3. Ikiwa umeshalipa kwenye simu na haijabadilika bado, bonyeza kitufe cha 'Ready (Thibitisha Malipo)' hapa chini.",
-                                    color = NeliTextPrimary,
-                                    fontSize = 12.sp
-                                )
-                            }
 
                             if (!statusFeedbackMessage.isNullOrBlank()) {
                                 Row(
@@ -1103,7 +832,7 @@ fun PremiumTabContent(
                                     val ordId = subState.pendingOrderId
                                     if (ordId.isBlank() || isVerifyingStatus) return@Button
                                     isVerifyingStatus = true
-                                    statusFeedbackMessage = "Inahakiki malipo yako HarakaPay..."
+                                    statusFeedbackMessage = "Inahakiki malipo yako..."
                                     isErrorFeedback = false
                                     coroutineScope.launch {
                                         val checkRes = paymentService.verifyOrderStatus(ordId)
@@ -1122,7 +851,7 @@ fun PremiumTabContent(
                                             } else {
                                                 isErrorFeedback = true
                                                 statusFeedbackMessage =
-                                                    "Malipo bado hayajakamilika (Status: ${statusObj.status}). Kama bado hujalipa kwenye simu, weka PIN kwanza kisha bonyeza Ready."
+                                                    "Malipo bado hayajakamilika (${statusObj.status}). Weka PIN kwenye simu kisha bonyeza Thibitisha Malipo."
                                             }
                                         }.onFailure { err ->
                                             isErrorFeedback = true
@@ -1154,33 +883,12 @@ fun PremiumTabContent(
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Text(
-                                        text = "Ready • Nimeshalipa (Thibitisha Malipo)",
+                                        text = "Thibitisha Malipo",
                                         color = Color.White,
-                                        fontSize = 14.sp,
+                                        fontSize = 15.sp,
                                         fontWeight = FontWeight.ExtraBold
                                     )
                                 }
-                            }
-
-                            OutlinedButton(
-                                onClick = {
-                                    NeliSubscriptionManager.clearPendingOrder(context)
-                                    phoneInput = ""
-                                    statusFeedbackMessage = null
-                                    checkoutStep = PremiumCheckoutStep.ENTER_PHONE
-                                },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .testTag("premium_cancel_pending_button")
-                            ) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                    contentDescription = null,
-                                    tint = NeliTextSecondary,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Rudi Nyuma • Badili Namba ya Simu", color = NeliTextSecondary)
                             }
                         }
                     }
@@ -1206,34 +914,11 @@ fun PremiumTabContent(
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 verticalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.Start
-                                ) {
-                                    IconButton(
-                                        onClick = {
-                                            phoneInput = ""
-                                            checkoutStep = PremiumCheckoutStep.CHOOSE_PLAN
-                                        },
-                                        modifier = Modifier
-                                            .size(40.dp)
-                                            .clip(CircleShape)
-                                            .background(Color(0x3310B981))
-                                            .testTag("premium_verified_back_button")
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                            contentDescription = "Rudi Nyuma",
-                                            tint = Color.White,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                    }
-                                }
                                 Icon(
                                     imageVector = Icons.Default.Verified,
                                     contentDescription = "Verified Tick",
                                     tint = Color(0xFF34D399),
-                                    modifier = Modifier.size(58.dp)
+                                    modifier = Modifier.size(56.dp)
                                 )
                                 Text(
                                     text = "✓ VERIFIED",
@@ -1242,14 +927,14 @@ fun PremiumTabContent(
                                     fontWeight = FontWeight.Black
                                 )
                                 Text(
-                                    text = "Premium Member ✓",
+                                    text = "Malipo Yamethibitishwa ✓",
                                     color = Color(0xFFFBBF24),
                                     fontSize = 20.sp,
                                     fontWeight = FontWeight.Black,
                                     textAlign = TextAlign.Center
                                 )
                                 Text(
-                                    text = "Malipo yako yamethibitishwa kikamilifu. Sasa Login au Sign Up hapa chini ili uweze kuingia kwenye simu au TV nyingine yoyote na data zako pamoja na Cast HD ziwepo!",
+                                    text = "Sasa channels zote zimefunguliwa kwako mpaka kifurushi chako kiishe. Login au Sign Up hapa chini ili uweze kutumia kifurushi chako kwenye simu au TV nyingine yoyote.",
                                     color = Color(0xFFA7F3D0),
                                     fontSize = 13.sp,
                                     textAlign = TextAlign.Center
@@ -1258,10 +943,11 @@ fun PremiumTabContent(
                                     onClick = {
                                         phoneInput = ""
                                         checkoutStep = PremiumCheckoutStep.CHOOSE_PLAN
+                                        onBack()
                                     },
                                     colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta)
                                 ) {
-                                    Text("Sawa, Endelea Kuangalia TV", color = Color.White, fontWeight = FontWeight.Bold)
+                                    Text("Endelea Kuangalia TV", color = Color.White, fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
@@ -2524,7 +2210,7 @@ fun NeliCastModalSheet(
                                 overflow = TextOverflow.Ellipsis
                             )
                             Text(
-                                text = "$effectiveBadge • IP: $effectiveIp",
+                                text = effectiveBadge,
                                 color = Color(0xFF34D399),
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.SemiBold
@@ -3003,22 +2689,6 @@ fun LockedChannelPremiumDialog(
                         color = Color.White,
                         fontWeight = FontWeight.ExtraBold
                     )
-                }
-
-                OutlinedButton(
-                    onClick = onDismiss,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("locked_dialog_bottom_back_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = null,
-                        tint = NeliTextSecondary,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Rudi Nyuma", color = NeliTextSecondary)
                 }
             }
         }

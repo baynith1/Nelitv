@@ -122,21 +122,31 @@ object NeliAdminManager {
 
     /**
      * Determines whether a channel is locked for the current user right now:
-     * - Premium Members (verified & unexpired package): NEVER locked (returns `false` even if Admin locked all channels!).
+     * - Reads real-time subscription status from [NeliSubscriptionManager]:
+     *   If the user already paid earlier (even when channels were free) and their subscription is still
+     *   active (`nowMs < expiresAtMs`), NEVER locks the channel (returns `false`) until the subscription expires!
+     * - If the subscription has expired (`nowMs >= expiresAtMs`) or the user has not paid, returns `true`
+     *   when the channel is locked by Admin, and immediately returns `false` as soon as payment succeeds.
      * - Admin User (`Admin@login.com`): NEVER locked (returns `false`).
-     * - Free Users: returns `true` if Admin locked all channels or locked this specific channel.
      */
     fun isChannelLockedForUser(
         channelId: String,
         currentUser: UserAccountEntity? = null,
-        isPremiumActive: Boolean = NeliSubscriptionManager.isPremiumMemberActive()
+        isPremiumActive: Boolean = NeliSubscriptionManager.isPremiumMemberActive(),
+        nowMs: Long = System.currentTimeMillis(),
+        context: Context? = null
     ): Boolean {
-        if (isPremiumActive) return false
+        val activeSubscriptionNow = isPremiumActive && NeliSubscriptionManager.isPremiumMemberActive(nowMs = nowMs, context = context)
+        if (activeSubscriptionNow || (!isPremiumActive && NeliSubscriptionManager.isPremiumMemberActive(nowMs = nowMs, context = context))) {
+            return false
+        }
         if (isAdminUser(currentUser)) return false
         return isChannelLockedByAdmin(channelId)
     }
 
     fun setLockAllChannels(context: Context, lockAll: Boolean) {
+        // Re-evaluate active subscription state so users who already paid while channels were free stay unlocked
+        NeliSubscriptionManager.expireSubscriptionIfNeeded(context)
         val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val allIds = if (lockAll) {
             ChannelRepository.liveChannelsFlow.value.map { it.id }.toSet()
@@ -152,6 +162,7 @@ object NeliAdminManager {
     }
 
     fun toggleSingleChannelLock(context: Context, channelId: String) {
+        NeliSubscriptionManager.expireSubscriptionIfNeeded(context)
         val currentSet = _lockedChannelIds.value.toMutableSet()
         val currentlyLocked = _areAllChannelsLocked.value || currentSet.contains(channelId)
         if (_areAllChannelsLocked.value) {
@@ -174,6 +185,7 @@ object NeliAdminManager {
     }
 
     fun setSingleChannelLock(context: Context, channelId: String, locked: Boolean) {
+        NeliSubscriptionManager.expireSubscriptionIfNeeded(context)
         val currentSet = _lockedChannelIds.value.toMutableSet()
         if (!locked && _areAllChannelsLocked.value) {
             currentSet.addAll(ChannelRepository.liveChannelsFlow.value.map { it.id })

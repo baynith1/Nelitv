@@ -280,6 +280,17 @@ object NeliSubscriptionManager {
             pendingPhone = prefs.getString(KEY_PENDING_PHONE, "").orEmpty(),
             pendingAmountTzs = prefs.getInt(KEY_PENDING_AMOUNT, 0)
         )
+
+        // If local prefs didn't have an active subscription, also check Room by background Device IP / active user
+        if (!stillValid) {
+            ioScope.launch {
+                try {
+                    val dao = NeliDatabase.getInstance(context).mediaDao()
+                    restoreFromDatabaseByDeviceIp(context, dao)
+                } catch (_: Throwable) {
+                }
+            }
+        }
     }
 
     fun refreshDeviceIp(context: Context): String {
@@ -297,13 +308,43 @@ object NeliSubscriptionManager {
         return detectedIp
     }
 
-    fun isPremiumMemberActive(): Boolean {
+    /**
+     * Checks and enforces real-time subscription status at [nowMs]:
+     * - If the user paid earlier (even when channels were free) and `nowMs < expiresAtMs`, returns `true`
+     *   so channels remain unlocked until `expiresAtMs`.
+     * - If `nowMs >= expiresAtMs` or the user has not paid, updates state to expired/unverified and returns `false`
+     *   so locked channels immediately lock until payment succeeds.
+     */
+    fun isPremiumMemberActive(
+        nowMs: Long = System.currentTimeMillis(),
+        context: Context? = null
+    ): Boolean {
         val current = _subscriptionState.value
-        if (current.isVerified && current.expiresAtMs <= System.currentTimeMillis()) {
-            _subscriptionState.value = current.copy(isVerified = false, expiresAtMs = 0L)
+        if (current.isVerified && current.expiresAtMs <= nowMs) {
+            _subscriptionState.value = current.copy(
+                isVerified = false,
+                expiresAtMs = 0L,
+                requiresPostPaymentAuth = false
+            )
+            context?.applicationContext?.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                ?.edit()
+                ?.putBoolean(KEY_IS_VERIFIED, false)
+                ?.putBoolean(KEY_REQUIRES_POST_PAYMENT_AUTH, false)
+                ?.apply()
             return false
         }
-        return current.isActiveNow
+        return current.isVerified && current.expiresAtMs > nowMs
+    }
+
+    /**
+     * Evaluates whether the active subscription has expired as of [nowMs] and updates [_subscriptionState]
+     * so UI components observing [subscriptionState] automatically re-lock channels when the subscription ends.
+     */
+    fun expireSubscriptionIfNeeded(
+        context: Context? = null,
+        nowMs: Long = System.currentTimeMillis()
+    ): Boolean {
+        return !isPremiumMemberActive(nowMs = nowMs, context = context)
     }
 
     fun savePendingOrder(
@@ -529,6 +570,51 @@ object NeliSubscriptionManager {
         )
         dao.upsertDeviceSubscription(entity)
         return entity
+    }
+
+    suspend fun restoreFromDatabaseByDeviceIp(
+        context: Context,
+        dao: NeliMediaDao
+    ): Boolean {
+        val now = System.currentTimeMillis()
+        val ip = _subscriptionState.value.deviceIpAddress.ifBlank { resolveDeviceIpAddress(context) }
+        val existing = dao.getDeviceSubscriptionByIp(ip) ?: dao.getLatestDeviceSubscription()
+        if (existing != null && existing.isVerified && existing.expiresAtMs > now) {
+            val restored = _subscriptionState.value.copy(
+                isVerified = true,
+                planId = existing.planId,
+                planTitle = existing.planTitle,
+                amountTzs = existing.amountTzs,
+                phoneNumber = existing.phoneNumber,
+                orderId = existing.orderId,
+                deviceIpAddress = existing.deviceIpAddress.ifBlank { ip },
+                deviceId = existing.deviceId,
+                activatedAtMs = existing.activatedAtMs,
+                expiresAtMs = existing.expiresAtMs,
+                linkedUserUid = existing.linkedUserUid,
+                linkedUserEmail = existing.linkedUserEmail,
+                linkedUserName = existing.linkedUserName,
+                requiresPostPaymentAuth = existing.linkedUserEmail.isBlank() && existing.linkedUserUid.isBlank()
+            )
+            _subscriptionState.value = restored
+            val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            prefs.edit()
+                .putBoolean(KEY_IS_VERIFIED, true)
+                .putString(KEY_PLAN_ID, restored.planId)
+                .putString(KEY_PLAN_TITLE, restored.planTitle)
+                .putInt(KEY_AMOUNT_TZS, restored.amountTzs)
+                .putString(KEY_PHONE, restored.phoneNumber)
+                .putString(KEY_ORDER_ID, restored.orderId)
+                .putLong(KEY_ACTIVATED_AT, restored.activatedAtMs)
+                .putLong(KEY_EXPIRES_AT, restored.expiresAtMs)
+                .putString(KEY_LINKED_UID, restored.linkedUserUid)
+                .putString(KEY_LINKED_EMAIL, restored.linkedUserEmail)
+                .putString(KEY_LINKED_NAME, restored.linkedUserName)
+                .putBoolean(KEY_REQUIRES_POST_PAYMENT_AUTH, restored.requiresPostPaymentAuth)
+                .apply()
+            return true
+        }
+        return false
     }
 
     fun resetForTesting(context: Context? = null) {
