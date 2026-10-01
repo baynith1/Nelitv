@@ -1573,6 +1573,20 @@ class ExampleRobolectricTest {
         assertEquals("Samsung", samsungTabletProfile.deviceBrandLabel)
         assertEquals(4, samsungTabletProfile.liveChannelGridColumns)
 
+        // 16. Verify new app logo is used for Admin notifications (not Azam channels), while automatic notifications remain intact
+        assertEquals(
+            R.drawable.img_nelitv_app_logo_1790873809763,
+            com.example.notifications.NeliNotificationScheduler.adminNotificationAppLogoResId
+        )
+        val appLogoBmp = com.example.notifications.NeliNotificationScheduler.loadAppLogoBitmap(context)
+        assertTrue(appLogoBmp.width > 0 && appLogoBmp.height > 0)
+        assertEquals(4, com.example.notifications.NeliNotificationScheduler.dailySlots.size)
+        assertEquals(6, com.example.notifications.NeliNotificationScheduler.liveChannelLogoSpecs.size)
+        com.example.notifications.NeliNotificationScheduler.sendAdminBroadcastNotification(
+            context,
+            "Tangazo la Admin lenye Logo Mpya ya Nelitv"
+        )
+
         // 14. Verify Live Stream Freeze / Stall Auto-Fix Engine automatically recovers stuck live stream
         val liveAutoFixController = com.example.player.LivePlayerController(context, azamSportsChannel)
         // Initial healthy tick at t = 1,000ms, position = 5,000ms

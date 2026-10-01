@@ -149,7 +149,7 @@ fun TopNavBar(
                     .testTag("header_brand_logo")
             ) {
                 Image(
-                    painter = painterResource(id = R.drawable.img_neliplay_logo_1790828978120),
+                    painter = painterResource(id = R.drawable.img_nelitv_app_logo_1790873809763),
                     contentDescription = "Neliplay Logo",
                     contentScale = ContentScale.Crop,
                     modifier = Modifier

@@ -298,16 +298,22 @@ class ExampleUnitTest {
         val resDir = candidateRoots.firstOrNull { it.exists() }
         assertNotNull("Expected res directory to exist", resDir)
         val drawableDir = java.io.File(resDir!!, "drawable")
-        val oldIcon = java.io.File(drawableDir, "neli_tv_icon_1790359083660.jpg")
-        if (oldIcon.exists()) {
-            oldIcon.delete()
+        listOf(
+            "neli_tv_icon_1790359083660.jpg",
+            "img_neliplay_logo_1790828978120.jpg",
+            "img_nelitv_logo_1790874003475.jpg"
+        ).forEach { oldName ->
+            val oldFile = java.io.File(drawableDir, oldName)
+            if (oldFile.exists()) {
+                oldFile.delete()
+            }
         }
 
-        val srcLogo = java.io.File(drawableDir, "img_neliplay_logo_1790828978120.jpg")
-        assertTrue("Expected Neliplay logo drawable to exist", srcLogo.exists() && srcLogo.length() > 1024L)
+        val srcLogo = java.io.File(drawableDir, "img_nelitv_app_logo_1790873809763.jpg")
+        assertTrue("Expected Nelitv logo drawable to exist", srcLogo.exists() && srcLogo.length() > 1024L)
 
         val srcImage = javax.imageio.ImageIO.read(srcLogo)
-        assertNotNull("Expected valid image in img_neliplay_logo_1790828978120.jpg", srcImage)
+        assertNotNull("Expected valid image in img_nelitv_app_logo_1790873809763.jpg", srcImage)
 
         val specs = listOf(
             "mdpi" to 48,

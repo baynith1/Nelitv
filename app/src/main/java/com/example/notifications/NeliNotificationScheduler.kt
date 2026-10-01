@@ -19,6 +19,7 @@ import android.graphics.Typeface
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import com.example.MainActivity
+import com.example.R
 import com.example.data.ChannelRepository
 import com.example.data.MediaContentRepository
 import com.example.data.TmdbRepository
@@ -475,14 +476,55 @@ object NeliNotificationScheduler {
     }
 
     /**
+     * Drawable resource ID of the official Nelitv app logo used for Admin notifications.
+     */
+    val adminNotificationAppLogoResId: Int = R.drawable.img_nelitv_app_logo_1790873809763
+
+    /**
+     * Loads the official Nelitv app logo bitmap (blue/cyan 3D ribbon 'N' on black) for Admin notifications.
+     */
+    fun loadAppLogoBitmap(context: Context): Bitmap {
+        val decoded = try {
+            BitmapFactory.decodeResource(context.resources, adminNotificationAppLogoResId)
+        } catch (_: Exception) {
+            null
+        }
+        if (decoded != null && decoded.width > 0 && decoded.height > 0) {
+            return decoded
+        }
+        // Fallback high-contrast rendering of the cyan/blue ribbon 'N' logo on #000000 black
+        val size = 256
+        val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bmp)
+        canvas.drawColor(Color.BLACK)
+        val nPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            shader = LinearGradient(
+                48f, 44f, 208f, 212f,
+                intArrayOf(0xFF00F0FF.toInt(), 0xFF0088FF.toInt(), 0xFF0044FF.toInt()),
+                null,
+                Shader.TileMode.CLAMP
+            )
+            style = Paint.Style.STROKE
+            strokeWidth = 38f
+            strokeCap = Paint.Cap.ROUND
+            strokeJoin = Paint.Join.ROUND
+        }
+        canvas.drawLine(68f, 196f, 68f, 60f, nPaint)
+        canvas.drawLine(68f, 60f, 188f, 196f, nPaint)
+        canvas.drawLine(188f, 196f, 188f, 60f, nPaint)
+        return bmp
+    }
+
+    /**
      * Sends an immediate Android system notification with the Admin SMS message written in the Mini Admin Panel.
+     * Uses the official Nelitv app logo (and never Azam channel logos).
      */
     fun sendAdminBroadcastNotification(context: Context, smsMessage: String) {
         val cleanMsg = smsMessage.trim()
         if (cleanMsg.isBlank()) return
         val appContext = context.applicationContext
         ensureNotificationChannel(appContext)
-        val spec = liveChannelLogoSpecs.first()
+        val appLogoBitmap = loadAppLogoBitmap(appContext)
         postRichMediaNotification(
             context = appContext,
             notificationId = NOTIFICATION_ID_ADMIN_SMS,
@@ -490,14 +532,15 @@ object NeliNotificationScheduler {
             message = cleanMsg,
             badgeLabel = "NELITV ADMIN • TAARIFA MPYA",
             subtitleLabel = cleanMsg.take(48),
-            primaryImageUrl = spec.logoUrl,
-            backdropImageUrl = spec.logoUrl,
-            primaryColorHex = 0xFF14052B.toInt(),
-            secondaryColorHex = 0xFF3B0764.toInt(),
-            accentColorHex = 0xFFFF2E7E.toInt(),
+            primaryImageUrl = "",
+            backdropImageUrl = "",
+            primaryColorHex = 0xFF000000.toInt(),
+            secondaryColorHex = 0xFF04142E.toInt(),
+            accentColorHex = 0xFF00C6FF.toInt(),
             isChannelLogo = true,
             launchMediaId = null,
-            launchChannelId = null
+            launchChannelId = null,
+            localLogoBitmap = appLogoBitmap
         )
     }
 
@@ -515,7 +558,8 @@ object NeliNotificationScheduler {
         accentColorHex: Int,
         isChannelLogo: Boolean,
         launchMediaId: String?,
-        launchChannelId: String?
+        launchChannelId: String?,
+        localLogoBitmap: Bitmap? = null
     ) {
         try {
             val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
@@ -538,7 +582,7 @@ object NeliNotificationScheduler {
 
             // 1. Immediate synchronous branded notification with generated BigPicture banner & LargeIcon
             val initialLargeIcon = renderNotificationIconBitmap(
-                sourceBitmap = null,
+                sourceBitmap = localLogoBitmap,
                 title = title,
                 primaryColorHex = primaryColorHex,
                 secondaryColorHex = secondaryColorHex,
@@ -546,8 +590,8 @@ object NeliNotificationScheduler {
                 isChannelLogo = isChannelLogo
             )
             val initialBanner = renderNotificationBannerBitmap(
-                logoOrPosterBitmap = null,
-                backdropBitmap = null,
+                logoOrPosterBitmap = localLogoBitmap,
+                backdropBitmap = localLogoBitmap,
                 title = title,
                 badgeLabel = badgeLabel,
                 subtitleLabel = subtitleLabel,

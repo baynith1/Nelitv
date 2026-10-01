@@ -3,6 +3,6 @@
     <item
         android:width="66dp"
         android:height="66dp"
-        android:drawable="@drawable/img_neliplay_logo_1790828978120"
+        android:drawable="@drawable/img_nelitv_app_logo_1790873809763"
         android:gravity="center" />
 </layer-list>

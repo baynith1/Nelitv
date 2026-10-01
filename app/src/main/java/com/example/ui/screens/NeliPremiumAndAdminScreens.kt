@@ -95,6 +95,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.foundation.Image
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import com.example.R
 import com.example.data.AdminBannerPlacement
 import com.example.data.HarakaPayBalanceResponse
 import com.example.data.HarakaPayRepository
@@ -157,20 +161,16 @@ fun AdminTopSmsNotificationBanner(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Box(
+            Image(
+                painter = painterResource(id = R.drawable.img_nelitv_app_logo_1790873809763),
+                contentDescription = "Tangazo la Admin Logo",
+                contentScale = ContentScale.Crop,
                 modifier = Modifier
-                    .size(26.dp)
-                    .clip(CircleShape)
-                    .background(Color.White.copy(alpha = 0.18f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Campaign,
-                    contentDescription = "Tangazo la Admin",
-                    tint = Color(0xFFFDE047),
-                    modifier = Modifier.size(16.dp)
-                )
-            }
+                    .size(28.dp)
+                    .clip(RoundedCornerShape(7.dp))
+                    .border(1.dp, Color(0x6600E5FF), RoundedCornerShape(7.dp))
+                    .testTag("admin_sms_banner_logo")
+            )
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = "TANGAZO MUHIMU • NELITV",
