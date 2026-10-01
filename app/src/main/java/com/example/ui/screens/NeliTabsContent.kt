@@ -2145,9 +2145,16 @@ fun AccountTabContent(
     }
 
     var isAdminPanelOpen by rememberSaveable { mutableStateOf(false) }
+    val accountContext = LocalContext.current
     val isCurrentUserAdmin = NeliAdminManager.isAdminUser(currentUser)
     val subState by NeliSubscriptionManager.subscriptionState.collectAsState()
     val isVerifiedPremiumMember = subState.isActiveNow
+
+    // Auto-Ready Device IP & subscription status check kept silently in the background
+    LaunchedEffect(Unit) {
+        NeliSubscriptionManager.refreshDeviceIp(accountContext)
+        NeliSubscriptionManager.expireSubscriptionIfNeeded(accountContext)
+    }
 
     if (isAdminPanelOpen && isCurrentUserAdmin) {
         val allLiveChannels by ChannelRepository.liveChannelsFlow.collectAsState()
@@ -2330,13 +2337,9 @@ fun AccountTabContent(
                 }
             }
         } else {
-            // Automatic Ready Device IP & Verified Premium Member Card (when user has NOT logged in or signed up)
-            item {
-                val localCtx = LocalContext.current
-                val detectedDeviceIp = subState.deviceIpAddress.ifBlank {
-                    NeliSubscriptionManager.resolveDeviceIpAddress(localCtx)
-                }
-                if (isVerifiedPremiumMember) {
+            // Verified Premium Member Card (when user paid and has not logged in yet; Device IP stays in background)
+            if (isVerifiedPremiumMember) {
+                item {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -2368,7 +2371,7 @@ fun AccountTabContent(
                             }
                             Column {
                                 Text(
-                                    text = "✓ VERIFIED ACCOUNT (AUTO DEVICE IP)",
+                                    text = "✓ VERIFIED ACCOUNT",
                                     color = Color(0xFF34D399),
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Black
@@ -2381,12 +2384,6 @@ fun AccountTabContent(
                                 )
                             }
                         }
-                        Text(
-                            text = "Real Data Imesajiliwa (Bila Login/Sign Up) • Device IP: $detectedDeviceIp",
-                            color = NeliGenreCyan,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.ExtraBold
-                        )
                         Text(
                             text = "Kifurushi: ${subState.planTitle.ifBlank { "VIP" }} • TZS ${subState.amountTzs}",
                             color = Color.White,
@@ -2404,38 +2401,6 @@ fun AccountTabContent(
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold
                         )
-                    }
-                } else {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(Color(0xFF10222E))
-                            .border(1.dp, NeliGenreCyan.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
-                            .padding(14.dp)
-                            .testTag("account_auto_device_ip_ready_banner"),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Verified,
-                            contentDescription = "Auto Ready Device IP",
-                            tint = Color(0xFF34D399),
-                            modifier = Modifier.size(22.dp)
-                        )
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Auto-Ready Device IP: $detectedDeviceIp",
-                                color = NeliGenreCyan,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.ExtraBold
-                            )
-                            Text(
-                                text = "Unaweza kulipia Premium moja kwa moja bila Login au Sign Up — taarifa zako halisi zinahifadhiwa kwa Device IP yako.",
-                                color = NeliTextSecondary,
-                                fontSize = 11.sp
-                            )
-                        }
                     }
                 }
             }
