@@ -1700,6 +1700,43 @@ object OfflineDownloadManager {
         return streamUrl
     }
 
+    fun resolvePlayableUriForDownloadedEntity(
+        context: Context,
+        entity: DownloadedItemEntity
+    ): String {
+        return resolvePlayableUrl(
+            streamUrl = entity.streamUrl,
+            localFilePath = entity.localFilePath,
+            context = context,
+            itemId = entity.id
+        )
+    }
+
+    fun resolveOfflineAwareChannel(
+        context: Context,
+        channel: com.example.model.LiveChannel,
+        downloads: List<DownloadedItemEntity>
+    ): com.example.model.LiveChannel {
+        val rawId = channel.id.removePrefix("vod_").removePrefix("ep_").removePrefix("dl_")
+        val matchedDownload = downloads.firstOrNull {
+            it.id == rawId || it.id == channel.id
+        }
+        val resolvedUrl = resolvePlayableUrl(
+            streamUrl = channel.streamUrl,
+            localFilePath = matchedDownload?.localFilePath.orEmpty(),
+            context = context,
+            itemId = matchedDownload?.id ?: rawId
+        )
+        return if (resolvedUrl != channel.streamUrl) {
+            channel.copy(
+                streamUrl = resolvedUrl,
+                streamFormat = if (resolvedUrl.endsWith(".m3u8", ignoreCase = true)) "hls" else "mp4"
+            )
+        } else {
+            channel
+        }
+    }
+
     private fun acquirePartialWakeLock(context: Context, itemId: String): PowerManager.WakeLock? {
         return try {
             val pm = context.getSystemService(Context.POWER_SERVICE) as? PowerManager

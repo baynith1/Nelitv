@@ -88,7 +88,6 @@ import com.example.model.DownloadQualityOption
 import com.example.model.EpisodeItem
 import com.example.model.LiveChannel
 import com.example.model.MediaContent
-import com.example.ui.components.NeliAdaptiveBannerAd
 import com.example.ui.theme.NeliBackground
 import com.example.ui.theme.NeliCardPurple
 import com.example.ui.theme.NeliDurationViolet
@@ -644,13 +643,6 @@ fun MediaDetailScreen(
             }
         }
 
-        // MOVIE DETAILS: AdMob Banner above Cast & Crew
-        item(key = "detail_admob_above_cast_${media.id}") {
-            NeliAdaptiveBannerAd(
-                placementKey = "movie_detail_above_cast_${media.id}"
-            )
-        }
-
         // Cast & Crew Section
         if (media.cast.isNotEmpty()) {
             item {
@@ -972,17 +964,6 @@ fun MediaDetailScreen(
                     }
                 }
             }
-        }
-
-        // MOVIE DETAILS / SERIES: One banner below the main movie information / recommendations
-        item(key = "detail_admob_banner_${media.id}") {
-            NeliAdaptiveBannerAd(
-                placementKey = if (media.isSeries) {
-                    "series_detail_below_section_${media.id}"
-                } else {
-                    "movie_detail_below_recommendations_${media.id}"
-                }
-            )
         }
         }
     }

@@ -698,85 +698,38 @@ class ExampleRobolectricTest {
             assertTrue(results.all { it.isAdultContent })
         }
 
-        // 10. Verify AdMob app-ads.txt, Application startup initialization, test device ID config, playback protection, cooldowns, and Download flow
+        // 10. Verify 5-tab Bottom Menu (Home, Discovery, Search, Download, Account) and complete removal of old Google AdMob
         val neliApp = app as? com.example.NeliApplication
         assertNotNull("Expected Application context to be NeliApplication", neliApp)
-        assertTrue(com.example.ads.NeliAdMobManager.isApplicationInitialized)
-        assertTrue(
-            com.example.ads.NeliAdMobManager.configuredTestDeviceIds.contains(
-                com.google.android.gms.ads.AdRequest.DEVICE_ID_EMULATOR
-            )
-        )
-        assertTrue(
-            com.example.ads.NeliAdMobManager.configuredTestDeviceIds.contains(
-                com.example.ads.NeliAdMobManager.DEVELOPMENT_TEST_DEVICE_ID
-            )
-        )
 
-        val expectedAppAdsTxt = "google.com, pub-4408731854837351, DIRECT, f08c47fec0942fa0"
-        assertEquals(expectedAppAdsTxt, com.example.ads.NeliAdMobManager.APP_ADS_TXT_SNIPPET)
-        val assetAppAds = app.assets.open("app-ads.txt").bufferedReader().use { it.readText().trim() }
-        assertEquals(expectedAppAdsTxt, assetAppAds)
-
-        assertEquals("ca-app-pub-4408731854837351~1794082871", com.example.ads.NeliAdMobManager.APP_ID)
-        assertEquals("ca-app-pub-4408731854837351/6443774325", com.example.ads.NeliAdMobManager.APP_OPEN_AD_UNIT_ID)
-        assertEquals("ca-app-pub-4408731854837351/4300078286", com.example.ads.NeliAdMobManager.BANNER_AD_UNIT_ID)
-        assertEquals("ca-app-pub-4408731854837351/7721371986", com.example.ads.NeliAdMobManager.INTERSTITIAL_AD_UNIT_ID)
-        assertEquals("ca-app-pub-4408731854837351/6635346014", com.example.ads.NeliAdMobManager.REWARDED_INTERSTITIAL_AD_UNIT_ID)
-        assertEquals("ca-app-pub-4408731854837351/5246242721", com.example.ads.NeliAdMobManager.REWARDED_AD_UNIT_ID)
-        assertEquals("ca-app-pub-4408731854837351/7038845705", com.example.ads.NeliAdMobManager.NATIVE_ADVANCED_AD_UNIT_ID)
-
-        // Verify Production Mode is enabled by default (real publisher AdMob IDs served, not test ads)
-        org.junit.Assert.assertFalse(com.example.ads.NeliAdMobManager.useTestAdsInDevelopment)
+        val bottomTabs = com.example.ui.components.BottomNavTab.entries
         assertEquals(
-            com.example.ads.NeliAdMobManager.BANNER_AD_UNIT_ID,
-            com.example.ads.NeliAdMobManager.resolveBannerAdUnitId()
+            listOf(
+                com.example.ui.components.BottomNavTab.HOME,
+                com.example.ui.components.BottomNavTab.DISCOVERY,
+                com.example.ui.components.BottomNavTab.SEARCH,
+                com.example.ui.components.BottomNavTab.DOWNLOAD,
+                com.example.ui.components.BottomNavTab.ACCOUNT
+            ),
+            bottomTabs
         )
-        assertEquals(
-            com.example.ads.NeliAdMobManager.APP_OPEN_AD_UNIT_ID,
-            com.example.ads.NeliAdMobManager.resolveAppOpenAdUnitId()
-        )
-        assertEquals(
-            com.example.ads.NeliAdMobManager.INTERSTITIAL_AD_UNIT_ID,
-            com.example.ads.NeliAdMobManager.resolveInterstitialAdUnitId()
-        )
-        assertEquals(
-            com.example.ads.NeliAdMobManager.NATIVE_ADVANCED_AD_UNIT_ID,
-            com.example.ads.NeliAdMobManager.resolveNativeAdUnitId()
-        )
-        assertEquals(
-            com.example.ads.NeliAdMobManager.BANNER_AD_UNIT_ID,
-            com.example.ads.NeliAdMobManager.resolveBannerAdUnitId(useTestAds = false)
-        )
-        assertEquals(
-            com.example.ads.NeliAdMobManager.TEST_BANNER_AD_UNIT_ID,
-            com.example.ads.NeliAdMobManager.resolveBannerAdUnitId(useTestAds = true)
-        )
+        assertEquals("Home", com.example.ui.components.BottomNavTab.HOME.label)
+        assertEquals("Discovery", com.example.ui.components.BottomNavTab.DISCOVERY.label)
+        assertEquals("Search", com.example.ui.components.BottomNavTab.SEARCH.label)
+        assertEquals("Download", com.example.ui.components.BottomNavTab.DOWNLOAD.label)
+        assertEquals("Account", com.example.ui.components.BottomNavTab.ACCOUNT.label)
 
-        // Verify NO ADS inside the video player / while playback is active
-        com.example.ads.NeliAdMobManager.resetForTesting()
-        assertTrue(com.example.ads.NeliAdMobManager.isInterstitialEligible(1_000_000L))
-        assertTrue(com.example.ads.NeliAdMobManager.isAppOpenEligible(1_000_000L))
-
-        com.example.ads.NeliAdMobManager.updatePlaybackActiveState(true)
-        org.junit.Assert.assertFalse(com.example.ads.NeliAdMobManager.isInterstitialEligible(1_000_000L))
-        org.junit.Assert.assertFalse(com.example.ads.NeliAdMobManager.isAppOpenEligible(1_000_000L))
-        com.example.ads.NeliAdMobManager.updatePlaybackActiveState(false)
-
-        // Verify Interstitial is never shown immediately after an App Open ad
-        com.example.ads.NeliAdMobManager.lastAppOpenShownAtMs = 1_000_000L
-        org.junit.Assert.assertFalse(com.example.ads.NeliAdMobManager.isInterstitialEligible(1_010_000L))
-        assertTrue(com.example.ads.NeliAdMobManager.isInterstitialEligible(1_000_000L + com.example.ads.NeliAdMobManager.POST_APP_OPEN_GRACE_MS + 1000L))
-
-        // Verify Download starts immediately without a second press when no interstitial is loaded
-        var downloadTriggeredCount = 0
-        com.example.ads.NeliAdMobManager.runDownloadWithInterstitialIfEligible(app) {
-            downloadTriggeredCount++
+        // Verify old AdMob manager and app-ads.txt are removed
+        val adMobClassPresent = try {
+            Class.forName("com.example.ads.NeliAdMobManager")
+            true
+        } catch (_: ClassNotFoundException) {
+            false
         }
-        assertEquals(1, downloadTriggeredCount)
+        org.junit.Assert.assertFalse("Expected old Google AdMob manager class to be removed", adMobClassPresent)
 
         // 11. Verify Homepage channel categories order (Azam TV -> Sports -> Entertainment -> Kids -> News -> Movies -> ...),
-        // 6-channel vertical chunking for Muted Video Ads, and guaranteed channel logos
+        // 6-channel vertical chunking, and guaranteed channel logos
         val homepageCategories = com.example.data.ChannelRepository.getChannelsGroupedByHomepageCategories()
         assertTrue(homepageCategories.size >= 6)
         val firstSixTitles = homepageCategories.take(6).map { it.first }
@@ -788,18 +741,10 @@ class ExampleRobolectricTest {
         assertTrue(homepageCategories.first().second.size >= 17)
         assertTrue(homepageCategories.first().second.all { it.isAzamPriority })
 
-        // Verify All Channels vertical chunking groups channels into blocks of 6 for Muted Video Ads
+        // Verify All Channels vertical chunking groups channels into blocks of 6
         val sixChannelBlocks = com.example.data.ChannelRepository.getAllChannelsChunkedEverySixForAds()
         assertTrue(sixChannelBlocks.isNotEmpty())
         assertEquals(6, sixChannelBlocks.first().size)
-        assertEquals(
-            com.example.ads.NeliAdMobManager.TEST_NATIVE_VIDEO_AD_UNIT_ID,
-            com.example.ads.NeliAdMobManager.resolveNativeVideoAdUnitId(useTestAds = true)
-        )
-        assertEquals(
-            com.example.ads.NeliAdMobManager.NATIVE_ADVANCED_AD_UNIT_ID,
-            com.example.ads.NeliAdMobManager.resolveNativeVideoAdUnitId(useTestAds = false)
-        )
 
         // Verify every channel in All Channels has a valid https:// logo URL and fallback logo URL
         com.example.data.ChannelRepository.getPrioritizedAllChannels().forEach { ch ->

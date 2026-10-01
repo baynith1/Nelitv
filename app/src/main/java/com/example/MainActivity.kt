@@ -33,7 +33,6 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import com.example.ads.NeliAdMobManager
 import com.example.data.ChannelRepository
 import com.example.data.MediaContentRepository
 import com.example.model.LiveChannel
@@ -41,6 +40,7 @@ import com.example.notifications.NeliNotificationScheduler
 import com.example.player.LivePlayerController
 import com.example.player.NativeLogSuppressor
 import com.example.ui.NeliViewModel
+import com.example.ui.components.BottomNavTab
 import com.example.ui.components.FloatingPipPlayerOverlay
 import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.PlayerScreen
@@ -71,7 +71,6 @@ class MainActivity : ComponentActivity() {
         NativeLogSuppressor.suppressNonFatalNativeLogs()
         super.onCreate(savedInstanceState)
         NeliThemeManager.initialize(this)
-        NeliAdMobManager.initialize(this)
         enableEdgeToEdge()
         try {
             val isLight = NeliThemeManager.isLightMode
@@ -113,7 +112,6 @@ class MainActivity : ComponentActivity() {
                     },
                     onActivePlaybackChanged = { isActive ->
                         hasActivePlaybackForPip = isActive
-                        NeliAdMobManager.updatePlaybackActiveState(isActive)
                         updateSystemPipParams(isActive)
                     },
                     onRequestSystemPipOutsideApp = {
@@ -129,11 +127,6 @@ class MainActivity : ComponentActivity() {
         com.example.data.NeliAppUpdateManager.reconcileInstalledPackageState(this)
         if (wasInBackground) {
             wasInBackground = false
-            // Show App Open ad only occasionally when returning to foreground from background,
-            // and NEVER while watching a movie, series, or playing Live TV.
-            if (!hasActivePlaybackForPip && !isInPictureInPictureMode && !NeliAdMobManager.isPlaybackActive) {
-                NeliAdMobManager.showAppOpenAdOnForegroundIfEligible(this)
-            }
         }
     }
 
@@ -283,7 +276,19 @@ fun NeliApp(
     }
 
     // Handle deep links from Home Screen Widget or Daily Notification taps
-    LaunchedEffect(pendingChannelId, pendingMovieId) {
+    LaunchedEffect(pendingChannelId, pendingMovieId, pendingTab) {
+        if (!pendingTab.isNullOrBlank()) {
+            val matchedTab = BottomNavTab.entries.find {
+                it.name.equals(pendingTab, ignoreCase = true) ||
+                    it.label.equals(pendingTab, ignoreCase = true)
+            }
+            if (matchedTab != null) {
+                neliViewModel.selectTab(matchedTab)
+            }
+            if (pendingChannelId.isNullOrBlank() && pendingMovieId.isNullOrBlank()) {
+                onConsumeDeepLink()
+            }
+        }
         if (!pendingChannelId.isNullOrBlank()) {
             val matchedChannel = ChannelRepository.getChannelById(pendingChannelId)
                 ?: ChannelRepository.liveChannelsFlow.value.firstOrNull { ch ->
@@ -323,7 +328,6 @@ fun NeliApp(
         val showFullPlayer = currentChan != null && currentCtrl != null
 
         LaunchedEffect(showFullPlayer, isSystemInPipMode) {
-            NeliAdMobManager.updatePlaybackActiveState(showFullPlayer)
             if (!showFullPlayer && !isSystemInPipMode) {
                 val act = context as? Activity
                 act?.let { a ->

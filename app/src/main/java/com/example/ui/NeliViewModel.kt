@@ -245,6 +245,7 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
 
         // Run non-UI initialization and background sync strictly on Dispatchers.IO so main UI thread stays 60/120fps
         viewModelScope.launch(Dispatchers.IO) {
+            MediaContentRepository.initializeAndPrewarmFromCache(appContext)
             NeliAppUpdateManager.initialize(appContext)
             userManager.signInWithGoogleAutoOrPrimaryAccount(
                 uiContext = appContext,
@@ -252,7 +253,7 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
 
-        // Refresh Azam TV CDN token in background without using Firestore/Firebase
+        // Refresh Azam TV CDN token and Discovery catalog in background
         viewModelScope.launch(Dispatchers.IO) {
             while (isActive) {
                 performAutomaticSyncCycle()
@@ -270,6 +271,13 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
     private suspend fun performAutomaticSyncCycle() = withContext(Dispatchers.IO) {
         try {
             ChannelRepository.refreshLiveChannels()
+            val apiKey = AuthRepository.resolveApiKey(appContext)
+            MediaContentRepository.syncFromFirebaseEndpoint(
+                databaseUrl = MediaContentRepository.DEFAULT_DATABASE_URL,
+                apiKey = apiKey,
+                projectId = MediaContentRepository.DEFAULT_PROJECT_ID,
+                forceRefresh = false
+            )
             com.example.notifications.NeliNotificationScheduler.scheduleAllDailyNotifications(appContext)
             com.example.widget.NeliHomeWidgetProvider.updateAllWidgets(appContext)
             NeliAppUpdateManager.checkForUpdates(appContext, triggeredByUser = false)

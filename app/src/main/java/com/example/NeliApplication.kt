@@ -6,8 +6,6 @@ import coil.ImageLoaderFactory
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import coil.request.CachePolicy
-import com.example.ads.NeliAdMobManager
-import com.example.data.MediaContentRepository
 import com.example.player.NativeLogSuppressor
 import com.example.ui.theme.NeliThemeManager
 import okhttp3.OkHttpClient
@@ -16,10 +14,6 @@ import java.util.concurrent.TimeUnit
 /**
  * Application class for Neli TV.
  *
- * - Configures the AdMob test device ID for development and initializes the Google Mobile Ads SDK
- *   during app startup on a background thread so UI startup remains fast and responsive.
- * - Prewarms real Firebase movies/series/episodes from local disk cache at startup so Discovery
- *   immediately displays real Firebase catalog items.
  * - Provides a high-performance singleton Coil [ImageLoader] with browser User-Agent headers
  *   and memory/disk caching so all Live TV channel logos, Movie posters, Series, and Adult
  *   thumbnails load reliably and quickly.
@@ -30,8 +24,6 @@ class NeliApplication : Application(), ImageLoaderFactory {
         NativeLogSuppressor.suppressNonFatalNativeLogs()
         super.onCreate()
         NeliThemeManager.initialize(this)
-        // Configure test device IDs for development and initialize Google Mobile Ads SDK at app startup
-        NeliAdMobManager.initializeInApplication(this)
     }
 
     override fun newImageLoader(): ImageLoader {

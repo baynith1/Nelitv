@@ -112,8 +112,6 @@ import com.example.data.ChannelRepository
 import com.example.data.MediaContentRepository
 import com.example.data.local.DownloadedItemEntity
 import com.example.data.local.FirebaseConfigEntity
-import com.example.ui.components.NeliAdaptiveBannerAd
-import com.example.ui.components.NeliNativeSearchAd
 import com.example.data.local.UserAccountEntity
 import com.example.data.local.WatchlistItemEntity
 import com.example.model.EpisodeItem
@@ -790,22 +788,11 @@ fun DiscoveryTabContent(
                             )
                         }
                     }
-
-                    // Discovery: Banner after primary genre sections without overloading WebView instances
-                    if (index == 0 || index == 3) {
-                        NeliAdaptiveBannerAd(
-                            placementKey = if (index == 0) {
-                                "discovery_after_genre_section"
-                            } else {
-                                "discovery_after_genre_${firstGenreName.lowercase().replace(" ", "_")}"
-                            }
-                        )
-                    }
                 }
             }
         }
 
-        // 4. SERIES SECTION + One banner below an appropriate section
+        // 4. SERIES SECTION
         if ((selectedFilter.equals("All", true) || selectedFilter.equals("Series", true)) && seriesList.isNotEmpty()) {
             item {
                 Column(
@@ -846,9 +833,6 @@ fun DiscoveryTabContent(
                             )
                         }
                     }
-
-                    // SERIES: One banner below the Series section
-                    NeliAdaptiveBannerAd(placementKey = "series_below_section")
                 }
             }
         }
@@ -1099,7 +1083,7 @@ private fun DiscoveryMadjsBanner(
 
 /**
  * SEARCH PAGE:
- * Searches Azam TV Live channels in a clean vertical multi-column grid.
+ * Searches Live TV channels, Movies, Series, and Adults in a unified responsive grid.
  */
 @Composable
 fun SearchTabContent(
@@ -1115,18 +1099,47 @@ fun SearchTabContent(
     modifier: Modifier = Modifier
 ) {
     val searchFilterTabs = remember {
-        ChannelRepository.categories
+        listOf(
+            "All",
+            "Live TV",
+            "Movies",
+            "Series",
+            "Adults",
+            "Swahili",
+            "Sports",
+            "Action",
+            "Entertainment",
+            "News",
+            "Kids"
+        )
     }
 
     val allChannels = if (liveChannels.isNotEmpty()) liveChannels else ChannelRepository.channels
 
     val filteredChannels = remember(searchQuery, selectedCategory, allChannels) {
-        val catFilter = if (selectedCategory.equals("Live TV", true)) {
-            "All"
+        if (selectedCategory.equals("Movies", true) ||
+            selectedCategory.equals("Series", true) ||
+            selectedCategory.equals("Adults", true)
+        ) {
+            emptyList()
         } else {
-            selectedCategory
+            val catFilter = if (selectedCategory.equals("Live TV", true)) {
+                "All"
+            } else {
+                selectedCategory
+            }
+            ChannelRepository.filterChannels(searchQuery, catFilter)
         }
-        ChannelRepository.filterChannels(searchQuery, catFilter)
+    }
+
+    val filteredMedia = remember(searchQuery, selectedCategory, mediaList, episodesList) {
+        if (selectedCategory.equals("Live TV", true)) {
+            emptyList()
+        } else {
+            mediaList.filter { item ->
+                MediaContentRepository.matchesMediaSearch(item, searchQuery, selectedCategory)
+            }
+        }
     }
 
     Column(
@@ -1147,7 +1160,7 @@ fun SearchTabContent(
                     .testTag("search_tab_input"),
                 placeholder = {
                     Text(
-                        text = "Search Azam TV channels...",
+                        text = "Search Live TV, Movies, Series & Adults...",
                         color = NeliTextSecondary,
                         fontSize = 14.sp
                     )
@@ -1178,7 +1191,7 @@ fun SearchTabContent(
             onCategorySelected = onCategorySelected
         )
 
-        if (filteredChannels.isEmpty()) {
+        if (filteredChannels.isEmpty() && filteredMedia.isEmpty()) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -1194,7 +1207,7 @@ fun SearchTabContent(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "No matching Azam TV channels found",
+                        text = "No matching channels, movies or series found",
                         color = NeliTextPrimary,
                         fontWeight = FontWeight.Bold
                     )
@@ -1210,24 +1223,49 @@ fun SearchTabContent(
                     .fillMaxSize()
                     .testTag("channels_grid")
             ) {
-                item(
-                    span = { GridItemSpan(maxLineSpan) },
-                    key = "search_header_channels"
-                ) {
-                    Text(
-                        text = "Azam TV Channels (${filteredChannels.size})",
-                        color = NeliTextPrimary,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        modifier = Modifier.padding(top = 6.dp, bottom = 2.dp)
-                    )
+                if (filteredChannels.isNotEmpty()) {
+                    item(
+                        span = { GridItemSpan(maxLineSpan) },
+                        key = "search_header_channels"
+                    ) {
+                        Text(
+                            text = "Live TV Channels (${filteredChannels.size})",
+                            color = NeliTextPrimary,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            modifier = Modifier.padding(top = 6.dp, bottom = 2.dp)
+                        )
+                    }
+
+                    items(filteredChannels, key = { "search_ch_${it.id}" }) { channel ->
+                        ChannelCard(
+                            channel = channel,
+                            onClick = { onChannelSelected(channel) }
+                        )
+                    }
                 }
 
-                items(filteredChannels, key = { "search_ch_${it.id}" }) { channel ->
-                    ChannelCard(
-                        channel = channel,
-                        onClick = { onChannelSelected(channel) }
-                    )
+                if (filteredMedia.isNotEmpty()) {
+                    item(
+                        span = { GridItemSpan(maxLineSpan) },
+                        key = "search_header_media"
+                    ) {
+                        Text(
+                            text = "Movies, Series & Adults (${filteredMedia.size})",
+                            color = NeliTextPrimary,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            modifier = Modifier.padding(top = 10.dp, bottom = 2.dp)
+                        )
+                    }
+
+                    items(filteredMedia, key = { "search_media_${it.id}" }) { media ->
+                        MediaPosterCard(
+                            media = media,
+                            onClick = { onMediaSelected(media) },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
                 }
             }
         }
@@ -1699,11 +1737,6 @@ fun DownloadTabContent(
                     }
                 }
             }
-        }
-
-        // Download page / DOWNLOADS: One adaptive banner in a natural position
-        item(key = "downloads_natural_ad_banner") {
-            NeliAdaptiveBannerAd(placementKey = "downloads_natural_position")
         }
 
         // Recommended Downloads inside the Download tab

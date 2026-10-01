@@ -130,7 +130,7 @@ dependencies {
   // implementation(libs.moshi.kotlin)
   implementation(libs.okhttp)
   // implementation(libs.play.services.location)
-  implementation(libs.play.services.ads)
+  // implementation(libs.play.services.ads)
   // implementation(libs.retrofit)
   testImplementation(libs.androidx.compose.ui.test.junit4)
   testImplementation(libs.androidx.core)
@@ -165,7 +165,7 @@ tasks.matching { it.name.startsWith("ksp") }.configureEach {
       }
       if (prev != null) {
         prev.uncaughtException(thread, throwable)
-      } else if (throwable.javaClass.name != "java.lang.ThreadDeath") {
+      } else if (throwable !is ThreadDeath) {
         System.err.print("Exception in thread \"${thread.name}\" ")
         throwable.printStackTrace(System.err)
       }
