@@ -117,7 +117,9 @@ data class PremiumSubscriptionState(
     val pendingAmountTzs: Int = 0
 ) {
     val isFreeForeverAccount: Boolean
-        get() = NeliFreeForeverAccountsManager.isFreeForeverEmail(linkedUserEmail) || planId == "free_forever"
+        get() = NeliFreeForeverAccountsManager.isFreeForeverEmail(linkedUserEmail) ||
+                NeliAdminManager.isAdminEmail(linkedUserEmail) ||
+                planId == "free_forever"
 
     val isActiveNow: Boolean
         get() = isActiveAt(System.currentTimeMillis())
@@ -565,10 +567,11 @@ object NeliSubscriptionManager {
             return signedOutState
         }
 
+        val isAdmin = NeliAdminManager.isAdminEmail(cleanEmail)
         val current = _subscriptionState.value
-        // If the user JUST paid without logging in (requiresPostPaymentAuth == true and no account linked yet),
+        // If a standard user JUST paid without logging in (requiresPostPaymentAuth == true and no account linked yet),
         // bind that fresh payment to this account; otherwise load strictly this account's own subscription!
-        if (current.isVerified && current.isActiveNow && current.requiresPostPaymentAuth && current.linkedUserEmail.isBlank()) {
+        if (!isAdmin && current.isVerified && current.isActiveNow && current.requiresPostPaymentAuth && current.linkedUserEmail.isBlank()) {
             return linkUserAccountToSubscription(
                 context = context,
                 uid = uid,

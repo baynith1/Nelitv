@@ -242,6 +242,8 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         registerConnectivityMonitor()
+        // Auto-sync all Live TV channels immediately upon app entry so channels play without initial loading delay
+        ChannelRepository.autoSyncAllChannelsNow()
 
         // Run non-UI initialization and background sync strictly on Dispatchers.IO so main UI thread stays 60/120fps
         viewModelScope.launch(Dispatchers.IO) {

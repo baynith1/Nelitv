@@ -11,6 +11,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -59,6 +60,12 @@ object TokenManager {
     val tokenSessionFlow: StateFlow<TokenSession> = _tokenSessionFlow.asStateFlow()
 
     private val registeredHttpFactories = CopyOnWriteArrayList<DefaultHttpDataSource.Factory>()
+    private val prewarmedManifestBytes = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, ByteArray>>()
+    private val prewarmScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
+    private const val PREWARM_MANIFEST_TTL_MS = 25_000L
+
+    private val _isChannelsPrewarmed = MutableStateFlow(false)
+    val isChannelsPrewarmed: StateFlow<Boolean> = _isChannelsPrewarmed.asStateFlow()
 
     val currentToken: String
         get() = ChannelRepository.AZAM_CDN_TOKEN.ifBlank { ChannelRepository.DEFAULT_AZAM_CDN_TOKEN }
@@ -80,7 +87,23 @@ object TokenManager {
         streamUrl: String? = null,
         tokenOverride: String? = null
     ): Map<String, String> {
-        val activeToken = tokenOverride?.trim()?.takeIf { it.isNotEmpty() } ?: currentToken
+        val embeddedUrlToken = if (!streamUrl.isNullOrBlank()) {
+            val base = streamUrl.substringBefore("?")
+            val query = streamUrl.substringAfter("?", "")
+            when {
+                base.contains("/tok_", ignoreCase = true) ->
+                    base.substringAfter("/tok_").substringBefore("/").trim().replace("%3D", "=", ignoreCase = true)
+                query.contains("cdntoken=", ignoreCase = true) ->
+                    query.split("&").firstOrNull { it.startsWith("cdntoken=", ignoreCase = true) }
+                        ?.substringAfter("=")?.trim()?.replace("%3D", "=", ignoreCase = true).orEmpty()
+                else -> ""
+            }
+        } else {
+            ""
+        }
+        val activeToken = tokenOverride?.trim()?.takeIf { it.isNotEmpty() }
+            ?: embeddedUrlToken.takeIf { it.isNotEmpty() }
+            ?: currentToken
         val headers = linkedMapOf(
             "Accept" to "*/*",
             "Connection" to "keep-alive"
@@ -131,8 +154,8 @@ object TokenManager {
     }
 
     /**
-     * Injects the active authorization token into a Media3 [DataSpec] both via HTTP request headers
-     * and via the `?cdntoken=` query parameter for Azam CDN DASH/MP4 requests.
+     * Injects the active authorization token into a Media3 [DataSpec] while strictly preserving
+     * each channel's own embedded `/tok_<JWT>/` path token or `?cdntoken=<JWT>` query token.
      */
     fun injectTokenIntoDataSpec(
         dataSpec: DataSpec,
@@ -141,60 +164,149 @@ object TokenManager {
     ): DataSpec {
         val rawUriStr = dataSpec.uri.toString()
         val basePart = rawUriStr.substringBefore("?")
-        val rewrittenBasePart = if (forceLatestToken && basePart.contains("/tok_", ignoreCase = true)) {
-            val beforeTok = basePart.substringBefore("/tok_")
-            val afterTok = basePart.substringAfter("/tok_").substringAfter("/", "")
-            if (afterTok.isNotEmpty()) "$beforeTok/tok_$currentToken/$afterTok" else basePart
-        } else {
-            basePart
+        val hasPathToken = basePart.contains("/tok_", ignoreCase = true)
+        val channelSpecificToken = ChannelRepository.resolveChannelSpecificToken(basePart)
+
+        // If the URL already embeds its token inside the path (/tok_<JWT>/live/eds/...), preserve it cleanly!
+        if (hasPathToken) {
+            val tokInPath = basePart.substringAfter("/tok_").substringBefore("/").trim()
+                .replace("%3D", "=", ignoreCase = true)
+            val rewrittenBasePart = if (forceLatestToken && channelSpecificToken.isNotBlank()) {
+                val beforeTok = basePart.substringBefore("/tok_")
+                val afterTok = basePart.substringAfter("/tok_").substringAfter("/", "")
+                if (afterTok.isNotEmpty()) "$beforeTok/tok_$channelSpecificToken/$afterTok" else basePart
+            } else {
+                basePart
+            }
+            val existingQuery = rawUriStr.substringAfter("?", "")
+            val finalUrlStr = if (existingQuery.isNotEmpty()) "$rewrittenBasePart?$existingQuery" else rewrittenBasePart
+            val finalUri = Uri.parse(finalUrlStr)
+            val extraHeaders = buildExoPlayerHeaders(
+                streamUrl = finalUrlStr,
+                tokenOverride = tokInPath.ifBlank { channelSpecificToken }
+            )
+            val specWithUri = if (finalUrlStr != rawUriStr) dataSpec.withUri(finalUri) else dataSpec
+            return specWithUri.withAdditionalHeaders(extraHeaders)
         }
-        val inputUrl = if (forceLatestToken && rawUriStr.contains("?")) {
-            val otherParams = rawUriStr.substringAfter("?")
+
+        // Otherwise, for channels using ?cdntoken= (such as ZBC2, ZBC, KIX, Crown Tv, Wasafi Tv),
+        // ensure both the manifest and every relative .mp4/.m4s segment carry that channel's exact cdntoken!
+        val manifestTokenParam = encodedManifestQuery
+            ?.split("&")
+            ?.firstOrNull { it.startsWith("cdntoken=", ignoreCase = true) }
+            ?.substringAfter("=")
+            ?.trim()
+            .orEmpty()
+
+        val uriQuery = rawUriStr.substringAfter("?", "")
+        val uriTokenParam = uriQuery
+            .split("&")
+            .firstOrNull { it.startsWith("cdntoken=", ignoreCase = true) }
+            ?.substringAfter("=")
+            ?.trim()
+            .orEmpty()
+
+        val effectiveToken = when {
+            uriTokenParam.isNotEmpty() && !forceLatestToken -> uriTokenParam
+            manifestTokenParam.isNotEmpty() && !forceLatestToken -> manifestTokenParam
+            channelSpecificToken.isNotEmpty() -> channelSpecificToken
+            else -> currentToken
+        }
+
+        val isAzamOrTokenStream = basePart.contains("azamtvltd.co.tz", ignoreCase = true) ||
+            basePart.contains("/live/eds/", ignoreCase = true) ||
+            uriTokenParam.isNotEmpty() ||
+            manifestTokenParam.isNotEmpty()
+
+        val finalUri = if (!isAzamOrTokenStream) {
+            dataSpec.uri
+        } else {
+            val otherParams = uriQuery
                 .split("&")
                 .filter { it.isNotBlank() && !it.startsWith("cdntoken=", ignoreCase = true) }
-            if (otherParams.isEmpty()) rewrittenBasePart else "$rewrittenBasePart?${otherParams.joinToString("&")}"
-        } else if (rewrittenBasePart != basePart) {
-            val q = rawUriStr.substringAfter("?", "")
-            if (q.isEmpty()) rewrittenBasePart else "$rewrittenBasePart?$q"
-        } else {
-            rawUriStr
-        }
-
-        val normalizedStr = ChannelRepository.normalizeDashStreamUrl(inputUrl)
-        val normalizedUri = Uri.parse(normalizedStr)
-
-        val finalUri = if (normalizedUri.toString().contains("cdntoken=", ignoreCase = true)) {
-            normalizedUri
-        } else {
-            val fallbackQuery = if (
-                normalizedStr.contains("azamtvltd.co.tz", ignoreCase = true) ||
-                normalizedStr.contains("/live/eds/", ignoreCase = true) ||
-                encodedManifestQuery?.contains("cdntoken=", ignoreCase = true) == true
-            ) {
-                "cdntoken=$currentToken"
-            } else {
-                encodedManifestQuery?.takeIf { it.isNotBlank() }
-            }
-
-            if (fallbackQuery.isNullOrBlank()) {
-                normalizedUri
-            } else {
-                val currentEncodedQuery = normalizedUri.encodedQuery
-                val mergedEncodedQuery = if (currentEncodedQuery.isNullOrBlank()) {
-                    fallbackQuery
-                } else {
-                    "$currentEncodedQuery&$fallbackQuery"
-                }
-                normalizedUri.buildUpon()
-                    .encodedQuery(mergedEncodedQuery)
-                    .build()
-            }
+            val mergedQuery = (otherParams + "cdntoken=$effectiveToken").joinToString("&")
+            Uri.parse("$basePart?$mergedQuery")
         }
 
         val finalUriStr = finalUri.toString()
-        val extraHeaders = buildExoPlayerHeaders(streamUrl = finalUriStr)
+        val extraHeaders = buildExoPlayerHeaders(
+            streamUrl = finalUriStr,
+            tokenOverride = effectiveToken.replace("%3D", "=", ignoreCase = true)
+        )
         val specWithUri = if (finalUriStr != rawUriStr) dataSpec.withUri(finalUri) else dataSpec
         return specWithUri.withAdditionalHeaders(extraHeaders)
+    }
+
+    /**
+     * Returns cached `.mpd` manifest bytes if recently pre-warmed within [PREWARM_MANIFEST_TTL_MS].
+     */
+    fun getPrewarmedManifestBytes(url: String): ByteArray? {
+        val key = url.substringBefore("?").lowercase()
+        val entry = prewarmedManifestBytes[key] ?: return null
+        if (System.currentTimeMillis() - entry.first <= PREWARM_MANIFEST_TTL_MS) {
+            return entry.second
+        }
+        prewarmedManifestBytes.remove(key)
+        return null
+    }
+
+    fun cachePrewarmedManifestBytes(url: String, bytes: ByteArray) {
+        if (bytes.isEmpty()) return
+        val key = url.substringBefore("?").lowercase()
+        prewarmedManifestBytes[key] = System.currentTimeMillis() to bytes
+    }
+
+    /**
+     * Automatically pre-warms all live channels in the background when the user enters the app
+     * so that DNS, TLS keep-alive sockets, and DASH manifests are ready for instant playback.
+     */
+    fun prewarmAllChannelsInBackground(channels: List<com.example.model.LiveChannel> = ChannelRepository.liveChannelsFlow.value) {
+        _isChannelsPrewarmed.value = true
+        updateRegisteredFactories()
+        prewarmScope.launch {
+            val priorityChannels = channels.take(18)
+            for (ch in priorityChannels) {
+                try {
+                    val playableUrl = ChannelRepository.resolvePlayableAzamManifestUrl(ch.streamUrl)
+                    if (playableUrl.contains(".mpd", ignoreCase = true)) {
+                        val rawManifest = executeHttpGetBytes(playableUrl, timeoutMs = 1_800)
+                        if (rawManifest != null && rawManifest.isNotEmpty()) {
+                            cachePrewarmedManifestBytes(playableUrl, rawManifest)
+                        }
+                    }
+                } catch (_: Exception) {
+                }
+            }
+        }
+    }
+
+    private fun executeHttpGetBytes(urlStr: String, timeoutMs: Int = 2_000): ByteArray? {
+        var connection: HttpURLConnection? = null
+        return try {
+            val url = URL(urlStr)
+            val headers = buildExoPlayerHeaders(streamUrl = urlStr)
+            connection = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = timeoutMs
+                readTimeout = timeoutMs
+                instanceFollowRedirects = true
+                useCaches = true
+                setRequestProperty("User-Agent", USER_AGENT)
+                headers.forEach { (k, v) -> setRequestProperty(k, v) }
+            }
+            if (connection.responseCode in 200..299) {
+                connection.inputStream.use { it.readBytes() }
+            } else {
+                null
+            }
+        } catch (_: Exception) {
+            null
+        } finally {
+            try {
+                connection?.disconnect()
+            } catch (_: Exception) {
+            }
+        }
     }
 
     /**
