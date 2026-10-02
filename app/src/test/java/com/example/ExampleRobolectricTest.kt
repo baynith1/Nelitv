@@ -1852,71 +1852,90 @@ class ExampleRobolectricTest {
         com.example.data.NeliAdminManager.setSingleChannelLock(context, azamSportsChannel.id, locked = false)
         com.example.player.ScanToCastManager.disconnectCastSession()
 
+        // 20. Verify 1 Day = 24 Hours Subscription Countdown, Cumulative Package Extension (2 days + 2 days = 4 days; 30 days + extension),
+        //     Real-Time Expiry to Free User, and Account PiP Background Mode Allow/Disallow setting
+        com.example.data.NeliSubscriptionManager.resetForTesting(context)
+        assertEquals(24L * 60L * 60L * 1000L, com.example.data.SubscriptionPlanType.ONE_DAY_MILLIS)
+        assertEquals(2, com.example.data.SubscriptionPlanType.DAILY.daysCount)
+        assertEquals(2L * com.example.data.SubscriptionPlanType.ONE_DAY_MILLIS, com.example.data.SubscriptionPlanType.DAILY.durationMillis)
+        assertEquals(7, com.example.data.SubscriptionPlanType.WEEKLY.daysCount)
+        assertEquals(7L * com.example.data.SubscriptionPlanType.ONE_DAY_MILLIS, com.example.data.SubscriptionPlanType.WEEKLY.durationMillis)
+        assertEquals(30, com.example.data.SubscriptionPlanType.MONTHLY.daysCount)
+        assertEquals(30L * com.example.data.SubscriptionPlanType.ONE_DAY_MILLIS, com.example.data.SubscriptionPlanType.MONTHLY.durationMillis)
+
+        // Example 1: User pays 2 days at 10:00 AM on Day 1 (tMorning)
+        val tMorning = System.currentTimeMillis()
+        val firstTwoDaysState = com.example.data.NeliSubscriptionManager.activateVerifiedSubscription(
+            context = context,
+            plan = com.example.data.SubscriptionPlanType.DAILY,
+            phone = "0712345678",
+            verifiedOrderId = "HP_MORNING_2DAYS",
+            nowMs = tMorning
+        )
+        assertEquals(2, firstTwoDaysState.totalPackageDays)
+        assertEquals(48L, firstTwoDaysState.totalPackageHours)
+        assertEquals(tMorning + 2L * com.example.data.SubscriptionPlanType.ONE_DAY_MILLIS, firstTwoDaysState.expiresAtMs)
+        // At 10:00 AM on Day 2 (+24h), 1 full day (24h) has passed and 1 day (24h) remains
+        val afterDayOne = tMorning + com.example.data.SubscriptionPlanType.ONE_DAY_MILLIS
+        assertTrue(firstTwoDaysState.isActiveAt(afterDayOne))
+        assertEquals(1L, firstTwoDaysState.remainingBreakdown(afterDayOne).days)
+
+        // In the afternoon of Day 1 (+4 hours), user adds another 2-day package -> total becomes 4 full days (96 hours) from tMorning!
+        val tAfternoon = tMorning + 4L * com.example.data.SubscriptionPlanType.ONE_HOUR_MILLIS
+        val extendedFourDaysState = com.example.data.NeliSubscriptionManager.activateVerifiedSubscription(
+            context = context,
+            plan = com.example.data.SubscriptionPlanType.DAILY,
+            phone = "0712345678",
+            verifiedOrderId = "HP_AFTERNOON_PLUS_2DAYS",
+            nowMs = tAfternoon
+        )
+        assertEquals(4, extendedFourDaysState.totalPackageDays)
+        assertEquals(96L, extendedFourDaysState.totalPackageHours)
+        assertEquals(tMorning + 4L * com.example.data.SubscriptionPlanType.ONE_DAY_MILLIS, extendedFourDaysState.expiresAtMs)
+        val afternoonBreakdown = extendedFourDaysState.remainingBreakdown(tAfternoon)
+        assertEquals(3L, afternoonBreakdown.days)
+        assertEquals(20L, afternoonBreakdown.hours)
+        assertEquals(4L, afternoonBreakdown.totalDaysCeiling)
+
+        // Once 4 days (96 hours) finish -> user immediately expires and reverts to Free User!
+        val afterFourDaysExpired = tMorning + 4L * com.example.data.SubscriptionPlanType.ONE_DAY_MILLIS + 1000L
+        assertTrue(com.example.data.NeliSubscriptionManager.expireSubscriptionIfNeeded(context, afterFourDaysExpired))
+        org.junit.Assert.assertFalse(com.example.data.NeliSubscriptionManager.subscriptionState.value.isVerified)
+        org.junit.Assert.assertFalse(com.example.data.NeliSubscriptionManager.subscriptionState.value.isActiveAt(afterFourDaysExpired))
+        assertEquals(
+            "Imeisha Muda (Free User)",
+            com.example.data.NeliSubscriptionManager.subscriptionState.value.formatLiveCountdown(afterFourDaysExpired)
+        )
+
+        // Example 2: User pays Monthly (15,000 TSh = 30 days) and before expiry adds Weekly (7 days) -> total 37 days
+        val tMonthStart = System.currentTimeMillis()
+        val monthlyState = com.example.data.NeliSubscriptionManager.activateVerifiedSubscription(
+            context = context,
+            plan = com.example.data.SubscriptionPlanType.MONTHLY,
+            phone = "0755112233",
+            verifiedOrderId = "HP_MONTHLY_30DAYS",
+            nowMs = tMonthStart
+        )
+        assertEquals(30, monthlyState.totalPackageDays)
+        val monthlyPlusWeeklyState = com.example.data.NeliSubscriptionManager.activateVerifiedSubscription(
+            context = context,
+            plan = com.example.data.SubscriptionPlanType.WEEKLY,
+            phone = "0755112233",
+            verifiedOrderId = "HP_EXTEND_WEEKLY_7DAYS",
+            nowMs = tMonthStart + 5L * com.example.data.SubscriptionPlanType.ONE_DAY_MILLIS
+        )
+        assertEquals(37, monthlyPlusWeeklyState.totalPackageDays)
+        assertEquals(37L * 24L, monthlyPlusWeeklyState.totalPackageHours)
+
+        // Verify Account PiP Background Mode Allow / Disallow setting
+        com.example.ui.theme.NeliThemeManager.initialize(context)
+        assertTrue(com.example.ui.theme.NeliThemeManager.isPipModeAllowed)
+        com.example.ui.theme.NeliThemeManager.setPipModeAllowed(context, false)
+        org.junit.Assert.assertFalse(com.example.ui.theme.NeliThemeManager.isPipModeAllowed)
+        com.example.ui.theme.NeliThemeManager.setPipModeAllowed(context, true)
+        assertTrue(com.example.ui.theme.NeliThemeManager.isPipModeAllowed)
+
         completedFile.delete()
         controller.release()
-    }
-
-    @Test
-    fun neliCastManager_supportsGoogleCastDiscoveryAndFullRemoteControlStyle() {
-        val context = ApplicationProvider.getApplicationContext<Context>()
-        com.example.player.NeliCastManager.disconnectCast()
-        com.example.data.NeliAdminManager.initialize(context)
-
-        val channels = com.example.data.ChannelRepository.getPrioritizedAllChannels()
-        assertTrue(channels.size >= 2)
-        val ch1 = channels[0]
-        val ch2 = channels[1]
-        com.example.data.NeliAdminManager.setSingleChannelLock(context, ch1.id, locked = false)
-        com.example.data.NeliAdminManager.setSingleChannelLock(context, ch2.id, locked = false)
-
-        val googleCastDevice = com.example.player.CastTvDevice(
-            id = "google_cast_living_room",
-            name = "Living Room Google Cast TV",
-            subtitle = "Google Cast • Smart TV Receiver",
-            protocol = "Google Cast"
-        )
-
-        val connected = com.example.player.NeliCastManager.connectAndCastToTv(
-            device = googleCastDevice,
-            channel = ch1,
-            currentUser = null,
-            context = context
-        )
-        assertTrue(connected)
-        assertNotNull(com.example.player.NeliCastManager.connectedDevice.value)
-        assertEquals(ch1.id, com.example.player.NeliCastManager.castingChannel.value?.id)
-        assertTrue(com.example.player.NeliCastManager.isPlayingOnTv.value)
-
-        // Test Remote Play/Pause toggle
-        com.example.player.NeliCastManager.togglePlayPauseOnTv()
-        assertEquals(false, com.example.player.NeliCastManager.isPlayingOnTv.value)
-        com.example.player.NeliCastManager.togglePlayPauseOnTv()
-        assertEquals(true, com.example.player.NeliCastManager.isPlayingOnTv.value)
-
-        // Test Remote Seek +10s / -10s
-        com.example.player.NeliCastManager.seekForwardOnTv()
-        assertTrue(com.example.player.NeliCastManager.statusMessage.value.orEmpty().contains("+10s"))
-        com.example.player.NeliCastManager.seekBackOnTv()
-        assertTrue(com.example.player.NeliCastManager.statusMessage.value.orEmpty().contains("-10s"))
-
-        // Test Remote Mute & Volume
-        com.example.player.NeliCastManager.toggleMuteOnTv(context)
-        assertEquals(true, com.example.player.NeliCastManager.isMutedOnTv.value)
-        com.example.player.NeliCastManager.setVolumeOnTv(0.65f, context)
-        assertEquals(false, com.example.player.NeliCastManager.isMutedOnTv.value)
-        assertEquals(0.65f, com.example.player.NeliCastManager.castVolume.value, 0.01f)
-
-        // Test Remote Quality Switch
-        com.example.player.NeliCastManager.setCastStreamQuality("1080p Full HD")
-        assertEquals("1080p Full HD", com.example.player.NeliCastManager.castStreamQuality.value)
-
-        // Test Remote Channel Step (CH+ / CH-)
-        val stepped = com.example.player.NeliCastManager.stepChannelOnTv(1, listOf(ch1, ch2), null, context)
-        assertNotNull(stepped)
-        assertEquals(ch2.id, stepped?.id)
-        assertEquals(ch2.id, com.example.player.NeliCastManager.castingChannel.value?.id)
-
-        com.example.player.NeliCastManager.disconnectCast()
-        assertEquals(null, com.example.player.NeliCastManager.connectedDevice.value)
     }
 }

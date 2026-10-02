@@ -2151,13 +2151,21 @@ fun AccountTabContent(
     val isCurrentUserAdmin = NeliAdminManager.isAdminUser(currentUser)
     val isFreeForeverVipUser = com.example.data.NeliFreeForeverAccountsManager.isFreeForeverUser(currentUser)
     val subState by NeliSubscriptionManager.subscriptionState.collectAsState()
-    val isVerifiedPremiumMember = subState.isActiveNow || isFreeForeverVipUser
+    var accountCurrentTimeMs by remember { androidx.compose.runtime.mutableLongStateOf(System.currentTimeMillis()) }
+    val isVerifiedPremiumMember = subState.isActiveAt(accountCurrentTimeMs) || isFreeForeverVipUser
 
-    // Auto-Ready Device IP & subscription status check kept silently in the background
-    LaunchedEffect(Unit) {
+    // Auto-Ready Device IP & real-time 1-second subscription countdown / expiry check
+    LaunchedEffect(subState.isVerified, subState.expiresAtMs) {
         com.example.data.NeliFreeForeverAccountsManager.initialize(accountContext)
         NeliSubscriptionManager.refreshDeviceIp(accountContext)
-        NeliSubscriptionManager.expireSubscriptionIfNeeded(accountContext)
+        while (true) {
+            val now = System.currentTimeMillis()
+            accountCurrentTimeMs = now
+            if (subState.isVerified && !subState.isFreeForeverAccount && subState.expiresAtMs in 1..now) {
+                NeliSubscriptionManager.expireSubscriptionIfNeeded(accountContext, now)
+            }
+            kotlinx.coroutines.delay(1000L)
+        }
     }
 
     if (isFullAdminDashboardOpen && isCurrentUserAdmin) {
@@ -2300,11 +2308,12 @@ fun AccountTabContent(
                             Text(
                                 text = when {
                                     isFreeForeverVipUser -> "Free Forever VIP • Channels Zote Wazi Milele (Max 2 Devices)"
-                                    isVerifiedPremiumMember -> "Verified Premium Member ✓ • Azam TV Live Streaming"
-                                    else -> "Account Synced • Azam TV Live Streaming"
+                                    isVerifiedPremiumMember -> "Muda Uliobaki: ${subState.formatLiveCountdown(accountCurrentTimeMs)}"
+                                    else -> "Free User • Account Synced"
                                 },
-                                color = NeliTextSecondary,
-                                fontSize = 11.sp
+                                color = if (isVerifiedPremiumMember) Color(0xFF34D399) else NeliTextSecondary,
+                                fontSize = 11.sp,
+                                fontWeight = if (isVerifiedPremiumMember) FontWeight.Bold else FontWeight.Normal
                             )
                         }
                     }
