@@ -1,5 +1,6 @@
 package com.example.player
 
+import android.content.Context
 import android.net.Uri
 import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
@@ -33,6 +34,16 @@ object TokenManager {
     const val DEFAULT_CHANNELS_BACKUP_API_URL = ChannelRepository.DEFAULT_CHANNELS_BACKUP_API_URL
     const val USER_AGENT =
         "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+
+    const val TOKEN_PREFS_NAME = "neli_cdn_token_storage"
+    const val KEY_STORED_TOKEN = "stored_cdn_token"
+    const val KEY_STORED_CDN_HOST = "stored_cdn_host"
+    const val KEY_STORED_SOURCE = "stored_cdn_source"
+    const val KEY_STORED_EXPIRY = "stored_cdn_expiry"
+    const val KEY_LAST_FETCH_TIME = "stored_last_fetch_time_ms"
+
+    @Volatile
+    private var appContext: Context? = null
 
     data class TokenSession(
         val token: String = ChannelRepository.AZAM_CDN_TOKEN,
@@ -78,6 +89,148 @@ object TokenManager {
 
     val effectiveExpiryEpochSec: Long
         get() = ChannelRepository.effectiveTokenExpiryEpochSec
+
+    /**
+     * Initializes TokenManager with application context and loads any locally stored token.
+     */
+    fun initialize(context: Context) {
+        val app = context.applicationContext
+        appContext = app
+        loadStoredTokenLocally(app)
+    }
+
+    /**
+     * Retrieves the epoch milliseconds of the last successful local or network token fetch.
+     */
+    fun getStoredLastFetchTimeMs(context: Context? = appContext): Long {
+        return try {
+            val targetContext = context ?: appContext ?: return 0L
+            val prefs = targetContext.getSharedPreferences(TOKEN_PREFS_NAME, Context.MODE_PRIVATE)
+            prefs.getLong(KEY_LAST_FETCH_TIME, 0L)
+        } catch (_: Exception) {
+            0L
+        }
+    }
+
+    /**
+     * Loads the locally stored CDN token from SharedPreferences and applies it if non-expired.
+     * If expired or missing, triggers a dynamic refresh in the background.
+     */
+    fun loadStoredTokenLocally(context: Context) {
+        try {
+            val prefs = context.getSharedPreferences(TOKEN_PREFS_NAME, Context.MODE_PRIVATE)
+            val savedToken = prefs.getString(KEY_STORED_TOKEN, "").orEmpty().trim()
+            val savedHost = prefs.getString(KEY_STORED_CDN_HOST, "").orEmpty().trim()
+            val savedSource = prefs.getString(KEY_STORED_SOURCE, "").orEmpty().trim()
+            val savedExpiry = prefs.getLong(KEY_STORED_EXPIRY, 0L)
+
+            if (savedToken.isNotBlank() && !isTokenExpired(savedToken, safetyMarginSec = 60L)) {
+                ChannelRepository.applyDirectAuthorizationToken(
+                    token = savedToken,
+                    cdnHost = savedHost.ifBlank { ChannelRepository.DEFAULT_AZAM_CDN_HOST },
+                    source = savedSource.ifBlank { "local_storage" },
+                    expEpochSec = if (savedExpiry > 0L) savedExpiry else null
+                )
+                syncStateFromRepository()
+            } else {
+                prewarmScope.launch {
+                    fetchLiveToken(forceRefresh = true)
+                }
+            }
+        } catch (_: Exception) {
+        }
+    }
+
+    /**
+     * Persists the active CDN token, CDN host, and expiration locally in SharedPreferences.
+     */
+    fun saveTokenLocally(
+        context: Context? = appContext,
+        token: String,
+        cdnHost: String = currentCdnHost,
+        source: String = currentSource,
+        expEpochSec: Long? = null
+    ) {
+        val targetContext = context ?: appContext ?: return
+        val cleanToken = token.trim()
+        if (cleanToken.isBlank()) return
+        try {
+            val resolvedExp = expEpochSec
+                ?: ChannelRepository.extractJwtExpEpochSeconds(cleanToken)
+                ?: ChannelRepository.AZAM_CDN_EXP
+                ?: 0L
+            val prefs = targetContext.getSharedPreferences(TOKEN_PREFS_NAME, Context.MODE_PRIVATE)
+            prefs.edit()
+                .putString(KEY_STORED_TOKEN, cleanToken)
+                .putString(KEY_STORED_CDN_HOST, cdnHost.ifBlank { currentCdnHost })
+                .putString(KEY_STORED_SOURCE, source.ifBlank { currentSource })
+                .putLong(KEY_STORED_EXPIRY, resolvedExp)
+                .putLong(KEY_LAST_FETCH_TIME, System.currentTimeMillis())
+                .apply()
+        } catch (_: Exception) {
+        }
+    }
+
+    /**
+     * Checks if the active or specified token has expired or is about to expire within [safetyMarginSec]
+     * (default 60 seconds). Dynamically checks nominal expiration and recent fetch window.
+     */
+    fun isTokenExpired(
+        token: String = currentToken,
+        safetyMarginSec: Long = 60L
+    ): Boolean {
+        if (token.isBlank()) return true
+        val exp = ChannelRepository.extractJwtExpEpochSeconds(token)
+            ?: ChannelRepository.AZAM_CDN_EXP
+            ?: 0L
+        val nowSec = System.currentTimeMillis() / 1000L
+        if (exp > 0L) {
+            if (exp > nowSec) {
+                return (nowSec + safetyMarginSec) >= exp
+            }
+            if (token == currentToken) {
+                val lastFetch = getStoredLastFetchTimeMs()
+                val fifteenMinutesMs = 15 * 60 * 1000L
+                if (lastFetch > 0L && (System.currentTimeMillis() - lastFetch) < fifteenMinutesMs) {
+                    return false
+                }
+            }
+            return true
+        }
+        val lastFetch = getStoredLastFetchTimeMs()
+        val fifteenMinutesMs = 15 * 60 * 1000L
+        if (lastFetch > 0L && (System.currentTimeMillis() - lastFetch) < fifteenMinutesMs) {
+            return false
+        }
+        return true
+    }
+
+    /**
+     * Dynamically fetches and refreshes the CDN token from `https://streamzone.fun/api/cdn-token`
+     * before initializing the Media3 player or loading a channel stream.
+     * Ensures the token is stored locally, checked for expiration, and replaced automatically when needed.
+     */
+    fun ensureValidToken(
+        context: Context? = appContext,
+        forceRefresh: Boolean = false
+    ): String {
+        val targetCtx = context ?: appContext
+        if (targetCtx != null && appContext == null) {
+            appContext = targetCtx.applicationContext
+        }
+        val isExpired = isTokenExpired()
+        if (isExpired || forceRefresh) {
+            val freshToken = fetchLiveTokenBlocking(
+                forceRefresh = true,
+                apiUrl = ChannelRepository.AZAM_TOKEN_ENDPOINT_URL
+            )
+            targetCtx?.let {
+                saveTokenLocally(it, freshToken)
+            }
+            return freshToken
+        }
+        return currentToken
+    }
 
     /**
      * Builds the HTTP headers to inject into Media3 ExoPlayer requests, including the live
@@ -166,12 +319,18 @@ object TokenManager {
         val basePart = rawUriStr.substringBefore("?")
         val hasPathToken = basePart.contains("/tok_", ignoreCase = true)
         val channelSpecificToken = ChannelRepository.resolveChannelSpecificToken(basePart)
+            .ifBlank { currentToken }
 
-        // If the URL already embeds its token inside the path (/tok_<JWT>/live/eds/...), preserve it cleanly!
+        // If the URL embeds its token inside the path (/tok_<JWT>/live/eds/...), update it with active token
         if (hasPathToken) {
             val tokInPath = basePart.substringAfter("/tok_").substringBefore("/").trim()
                 .replace("%3D", "=", ignoreCase = true)
-            val rewrittenBasePart = if (forceLatestToken && channelSpecificToken.isNotBlank()) {
+            val effectivePathToken = if (forceLatestToken || channelSpecificToken.isNotBlank()) {
+                channelSpecificToken
+            } else {
+                tokInPath.ifBlank { channelSpecificToken }
+            }
+            val rewrittenBasePart = if (channelSpecificToken.isNotBlank()) {
                 val beforeTok = basePart.substringBefore("/tok_")
                 val afterTok = basePart.substringAfter("/tok_").substringAfter("/", "")
                 if (afterTok.isNotEmpty()) "$beforeTok/tok_$channelSpecificToken/$afterTok" else basePart
@@ -179,48 +338,36 @@ object TokenManager {
                 basePart
             }
             val existingQuery = rawUriStr.substringAfter("?", "")
-            val finalUrlStr = if (existingQuery.isNotEmpty()) "$rewrittenBasePart?$existingQuery" else rewrittenBasePart
+            val finalQuery = if (existingQuery.contains("cdntoken=", ignoreCase = true)) {
+                existingQuery.split("&")
+                    .map { if (it.startsWith("cdntoken=", ignoreCase = true)) "cdntoken=$channelSpecificToken" else it }
+                    .joinToString("&")
+            } else if (existingQuery.isNotEmpty()) {
+                "$existingQuery&cdntoken=$channelSpecificToken"
+            } else {
+                "cdntoken=$channelSpecificToken"
+            }
+            val finalUrlStr = "$rewrittenBasePart?$finalQuery"
             val finalUri = Uri.parse(finalUrlStr)
             val extraHeaders = buildExoPlayerHeaders(
                 streamUrl = finalUrlStr,
-                tokenOverride = tokInPath.ifBlank { channelSpecificToken }
+                tokenOverride = effectivePathToken
             )
             val specWithUri = if (finalUrlStr != rawUriStr) dataSpec.withUri(finalUri) else dataSpec
             return specWithUri.withAdditionalHeaders(extraHeaders)
         }
 
-        // Otherwise, for channels using ?cdntoken= (such as ZBC2, ZBC, KIX, Crown Tv, Wasafi Tv),
-        // ensure both the manifest and every relative .mp4/.m4s segment carry that channel's exact cdntoken!
-        val manifestTokenParam = encodedManifestQuery
-            ?.split("&")
-            ?.firstOrNull { it.startsWith("cdntoken=", ignoreCase = true) }
-            ?.substringAfter("=")
-            ?.trim()
-            .orEmpty()
-
-        val uriQuery = rawUriStr.substringAfter("?", "")
-        val uriTokenParam = uriQuery
-            .split("&")
-            .firstOrNull { it.startsWith("cdntoken=", ignoreCase = true) }
-            ?.substringAfter("=")
-            ?.trim()
-            .orEmpty()
-
-        val effectiveToken = when {
-            uriTokenParam.isNotEmpty() && !forceLatestToken -> uriTokenParam
-            manifestTokenParam.isNotEmpty() && !forceLatestToken -> manifestTokenParam
-            channelSpecificToken.isNotEmpty() -> channelSpecificToken
-            else -> currentToken
-        }
+        // For channels using ?cdntoken=, ensure both manifest and relative .mp4/.m4s segments carry active token
+        val effectiveToken = channelSpecificToken.ifBlank { currentToken }
 
         val isAzamOrTokenStream = basePart.contains("azamtvltd.co.tz", ignoreCase = true) ||
             basePart.contains("/live/eds/", ignoreCase = true) ||
-            uriTokenParam.isNotEmpty() ||
-            manifestTokenParam.isNotEmpty()
+            rawUriStr.contains("cdntoken=", ignoreCase = true)
 
         val finalUri = if (!isAzamOrTokenStream) {
             dataSpec.uri
         } else {
+            val uriQuery = rawUriStr.substringAfter("?", "")
             val otherParams = uriQuery
                 .split("&")
                 .filter { it.isNotBlank() && !it.startsWith("cdntoken=", ignoreCase = true) }
@@ -324,6 +471,15 @@ object TokenManager {
         if (updated) {
             syncStateFromRepository()
             updateRegisteredFactories()
+            appContext?.let { ctx ->
+                saveTokenLocally(
+                    context = ctx,
+                    token = currentToken,
+                    cdnHost = currentCdnHost,
+                    source = currentSource,
+                    expEpochSec = ChannelRepository.extractJwtExpEpochSeconds(currentToken)
+                )
+            }
         }
         return updated
     }
@@ -364,7 +520,7 @@ object TokenManager {
         apiUrl: String = ChannelRepository.AZAM_TOKEN_ENDPOINT_URL
     ): String = synchronized(blockingLock) {
         val now = System.currentTimeMillis()
-        val minCooldownMs = if (forceRefresh) 10_000L else 30_000L
+        val minCooldownMs = if (forceRefresh) 2_000L else 15_000L
         if (lastNetworkRefreshAttemptMs > 0L && (now - lastNetworkRefreshAttemptMs) < minCooldownMs) {
             return currentToken
         }
@@ -379,12 +535,12 @@ object TokenManager {
             val responseText = executeHttpGet(endpoint)
             if (!responseText.isNullOrBlank()) {
                 if (parseAndApplyTokenPayload(responseText, isAuthoritative = true)) {
-                    return currentToken
+                    break
                 }
             }
         }
 
-        // Fallback: check backup channels API (`https://streamzone.fun/api/channels`) which may also embed fresh cdntokens
+        // Fetch backup channels API (`https://streamzone.fun/api/channels`) to update backup streams & clearkeys
         if (forceRefresh || ChannelRepository.getCachedBackupApiChannels().isEmpty()) {
             val backupJson = executeHttpGet(ChannelRepository.CHANNELS_BACKUP_API_URL)
             if (!backupJson.isNullOrBlank()) {

@@ -14,7 +14,7 @@ object ChannelRepository {
 
     const val DEFAULT_AZAM_CDN_HOST = "https://cdnedgch2.azamtvltd.co.tz"
     const val DEFAULT_AZAM_CDN_TOKEN =
-        "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJleHAiOiIxNzkwODc0MzAyIiwic2lwIjoiIiwicGF0aCI6IiIsInNlc3Npb25fY2RuX2lkIjoiYWQ2NTc1OGZlMjc0NWRhZiIsInNlc3Npb25faWQiOiIiLCJjbGllbnRfaWQiOiI0ODUxNDgzIiwiZGV2aWNlX2lkIjoiIiwibWF4X3Nlc3Npb25zIjowLCJzZXNzaW9uX2R1cmF0aW9uIjowLCJ1cmwiOiJodHRwczovLzEwMi4yMDguMjQ0LjkiLCJzZXNzaW9uX3RpbWVvdXQiOjAsImF1ZCI6IjciLCJzb3VyY2VzIjpbM119.xIO2NbWKCzsUvnaovYl2ob-epo1u3kXYWG3OyJ9Y2oTwKoBGm94LcRWYZgRoQpwFlunKFHVP1xAi7D7j83Mveg=="
+        "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJleHAiOiIxNzkwOTQ2OTQzIiwic2lwIjoiIiwicGF0aCI6IiIsInNlc3Npb25fY2RuX2lkIjoiZTZhZTQ3MzliNmY4ZjhiNyIsInNlc3Npb25faWQiOiIiLCJjbGllbnRfaWQiOiI0ODQwODMyIiwiZGV2aWNlX2lkIjoiIiwibWF4X3Nlc3Npb25zIjowLCJzZXNzaW9uX2R1cmF0aW9uIjowLCJ1cmwiOiJodHRwczovLzEwMi4yMDguMjQ0LjkiLCJzZXNzaW9uX3RpbWVvdXQiOjAsImF1ZCI6IjciLCJzb3VyY2VzIjpbM119.FbnzSDR1Vi6Yfo4Qys6fBQV04WVdcCBFcCAI-Hgy9YvhRjwqp6uhKmXKPQZinjuWAzt5Hu17E4gnZCFzv6KtYQ=="
     const val AZAM_SPORT_1_TOKEN =
         "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJleHAiOiIxNzkwODc0MjkxIiwic2lwIjoiIiwicGF0aCI6IiIsInNlc3Npb25fY2RuX2lkIjoiNGVhN2EwM2VmN2EwMzQwNSIsInNlc3Npb25faWQiOiIiLCJjbGllbnRfaWQiOiI0ODUxNDgzIiwiZGV2aWNlX2lkIjoiIiwibWF4X3Nlc3Npb25zIjowLCJzZXNzaW9uX2R1cmF0aW9uIjowLCJ1cmwiOiJodHRwczovLzEwMi4yMDguMjQ0LjkiLCJzZXNzaW9uX3RpbWVvdXQiOjAsImF1ZCI6IjciLCJzb3VyY2VzIjpbM119.2Qx1WInw0wNDddGQfHfh8kA-fAbrvjRYWxGBvt7ZBXIv2N5XwlHSSJAR_mTeeflTZKmr3b5IxZxvdQf6_JcNcQ=="
     const val AZAM_SPORT_2_TOKEN =
@@ -34,9 +34,9 @@ object ChannelRepository {
     const val UTV_TOKEN =
         "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJleHAiOiIxNzkwODc0MzA2Iiwic2lwIjoiIiwicGF0aCI6IiIsInNlc3Npb25fY2RuX2lkIjoiMjdiNTg2MTk3ZDVlYzM1NiIsInNlc3Npb25faWQiOiIiLCJjbGllbnRfaWQiOiI0ODUxNDgzIiwiZGV2aWNlX2lkIjoiIiwibWF4X3Nlc3Npb25zIjowLCJzZXNzaW9uX2R1cmF0aW9uIjowLCJ1cmwiOiJodHRwczovLzEwMi4yMDguMjQ0LjkiLCJzZXNzaW9uX3RpbWVvdXQiOjAsImF1ZCI6IjciLCJzb3VyY2VzIjpbM119.IXI1wtDp9Xme9wwND-sPnYPurlKijYVOWBUxl6jD8nsd4EUTRbHBuui8BNGxMYP2DmOnCv3VMA54F2MwMt3Iiw=="
     const val AZAM_SECONDARY_CDN_TOKEN =
-        "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJleHAiOiIxNzkwMzc2NTgyIiwic2lwIjoiIiwicGF0aCI6IiIsInNlc3Npb25fY2RuX2lkIjoiOTdmYmY3NWU2ZWU2MmJkYSIsInNlc3Npb25faWQiOiIiLCJjbGllbnRfaWQiOiI0ODQwODMyIiwiZGV2aWNlX2lkIjoiIiwibWF4X3Nlc3Npb25zIjowLCJzZXNzaW9uX2R1cmF0aW9uIjowLCJ1cmwiOiJodHRwczovLzEwMi4yMDguMjQ0LjkiLCJzZXNzaW9uX3RpbWVvdXQiOjAsImF1ZCI6IjciLCJzb3VyY2VzIjpbM119.zW07ft5kqXHOkbPguYYGgrBwihIVJIjoGvhVqTN3cjjWZEp4NWJfpQUQyDYUkyuhNVKmLYSHxO5EwEegjYQ84A=="
+        "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJleHAiOiIxNzkwOTQ2OTQzIiwic2lwIjoiIiwicGF0aCI6IiIsInNlc3Npb25fY2RuX2lkIjoiZTZhZTQ3MzliNmY4ZjhiNyIsInNlc3Npb25faWQiOiIiLCJjbGllbnRfaWQiOiI0ODQwODMyIiwiZGV2aWNlX2lkIjoiIiwibWF4X3Nlc3Npb25zIjowLCJzZXNzaW9uX2R1cmF0aW9uIjowLCJ1cmwiOiJodHRwczovLzEwMi4yMDguMjQ0LjkiLCJzZXNzaW9uX3RpbWVvdXQiOjAsImF1ZCI6IjciLCJzb3VyY2VzIjpbM119.FbnzSDR1Vi6Yfo4Qys6fBQV04WVdcCBFcCAI-Hgy9YvhRjwqp6uhKmXKPQZinjuWAzt5Hu17E4gnZCFzv6KtYQ=="
     const val AZAM_SECONDARY_CDN_TOKEN_ENCODED =
-        "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJleHAiOiIxNzkwMzc2NTgyIiwic2lwIjoiIiwicGF0aCI6IiIsInNlc3Npb25fY2RuX2lkIjoiOTdmYmY3NWU2ZWU2MmJkYSIsInNlc3Npb25faWQiOiIiLCJjbGllbnRfaWQiOiI0ODQwODMyIiwiZGV2aWNlX2lkIjoiIiwibWF4X3Nlc3Npb25zIjowLCJzZXNzaW9uX2R1cmF0aW9uIjowLCJ1cmwiOiJodHRwczovLzEwMi4yMDguMjQ0LjkiLCJzZXNzaW9uX3RpbWVvdXQiOjAsImF1ZCI6IjciLCJzb3VyY2VzIjpbM119.zW07ft5kqXHOkbPguYYGgrBwihIVJIjoGvhVqTN3cjjWZEp4NWJfpQUQyDYUkyuhNVKmLYSHxO5EwEegjYQ84A%3D%3D"
+        "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJleHAiOiIxNzkwOTQ2OTQzIiwic2lwIjoiIiwicGF0aCI6IiIsInNlc3Npb25fY2RuX2lkIjoiZTZhZTQ3MzliNmY4ZjhiNyIsInNlc3Npb25faWQiOiIiLCJjbGllbnRfaWQiOiI0ODQwODMyIiwiZGV2aWNlX2lkIjoiIiwibWF4X3Nlc3Npb25zIjowLCJzZXNzaW9uX2R1cmF0aW9uIjowLCJ1cmwiOiJodHRwczovLzEwMi4yMDguMjQ0LjkiLCJzZXNzaW9uX3RpbWVvdXQiOjAsImF1ZCI6IjciLCJzb3VyY2VzIjpbM119.FbnzSDR1Vi6Yfo4Qys6fBQV04WVdcCBFcCAI-Hgy9YvhRjwqp6uhKmXKPQZinjuWAzt5Hu17E4gnZCFzv6KtYQ%3D%3D"
     const val DEFAULT_AZAM_CDN_SOURCE = "cache"
     const val DEFAULT_TOKEN_ENDPOINT_URL = "https://streamzone.fun/api/cdn-token"
     const val DEFAULT_CHANNELS_BACKUP_API_URL = "https://streamzone.fun/api/channels"
@@ -99,10 +99,17 @@ object ChannelRepository {
     val isAutoSynced: StateFlow<Boolean> = _isAutoSynced.asStateFlow()
 
     /**
-     * Automatically syncs and pre-warms all Live TV channels immediately when the user enters the app
-     * so that clicking any channel starts playback without initial sync delay.
+     * Automatically syncs and pre-warms all Live TV channels immediately when the user enters the app:
+     * - Dynamically fetches and refreshes the live CDN token from https://streamzone.fun/api/cdn-token
+     * - Checks token expiration and persists the token locally in SharedPreferences
+     * - Syncs backup channels and clearkeys from https://streamzone.fun/api/channels
+     * - Pre-warms channels so playback starts instantly without loading delay
      */
     fun autoSyncAllChannelsNow(): List<LiveChannel> {
+        try {
+            TokenManager.ensureValidToken()
+        } catch (_: Exception) {
+        }
         val synced = refreshLiveChannels()
         _isAutoSynced.value = true
         TokenManager.prewarmAllChannelsInBackground(synced)
@@ -1365,12 +1372,9 @@ object ChannelRepository {
                 if (newHost.startsWith("http", ignoreCase = true)) {
                     AZAM_CDN_HOST = newHost
                 }
-                // Keep AZAM_CDN_EXP null so client never blocks on expiry, and extend effectiveTokenExpiryEpochSec
-                AZAM_CDN_EXP = null
-                effectiveTokenExpiryEpochSec = maxOf(
-                    EXTENDED_TOKEN_EXPIRY_EPOCH_SEC,
-                    (candidateExp.takeIf { it > 0L } ?: EXTENDED_TOKEN_EXPIRY_EPOCH_SEC) + 315_360_000L
-                )
+                AZAM_CDN_EXP = parsedExp
+                effectiveTokenExpiryEpochSec = candidateExp.takeIf { it > 0L }
+                    ?: (extractJwtExpEpochSeconds(newToken) ?: EXTENDED_TOKEN_EXPIRY_EPOCH_SEC)
                 AZAM_CDN_SOURCE = newSource
                 cachedBackupApiChannels = cachedBackupApiChannels.map { ch ->
                     val resolvedKeys = resolveClearKeysForChannel(ch)
@@ -1398,6 +1402,29 @@ object ChannelRepository {
         } catch (_: Exception) {
             false
         }
+    }
+
+    /**
+     * Directly applies and persists an authoritative CDN authorization token,
+     * updating all stream URLs and ExoPlayer HTTP headers.
+     */
+    fun applyDirectAuthorizationToken(
+        token: String,
+        cdnHost: String = AZAM_CDN_HOST,
+        source: String = AZAM_CDN_SOURCE,
+        expEpochSec: Long? = null
+    ): Boolean {
+        val trimmed = token.trim()
+        if (trimmed.isBlank() || isSupersededOrRevokedToken(trimmed)) return false
+        val tokenJson = JSONObject().apply {
+            put("token", trimmed)
+            put("cdnHost", cdnHost)
+            put("source", source)
+            if (expEpochSec != null && expEpochSec > 0L) {
+                put("exp", expEpochSec)
+            }
+        }
+        return updateCdnAuthorizationToken(tokenJson.toString(), isAuthoritativeTokenApi = true)
     }
 
     fun mergeFirebaseChannelsWithAzamPriority(remoteChannels: List<LiveChannel>) {
@@ -2167,7 +2194,8 @@ object ChannelRepository {
 
     /**
      * Resolves the exact channel-specific token for an Azam CDN `/live/eds/<ChannelDir>/` stream path.
-     * Some Azam TV channels embed their token in `/tok_<JWT>/` in the path, while others use `?cdntoken=<JWT>`.
+     * Always prioritizes the active dynamic CDN token fetched from https://streamzone.fun/api/cdn-token
+     * so that all live channels stream with valid authenticated credentials.
      */
     fun resolveChannelSpecificToken(urlOrPath: String): String {
         val lower = urlOrPath.lowercase()
@@ -2209,8 +2237,7 @@ object ChannelRepository {
     /**
      * Normalizes Azam TV & CDN stream URLs (`.mpd` manifests and `.mp4` / `.m4s` CDN streams/segments):
      * - Rewrites `https://cdnblncr.azamtvltd.co.tz` to [AZAM_CDN_HOST] (`https://cdnedgch2.azamtvltd.co.tz`)
-     * - Preserves embedded `/tok_<JWT>/` path tokens for channels that embed their token inside the URL path
-     * - Preserves channel-specific `?cdntoken=` query tokens for channels that use query-parameter tokens
+     * - Updates path tokens and `?cdntoken=` query parameters with the active dynamic CDN token
      * - Leaves external `.m3u8` HLS links untouched unless they use `azamtvltd.co.tz` or `cdntoken=`.
      */
     fun normalizeDashStreamUrl(rawUrl: String): String {

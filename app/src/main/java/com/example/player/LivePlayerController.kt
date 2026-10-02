@@ -1281,6 +1281,9 @@ class LivePlayerController(
 
     fun initializePlayer(): ExoPlayer {
         NativeLogSuppressor.suppressNonFatalNativeLogs()
+        // Dynamically fetch and refresh authentication tokens from https://streamzone.fun/api/cdn-token
+        // before initializing the Media3 player, ensuring local storage and expiration checks.
+        TokenManager.ensureValidToken(context = context)
         exoPlayer?.let { return it }
         autoReconnectAttempts = 0
         hasReachedReadyForCurrentStream = false
@@ -1443,6 +1446,8 @@ class LivePlayerController(
         }
         channel = newChannel
         _currentChannel.value = newChannel
+        // Validate token freshness before preparing new channel stream
+        TokenManager.ensureValidToken(context = context)
         autoReconnectAttempts = 0
         hasReachedReadyForCurrentStream = false
         consecutiveRebufferCount = 0
@@ -1806,6 +1811,7 @@ class LivePlayerController(
 
     private fun loadChannelStream(player: ExoPlayer, preserveVodPosition: Boolean = false) {
         try {
+            TokenManager.ensureValidToken(context = context)
             val isLocalOffline = isPlayingLocalOfflineStream(channel)
             val mediaSource = createMediaSource(channel)
             player.repeatMode = if (channel.isLiveBroadcast) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF

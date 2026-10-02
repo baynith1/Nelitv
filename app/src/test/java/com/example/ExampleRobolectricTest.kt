@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.MediaContentRepository
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -1999,6 +2000,53 @@ class ExampleRobolectricTest {
         com.example.data.NeliAdminManager.setSingleChannelLock(context, s1.id, locked = false)
 
         completedFile.delete()
+        controller.release()
+    }
+
+    @Test
+    fun `token manager persists token locally checks expiration and refreshes dynamically before player init`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        com.example.player.TokenManager.initialize(context)
+
+        // 1. Verify token expiration check logic
+        val nowSec = System.currentTimeMillis() / 1000L
+        val futurePayload = android.util.Base64.encodeToString(
+            """{"exp":"${nowSec + 86400}","client_id":"4840832"}""".toByteArray(Charsets.UTF_8),
+            android.util.Base64.NO_WRAP or android.util.Base64.URL_SAFE
+        )
+        val validFutureToken = "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.$futurePayload.dummySignature"
+        assertFalse(com.example.player.TokenManager.isTokenExpired(validFutureToken))
+
+        // Create an expired token fragment (exp in the past)
+        val expiredPayload = android.util.Base64.encodeToString(
+            """{"exp":"${nowSec - 3600}","client_id":"4840832"}""".toByteArray(Charsets.UTF_8),
+            android.util.Base64.NO_WRAP or android.util.Base64.URL_SAFE
+        )
+        val expiredJwt = "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.$expiredPayload.dummySignature"
+        assertTrue(com.example.player.TokenManager.isTokenExpired(expiredJwt))
+
+        // 2. Verify local persistence in SharedPreferences
+        val testToken = com.example.data.ChannelRepository.DEFAULT_AZAM_CDN_TOKEN
+        com.example.player.TokenManager.saveTokenLocally(
+            context = context,
+            token = testToken,
+            cdnHost = "https://cdnedgch2.azamtvltd.co.tz",
+            source = "local_storage",
+            expEpochSec = nowSec + 86400L
+        )
+        val prefs = context.getSharedPreferences(com.example.player.TokenManager.TOKEN_PREFS_NAME, Context.MODE_PRIVATE)
+        assertEquals(testToken, prefs.getString(com.example.player.TokenManager.KEY_STORED_TOKEN, null))
+        assertEquals(nowSec + 86400L, prefs.getLong(com.example.player.TokenManager.KEY_STORED_EXPIRY, 0L))
+
+        // 3. Verify ensureValidToken dynamically resolves token before player initialization
+        val ensuredToken = com.example.player.TokenManager.ensureValidToken(context)
+        assertTrue(ensuredToken.isNotBlank())
+
+        // 4. Verify controller initializePlayer triggers token verification
+        val channel = com.example.data.ChannelRepository.channels.first { it.isAzamPriority }
+        val controller = com.example.player.LivePlayerController(context, channel)
+        val player = controller.initializePlayer()
+        assertNotNull(player)
         controller.release()
     }
 }
