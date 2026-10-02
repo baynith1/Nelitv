@@ -55,6 +55,7 @@ import androidx.compose.material.icons.filled.NetworkCell
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
@@ -2871,6 +2872,142 @@ fun AccountTabContent(
                             Text(
                                 text = "White Theme",
                                 color = if (isLightWhiteMode) Color.White else NeliTextPrimary,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.ExtraBold
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Picture-in-Picture (PiP) Background Mode Allow / Disallow Card
+        item {
+            val context = LocalContext.current
+            val isPipAllowed = NeliThemeManager.isPipModeAllowed
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(NeliSurface)
+                    .border(1.dp, Color(0x44A855F7), RoundedCornerShape(20.dp))
+                    .padding(16.dp)
+                    .testTag("account_pip_mode_card"),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PictureInPictureAlt,
+                            contentDescription = null,
+                            tint = NeliGenreCyan
+                        )
+                        Column {
+                            Text(
+                                text = "Picture-in-Picture (PiP) Mode",
+                                color = NeliTextPrimary,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = NeliThemeManager.currentPipStatusLabel,
+                                color = NeliTextSecondary,
+                                fontSize = 12.sp
+                            )
+                        }
+                    }
+
+                    Switch(
+                        checked = isPipAllowed,
+                        onCheckedChange = { allowed ->
+                            NeliThemeManager.setPipModeAllowed(context, allowed)
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = NeliMagenta
+                        ),
+                        modifier = Modifier.testTag("account_pip_switch")
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(if (isPipAllowed) NeliMagenta else NeliSurfaceVariant)
+                            .border(
+                                1.dp,
+                                if (isPipAllowed) NeliMagenta else Color(0x44A855F7),
+                                RoundedCornerShape(12.dp)
+                            )
+                            .clickable {
+                                NeliThemeManager.setPipModeAllowed(context, true)
+                            }
+                            .padding(vertical = 10.dp)
+                            .testTag("pip_allow_button"),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CheckCircle,
+                                contentDescription = null,
+                                tint = if (isPipAllowed) Color.White else NeliTextPrimary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                text = "Allow PiP Mode",
+                                color = if (isPipAllowed) Color.White else NeliTextPrimary,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.ExtraBold
+                            )
+                        }
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(if (!isPipAllowed) NeliMagenta else NeliSurfaceVariant)
+                            .border(
+                                1.dp,
+                                if (!isPipAllowed) NeliMagenta else Color(0x44A855F7),
+                                RoundedCornerShape(12.dp)
+                            )
+                            .clickable {
+                                NeliThemeManager.setPipModeAllowed(context, false)
+                            }
+                            .padding(vertical = 10.dp)
+                            .testTag("pip_disallow_button"),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.VisibilityOff,
+                                contentDescription = null,
+                                tint = if (!isPipAllowed) Color.White else NeliTextPrimary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                text = "Disallow PiP Mode",
+                                color = if (!isPipAllowed) Color.White else NeliTextPrimary,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.ExtraBold
                             )

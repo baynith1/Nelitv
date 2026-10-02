@@ -140,8 +140,6 @@ fun HomeScreen(
 
     val connectedCastDevice by NeliCastManager.connectedDevice.collectAsState()
     val isCastActive = connectedCastDevice != null
-    val scanToCastSession by ScanToCastManager.sessionState.collectAsState()
-    val isScanToCastConnected = scanToCastSession.receiverConnected
     val activeAdminSms by NeliAdminManager.activeAdminSms.collectAsState()
     val adminSmsMessage = activeAdminSms?.message.orEmpty()
     val adminBannerPlacement by NeliAdminManager.adminBannerPlacement.collectAsState()
@@ -151,9 +149,6 @@ fun HomeScreen(
     val lockAllForFree by NeliAdminManager.areAllChannelsLocked.collectAsState()
 
     var showCastDialog by rememberSaveable { mutableStateOf(false) }
-    var showScanToCastCameraDialog by rememberSaveable { mutableStateOf(false) }
-    var isScanToCastAzamGridOpen by rememberSaveable { mutableStateOf(false) }
-    var castedPlayerAzamChannelId by rememberSaveable { mutableStateOf<String?>(null) }
     var lockedChannelToPrompt by remember { mutableStateOf<LiveChannel?>(null) }
     var pendingUnlockedChannelAfterPayment by remember { mutableStateOf<LiveChannel?>(null) }
 
@@ -183,21 +178,11 @@ fun HomeScreen(
             context = context
         )
         if (isLockedForUser) {
-            if (isScanToCastConnected && ChannelRepository.isHardcodedAzamChannel(ch)) {
-                ScanToCastManager.notifyLockedChannelPayToWatch(context, ch)
-            }
             lockedChannelToPrompt = ch
             pendingUnlockedChannelAfterPayment = ch
         } else {
             lockedChannelToPrompt = null
             pendingUnlockedChannelAfterPayment = null
-            if (isScanToCastConnected && ChannelRepository.isHardcodedAzamChannel(ch)) {
-                ScanToCastManager.castAzamChannelToConnectedDevice(
-                    context = context,
-                    channel = ch,
-                    currentUser = currentUser
-                )
-            }
             if (isCastActive) {
                 NeliCastManager.updateCastingChannel(
                     channel = ch,
@@ -239,26 +224,6 @@ fun HomeScreen(
         )
     }
 
-    if (showScanToCastCameraDialog) {
-        val defaultAzamChannel = remember {
-            ChannelRepository.hardcodedAzamChannels.firstOrNull()
-        }
-        CameraScannerView(
-            currentUser = currentUser,
-            initialAzamChannel = defaultAzamChannel,
-            onDismiss = { showScanToCastCameraDialog = false },
-            onQrCodePaired = {
-                NeliCastManager.refreshAvailableTvDevices(context)
-                showScanToCastCameraDialog = false
-                isSearchOpen = false
-                castedPlayerAzamChannelId = null
-                isScanToCastAzamGridOpen = false
-            },
-            modifier = Modifier.fillMaxSize()
-        )
-        return
-    }
-
     if (lockedChannelToPrompt != null && !isPremiumActive) {
         LockedChannelPremiumDialog(
             channel = lockedChannelToPrompt!!,
@@ -275,11 +240,9 @@ fun HomeScreen(
     // Handle back button:
     // - From MediaDetailScreen -> return to Discovery
     // - From open search or non-Home tab -> return to Homepage
-    BackHandler(enabled = selectedMedia != null || isSearchOpen || isScanToCastAzamGridOpen || selectedTab != BottomNavTab.HOME) {
+    BackHandler(enabled = selectedMedia != null || isSearchOpen || selectedTab != BottomNavTab.HOME) {
         if (selectedMedia != null) {
             neliViewModel.navigateBackFromMediaDetails()
-        } else if (isScanToCastAzamGridOpen) {
-            isScanToCastAzamGridOpen = false
         } else if (isSearchOpen) {
             isSearchOpen = false
             searchQuery = ""
@@ -376,18 +339,8 @@ fun HomeScreen(
             },
             onBrandClick = {
                 isSearchOpen = false
-                isScanToCastAzamGridOpen = false
-                castedPlayerAzamChannelId = null
                 searchQuery = ""
                 neliViewModel.selectTab(BottomNavTab.HOME)
-            },
-            showScanToCastCamIcon = selectedTab == BottomNavTab.HOME || isScanToCastAzamGridOpen || isScanToCastConnected,
-            isScanToCastActive = isScanToCastConnected || isScanToCastAzamGridOpen,
-            onScanToCastCamClick = {
-                if (selectedTab == BottomNavTab.HOME || isScanToCastAzamGridOpen || isScanToCastConnected) {
-                    isSearchOpen = false
-                    showScanToCastCameraDialog = true
-                }
             },
             isCastActive = isCastActive,
             onCastClick = {
@@ -401,27 +354,7 @@ fun HomeScreen(
                 .fillMaxWidth()
                 .weight(1f)
         ) {
-            if (isScanToCastAzamGridOpen) {
-                ScanToCastAzamGridTabContent(
-                    sessionState = scanToCastSession,
-                    currentUser = currentUser,
-                    isPremiumActive = isPremiumActive,
-                    onSelectAzamChannelForCastedPlayer = { azamCh ->
-                        handleChannelSelection(azamCh)
-                    },
-                    onRescanQrCamera = {
-                        showScanToCastCameraDialog = true
-                    },
-                    onDisconnectCast = {
-                        ScanToCastManager.disconnectCastSession()
-                        castedPlayerAzamChannelId = null
-                        isScanToCastAzamGridOpen = false
-                    },
-                    onBackToHome = {
-                        isScanToCastAzamGridOpen = false
-                    }
-                )
-            } else if (isSearchOpen) {
+            if (isSearchOpen) {
                 SearchTabContent(
                     searchQuery = searchQuery,
                     onSearchQueryChange = { searchQuery = it },
@@ -609,7 +542,6 @@ fun HomeScreen(
             selectedTab = selectedTab,
             onTabSelected = { tab ->
                 isSearchOpen = false
-                isScanToCastAzamGridOpen = false
                 neliViewModel.selectTab(tab)
             },
             activeDownloadCount = downloadingIds.size

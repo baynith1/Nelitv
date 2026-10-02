@@ -4,6 +4,8 @@ import android.content.Context
 import android.content.Intent
 import android.hardware.display.DisplayManager
 import android.media.MediaRouter
+import android.net.nsd.NsdManager
+import android.net.nsd.NsdServiceInfo
 import android.provider.Settings
 import com.example.data.ChannelRepository
 import com.example.data.NeliAdminManager
@@ -13,6 +15,7 @@ import com.example.model.LiveChannel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.util.concurrent.ConcurrentHashMap
 
 data class CastTvDevice(
     val id: String,
@@ -140,13 +143,19 @@ object NeliCastManager {
         _isCastDialogVisible.value = false
     }
 
+    private val nsdDiscoveredDevices = ConcurrentHashMap<String, CastTvDevice>()
+    @Volatile
+    private var activeNsdDiscoveryListener: NsdManager.DiscoveryListener? = null
+
     /**
-     * Scans Android [DisplayManager] and [MediaRouter] for real external/wireless TV displays
-     * currently visible on the user's network/device without any fake hardcoded room TVs.
+     * Scans Android [DisplayManager], [MediaRouter], and local Wi-Fi [NsdManager] (`_googlecast._tcp.`)
+     * for real Chromecast / Google Cast receivers and wireless Smart TV displays.
      */
     fun refreshAvailableTvDevices(context: Context) {
         _isScanning.value = true
         val discovered = mutableListOf<CastTvDevice>()
+        startGoogleCastNsdDiscovery(context)
+
         try {
             val dm = context.getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager
             val presentationDisplays = dm?.getDisplays(DisplayManager.DISPLAY_CATEGORY_PRESENTATION)
@@ -156,7 +165,7 @@ object NeliCastManager {
                         id = "display_${display.displayId}",
                         name = display.name?.takeIf { it.isNotBlank() } ?: "External TV Display #${display.displayId}",
                         subtitle = "Connected Wireless / HDMI Display",
-                        protocol = "Android Display",
+                        protocol = "Google Cast / Display",
                         isSystemRoute = true
                     )
                 )
@@ -185,8 +194,8 @@ object NeliCastManager {
                                     id = routeId,
                                     name = name,
                                     subtitle = route.description?.toString()?.takeIf { it.isNotBlank() }
-                                        ?: "Wireless TV Media Route",
-                                    protocol = "Smart TV / Cast",
+                                        ?: "Google Cast / Wireless TV",
+                                    protocol = "Google Cast / Smart TV",
                                     isSystemRoute = true
                                 )
                             )
@@ -197,26 +206,56 @@ object NeliCastManager {
         } catch (_: Throwable) {
         }
 
-        try {
-            val scanState = ScanToCastManager.sessionState.value
-            if (scanState.receiverConnected && scanState.sessionId.isNotBlank()) {
-                val webTvDevice = CastTvDevice(
-                    id = "web_tv_${scanState.sessionId}",
-                    name = "Smart TV (${scanState.sessionId})",
-                    subtitle = "Connected • cast-nelitv.web.app",
-                    protocol = "Smart TV Cast",
-                    isSystemRoute = false
-                )
-                discovered.add(0, webTvDevice)
-                if (_connectedDevice.value == null) {
-                    _connectedDevice.value = webTvDevice
-                }
+        nsdDiscoveredDevices.values.forEach { nsdDevice ->
+            if (discovered.none { it.id == nsdDevice.id || it.name.equals(nsdDevice.name, ignoreCase = true) }) {
+                discovered.add(nsdDevice)
             }
-        } catch (_: Throwable) {
         }
 
         _availableDevices.value = discovered.distinctBy { it.id }
         _isScanning.value = false
+    }
+
+    private fun startGoogleCastNsdDiscovery(context: Context) {
+        try {
+            val nsdManager = context.applicationContext.getSystemService(Context.NSD_SERVICE) as? NsdManager
+                ?: return
+            activeNsdDiscoveryListener?.let { existing ->
+                try {
+                    nsdManager.stopServiceDiscovery(existing)
+                } catch (_: Throwable) {
+                }
+            }
+            val listener = object : NsdManager.DiscoveryListener {
+                override fun onDiscoveryStarted(regType: String?) {}
+                override fun onServiceFound(service: NsdServiceInfo?) {
+                    val rawName = service?.serviceName?.trim().orEmpty()
+                    if (rawName.isBlank()) return
+                    val cleanName = rawName.substringBefore("._googlecast").trim().ifBlank { rawName }
+                    val id = "gcast_${cleanName.lowercase().replace(" ", "_")}"
+                    val device = CastTvDevice(
+                        id = id,
+                        name = cleanName,
+                        subtitle = "Google Cast Receiver • Ready on Wi-Fi",
+                        protocol = "Google Cast / Chromecast",
+                        isSystemRoute = true
+                    )
+                    nsdDiscoveredDevices[id] = device
+                    val current = _availableDevices.value.toMutableList()
+                    if (current.none { it.id == id || it.name.equals(cleanName, ignoreCase = true) }) {
+                        current.add(device)
+                        _availableDevices.value = current.distinctBy { it.id }
+                    }
+                }
+                override fun onServiceLost(service: NsdServiceInfo?) {}
+                override fun onDiscoveryStopped(serviceType: String?) {}
+                override fun onStartDiscoveryFailed(serviceType: String?, errorCode: Int) {}
+                override fun onStopDiscoveryFailed(serviceType: String?, errorCode: Int) {}
+            }
+            activeNsdDiscoveryListener = listener
+            nsdManager.discoverServices("_googlecast._tcp.", NsdManager.PROTOCOL_DNS_SD, listener)
+        } catch (_: Throwable) {
+        }
     }
 
     fun isChannelLockedForCasting(
@@ -247,9 +286,6 @@ object NeliCastManager {
             _isPayToWatchBlocked.value = true
             _castingChannel.value = null
             _statusMessage.value = "Pay to Watch"
-            if (context != null && targetChannel != null && ChannelRepository.isHardcodedAzamChannel(targetChannel)) {
-                ScanToCastManager.notifyLockedChannelPayToWatch(context, targetChannel)
-            }
             return false
         }
 
@@ -257,14 +293,24 @@ object NeliCastManager {
         _connectedDevice.value = device
         _castingChannel.value = targetChannel
 
-        if (context != null && targetChannel != null && ChannelRepository.isHardcodedAzamChannel(targetChannel) &&
-            ScanToCastManager.sessionState.value.receiverConnected
-        ) {
-            ScanToCastManager.castAzamChannelToConnectedDevice(
-                context = context,
-                channel = targetChannel,
-                currentUser = currentUser
-            )
+        // Select matching Android MediaRouter live video route if present
+        if (context != null) {
+            try {
+                val mr = context.getSystemService(Context.MEDIA_ROUTER_SERVICE) as? MediaRouter
+                if (mr != null) {
+                    for (i in 0 until mr.routeCount) {
+                        val route = mr.getRouteAt(i) ?: continue
+                        if (route.name?.toString()?.equals(device.name, ignoreCase = true) == true) {
+                            mr.selectRoute(
+                                MediaRouter.ROUTE_TYPE_LIVE_VIDEO or MediaRouter.ROUTE_TYPE_LIVE_AUDIO,
+                                route
+                            )
+                            break
+                        }
+                    }
+                }
+            } catch (_: Throwable) {
+            }
         }
 
         val channelTitle = targetChannel?.name ?: "Nelitv Live Stream"
@@ -281,22 +327,10 @@ object NeliCastManager {
             _isPayToWatchBlocked.value = true
             _castingChannel.value = null
             _statusMessage.value = "Pay to Watch"
-            if (context != null && ChannelRepository.isHardcodedAzamChannel(channel)) {
-                ScanToCastManager.notifyLockedChannelPayToWatch(context, channel)
-            }
             return false
         }
         _isPayToWatchBlocked.value = false
         _castingChannel.value = channel
-        if (context != null && ChannelRepository.isHardcodedAzamChannel(channel) &&
-            ScanToCastManager.sessionState.value.receiverConnected
-        ) {
-            ScanToCastManager.castAzamChannelToConnectedDevice(
-                context = context,
-                channel = channel,
-                currentUser = currentUser
-            )
-        }
         val dev = _connectedDevice.value
         if (dev != null) {
             _statusMessage.value = "Inarusha (Casting) \"${channel.name}\" kwenda kwenye ${dev.name}"
@@ -308,9 +342,6 @@ object NeliCastManager {
         val prev = _connectedDevice.value
         _connectedDevice.value = null
         _isPayToWatchBlocked.value = false
-        if (ScanToCastManager.sessionState.value.receiverConnected) {
-            ScanToCastManager.disconnectCastSession()
-        }
         _statusMessage.value = if (prev != null) {
             "Imetenganishwa na ${prev.name}"
         } else {

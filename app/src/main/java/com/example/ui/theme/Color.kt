@@ -14,17 +14,25 @@ import androidx.compose.ui.graphics.Color
 object NeliThemeManager {
     private const val PREFS_NAME = "nelitv_theme_prefs"
     private const val KEY_IS_LIGHT_MODE = "is_light_white_mode"
+    private const val KEY_IS_PIP_ALLOWED = "is_pip_background_allowed"
 
     var isLightMode by mutableStateOf(false)
+        private set
+
+    var isPipModeAllowed by mutableStateOf(true)
         private set
 
     val currentThemeLabel: String
         get() = if (isLightMode) "White (Light Mode)" else "Black (Dark Mode)"
 
+    val currentPipStatusLabel: String
+        get() = if (isPipModeAllowed) "Allowed • Plays in Background PiP when leaving app" else "Disallowed • Background PiP Off"
+
     fun initialize(context: Context) {
         try {
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             isLightMode = prefs.getBoolean(KEY_IS_LIGHT_MODE, false)
+            isPipModeAllowed = prefs.getBoolean(KEY_IS_PIP_ALLOWED, true)
         } catch (_: Exception) {
         }
     }
@@ -35,6 +43,17 @@ object NeliThemeManager {
             context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 .edit()
                 .putBoolean(KEY_IS_LIGHT_MODE, lightWhiteMode)
+                .apply()
+        } catch (_: Exception) {
+        }
+    }
+
+    fun setPipModeAllowed(context: Context, allowed: Boolean) {
+        isPipModeAllowed = allowed
+        try {
+            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean(KEY_IS_PIP_ALLOWED, allowed)
                 .apply()
         } catch (_: Exception) {
         }

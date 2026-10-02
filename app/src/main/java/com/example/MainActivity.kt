@@ -160,10 +160,11 @@ class MainActivity : ComponentActivity() {
     private fun updateSystemPipParams(isActive: Boolean) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             try {
+                val allowAutoPip = isActive && NeliThemeManager.isPipModeAllowed
                 val builder = PictureInPictureParams.Builder()
                     .setAspectRatio(Rational(16, 9))
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    builder.setAutoEnterEnabled(isActive)
+                    builder.setAutoEnterEnabled(allowAutoPip)
                     builder.setSeamlessResizeEnabled(true)
                 }
                 setPictureInPictureParams(builder.build())
@@ -173,6 +174,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun enterSystemPipIfSupported(): Boolean {
+        if (!NeliThemeManager.isPipModeAllowed) return false
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             return try {
                 val builder = PictureInPictureParams.Builder()
@@ -191,10 +193,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        // Automatically enter OS Picture-in-Picture mode ONLY when user leaves the app via Home button
-        // or switches to another app (such as opening an incoming SMS or WhatsApp message notification).
-        // Never triggered by the Back button and never shown as an in-app overlay inside NeliPlay!
-        if (hasActivePlaybackForPip && !isInPictureInPictureMode && !isFinishing) {
+        // Automatically enter OS Picture-in-Picture mode in the background when user leaves the app via Home
+        // or switches to another app, provided PiP Mode is allowed on the user's Account page.
+        if (hasActivePlaybackForPip && NeliThemeManager.isPipModeAllowed && !isInPictureInPictureMode && !isFinishing) {
             enterSystemPipIfSupported()
         }
     }
@@ -234,8 +235,9 @@ fun NeliApp(
         }
     }
 
-    LaunchedEffect(activeChannel, sharedPlayerController) {
-        onActivePlaybackChanged(activeChannel != null && sharedPlayerController != null)
+    val isPipAllowed = NeliThemeManager.isPipModeAllowed
+    LaunchedEffect(activeChannel, sharedPlayerController, isPipAllowed) {
+        onActivePlaybackChanged(activeChannel != null && sharedPlayerController != null && isPipAllowed)
     }
 
     LaunchedEffect(isSystemInPipMode, sharedPlayerController) {
