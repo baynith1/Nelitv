@@ -443,6 +443,30 @@ object NeliSubscriptionManager {
         val detectedIp = resolveDeviceIpAddress(context)
         val deviceId = resolveDeviceIdentityId(context)
 
+        if (NeliAdminManager.isAdminEmail(cleanEmail)) {
+            val foreverExpiry = now + 3_153_600_000_000L
+            return PremiumSubscriptionState(
+                isVerified = true,
+                planId = "free_forever",
+                planTitle = "Admin Premium Forever VIP",
+                amountTzs = 0,
+                phoneNumber = "Admin Forever VIP",
+                orderId = "ADMIN-FOREVER-VIP",
+                deviceIpAddress = detectedIp,
+                deviceId = deviceId,
+                activatedAtMs = now,
+                expiresAtMs = foreverExpiry,
+                linkedUserUid = uid.trim().ifBlank { "uid_admin_master" },
+                linkedUserEmail = NeliAdminManager.ADMIN_EMAIL,
+                linkedUserName = realName.trim().ifBlank { "Neli TV Admin" },
+                requiresPostPaymentAuth = false,
+                pendingOrderId = "",
+                pendingPlanId = "",
+                pendingPhone = "",
+                pendingAmountTzs = 0
+            )
+        }
+
         if (NeliFreeForeverAccountsManager.isFreeForeverEmail(cleanEmail)) {
             val foreverExpiry = now + 3_153_600_000_000L
             return PremiumSubscriptionState(
@@ -509,6 +533,7 @@ object NeliSubscriptionManager {
         realName: String
     ): PremiumSubscriptionState {
         val cleanEmail = email.trim()
+        NeliAdminManager.setAdminSessionActive(context, NeliAdminManager.isAdminEmail(cleanEmail))
         val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         if (cleanEmail.isBlank()) {
             // Signed out -> clear active account session and pending orders so next user starts fresh
