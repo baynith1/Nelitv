@@ -26,12 +26,15 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.automirrored.filled.VolumeOff
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.Campaign
@@ -41,14 +44,20 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.Forward10
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.SettingsRemote
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material.icons.filled.Verified
@@ -67,6 +76,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -75,11 +86,16 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import com.example.data.ChannelRepository
+import com.example.player.CastQualityPreset
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -2168,12 +2184,11 @@ fun MiniAdminPanelScreen(
 }
 
 /**
- * CLEAN SMART TV CAST MODAL DIALOG:
- * Shows ONLY:
- * 1. Available TVs & their list (TV Zilizopo)
- * 2. Tafuta TV / Search button
- * 3. Wireless TV Setting button
- * 4. Cast to Play Now button (blocks casting with "Pay to Watch" if Admin locked the channel and user has not paid)
+ * GOOGLE CAST / SMART TV CAST & REMOTE CONTROL MODAL SHEET:
+ * - Normal Google Cast / Wireless Display discovery & connection
+ * - Features the full TV Remote Control UI (Play/Pause, Seek -10s/+10s, CH-/CH+, Mute, Volume Slider,
+ *   Quality Presets AUTO/LOW/MEDIUM/HIGH, Audio Language KISW/ENG, and Quick Channel Switcher Grid)
+ * - Blocks casting with "Pay to Watch" if Admin locked the channel and user has not paid.
  */
 @Composable
 fun NeliCastModalSheet(
@@ -2193,13 +2208,24 @@ fun NeliCastModalSheet(
     val discoveredDevices by NeliCastManager.availableDevices.collectAsState()
     val castStatusMessage by NeliCastManager.statusMessage.collectAsState()
     val isPayToWatchBlocked by NeliCastManager.isPayToWatchBlocked.collectAsState()
+    val isPlayingOnTv by NeliCastManager.isPlayingOnTv.collectAsState()
+    val isMutedOnTv by NeliCastManager.isMutedOnTv.collectAsState()
+    val castVolume by NeliCastManager.castVolume.collectAsState()
+    val activeQualityPreset by NeliCastManager.activeQualityPreset.collectAsState()
+    val preferredAudioLanguage by NeliCastManager.preferredAudioLanguage.collectAsState()
+
     val subState by NeliSubscriptionManager.subscriptionState.collectAsState()
     val lockedChannelIds by NeliAdminManager.lockedChannelIds.collectAsState()
     val lockAllForFree by NeliAdminManager.areAllChannelsLocked.collectAsState()
     var isSearchingTv by remember { mutableStateOf(true) }
+    var sliderVolume by remember(castVolume) { mutableFloatStateOf(castVolume) }
 
-    val selectedCastChannel = remember(currentChannel, castingChannel, availableChannels) {
-        currentChannel ?: castingChannel ?: availableChannels.firstOrNull()
+    val allChannelsForCast = remember(availableChannels) {
+        availableChannels.ifEmpty { ChannelRepository.getPrioritizedAllChannels() }
+    }
+
+    val selectedCastChannel = remember(currentChannel, castingChannel, allChannelsForCast) {
+        castingChannel ?: currentChannel ?: allChannelsForCast.firstOrNull()
     }
 
     val isChannelLockedForUser = remember(
@@ -2223,7 +2249,7 @@ fun NeliCastModalSheet(
         coroutineScope.launch {
             isSearchingTv = true
             NeliCastManager.refreshAvailableTvDevices(context)
-            delay(450L)
+            delay(380L)
             isSearchingTv = false
         }
     }
@@ -2231,7 +2257,7 @@ fun NeliCastModalSheet(
     LaunchedEffect(Unit) {
         isSearchingTv = true
         NeliCastManager.refreshAvailableTvDevices(context)
-        delay(450L)
+        delay(380L)
         isSearchingTv = false
     }
 
@@ -2242,20 +2268,25 @@ fun NeliCastModalSheet(
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 24.dp)
-                .widthIn(max = 500.dp)
+                .padding(horizontal = 14.dp, vertical = 20.dp)
+                .widthIn(max = 520.dp)
                 .testTag("cast_modal_dialog"),
             shape = RoundedCornerShape(22.dp),
-            color = Color(0xFF101524)
+            color = Color(0xFF0D1322)
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .border(1.dp, Color(0x4400E5FF), RoundedCornerShape(22.dp))
+                    .border(
+                        1.dp,
+                        if (isCasting) Color(0xFF34D399).copy(alpha = 0.65f) else Color(0x4400E5FF),
+                        RoundedCornerShape(22.dp)
+                    )
+                    .verticalScroll(rememberScrollState())
                     .padding(18.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // Clean Header
+                // Header: Google Cast icon + Connected status + Audio Language + Close
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -2277,25 +2308,23 @@ fun NeliCastModalSheet(
                         ) {
                             Icon(
                                 imageVector = if (isCasting) Icons.Default.CastConnected else Icons.Default.Cast,
-                                contentDescription = "Cast to TV",
+                                contentDescription = "Google Cast to TV",
                                 tint = if (isCasting) Color(0xFF34D399) else NeliGenreCyan,
                                 modifier = Modifier.size(22.dp)
                             )
                         }
                         Column {
                             Text(
-                                text = "Cast to TV",
+                                text = if (isCasting) "Google Cast • TV Remote" else "Cast to TV",
                                 color = Color.White,
                                 fontSize = 17.sp,
                                 fontWeight = FontWeight.Black
                             )
                             Text(
-                                text = if (isChannelLockedForUser) {
-                                    "Pay to Watch"
-                                } else if (isCasting && !connectedTvName.isNullOrBlank()) {
-                                    "Connected: $connectedTvName"
-                                } else {
-                                    selectedCastChannel?.name ?: "Select a TV below"
+                                text = when {
+                                    isChannelLockedForUser -> "Pay to Watch"
+                                    isCasting && !connectedTvName.isNullOrBlank() -> "Connected: $connectedTvName"
+                                    else -> selectedCastChannel?.name ?: "Chagua TV kwenye Wi-Fi"
                                 },
                                 color = when {
                                     isChannelLockedForUser -> Color(0xFFFBBF24)
@@ -2303,20 +2332,64 @@ fun NeliCastModalSheet(
                                     else -> NeliTextSecondary
                                 },
                                 fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }
 
-                    IconButton(
-                        onClick = onDismiss,
-                        modifier = Modifier.testTag("cast_dialog_close_button")
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Close",
-                            tint = NeliTextSecondary
-                        )
+                        if (!isChannelLockedForUser) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(NeliSurfaceVariant)
+                                    .border(1.dp, NeliGenreCyan.copy(alpha = 0.7f), RoundedCornerShape(12.dp))
+                                    .clickable {
+                                        val nextLang = if (preferredAudioLanguage == "en") "sw" else "en"
+                                        NeliCastManager.switchAudioLanguageOnTv(
+                                            languageCode = nextLang,
+                                            currentUser = currentUser,
+                                            context = context
+                                        )
+                                    }
+                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                                    .testTag("cast_remote_language_button")
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Language,
+                                        contentDescription = "Audio Language",
+                                        tint = NeliGenreCyan,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Text(
+                                        text = if (preferredAudioLanguage == "en") "ENG" else "KISW",
+                                        color = Color.White,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.ExtraBold
+                                    )
+                                }
+                            }
+                        }
+
+                        IconButton(
+                            onClick = onDismiss,
+                            modifier = Modifier.testTag("cast_dialog_close_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Close",
+                                tint = NeliTextSecondary
+                            )
+                        }
                     }
                 }
 
@@ -2378,7 +2451,7 @@ fun NeliCastModalSheet(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(12.dp))
-                            .background(Color(0xFF17223B))
+                            .background(Color(0xFF152038))
                             .padding(10.dp)
                     ) {
                         Text(
@@ -2387,6 +2460,322 @@ fun NeliCastModalSheet(
                             fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold
                         )
+                    }
+                }
+
+                // Now Playing Banner Card
+                if (selectedCastChannel != null) {
+                    val logoUrl = remember(selectedCastChannel.id, selectedCastChannel.thumbnailUrl) {
+                        ChannelRepository.resolveGuaranteedChannelLogoUrl(selectedCastChannel)
+                    }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(Color(0xFF151E32))
+                            .border(
+                                1.dp,
+                                if (isCasting) Color(0xFF34D399).copy(alpha = 0.6f) else NeliMagenta.copy(alpha = 0.55f),
+                                RoundedCornerShape(14.dp)
+                            )
+                            .padding(12.dp)
+                            .testTag("cast_now_playing_card"),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(48.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color(0xFF0B101D))
+                                .padding(6.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            AsyncImage(
+                                model = ImageRequest.Builder(context)
+                                    .data(logoUrl)
+                                    .crossfade(true)
+                                    .build(),
+                                contentDescription = selectedCastChannel.name,
+                                contentScale = ContentScale.Fit,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = when {
+                                    isChannelLockedForUser -> "Pay to Watch:"
+                                    isCasting -> if (isPlayingOnTv) "PLAYING ON TV:" else "PAUSED ON TV:"
+                                    else -> "Ready to Cast:"
+                                },
+                                color = if (isCasting) Color(0xFF34D399) else NeliTextSecondary,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.ExtraBold
+                            )
+                            Text(
+                                text = selectedCastChannel.name,
+                                color = Color.White,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+
+                // TV REMOTE CONTROL PANEL (The sleek Remote Control Style!)
+                if (!isChannelLockedForUser && !isPayToWatchBlocked) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(Color(0xFF131B2E))
+                            .border(1.dp, Color(0x4410B981), RoundedCornerShape(16.dp))
+                            .padding(14.dp)
+                            .testTag("cast_remote_control_panel"),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.SettingsRemote,
+                                    contentDescription = null,
+                                    tint = Color(0xFF34D399),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Text(
+                                    text = "TV Remote Control",
+                                    color = Color.White,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.ExtraBold
+                                )
+                            }
+                            Text(
+                                text = "Quality: ${activeQualityPreset.label}",
+                                color = Color(0xFF34D399),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                modifier = Modifier.testTag("cast_remote_quality_label")
+                            )
+                        }
+
+                        // Remote Transport Row: Rewind -10s, Prev CH-, Play/Pause, Next CH+, Forward +10s, Mute
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceEvenly,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            IconButton(
+                                onClick = { NeliCastManager.seekBackOnTv() },
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(CircleShape)
+                                    .background(NeliSurfaceVariant)
+                                    .testTag("cast_remote_seek_back_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Replay10,
+                                    contentDescription = "Seek Back 10s",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+
+                            IconButton(
+                                onClick = {
+                                    val prev = NeliCastManager.stepChannelOnTv(
+                                        delta = -1,
+                                        availableChannels = allChannelsForCast,
+                                        currentUser = currentUser,
+                                        context = context
+                                    )
+                                    if (prev != null) {
+                                        onSelectChannelToWatchAndCast(prev)
+                                    }
+                                },
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(CircleShape)
+                                    .background(NeliSurfaceVariant)
+                                    .testTag("cast_remote_prev_channel_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.SkipPrevious,
+                                    contentDescription = "Previous Channel (CH-)",
+                                    tint = NeliGenreCyan,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+
+                            IconButton(
+                                onClick = {
+                                    if (!isCasting) {
+                                        val targetDevice = discoveredDevices.firstOrNull()
+                                        if (targetDevice != null) {
+                                            NeliCastManager.connectAndCastToTv(
+                                                device = targetDevice,
+                                                channel = selectedCastChannel,
+                                                currentUser = currentUser,
+                                                context = context
+                                            )
+                                        }
+                                    } else {
+                                        NeliCastManager.togglePlayPauseOnTv()
+                                    }
+                                },
+                                modifier = Modifier
+                                    .size(56.dp)
+                                    .clip(CircleShape)
+                                    .background(NeliMagenta)
+                                    .testTag("cast_remote_play_pause_button")
+                            ) {
+                                Icon(
+                                    imageVector = if (isCasting && isPlayingOnTv) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                    contentDescription = if (isCasting && isPlayingOnTv) "Pause on TV" else "Play on TV",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(28.dp)
+                                )
+                            }
+
+                            IconButton(
+                                onClick = {
+                                    val next = NeliCastManager.stepChannelOnTv(
+                                        delta = 1,
+                                        availableChannels = allChannelsForCast,
+                                        currentUser = currentUser,
+                                        context = context
+                                    )
+                                    if (next != null) {
+                                        onSelectChannelToWatchAndCast(next)
+                                    }
+                                },
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(CircleShape)
+                                    .background(NeliSurfaceVariant)
+                                    .testTag("cast_remote_next_channel_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.SkipNext,
+                                    contentDescription = "Next Channel (CH+)",
+                                    tint = NeliGenreCyan,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+
+                            IconButton(
+                                onClick = { NeliCastManager.seekForwardOnTv() },
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(CircleShape)
+                                    .background(NeliSurfaceVariant)
+                                    .testTag("cast_remote_seek_forward_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Forward10,
+                                    contentDescription = "Seek Forward 10s",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+
+                            IconButton(
+                                onClick = { NeliCastManager.toggleMuteOnTv(context) },
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(CircleShape)
+                                    .background(if (isMutedOnTv) Color(0xFF7F1D1D) else NeliSurfaceVariant)
+                                    .testTag("cast_remote_mute_button")
+                            ) {
+                                Icon(
+                                    imageVector = if (isMutedOnTv) {
+                                        Icons.AutoMirrored.Filled.VolumeOff
+                                    } else {
+                                        Icons.AutoMirrored.Filled.VolumeUp
+                                    },
+                                    contentDescription = if (isMutedOnTv) "Unmute TV" else "Mute TV",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+
+                        // TV Volume Slider
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.VolumeUp,
+                                contentDescription = null,
+                                tint = NeliGenreCyan,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Slider(
+                                value = if (isMutedOnTv) 0f else sliderVolume,
+                                onValueChange = {
+                                    sliderVolume = it
+                                    NeliCastManager.setVolumeOnTv(it, context)
+                                },
+                                colors = SliderDefaults.colors(
+                                    thumbColor = NeliGenreCyan,
+                                    activeTrackColor = NeliGenreCyan,
+                                    inactiveTrackColor = Color(0xFF1E293B)
+                                ),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("cast_remote_volume_slider")
+                            )
+                            Text(
+                                text = "${((if (isMutedOnTv) 0f else sliderVolume) * 100).toInt()}%",
+                                color = Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        // Quality Presets (AUTO / LOW / MEDIUM / HIGH)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            CastQualityPreset.entries.forEach { preset ->
+                                val isSelected = activeQualityPreset == preset
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(if (isSelected) Color(0xFF065F46) else NeliSurfaceVariant)
+                                        .border(
+                                            1.dp,
+                                            if (isSelected) Color(0xFF34D399) else NeliBorder,
+                                            RoundedCornerShape(10.dp)
+                                        )
+                                        .clickable {
+                                            NeliCastManager.setQualityPreset(preset)
+                                        }
+                                        .padding(vertical = 8.dp)
+                                        .testTag("cast_remote_quality_${preset.code}"),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = preset.label,
+                                        color = Color.White,
+                                        fontSize = 11.sp,
+                                        fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -2444,41 +2833,9 @@ fun NeliCastModalSheet(
                             modifier = Modifier.size(22.dp)
                         )
                         Text(
-                            text = "Inatafuta TV zilizopo kwenye Wi-Fi...",
+                            text = "Inatafuta Google Cast & Smart TV kwenye Wi-Fi...",
                             color = NeliTextSecondary,
                             fontSize = 12.sp
-                        )
-                    }
-                } else if (discoveredDevices.isEmpty()) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(NeliSurface)
-                            .border(1.dp, NeliBorder, RoundedCornerShape(12.dp))
-                            .padding(14.dp)
-                            .testTag("cast_no_devices_found_box"),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Tv,
-                            contentDescription = null,
-                            tint = NeliTextSecondary,
-                            modifier = Modifier.size(26.dp)
-                        )
-                        Text(
-                            text = "Hakuna TV iliyopatikana bado",
-                            color = Color.White,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            textAlign = TextAlign.Center
-                        )
-                        Text(
-                            text = "Bonyeza 'Tafuta TV / Search' au fungua 'Wireless TV Setting' kuunganisha Smart TV yako.",
-                            color = NeliTextSecondary,
-                            fontSize = 11.sp,
-                            textAlign = TextAlign.Center
                         )
                     }
                 } else {
@@ -2501,23 +2858,14 @@ fun NeliCastModalSheet(
                                         shape = RoundedCornerShape(12.dp)
                                     )
                                     .clickable {
-                                        if (isChannelLockedForUser) {
-                                            NeliCastManager.connectAndCastToTv(
-                                                device = device,
-                                                channel = selectedCastChannel,
-                                                currentUser = currentUser,
-                                                context = context
-                                            )
-                                        } else {
-                                            val ok = NeliCastManager.connectAndCastToTv(
-                                                device = device,
-                                                channel = selectedCastChannel,
-                                                currentUser = currentUser,
-                                                context = context
-                                            )
-                                            if (ok) {
-                                                selectedCastChannel?.let { onSelectChannelToWatchAndCast(it) }
-                                            }
+                                        val ok = NeliCastManager.connectAndCastToTv(
+                                            device = device,
+                                            channel = selectedCastChannel,
+                                            currentUser = currentUser,
+                                            context = context
+                                        )
+                                        if (ok) {
+                                            selectedCastChannel?.let { onSelectChannelToWatchAndCast(it) }
                                         }
                                     }
                                     .padding(12.dp)
@@ -2569,7 +2917,63 @@ fun NeliCastModalSheet(
                     }
                 }
 
-                // Bottom Action Buttons: Wireless TV Setting & Cast to Play Now
+                // Quick Channel Switcher inside the Cast Remote Sheet
+                val quickAzamChannels = remember { ChannelRepository.hardcodedAzamChannels.take(8) }
+                if (quickAzamChannels.isNotEmpty()) {
+                    Text(
+                        text = "Quick Switch Channel on TV:",
+                        color = NeliTextPrimary,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        quickAzamChannels.chunked(2).forEach { pair ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                pair.forEach { azamCh ->
+                                    val isCurrent = selectedCastChannel?.id.equals(azamCh.id, ignoreCase = true)
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(if (isCurrent) NeliMagenta else NeliSurfaceVariant)
+                                            .clickable {
+                                                val ok = NeliCastManager.updateCastingChannel(
+                                                    channel = azamCh,
+                                                    currentUser = currentUser,
+                                                    context = context
+                                                )
+                                                if (ok) {
+                                                    onSelectChannelToWatchAndCast(azamCh)
+                                                }
+                                            }
+                                            .padding(horizontal = 10.dp, vertical = 8.dp)
+                                            .testTag("cast_quick_channel_${azamCh.id}")
+                                    ) {
+                                        Text(
+                                            text = azamCh.name,
+                                            color = Color.White,
+                                            fontSize = 12.sp,
+                                            fontWeight = if (isCurrent) FontWeight.ExtraBold else FontWeight.Medium,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+                                if (pair.size == 1) {
+                                    Spacer(modifier = Modifier.weight(1f))
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Bottom Action Buttons: Wireless TV Setting & Cast / Stop Casting
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -2622,7 +3026,6 @@ fun NeliCastModalSheet(
                                         )
                                     }
                                     selectedCastChannel?.let { onSelectChannelToWatchAndCast(it) }
-                                    onDismiss()
                                 }
                             },
                             colors = ButtonDefaults.buttonColors(
@@ -2634,7 +3037,7 @@ fun NeliCastModalSheet(
                                 .testTag("cast_start_watching_button")
                         ) {
                             Icon(
-                                imageVector = if (isChannelLockedForUser) Icons.Default.Lock else Icons.Default.PlayArrow,
+                                imageVector = if (isChannelLockedForUser) Icons.Default.Lock else Icons.Default.Cast,
                                 contentDescription = null,
                                 tint = if (isChannelLockedForUser) Color.Black else Color.White,
                                 modifier = Modifier.size(16.dp)

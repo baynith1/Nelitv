@@ -41,6 +41,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.VolumeMute
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.AspectRatio
+import androidx.compose.material.icons.filled.Cast
+import androidx.compose.material.icons.filled.CastConnected
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ErrorOutline
@@ -237,19 +239,30 @@ fun PlayerScreen(
     var isEpisodeDrawerOpen by remember { mutableStateOf(false) }
     var isSettingsDrawerOpen by remember { mutableStateOf(false) }
     var isAzamLanguageMenuOpen by remember { mutableStateOf(false) }
-    var showScanToCastSheet by remember { mutableStateOf(false) }
-    var showCameraScannerInPlayer by remember { mutableStateOf(false) }
+    var showCastDialog by remember { mutableStateOf(false) }
+    val connectedCastDevice by com.example.player.NeliCastManager.connectedDevice.collectAsState()
     val scanToCastState by com.example.player.ScanToCastManager.sessionState.collectAsState()
+    val isCastConnected = connectedCastDevice != null || scanToCastState.receiverConnected
     val isHardcodedAzamForCast = remember(activeChannel.id, activeChannel.name, activeChannel.isLiveBroadcast) {
         com.example.data.ChannelRepository.isHardcodedAzamChannel(activeChannel)
     }
     var resizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FILL) }
-    var orientationMode by remember {
-        mutableStateOf(PlayerGestureHelper.readSavedOrientationMode(context))
+    // Always open every channel or movie in Full Screen Landscape until the user explicitly switches to Portrait mode
+    var orientationMode by remember(channel.id) {
+        mutableStateOf(PlayerOrientationMode.LOCKED_LANDSCAPE)
     }
     var showOrientationStatusBadge by remember { mutableStateOf(false) }
     var orientationBadgeTriggerToken by remember { mutableLongStateOf(0L) }
     val activeExoPlayer = remember(playerController) { playerController.initializePlayer() }
+
+    LaunchedEffect(channel.id) {
+        orientationMode = PlayerOrientationMode.LOCKED_LANDSCAPE
+        PlayerGestureHelper.saveAndApplyOrientationMode(
+            context,
+            activity,
+            PlayerOrientationMode.LOCKED_LANDSCAPE
+        )
+    }
 
     val updateOrientationMode: (PlayerOrientationMode) -> Unit = { newMode ->
         orientationMode = newMode
@@ -571,13 +584,8 @@ fun PlayerScreen(
         // Always-On Live Stream Freeze / Stall Auto-Fix Watchdog (runs even when player controls are hidden):
         // Automatically detects and fixes any live stream stall or freeze so the user never has to manually
         // press the bottom "LIVE STREAM • CONTINUOUS REAL-TIME PLAYBACK" button.
-        LaunchedEffect(activeChannel.id, activeChannel.isLiveBroadcast, scanToCastState.receiverConnected) {
-            if (isHardcodedAzamForCast && scanToCastState.receiverConnected) {
-                // While connected to TV via Scan to Cast, phone is ONLY the remote/controller:
-                // pause local ExoPlayer so phone speaker/Bluetooth does not output cast audio.
-                activeExoPlayer.playWhenReady = false
-                activeExoPlayer.pause()
-            } else if (activeChannel.isLiveBroadcast) {
+        LaunchedEffect(activeChannel.id, activeChannel.isLiveBroadcast) {
+            if (activeChannel.isLiveBroadcast) {
                 if (!activeExoPlayer.isPlaying) {
                     activeExoPlayer.playWhenReady = true
                     activeExoPlayer.play()
@@ -589,28 +597,37 @@ fun PlayerScreen(
             }
         }
 
-        if (showCameraScannerInPlayer && isHardcodedAzamForCast) {
-            com.example.ui.components.CameraScannerView(
-                currentUser = null,
-                initialAzamChannel = activeChannel,
-                preferredAudioLanguage = playbackInfo.activeAudioLanguage,
-                onDismiss = { showCameraScannerInPlayer = false },
-                onQrCodePaired = {
-                    showCameraScannerInPlayer = false
-                    showScanToCastSheet = true
-                },
-                modifier = Modifier.fillMaxSize()
-            )
-            return@Box
+        // Sync active channel to connected Cast device / TV in the background without showing any remote overlay
+        LaunchedEffect(
+            activeChannel.id,
+            playbackInfo.activeAudioLanguage,
+            connectedCastDevice?.id,
+            scanToCastState.receiverConnected
+        ) {
+            if (connectedCastDevice != null) {
+                com.example.player.NeliCastManager.updateCastingChannel(
+                    channel = activeChannel,
+                    context = context
+                )
+            }
+            if (isHardcodedAzamForCast && scanToCastState.receiverConnected) {
+                com.example.player.ScanToCastManager.castAzamChannelToConnectedDevice(
+                    context = context,
+                    channel = activeChannel,
+                    currentUser = null,
+                    preferredAudioLanguage = playbackInfo.activeAudioLanguage
+                )
+            }
         }
 
-        if (showScanToCastSheet && isHardcodedAzamForCast) {
-            com.example.ui.components.ScanToCastModalSheet(
-                channel = activeChannel,
-                preferredAudioLanguage = playbackInfo.activeAudioLanguage,
-                onDismiss = { showScanToCastSheet = false },
-                onSelectAzamChannel = { switchedAzam ->
-                    playerController.switchChannel(switchedAzam)
+        if (showCastDialog) {
+            NeliCastModalSheet(
+                availableChannels = com.example.data.ChannelRepository.getPrioritizedAllChannels(),
+                currentChannel = activeChannel,
+                currentUser = null,
+                onDismiss = { showCastDialog = false },
+                onSelectChannelToWatchAndCast = { selectedCh ->
+                    playerController.switchChannel(selectedCh)
                 }
             )
         }
@@ -914,78 +931,43 @@ fun PlayerScreen(
                             LiveIndicatorBadge()
                         }
 
-                        // SCAN TO CAST Camera Icon & Button (ONLY for hardcoded AZAM TV live channels)
-                        if (isHardcodedAzamForCast) {
-                            val isConnectedToTv = scanToCastState.receiverConnected
-                            IconButton(
-                                onClick = {
+                        // Standard Cast Button (Simple & working like other casting devices)
+                        Box(
+                            modifier = Modifier
+                                .testTag("player_cast_button")
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(
+                                    if (isCastConnected) Color(0xFF065F46) else Color(0xCC122238)
+                                )
+                                .border(
+                                    1.dp,
+                                    if (isCastConnected) Color(0xFF34D399) else NeliGenreCyan.copy(alpha = 0.7f),
+                                    RoundedCornerShape(20.dp)
+                                )
+                                .clickable {
                                     isEpisodeDrawerOpen = false
                                     isSettingsDrawerOpen = false
                                     isAzamLanguageMenuOpen = false
-                                    showCameraScannerInPlayer = true
-                                },
-                                modifier = Modifier
-                                    .testTag("player_scan_to_cast_cam_button")
-                                    .size(40.dp)
-                                    .clip(CircleShape)
-                                    .background(
-                                        if (isConnectedToTv) Color(0xFF065F46) else Color(0xCC0E2A38)
-                                    )
-                                    .border(
-                                        1.dp,
-                                        if (isConnectedToTv) Color(0xFF34D399) else NeliGenreCyan,
-                                        CircleShape
-                                    )
+                                    showCastDialog = true
+                                }
+                                .padding(horizontal = 12.dp, vertical = 8.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.PhotoCamera,
-                                    contentDescription = "Scan to Cast QR Camera",
-                                    tint = if (isConnectedToTv) Color(0xFF34D399) else NeliGenreCyan,
-                                    modifier = Modifier.size(18.dp)
+                                    imageVector = if (isCastConnected) Icons.Default.CastConnected else Icons.Default.Cast,
+                                    contentDescription = if (isCastConnected) "Connected to TV" else "Cast to TV",
+                                    tint = if (isCastConnected) Color(0xFF34D399) else NeliGenreCyan,
+                                    modifier = Modifier.size(16.dp)
                                 )
-                            }
-
-                            Box(
-                                modifier = Modifier
-                                    .testTag("scan_to_cast_button")
-                                    .clip(RoundedCornerShape(20.dp))
-                                    .background(
-                                        if (isConnectedToTv) Color(0xFF065F46) else Color(0xCC0E2A38)
-                                    )
-                                    .border(
-                                        1.dp,
-                                        if (isConnectedToTv) Color(0xFF34D399) else NeliGenreCyan,
-                                        RoundedCornerShape(20.dp)
-                                    )
-                                    .clickable {
-                                        isEpisodeDrawerOpen = false
-                                        isSettingsDrawerOpen = false
-                                        isAzamLanguageMenuOpen = false
-                                        if (!isConnectedToTv) {
-                                            showCameraScannerInPlayer = true
-                                        } else {
-                                            showScanToCastSheet = true
-                                        }
-                                    }
-                                    .padding(horizontal = 12.dp, vertical = 8.dp)
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Sensors,
-                                        contentDescription = "SCAN TO CAST",
-                                        tint = if (isConnectedToTv) Color(0xFF34D399) else NeliGenreCyan,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Text(
-                                        text = if (isConnectedToTv) "CONNECTED TO TV" else "SCAN TO CAST",
-                                        color = Color.White,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.ExtraBold
-                                    )
-                                }
+                                Text(
+                                    text = if (isCastConnected) "Casting" else "Cast",
+                                    color = Color.White,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.ExtraBold
+                                )
                             }
                         }
 
@@ -1076,22 +1058,8 @@ fun PlayerScreen(
                 }
 
                 // Center Area:
-                // - If connected to TV via Scan to Cast on a hardcoded AZAM channel, show the Remote Controller overlay.
                 // - Live TV: NO play/pause or seek buttons! Always continues playing live until user exits.
                 // - Movies, Adult & Series: Rewind 10s, Play/Pause, Forward 10s, plus Next/Previous Episode buttons for Series.
-                if (isHardcodedAzamForCast && scanToCastState.receiverConnected) {
-                    com.example.ui.components.ScanToCastConnectedPlayerOverlay(
-                        sessionState = scanToCastState,
-                        onOpenFullCastSheet = { showScanToCastSheet = true },
-                        onDisconnect = {
-                            com.example.player.ScanToCastManager.disconnectCastSession()
-                            activeExoPlayer.playWhenReady = true
-                            activeExoPlayer.play()
-                        },
-                        modifier = Modifier.padding(top = 68.dp, bottom = 20.dp)
-                    )
-                }
-
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -1696,7 +1664,7 @@ fun PlayerScreen(
                                 )
                             }
 
-                            // Screen Orientation Lock / Toggle Button (Forces Landscape to prevent accidental rotation)
+                            // Screen Orientation Lock / Portrait Toggle Button (Opens in Full Landscape; switches to Portrait only when user clicks)
                             Box(
                                 modifier = Modifier
                                     .testTag("orientation_lock_toggle_button")
@@ -1711,7 +1679,11 @@ fun PlayerScreen(
                                         RoundedCornerShape(24.dp)
                                     )
                                     .clickable {
-                                        val nextMode = PlayerGestureHelper.toggleLandscapeLock(orientationMode)
+                                        val nextMode = if (orientationMode == PlayerOrientationMode.PORTRAIT) {
+                                            PlayerOrientationMode.LOCKED_LANDSCAPE
+                                        } else {
+                                            PlayerOrientationMode.PORTRAIT
+                                        }
                                         updateOrientationMode(nextMode)
                                     }
                                     .padding(horizontal = 14.dp),

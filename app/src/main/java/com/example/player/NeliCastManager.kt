@@ -197,6 +197,24 @@ object NeliCastManager {
         } catch (_: Throwable) {
         }
 
+        try {
+            val scanState = ScanToCastManager.sessionState.value
+            if (scanState.receiverConnected && scanState.sessionId.isNotBlank()) {
+                val webTvDevice = CastTvDevice(
+                    id = "web_tv_${scanState.sessionId}",
+                    name = "Smart TV (${scanState.sessionId})",
+                    subtitle = "Connected • cast-nelitv.web.app",
+                    protocol = "Smart TV Cast",
+                    isSystemRoute = false
+                )
+                discovered.add(0, webTvDevice)
+                if (_connectedDevice.value == null) {
+                    _connectedDevice.value = webTvDevice
+                }
+            }
+        } catch (_: Throwable) {
+        }
+
         _availableDevices.value = discovered.distinctBy { it.id }
         _isScanning.value = false
     }
@@ -229,12 +247,25 @@ object NeliCastManager {
             _isPayToWatchBlocked.value = true
             _castingChannel.value = null
             _statusMessage.value = "Pay to Watch"
+            if (context != null && targetChannel != null && ChannelRepository.isHardcodedAzamChannel(targetChannel)) {
+                ScanToCastManager.notifyLockedChannelPayToWatch(context, targetChannel)
+            }
             return false
         }
 
         _isPayToWatchBlocked.value = false
         _connectedDevice.value = device
         _castingChannel.value = targetChannel
+
+        if (context != null && targetChannel != null && ChannelRepository.isHardcodedAzamChannel(targetChannel) &&
+            ScanToCastManager.sessionState.value.receiverConnected
+        ) {
+            ScanToCastManager.castAzamChannelToConnectedDevice(
+                context = context,
+                channel = targetChannel,
+                currentUser = currentUser
+            )
+        }
 
         val channelTitle = targetChannel?.name ?: "Nelitv Live Stream"
         _statusMessage.value = "Inarusha (Casting) \"$channelTitle\" kwenda kwenye ${device.name}"
@@ -250,10 +281,22 @@ object NeliCastManager {
             _isPayToWatchBlocked.value = true
             _castingChannel.value = null
             _statusMessage.value = "Pay to Watch"
+            if (context != null && ChannelRepository.isHardcodedAzamChannel(channel)) {
+                ScanToCastManager.notifyLockedChannelPayToWatch(context, channel)
+            }
             return false
         }
         _isPayToWatchBlocked.value = false
         _castingChannel.value = channel
+        if (context != null && ChannelRepository.isHardcodedAzamChannel(channel) &&
+            ScanToCastManager.sessionState.value.receiverConnected
+        ) {
+            ScanToCastManager.castAzamChannelToConnectedDevice(
+                context = context,
+                channel = channel,
+                currentUser = currentUser
+            )
+        }
         val dev = _connectedDevice.value
         if (dev != null) {
             _statusMessage.value = "Inarusha (Casting) \"${channel.name}\" kwenda kwenye ${dev.name}"
@@ -265,6 +308,9 @@ object NeliCastManager {
         val prev = _connectedDevice.value
         _connectedDevice.value = null
         _isPayToWatchBlocked.value = false
+        if (ScanToCastManager.sessionState.value.receiverConnected) {
+            ScanToCastManager.disconnectCastSession()
+        }
         _statusMessage.value = if (prev != null) {
             "Imetenganishwa na ${prev.name}"
         } else {

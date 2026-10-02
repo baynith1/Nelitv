@@ -1855,4 +1855,68 @@ class ExampleRobolectricTest {
         completedFile.delete()
         controller.release()
     }
+
+    @Test
+    fun neliCastManager_supportsGoogleCastDiscoveryAndFullRemoteControlStyle() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        com.example.player.NeliCastManager.disconnectCast()
+        com.example.data.NeliAdminManager.initialize(context)
+
+        val channels = com.example.data.ChannelRepository.getPrioritizedAllChannels()
+        assertTrue(channels.size >= 2)
+        val ch1 = channels[0]
+        val ch2 = channels[1]
+        com.example.data.NeliAdminManager.setSingleChannelLock(context, ch1.id, locked = false)
+        com.example.data.NeliAdminManager.setSingleChannelLock(context, ch2.id, locked = false)
+
+        val googleCastDevice = com.example.player.CastTvDevice(
+            id = "google_cast_living_room",
+            name = "Living Room Google Cast TV",
+            subtitle = "Google Cast • Smart TV Receiver",
+            protocol = "Google Cast"
+        )
+
+        val connected = com.example.player.NeliCastManager.connectAndCastToTv(
+            device = googleCastDevice,
+            channel = ch1,
+            currentUser = null,
+            context = context
+        )
+        assertTrue(connected)
+        assertNotNull(com.example.player.NeliCastManager.connectedDevice.value)
+        assertEquals(ch1.id, com.example.player.NeliCastManager.castingChannel.value?.id)
+        assertTrue(com.example.player.NeliCastManager.isPlayingOnTv.value)
+
+        // Test Remote Play/Pause toggle
+        com.example.player.NeliCastManager.togglePlayPauseOnTv()
+        assertEquals(false, com.example.player.NeliCastManager.isPlayingOnTv.value)
+        com.example.player.NeliCastManager.togglePlayPauseOnTv()
+        assertEquals(true, com.example.player.NeliCastManager.isPlayingOnTv.value)
+
+        // Test Remote Seek +10s / -10s
+        com.example.player.NeliCastManager.seekForwardOnTv()
+        assertTrue(com.example.player.NeliCastManager.statusMessage.value.orEmpty().contains("+10s"))
+        com.example.player.NeliCastManager.seekBackOnTv()
+        assertTrue(com.example.player.NeliCastManager.statusMessage.value.orEmpty().contains("-10s"))
+
+        // Test Remote Mute & Volume
+        com.example.player.NeliCastManager.toggleMuteOnTv(context)
+        assertEquals(true, com.example.player.NeliCastManager.isMutedOnTv.value)
+        com.example.player.NeliCastManager.setVolumeOnTv(0.65f, context)
+        assertEquals(false, com.example.player.NeliCastManager.isMutedOnTv.value)
+        assertEquals(0.65f, com.example.player.NeliCastManager.castVolume.value, 0.01f)
+
+        // Test Remote Quality Switch
+        com.example.player.NeliCastManager.setCastStreamQuality("1080p Full HD")
+        assertEquals("1080p Full HD", com.example.player.NeliCastManager.castStreamQuality.value)
+
+        // Test Remote Channel Step (CH+ / CH-)
+        val stepped = com.example.player.NeliCastManager.stepChannelOnTv(1, listOf(ch1, ch2), null, context)
+        assertNotNull(stepped)
+        assertEquals(ch2.id, stepped?.id)
+        assertEquals(ch2.id, com.example.player.NeliCastManager.castingChannel.value?.id)
+
+        com.example.player.NeliCastManager.disconnectCast()
+        assertEquals(null, com.example.player.NeliCastManager.connectedDevice.value)
+    }
 }

@@ -180,7 +180,7 @@ fun TopNavBar(
                 }
             }
 
-            // Right: Search Button -> Scan to Cast (Camera Icon) -> Cast Button (Logo -> Search -> Scan to Cast -> Cast)
+            // Right: Search Button -> Cast Button (Clean header: Logo -> Search -> Google Cast)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -201,26 +201,6 @@ fun TopNavBar(
                         tint = if (isSearchOpen) NeliMagenta else NeliTextPrimary,
                         modifier = Modifier.size(22.dp)
                     )
-                }
-
-                if (showScanToCastCamIcon) {
-                    IconButton(
-                        onClick = onScanToCastCamClick,
-                        modifier = Modifier
-                            .testTag("scan_to_cast_cam_icon_button")
-                            .size(48.dp)
-                            .clip(CircleShape)
-                            .background(
-                                if (isScanToCastActive) Color(0x2600E5FF) else Color.Transparent
-                            )
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.PhotoCamera,
-                            contentDescription = if (isScanToCastActive) "Scan to Cast Connected (AZAM TV)" else "Scan to Cast QR Camera",
-                            tint = if (isScanToCastActive) NeliGenreCyan else NeliTextPrimary,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
                 }
 
                 IconButton(
