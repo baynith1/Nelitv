@@ -110,8 +110,7 @@ dependencies {
   implementation(libs.androidx.media3.exoplayer.hls)
   implementation(libs.androidx.media3.ui)
   implementation(libs.androidx.media3.common)
-  implementation("net.java.dev.jna:jna:5.14.0@aar")
-  testImplementation(libs.jna)
+
   // implementation(libs.converter.moshi)
   // implementation(libs.firebase.ai)
   // Uncomment to use Firestore:
