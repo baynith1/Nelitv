@@ -1,12 +1,21 @@
 package com.example.data
 
 import com.example.BuildConfig
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.ConnectionPool
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.concurrent.TimeUnit
 
 /**
  * Structured exception representing an API or HTTP error returned by HarakaPay (`https://harakapay.net`).
@@ -105,6 +114,48 @@ class PaymentService(
         fun isValidPhoneNumber(rawPhone: String): Boolean {
             val normalized = normalizePhoneNumber(rawPhone)
             return normalized.length == 10 && (normalized.startsWith("07") || normalized.startsWith("06"))
+        }
+
+        private val prewarmScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        @Volatile
+        private var lastPrewarmAtMs: Long = 0L
+
+        /**
+         * Shared high-speed OkHttpClient with a persistent keep-alive connection pool and HTTP/2
+         * multiplexing so `https://harakapay.net` requests (`collect` & `status`) execute with
+         * near-zero TLS handshake latency.
+         */
+        val turboHttpClient: OkHttpClient by lazy {
+            OkHttpClient.Builder()
+                .connectionPool(ConnectionPool(16, 5, TimeUnit.MINUTES))
+                .connectTimeout(6, TimeUnit.SECONDS)
+                .readTimeout(8, TimeUnit.SECONDS)
+                .writeTimeout(6, TimeUnit.SECONDS)
+                .retryOnConnectionFailure(true)
+                .build()
+        }
+
+        /**
+         * Pre-warms the DNS + TCP + TLS connection to `https://harakapay.net` in the background
+         * as soon as the user opens the Premium screen or enters their phone number, ensuring
+         * instant USSD push dispatch when they tap Pay.
+         */
+        fun prewarmHarakaPayConnection(baseUrl: String = DEFAULT_BASE_URL) {
+            val now = System.currentTimeMillis()
+            if (now - lastPrewarmAtMs < 30_000L) return
+            lastPrewarmAtMs = now
+            prewarmScope.launch {
+                try {
+                    val req = Request.Builder()
+                        .url("${baseUrl.trimEnd('/')}/api/v1/balance")
+                        .head()
+                        .header(HEADER_ACCEPT, CONTENT_TYPE_JSON)
+                        .header("Connection", "keep-alive")
+                        .build()
+                    turboHttpClient.newCall(req).execute().close()
+                } catch (_: Throwable) {
+                }
+            }
         }
     }
 
@@ -586,54 +637,89 @@ class PaymentService(
     }
 
     /**
-     * Default production HTTP transport backed by [HttpURLConnection].
+     * High-speed production HTTP transport backed by a shared keep-alive [OkHttpClient] pool
+     * (with automatic fallback to [HttpURLConnection]) for ultra-fast `harakapay.net` checkout.
      */
     object DefaultHttpUrlConnectionTransport : PaymentHttpTransport {
+        private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
+
         override fun execute(
             method: String,
             url: String,
             headers: Map<String, String>,
             requestBody: String?
         ): PaymentHttpResponse {
-            val conn = (URL(url).openConnection() as HttpURLConnection).apply {
-                requestMethod = method
-                connectTimeout = 15_000
-                readTimeout = 20_000
-                doInput = true
+            try {
+                val reqBuilder = Request.Builder().url(url)
                 headers.forEach { (key, value) ->
-                    setRequestProperty(key, value)
+                    reqBuilder.header(key, value)
                 }
+                reqBuilder.header("Connection", "keep-alive")
+
+                val upperMethod = method.uppercase()
+                if (upperMethod == "POST" || upperMethod == "PUT" || upperMethod == "PATCH") {
+                    val bodyBytes = (requestBody ?: "{}").toRequestBody(jsonMediaType)
+                    reqBuilder.method(upperMethod, bodyBytes)
+                } else {
+                    reqBuilder.method(upperMethod, null)
+                }
+
+                turboHttpClient.newCall(reqBuilder.build()).execute().use { response ->
+                    val statusCode = response.code
+                    val rawBody = response.body?.string().orEmpty()
+                    val responseHeaders = mutableMapOf<String, String>()
+                    response.headers.names().forEach { name ->
+                        responseHeaders[name] = response.headers.values(name).joinToString(", ")
+                    }
+                    return PaymentHttpResponse(
+                        statusCode = statusCode,
+                        body = rawBody,
+                        headers = responseHeaders
+                    )
+                }
+            } catch (_: Throwable) {
+                // Fallback to direct HttpURLConnection if needed
+                val conn = (URL(url).openConnection() as HttpURLConnection).apply {
+                    requestMethod = method
+                    connectTimeout = 7_000
+                    readTimeout = 9_000
+                    doInput = true
+                    setRequestProperty("Connection", "keep-alive")
+                    headers.forEach { (key, value) ->
+                        setRequestProperty(key, value)
+                    }
+                    if (requestBody != null) {
+                        doOutput = true
+                    }
+                }
+
                 if (requestBody != null) {
-                    doOutput = true
+                    conn.outputStream.use { os ->
+                        os.write(requestBody.toByteArray(Charsets.UTF_8))
+                    }
                 }
-            }
 
-            if (requestBody != null) {
-                conn.outputStream.use { os ->
-                    os.write(requestBody.toByteArray(Charsets.UTF_8))
+                val responseCode = conn.responseCode
+                val rawBody = try {
+                    val stream = if (responseCode in 200..299) conn.inputStream else conn.errorStream
+                    stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+                } catch (_: Exception) {
+                    ""
                 }
-            }
 
-            val responseCode = conn.responseCode
-            val rawBody = try {
-                val stream = if (responseCode in 200..299) conn.inputStream else conn.errorStream
-                stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
-            } catch (_: Exception) {
-                ""
-            }
-
-            val responseHeaders = mutableMapOf<String, String>()
-            conn.headerFields?.forEach { (k, v) ->
-                if (k != null && !v.isNullOrEmpty()) {
-                    responseHeaders[k] = v.joinToString(", ")
+                val responseHeaders = mutableMapOf<String, String>()
+                conn.headerFields?.forEach { (k, v) ->
+                    if (k != null && !v.isNullOrEmpty()) {
+                        responseHeaders[k] = v.joinToString(", ")
+                    }
                 }
-            }
 
-            return PaymentHttpResponse(
-                statusCode = responseCode,
-                body = rawBody,
-                headers = responseHeaders
-            )
+                return PaymentHttpResponse(
+                    statusCode = responseCode,
+                    body = rawBody,
+                    headers = responseHeaders
+                )
+            }
         }
     }
 }

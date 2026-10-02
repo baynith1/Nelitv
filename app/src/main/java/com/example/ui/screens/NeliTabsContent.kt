@@ -2385,75 +2385,8 @@ fun AccountTabContent(
                 }
             }
         } else {
-            // Verified Premium Member Card (when user paid and has not logged in yet; Device IP stays in background)
-            if (isVerifiedPremiumMember) {
-                item {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(22.dp))
-                            .background(Color(0xFF1A160B))
-                            .border(1.5.dp, Color(0xFFF59E0B), RoundedCornerShape(22.dp))
-                            .padding(18.dp)
-                            .testTag("account_device_ip_premium_card"),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            modifier = Modifier.testTag("account_premium_verified_badge")
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(40.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0x3310B981)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Verified,
-                                    contentDescription = "Verified Premium Member Tick",
-                                    tint = Color(0xFF34D399),
-                                    modifier = Modifier.size(26.dp)
-                                )
-                            }
-                            Column {
-                                Text(
-                                    text = "✓ VERIFIED ACCOUNT",
-                                    color = Color(0xFF34D399),
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Black
-                                )
-                                Text(
-                                    text = "Premium Member ✓",
-                                    color = Color(0xFFFBBF24),
-                                    fontSize = 19.sp,
-                                    fontWeight = FontWeight.Black
-                                )
-                            }
-                        }
-                        Text(
-                            text = "Kifurushi: ${subState.planTitle.ifBlank { "VIP" }} • TZS ${subState.amountTzs}",
-                            color = Color.White,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "Simu: ${subState.phoneNumber} • Order ID: ${subState.orderId}",
-                            color = NeliTextSecondary,
-                            fontSize = 12.sp
-                        )
-                        Text(
-                            text = "${subState.remainingDaysOrHoursLabel} (Inaisha: ${subState.formattedExpiryDate})",
-                            color = Color(0xFF34D399),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-            }
-
-            // Sign Up / Sign In Authentication Card (Automatic login upon registration)
+            // When user is logged out (currentUser == null), never show a "Premium Member" banner at the top of Account tab.
+            // Go directly to Sign Up / Sign In Authentication Card.
             item {
                 Column(
                     modifier = Modifier

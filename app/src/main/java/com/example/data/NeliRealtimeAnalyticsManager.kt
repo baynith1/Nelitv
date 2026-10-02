@@ -1,6 +1,9 @@
 package com.example.data
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import android.os.Build
 import com.example.data.local.NeliDatabase
 import com.example.data.local.UserAccountEntity
 import com.example.model.LiveChannel
@@ -20,6 +23,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
@@ -50,7 +54,7 @@ data class LiveViewerSession(
     val sessionId: String,
     val userName: String,
     val userEmail: String,
-    val accountTier: String, // "FREE FOREVER VIP", "PREMIUM VIP", "ADMIN", "FREE"
+    val accountTier: String, // "FREE FOREVER VIP", "PREMIUM VIP", "ADMIN", "FREE USER"
     val deviceModel: String,
     val deviceIp: String,
     val city: String,
@@ -70,11 +74,11 @@ data class HarakaPayTransactionRecord(
     val amountTzs: Int,
     val mobileNetwork: String, // M-Pesa, Mixx by Yas (Tigo Pesa), Airtel Money, HaloPesa
     val cityAndStreet: String,
-    val status: String, // COMPLETED, PENDING, FAILED
+    val status: String, // Strictly COMPLETED for confirmed payments
     val timestampMs: Long
 ) {
     val formattedTime: String
-        get() = SimpleDateFormat("dd MMM HH:mm", Locale.getDefault()).format(Date(timestampMs))
+        get() = SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()).format(Date(timestampMs))
 
     val formattedAmount: String
         get() = "TZS ${NumberFormat.getNumberInstance(Locale.US).format(amountTzs)}"
@@ -106,6 +110,26 @@ data class DeviceBrandStat(
     val sharePercent: Int
 )
 
+private data class RealDeviceTelemetryRecord(
+    val deviceId: String,
+    val deviceModel: String,
+    val deviceBrand: String,
+    val deviceIp: String,
+    val city: String,
+    val district: String,
+    val street: String,
+    val networkType: String,
+    val userEmail: String,
+    val userName: String,
+    val accountTier: String,
+    val isPremium: Boolean,
+    val watchingChannelId: String,
+    val watchingTitle: String,
+    val watchingCategory: String,
+    val firstSeenAtMs: Long,
+    val lastSeenAtMs: Long
+)
+
 data class NeliRealtimeAdminSnapshot(
     val lastUpdatedMs: Long = System.currentTimeMillis(),
     val totalAppUsers: Int = 0,
@@ -122,7 +146,7 @@ data class NeliRealtimeAdminSnapshot(
     val todayHarakaPayIncomeTzs: Long = 0L,
     val weeklyHarakaPayIncomeTzs: Long = 0L,
     val monthlyHarakaPayIncomeTzs: Long = 0L,
-    val harakaPayWalletBalance: String = "Inapakia...",
+    val harakaPayWalletBalance: String = "TZS 0",
     val totalHarakaPayTransactions: Int = 0,
     val completedHarakaPayTransactions: Int = 0,
     val dailyPlanSubscribers: Int = 0,
@@ -140,12 +164,12 @@ data class NeliRealtimeAdminSnapshot(
     val topDeviceBrands: List<DeviceBrandStat> = emptyList(),
     val activeCastDevicesNow: Int = 0,
     val totalSavedOfflineDownloads: Int = 0,
-    val wifiUsersPercent: Int = 38,
-    val mobileDataUsersPercent: Int = 62,
+    val wifiUsersPercent: Int = 0,
+    val mobileDataUsersPercent: Int = 0,
     val azamCdnStatusLabel: String = "ACTIVE • 18/18 Azam HD Ready",
-    val firebaseRealtimeStatusLabel: String = "LIVE SYNC • Connected",
-    val currentDeviceCity: String = "Dar es Salaam",
-    val currentDeviceStreet: String = "Kariakoo • Mtaa wa Msimbazi"
+    val firebaseRealtimeStatusLabel: String = "LIVE SYNC • Real Data Only",
+    val currentDeviceCity: String = "Tanzania",
+    val currentDeviceStreet: String = "Inatambua Eneo..."
 ) {
     val formattedLastUpdated: String
         get() = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(lastUpdatedMs))
@@ -156,24 +180,30 @@ data class NeliRealtimeAdminSnapshot(
 }
 
 /**
- * Real-Time Telemetry & Analytics Engine for the Full Admin Panel.
- * Tracks:
- * - Total App Users, Current Online Users, Registered Users, Premium Users
- * - Live Total Watching (Channels, Movies & Series)
- * - Tanzania Locations (Cities, Districts & Streets across Tanzania)
- * - HarakaPay Total Income, Package Breakdown, Mobile Money Networks & Live Transactions
- * - 5 Free Forever VIP Accounts (`user1@login.com` .. `user5@login.com`) live device usage
+ * 100% REAL DATA Telemetry & Analytics Engine for the Full Admin Panel.
+ * - Tracks ONLY real app installations/devices in Firebase RTDB (`nelitv_real_telemetry/devices`) + local Room DB.
+ * - Tracks ONLY real online users (active heartbeat within last 2 minutes).
+ * - Tracks ONLY real active viewers currently inside `PlayerScreen`.
+ * - Tracks ONLY real confirmed HarakaPay payments (`status == "COMPLETED"`).
+ * - Resolves real device location via IP geolocation API + real network telemetry.
  */
 object NeliRealtimeAnalyticsManager {
-    private const val PREFS_NAME = "neli_realtime_analytics_prefs"
-    private const val KEY_TRANSACTIONS_JSON = "harakapay_transactions_json"
-    private const val KEY_DETECTED_CITY = "detected_tz_city"
-    private const val KEY_DETECTED_DISTRICT = "detected_tz_district"
-    private const val KEY_DETECTED_STREET = "detected_tz_street"
-    private const val KEY_ACTIVE_WATCH_TITLE = "active_watch_title"
-    private const val KEY_ACTIVE_WATCH_CATEGORY = "active_watch_category"
-    private const val KEY_ACTIVE_WATCH_ID = "active_watch_id"
-    private const val RTDB_ANALYTICS_URL = "https://nelitv-48269-default-rtdb.firebaseio.com/nelitv_realtime_analytics.json"
+    private const val PREFS_NAME = "neli_realtime_analytics_real_v2_prefs"
+    private const val KEY_CONFIRMED_TX_JSON = "confirmed_harakapay_tx_v2_json"
+    private const val KEY_FIRST_SEEN_MS = "device_first_seen_ms"
+    private const val KEY_PEAK_ONLINE_TODAY = "peak_online_today_count"
+    private const val KEY_PEAK_ONLINE_DAY = "peak_online_day_of_year"
+    private const val KEY_DETECTED_CITY = "real_detected_tz_city"
+    private const val KEY_DETECTED_DISTRICT = "real_detected_tz_district"
+    private const val KEY_DETECTED_STREET = "real_detected_tz_street"
+    private const val KEY_DETECTED_PUBLIC_IP = "real_detected_public_ip"
+    private const val KEY_ACTIVE_WATCH_TITLE = "real_active_watch_title"
+    private const val KEY_ACTIVE_WATCH_CATEGORY = "real_active_watch_category"
+    private const val KEY_ACTIVE_WATCH_ID = "real_active_watch_id"
+    private const val KEY_ACTIVE_WATCH_IS_LIVE = "real_active_watch_is_live"
+
+    private const val RTDB_BASE_URL = "https://neliplay-default-rtdb.firebaseio.com/nelitv_real_telemetry"
+    private const val ONLINE_TIMEOUT_MS = 2 * 60 * 1000L // 2 minutes heartbeat window
 
     private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -187,91 +217,89 @@ object NeliRealtimeAnalyticsManager {
     @Volatile
     private var currentWatchingCategory: String = ""
     @Volatile
+    private var currentWatchingIsLive: Boolean = true
+    @Volatile
     private var cachedWalletBalanceText: String = "TZS 0"
-
-    private data class TzSeedStreet(
-        val id: String,
-        val city: String,
-        val district: String,
-        val street: String,
-        val baseTotalUsers: Int,
-        val baseOnline: Int,
-        val baseWatching: Int,
-        val basePremium: Int,
-        val defaultTopChannel: String
-    )
-
-    private val TANZANIA_STREETS_CATALOG: List<TzSeedStreet> = listOf(
-        // Dar es Salaam
-        TzSeedStreet("dsm_kariakoo", "Dar es Salaam", "Ilala", "Kariakoo • Mtaa wa Msimbazi & Uhuru", 412, 68, 49, 94, "Azam Sports 1 HD"),
-        TzSeedStreet("dsm_sinza", "Dar es Salaam", "Ubungo", "Sinza • Mori, Palestina & Kumekucha", 356, 54, 38, 82, "Azam Sports 2 HD"),
-        TzSeedStreet("dsm_kinondoni", "Dar es Salaam", "Kinondoni", "Kinondoni • Studio, Manyanya & Biafra", 318, 47, 33, 71, "Sinema Zetu"),
-        TzSeedStreet("dsm_mikocheni", "Dar es Salaam", "Kinondoni", "Mikocheni • B, Warioba & Rose Garden", 244, 39, 27, 68, "Azam Two"),
-        TzSeedStreet("dsm_mbezi_beach", "Dar es Salaam", "Kinondoni", "Mbezi Beach • Africana, Tangibovu & Jogoo", 265, 42, 29, 74, "Azam Sports 1 HD"),
-        TzSeedStreet("dsm_magomeni", "Dar es Salaam", "Kinondoni", "Magomeni • Mapipa, Usalama & Kagera", 289, 44, 31, 53, "Wasafi TV"),
-        TzSeedStreet("dsm_tabata", "Dar es Salaam", "Ilala", "Tabata • Segerea, Bima & Kimanga", 276, 41, 28, 59, "Azam One"),
-        TzSeedStreet("dsm_temeke", "Dar es Salaam", "Temeke", "Temeke • Mbagala Rangi 3, Tandika & Chang'ombe", 334, 51, 36, 61, "Azam Sports 1 HD"),
-        TzSeedStreet("dsm_kigamboni", "Dar es Salaam", "Kigamboni", "Kigamboni • Ferry, Tungi & Kibada", 198, 31, 22, 45, "Clouds TV"),
-        TzSeedStreet("dsm_ubungo", "Dar es Salaam", "Ubungo", "Ubungo • Riverside, Kimara & Mbezi Luis", 302, 46, 34, 64, "Azam Sports 3 HD"),
-        TzSeedStreet("dsm_masaki", "Dar es Salaam", "Kinondoni", "Masaki & Oysterbay • Haile Selassie Rd", 164, 28, 19, 62, "Azam Sports 1 HD"),
-        TzSeedStreet("dsm_ilala_boma", "Dar es Salaam", "Ilala", "Ilala Boma • Buguruni & Karume", 248, 37, 25, 48, "Sinema Zetu"),
-
-        // Arusha
-        TzSeedStreet("aru_sakina", "Arusha", "Arusha Mjini", "Sakina • Barabara ya Namanga & Kiranyi", 215, 34, 24, 52, "Azam Sports 1 HD"),
-        TzSeedStreet("aru_kaloleni", "Arusha", "Arusha Mjini", "Kaloleni • Mtaa wa Soko Kuu & Clock Tower", 188, 29, 21, 44, "Azam Two"),
-        TzSeedStreet("aru_njiro", "Arusha", "Arusha Mjini", "Njiro • Complex, Kontena & Kijenge", 196, 32, 23, 56, "Azam Sports 2 HD"),
-        TzSeedStreet("aru_usa_river", "Arusha", "Meru", "Tengeru & Usa River • Moshi-Arusha Hwy", 142, 21, 15, 31, "ITV"),
-
-        // Mwanza
-        TzSeedStreet("mwz_kirumba", "Mwanza", "Ilemela", "Kirumba • Mtaa wa Kabuhoro & Furahisha", 224, 36, 26, 51, "Azam Sports 1 HD"),
-        TzSeedStreet("mwz_nyamagana", "Mwanza", "Nyamagana", "Nyamagana • Kenyatta Rd, Mabatini & Capri Point", 208, 33, 24, 49, "Sinema Zetu"),
-        TzSeedStreet("mwz_pasiansi", "Mwanza", "Ilemela", "Pasiansi • Buzuruga, Igoma & Nyegezi", 184, 28, 19, 39, "Azam One"),
-
-        // Dodoma
-        TzSeedStreet("dom_area_c", "Dodoma", "Dodoma Mjini", "Area C & Area D • Mtaa wa Bunge & UDOM", 212, 35, 25, 58, "Azam Sports 1 HD"),
-        TzSeedStreet("dom_kisasa", "Dodoma", "Dodoma Mjini", "Kisasa • Medeli, Majengo & Chang'ombe", 179, 27, 18, 42, "TBC 1"),
-
-        // Mbeya
-        TzSeedStreet("mby_mwanjelwa", "Mbeya", "Mbeya Mjini", "Mwanjelwa • Soweto, Kabwe & Mafiati", 192, 30, 21, 43, "Azam Sports 1 HD"),
-        TzSeedStreet("mby_iyunga", "Mbeya", "Mbeya Mjini", "Iyunga • Uyole, Sae & Forest Mpya", 154, 24, 16, 34, "Azam Two"),
-
-        // Zanzibar
-        TzSeedStreet("znz_stonetown", "Zanzibar", "Mjini Magharibi", "Stone Town • Michenzani, Darajani & Forodhani", 186, 31, 22, 47, "ZBC 2"),
-        TzSeedStreet("znz_mwanakwerekwe", "Zanzibar", "Magharibi B", "Mwanakwerekwe • Fuoni, Chukwani & Bububu", 149, 23, 17, 36, "Azam Sports 1 HD"),
-
-        // Morogoro
-        TzSeedStreet("mor_kihonda", "Morogoro", "Morogoro Mjini", "Kihonda • Mazimbu, Msamvu & Sabasaba", 176, 28, 19, 38, "Sinema Zetu"),
-
-        // Tanga
-        TzSeedStreet("tng_ngamiani", "Tanga", "Tanga Mjini", "Ngamiani • Barabara ya 12, Raskazone & Chumbageni", 162, 25, 17, 35, "Azam Two"),
-
-        // Moshi / Kilimanjaro
-        TzSeedStreet("klm_moshi", "Moshi (Kilimanjaro)", "Moshi Mjini", "Majengo • Soweto, Pasua & Kiborloni", 168, 26, 18, 41, "Azam Sports 1 HD"),
-
-        // Other Tanzania Regions (Kigoma, Iringa, Mtwara, Tabora, Kagera, Geita)
-        TzSeedStreet("kgm_ujiji", "Kigoma", "Kigoma Ujiji", "Mwanga • Lumumba Rd & Ujiji Mjini", 124, 19, 13, 25, "Wasafi TV"),
-        TzSeedStreet("irg_kihesa", "Iringa", "Iringa Mjini", "Kihesa • Miyomboni, Ipogolo & Mkwawa", 118, 18, 12, 27, "Azam One"),
-        TzSeedStreet("mtw_shangani", "Mtwara", "Mtwara Mikindani", "Shangani • Mangowela, Chuno & Rahaleo", 112, 16, 11, 24, "Sinema Zetu"),
-        TzSeedStreet("bk_kagera", "Bukoba (Kagera)", "Bukoba Mjini", "Bilele • Kashai, Hamugembe & Rwamishenye", 108, 15, 10, 22, "Azam Sports 2 HD")
-    )
+    @Volatile
+    private var lastGeoLookupMs: Long = 0L
 
     fun resolveCurrentDeviceTanzaniaLocationLabel(context: Context): String {
         val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val city = prefs.getString(KEY_DETECTED_CITY, null)
-        val street = prefs.getString(KEY_DETECTED_STREET, null)
-        if (!city.isNullOrBlank() && !street.isNullOrBlank()) {
-            return "$city • $street"
+        val city = prefs.getString(KEY_DETECTED_CITY, "").orEmpty().ifBlank { "Dar es Salaam" }
+        val street = prefs.getString(KEY_DETECTED_STREET, "").orEmpty().ifBlank { "Tanzania" }
+        return "$city • $street"
+    }
+
+    /**
+     * Queries real IP geolocation (`ip-api.com` / `ipwho.is`) on IO thread to detect the device's
+     * real City, District/Region, ISP, and Public IP in Tanzania.
+     */
+    private fun fetchRealIpGeolocationIfNeeded(context: Context) {
+        val now = System.currentTimeMillis()
+        val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val hasSaved = !prefs.getString(KEY_DETECTED_CITY, null).isNullOrBlank()
+        if (hasSaved && now - lastGeoLookupMs < 10 * 60 * 1000L) return
+        lastGeoLookupMs = now
+
+        var conn: HttpURLConnection? = null
+        try {
+            val url = URL("http://ip-api.com/json/?fields=status,country,regionName,city,district,isp,org,query")
+            conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = 3500
+                readTimeout = 3500
+                setRequestProperty("Accept", "application/json")
+            }
+            if (conn.responseCode in 200..299) {
+                val body = conn.inputStream.bufferedReader().use { it.readText() }
+                val json = JSONObject(body)
+                if (json.optString("status") == "success") {
+                    val city = json.optString("city", "").trim().ifBlank {
+                        json.optString("regionName", "Dar es Salaam").trim()
+                    }
+                    val region = json.optString("regionName", city).trim()
+                    val district = json.optString("district", "").trim().ifBlank { region }
+                    val isp = json.optString("isp", "").trim()
+                    val queryIp = json.optString("query", "").trim()
+                    val streetOrArea = when {
+                        district.isNotBlank() && isp.isNotBlank() -> "$district ($isp)"
+                        district.isNotBlank() -> district
+                        isp.isNotBlank() -> "$city ($isp)"
+                        else -> city
+                    }
+                    prefs.edit()
+                        .putString(KEY_DETECTED_CITY, city.ifBlank { "Dar es Salaam" })
+                        .putString(KEY_DETECTED_DISTRICT, district.ifBlank { "Tanzania" })
+                        .putString(KEY_DETECTED_STREET, streetOrArea.ifBlank { "Tanzania" })
+                        .apply {
+                            if (queryIp.isNotBlank()) {
+                                putString(KEY_DETECTED_PUBLIC_IP, queryIp)
+                            }
+                        }
+                        .apply()
+                }
+            }
+        } catch (_: Exception) {
+        } finally {
+            conn?.disconnect()
         }
-        val ip = NeliSubscriptionManager.resolveDeviceIpAddress(context)
-        val hash = ip.hashCode().and(0x7FFFFFFF)
-        // Pick deterministic Tanzania street for this device IP (preferring Dar es Salaam / Arusha / Mwanza / Dodoma)
-        val picked = TANZANIA_STREETS_CATALOG[hash % 16]
-        prefs.edit()
-            .putString(KEY_DETECTED_CITY, picked.city)
-            .putString(KEY_DETECTED_DISTRICT, picked.district)
-            .putString(KEY_DETECTED_STREET, picked.street)
-            .apply()
-        return "${picked.city} • ${picked.street}"
+    }
+
+    private fun detectRealNetworkType(context: Context): String {
+        return try {
+            val cm = context.applicationContext.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            val net = cm?.activeNetwork
+            val caps = net?.let { cm.getNetworkCapabilities(it) }
+            when {
+                caps == null -> "Offline"
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "Wi-Fi"
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "Mobile Data (4G/5G)"
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "Ethernet"
+                else -> "Online"
+            }
+        } catch (_: Exception) {
+            "Online"
+        }
     }
 
     fun updateCurrentDeviceWatching(
@@ -283,19 +311,23 @@ object NeliRealtimeAnalyticsManager {
             currentWatchingChannelId = ""
             currentWatchingTitle = ""
             currentWatchingCategory = ""
+            currentWatchingIsLive = true
             prefs.edit()
                 .remove(KEY_ACTIVE_WATCH_ID)
                 .remove(KEY_ACTIVE_WATCH_TITLE)
                 .remove(KEY_ACTIVE_WATCH_CATEGORY)
+                .remove(KEY_ACTIVE_WATCH_IS_LIVE)
                 .apply()
         } else {
             currentWatchingChannelId = channel.id
             currentWatchingTitle = channel.name
-            currentWatchingCategory = channel.category.ifBlank { if (channel.isLiveBroadcast) "Live TV" else "VOD" }
+            currentWatchingCategory = channel.category.ifBlank { if (channel.isLiveBroadcast) "Live TV" else "Movies & Series" }
+            currentWatchingIsLive = channel.isLiveBroadcast
             prefs.edit()
                 .putString(KEY_ACTIVE_WATCH_ID, currentWatchingChannelId)
                 .putString(KEY_ACTIVE_WATCH_TITLE, currentWatchingTitle)
                 .putString(KEY_ACTIVE_WATCH_CATEGORY, currentWatchingCategory)
+                .putBoolean(KEY_ACTIVE_WATCH_IS_LIVE, currentWatchingIsLive)
                 .apply()
         }
         ioScope.launch {
@@ -303,6 +335,10 @@ object NeliRealtimeAnalyticsManager {
         }
     }
 
+    /**
+     * Records ONLY confirmed HarakaPay payments (`status == "COMPLETED"`).
+     * Unconfirmed or pending requests are never added to Admin income or transaction history.
+     */
     fun recordHarakaPayTransaction(
         context: Context,
         orderId: String,
@@ -311,33 +347,44 @@ object NeliRealtimeAnalyticsManager {
         status: String,
         userEmail: String = ""
     ) {
+        if (!status.equals("COMPLETED", ignoreCase = true) &&
+            !status.equals("PAID", ignoreCase = true) &&
+            !status.equals("SUCCESS", ignoreCase = true)
+        ) {
+            // Strictly record ONLY confirmed payments
+            return
+        }
+        val cleanOrderId = orderId.trim()
+        if (cleanOrderId.isBlank()) return
+
         val appCtx = context.applicationContext
         val prefs = appCtx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val existing = loadSavedTransactions(prefs).toMutableList()
+        val existing = loadSavedConfirmedTransactions(prefs).toMutableList()
         val locLabel = resolveCurrentDeviceTanzaniaLocationLabel(appCtx)
         val networkName = detectTanzaniaMobileNetwork(phoneNumber)
-        val cleanOrderId = orderId.ifBlank { "HP-${System.currentTimeMillis() % 1000000}" }
+
         val newRecord = HarakaPayTransactionRecord(
             orderId = cleanOrderId,
-            phoneNumber = phoneNumber,
-            userEmail = userEmail.ifBlank {
+            phoneNumber = phoneNumber.trim(),
+            userEmail = userEmail.trim().ifBlank {
                 NeliSubscriptionManager.subscriptionState.value.linkedUserEmail.ifBlank { "Mteja wa Simu" }
             },
             planTitle = plan.titleSwahili,
             amountTzs = plan.amountTzs,
             mobileNetwork = networkName,
             cityAndStreet = locLabel,
-            status = status.uppercase(),
+            status = "COMPLETED",
             timestampMs = System.currentTimeMillis()
         )
-        val idx = existing.indexOfFirst { it.orderId == cleanOrderId }
+        val idx = existing.indexOfFirst { it.orderId.equals(cleanOrderId, ignoreCase = true) }
         if (idx >= 0) {
             existing[idx] = newRecord
         } else {
             existing.add(0, newRecord)
         }
-        saveTransactionsToPrefs(prefs, existing.take(40))
+        saveConfirmedTransactionsToPrefs(prefs, existing)
         ioScope.launch {
+            pushConfirmedTransactionToCloud(newRecord)
             refreshRealtimeSnapshot(appCtx, syncCloud = true)
         }
     }
@@ -355,7 +402,7 @@ object NeliRealtimeAnalyticsManager {
             "078", "068", "069" -> "Airtel Money"
             "062", "061" -> "HaloPesa (Halotel)"
             "073" -> "T-Pesa (TTCL)"
-            else -> "M-Pesa / Mixx Tanzania"
+            else -> "Mobile Money TZ"
         }
     }
 
@@ -365,28 +412,86 @@ object NeliRealtimeAnalyticsManager {
     ): NeliRealtimeAdminSnapshot = withContext(Dispatchers.IO) {
         val appCtx = context.applicationContext
         val prefs = appCtx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val now = System.currentTimeMillis()
+
         NeliFreeForeverAccountsManager.initialize(appCtx)
-        resolveCurrentDeviceTanzaniaLocationLabel(appCtx)
+        fetchRealIpGeolocationIfNeeded(appCtx)
 
-        val currentCity = prefs.getString(KEY_DETECTED_CITY, "Dar es Salaam").orEmpty()
-        val currentStreet = prefs.getString(KEY_DETECTED_STREET, "Kariakoo • Mtaa wa Msimbazi & Uhuru").orEmpty()
+        val firstSeenMs = prefs.getLong(KEY_FIRST_SEEN_MS, 0L).let { saved ->
+            if (saved > 0L) saved else {
+                prefs.edit().putLong(KEY_FIRST_SEEN_MS, now).apply()
+                now
+            }
+        }
+
+        val currentCity = prefs.getString(KEY_DETECTED_CITY, "Dar es Salaam").orEmpty().ifBlank { "Dar es Salaam" }
+        val currentDistrict = prefs.getString(KEY_DETECTED_DISTRICT, "Tanzania").orEmpty().ifBlank { "Tanzania" }
+        val currentStreet = prefs.getString(KEY_DETECTED_STREET, "Eneo la Mtumiaji").orEmpty().ifBlank { "Eneo la Mtumiaji" }
+        val publicIp = prefs.getString(KEY_DETECTED_PUBLIC_IP, "").orEmpty()
         val savedWatchTitle = prefs.getString(KEY_ACTIVE_WATCH_TITLE, "").orEmpty()
+        val savedWatchCat = prefs.getString(KEY_ACTIVE_WATCH_CATEGORY, "").orEmpty()
+        val savedWatchId = prefs.getString(KEY_ACTIVE_WATCH_ID, "").orEmpty()
         val activeWatchTitle = currentWatchingTitle.ifBlank { savedWatchTitle }
+        val activeWatchCat = currentWatchingCategory.ifBlank { savedWatchCat }
+        val activeWatchId = currentWatchingChannelId.ifBlank { savedWatchId }
 
-        // 1. Read real local users and subscriptions from Room Database
+        // 1. Read real local users and downloads from Room Database
         val dao = NeliDatabase.getInstance(appCtx).mediaDao()
         val localUsers: List<UserAccountEntity> = try {
             dao.getAllSavedAccounts()
         } catch (_: Exception) {
             emptyList()
         }
+        val realDownloadsCount: Int = try {
+            dao.getDownloadsCount()
+        } catch (_: Exception) {
+            0
+        }
+
         val activeUser = localUsers.firstOrNull { it.isLoggedIn }
         val subState = NeliSubscriptionManager.subscriptionState.value
         val freeForeverAccounts = NeliFreeForeverAccountsManager.accountsStatusFlow.value
         val freeForeverConnectedDevices = freeForeverAccounts.sumOf { it.activeDeviceCount }
 
-        // 2. Fetch live HarakaPay wallet balance if syncing cloud
+        val currentDeviceId = NeliSubscriptionManager.resolveDeviceIdentityId(appCtx)
+        val currentDeviceIp = publicIp.ifBlank {
+            subState.deviceIpAddress.ifBlank { NeliSubscriptionManager.resolveDeviceIpAddress(appCtx) }
+        }
+        val currentDeviceBrand = Build.MANUFACTURER.orEmpty().trim().replaceFirstChar { it.uppercase() }.ifBlank { "Android" }
+        val currentNetworkType = detectRealNetworkType(appCtx)
+
+        val currentSessionTier = when {
+            NeliAdminManager.isAdminUser(activeUser) -> "ADMIN"
+            NeliFreeForeverAccountsManager.isFreeForeverUser(activeUser) -> "FREE FOREVER VIP"
+            subState.isActiveNow && (activeUser != null || subState.requiresPostPaymentAuth) -> "PREMIUM VIP"
+            activeUser != null -> "REGISTERED"
+            else -> "FREE USER"
+        }
+        val isCurrentDevicePremium = currentSessionTier == "FREE FOREVER VIP" || currentSessionTier == "PREMIUM VIP"
+
+        val myDeviceRecord = RealDeviceTelemetryRecord(
+            deviceId = currentDeviceId,
+            deviceModel = NeliFreeForeverAccountsManager.resolveCurrentDeviceName(),
+            deviceBrand = currentDeviceBrand,
+            deviceIp = currentDeviceIp,
+            city = currentCity,
+            district = currentDistrict,
+            street = currentStreet,
+            networkType = currentNetworkType,
+            userEmail = activeUser?.email.orEmpty(),
+            userName = activeUser?.realName?.ifBlank { "Mtumiaji" } ?: "Mtumiaji (Guest)",
+            accountTier = currentSessionTier,
+            isPremium = isCurrentDevicePremium,
+            watchingChannelId = activeWatchId,
+            watchingTitle = activeWatchTitle,
+            watchingCategory = activeWatchCat,
+            firstSeenAtMs = firstSeenMs,
+            lastSeenAtMs = now
+        )
+
+        // 2. Sync this real device to Firebase RTDB and pull all real devices & confirmed payments
         if (syncCloud) {
+            pushDeviceTelemetryToCloud(myDeviceRecord)
             try {
                 val balanceRes = HarakaPayRepository.getBalance()
                 balanceRes.onSuccess { bal ->
@@ -396,283 +501,225 @@ object NeliRealtimeAnalyticsManager {
             }
         }
 
-        // 3. Smooth real-time micro-fluctuation based on 10-second time buckets so live telemetry breathes naturally
-        val now = System.currentTimeMillis()
-        val bucket = ((now / 8_000L) % 12L).toInt()
-        val wave = (bucket % 5) - 2 // -2..+2
+        val cloudDevices = if (syncCloud) fetchAllRealDevicesFromCloud() else null
+        val allRealDevices = mergeRealDevices(myDeviceRecord, cloudDevices)
 
-        // 4. Build Tanzania Streets & Cities Breakdown
-        val tzLocations = TANZANIA_STREETS_CATALOG.mapIndexed { idx, seed ->
-            val isMyStreet = seed.city.equals(currentCity, ignoreCase = true) &&
-                seed.street.equals(currentStreet, ignoreCase = true)
-            val localDelta = ((bucket + idx) % 3) - 1
-            val onlineHere = (seed.baseOnline + localDelta + (if (isMyStreet) 1 else 0)).coerceAtLeast(1)
-            val watchingHere = (seed.baseWatching + localDelta.coerceAtLeast(0) + (if (isMyStreet && activeWatchTitle.isNotBlank()) 1 else 0))
-                .coerceAtMost(onlineHere)
-                .coerceAtLeast(1)
-            val totalHere = seed.baseTotalUsers + (if (isMyStreet) 1 else 0) + localUsers.size
-            val premiumHere = seed.basePremium + (if (isMyStreet && subState.isActiveNow) 1 else 0)
+        // 3. Calculate 100% REAL User Metrics from actual devices
+        val startOfTodayMs = getStartOfTodayMs(now)
+        val totalAppUsers = allRealDevices.size.coerceAtLeast(1)
+        val todayNewAppUsers = allRealDevices.count { it.firstSeenAtMs >= startOfTodayMs }.coerceAtLeast(1)
+        val onlineDevices = allRealDevices.filter { now - it.lastSeenAtMs <= ONLINE_TIMEOUT_MS }
+            .ifEmpty { listOf(myDeviceRecord) }
+        val currentOnlineUsers = onlineDevices.size
+
+        // Track real peak online users today
+        val dayOfYear = Calendar.getInstance().get(Calendar.DAY_OF_YEAR)
+        val savedPeakDay = prefs.getInt(KEY_PEAK_ONLINE_DAY, -1)
+        val prevPeak = if (savedPeakDay == dayOfYear) prefs.getInt(KEY_PEAK_ONLINE_TODAY, 1) else 1
+        val peakOnlineToday = maxOf(prevPeak, currentOnlineUsers)
+        prefs.edit()
+            .putInt(KEY_PEAK_ONLINE_DAY, dayOfYear)
+            .putInt(KEY_PEAK_ONLINE_TODAY, peakOnlineToday)
+            .apply()
+
+        // 4. Calculate 100% REAL Watching Now Metrics
+        val watchingDevices = onlineDevices.filter { it.watchingTitle.isNotBlank() }
+        val totalWatchingNow = watchingDevices.size
+        val liveTvWatchingNow = watchingDevices.count {
+            !it.watchingCategory.equals("Movies & Series", ignoreCase = true) &&
+                !it.watchingCategory.equals("VOD", ignoreCase = true)
+        }
+        val moviesAndSeriesWatchingNow = (totalWatchingNow - liveTvWatchingNow).coerceAtLeast(0)
+
+        // 5. Calculate 100% REAL Confirmed HarakaPay Payments & Income
+        val cloudConfirmedTx = if (syncCloud) fetchConfirmedTransactionsFromCloud() else null
+        val confirmedTransactions = mergeConfirmedTransactions(
+            localList = loadSavedConfirmedTransactions(prefs),
+            cloudList = cloudConfirmedTx,
+            subState = subState,
+            currentCity = currentCity,
+            currentStreet = currentStreet
+        )
+        if (cloudConfirmedTx != null && confirmedTransactions.isNotEmpty()) {
+            saveConfirmedTransactionsToPrefs(prefs, confirmedTransactions)
+        }
+
+        val dailyTx = confirmedTransactions.filter { it.amountTzs <= 1000 }
+        val weeklyTx = confirmedTransactions.filter { it.amountTzs in 1001..5000 }
+        val monthlyTx = confirmedTransactions.filter { it.amountTzs > 5000 }
+
+        val dailySubscribers = dailyTx.size
+        val weeklySubscribers = weeklyTx.size
+        val monthlySubscribers = monthlyTx.size
+
+        val dailyRevenue = dailyTx.sumOf { it.amountTzs.toLong() }
+        val weeklyRevenue = weeklyTx.sumOf { it.amountTzs.toLong() }
+        val monthlyRevenue = monthlyTx.sumOf { it.amountTzs.toLong() }
+
+        val totalHarakaPayIncome = confirmedTransactions.sumOf { it.amountTzs.toLong() }
+        val todayHarakaPayIncome = confirmedTransactions
+            .filter { it.timestampMs >= startOfTodayMs }
+            .sumOf { it.amountTzs.toLong() }
+        val weeklyHarakaPayIncome = confirmedTransactions
+            .filter { now - it.timestampMs <= 7L * 24L * 3600_000L }
+            .sumOf { it.amountTzs.toLong() }
+        val monthlyHarakaPayIncome = confirmedTransactions
+            .filter { now - it.timestampMs <= 30L * 24L * 3600_000L }
+            .sumOf { it.amountTzs.toLong() }
+
+        val totalConfirmedCount = confirmedTransactions.size
+        val mpesaTx = confirmedTransactions.filter { it.mobileNetwork.contains("M-Pesa", ignoreCase = true) }
+        val mixxTx = confirmedTransactions.filter { it.mobileNetwork.contains("Mixx", ignoreCase = true) || it.mobileNetwork.contains("Tigo", ignoreCase = true) }
+        val airtelTx = confirmedTransactions.filter { it.mobileNetwork.contains("Airtel", ignoreCase = true) }
+        val haloTx = confirmedTransactions.filter { it.mobileNetwork.contains("Halo", ignoreCase = true) }
+
+        val incomeDivisor = totalHarakaPayIncome.coerceAtLeast(1L)
+        val mobileMoneyStats = listOf(
+            MobileMoneyNetworkStat(
+                networkName = "M-Pesa (Vodacom TZ)",
+                transactionsCount = mpesaTx.size,
+                totalAmountTzs = mpesaTx.sumOf { it.amountTzs.toLong() },
+                sharePercent = if (totalHarakaPayIncome > 0L) ((mpesaTx.sumOf { it.amountTzs.toLong() } * 100L) / incomeDivisor).toInt() else 0
+            ),
+            MobileMoneyNetworkStat(
+                networkName = "Mixx by Yas (Tigo Pesa)",
+                transactionsCount = mixxTx.size,
+                totalAmountTzs = mixxTx.sumOf { it.amountTzs.toLong() },
+                sharePercent = if (totalHarakaPayIncome > 0L) ((mixxTx.sumOf { it.amountTzs.toLong() } * 100L) / incomeDivisor).toInt() else 0
+            ),
+            MobileMoneyNetworkStat(
+                networkName = "Airtel Money TZ",
+                transactionsCount = airtelTx.size,
+                totalAmountTzs = airtelTx.sumOf { it.amountTzs.toLong() },
+                sharePercent = if (totalHarakaPayIncome > 0L) ((airtelTx.sumOf { it.amountTzs.toLong() } * 100L) / incomeDivisor).toInt() else 0
+            ),
+            MobileMoneyNetworkStat(
+                networkName = "HaloPesa (Halotel)",
+                transactionsCount = haloTx.size,
+                totalAmountTzs = haloTx.sumOf { it.amountTzs.toLong() },
+                sharePercent = if (totalHarakaPayIncome > 0L) ((haloTx.sumOf { it.amountTzs.toLong() } * 100L) / incomeDivisor).toInt() else 0
+            )
+        )
+
+        // 6. Real Tanzania Locations grouped strictly from real devices
+        val groupedByLocation = allRealDevices.groupBy { "${it.city.lowercase()}|${it.street.lowercase()}" }
+        val realLocations = groupedByLocation.entries.mapIndexed { idx, (_, devList) ->
+            val first = devList.first()
+            val onlineHere = devList.count { now - it.lastSeenAtMs <= ONLINE_TIMEOUT_MS }
+            val watchingHere = devList.count { (now - it.lastSeenAtMs <= ONLINE_TIMEOUT_MS) && it.watchingTitle.isNotBlank() }
+            val premiumHere = devList.count { it.isPremium }
+            val activeChannelHere = devList.firstOrNull { it.watchingTitle.isNotBlank() }?.watchingTitle
+                ?: "Hakuna anayetazama sasa"
+            val isMyLoc = devList.any { it.deviceId == currentDeviceId }
             TanzaniaLocationStat(
-                id = seed.id,
-                city = seed.city,
-                district = seed.district,
-                street = seed.street,
-                totalUsers = totalHere,
+                id = "real_loc_$idx",
+                city = first.city,
+                district = first.district,
+                street = first.street,
+                totalUsers = devList.size,
                 onlineNow = onlineHere,
                 watchingNow = watchingHere,
                 premiumUsers = premiumHere,
-                topWatchedChannel = if (isMyStreet && activeWatchTitle.isNotBlank()) activeWatchTitle else seed.defaultTopChannel,
-                isCurrentDeviceLocation = isMyStreet
+                topWatchedChannel = activeChannelHere,
+                isCurrentDeviceLocation = isMyLoc
             )
-        }
+        }.sortedByDescending { it.onlineNow }
 
-        val totalAppUsers = tzLocations.sumOf { it.totalUsers }
-        val currentOnlineUsers = tzLocations.sumOf { it.onlineNow }
-        val totalWatchingNow = tzLocations.sumOf { it.watchingNow }
-        val basePremiumUsers = tzLocations.sumOf { it.premiumUsers } + freeForeverConnectedDevices
-
-        // 5. HarakaPay Transactions & Revenue Breakdown
-        val allTransactions = buildCombinedTransactions(prefs, subState, currentCity, currentStreet)
-        val completedTx = allTransactions.filter { it.status == "COMPLETED" }
-
-        val dailySubscribers = 486 + completedTx.count { it.amountTzs <= 1000 }
-        val weeklySubscribers = 312 + completedTx.count { it.amountTzs in 1001..5000 }
-        val monthlySubscribers = 194 + completedTx.count { it.amountTzs > 5000 }
-
-        val dailyRevenue = dailySubscribers * 1000L
-        val weeklyRevenue = weeklySubscribers * 3500L
-        val monthlyRevenue = monthlySubscribers * 15000L
-        val totalHarakaPayIncome = dailyRevenue + weeklyRevenue + monthlyRevenue
-        val todayHarakaPayIncome = 185_500L + completedTx
-            .filter { now - it.timestampMs < 24 * 3600_000L }
-            .sumOf { it.amountTzs.toLong() }
-        val weeklyHarakaPayIncome = 1_248_000L + completedTx.sumOf { it.amountTzs.toLong() }
-        val monthlyHarakaPayIncome = 4_488_000L + completedTx.sumOf { it.amountTzs.toLong() }
-
-        val mpesaShare = (totalHarakaPayIncome * 46L) / 100L
-        val mixxShare = (totalHarakaPayIncome * 31L) / 100L
-        val airtelShare = (totalHarakaPayIncome * 16L) / 100L
-        val halopesaShare = totalHarakaPayIncome - mpesaShare - mixxShare - airtelShare
-
-        val mobileMoneyStats = listOf(
-            MobileMoneyNetworkStat("M-Pesa (Vodacom TZ)", 458 + completedTx.count { it.mobileNetwork.contains("M-Pesa") }, mpesaShare, 46),
-            MobileMoneyNetworkStat("Mixx by Yas (Tigo Pesa)", 309 + completedTx.count { it.mobileNetwork.contains("Mixx") }, mixxShare, 31),
-            MobileMoneyNetworkStat("Airtel Money TZ", 159 + completedTx.count { it.mobileNetwork.contains("Airtel") }, airtelShare, 16),
-            MobileMoneyNetworkStat("HaloPesa (Halotel)", 66 + completedTx.count { it.mobileNetwork.contains("Halo") }, halopesaShare, 7)
-        )
-
-        // 6. Top Watched Channels Right Now
-        val channelBase = listOf(
-            Triple("azam-sports-1-hd", "Azam Sports 1 HD", "Sports") to 184,
-            Triple("azam-sports-2-hd", "Azam Sports 2 HD", "Sports") to 142,
-            Triple("sinema-zetu", "Sinema Zetu HD", "Movies") to 118,
-            Triple("azam-two", "Azam Two HD", "Entertainment") to 96,
-            Triple("azam-sports-3-hd", "Azam Sports 3 HD", "Sports") to 74,
-            Triple("azam-one", "Azam One HD", "Entertainment") to 65,
-            Triple("wasafi-tv", "Wasafi TV", "Music & Youth") to 58,
-            Triple("clouds-tv", "Clouds TV", "Entertainment") to 51,
-            Triple("utv-tz", "UTV Tanzania", "News & Drama") to 44,
-            Triple("tbc-1", "TBC 1 Tanzania", "News") to 39,
-            Triple("itv-tz", "ITV Tanzania", "News") to 34,
-            Triple("zbc-2", "ZBC 2 Zanzibar", "Zanzibar") to 29
-        )
-        val rawChannelStats = channelBase.mapIndexed { idx, (meta, baseCount) ->
-            val isMyWatch = activeWatchTitle.equals(meta.second, ignoreCase = true) ||
-                currentWatchingChannelId.equals(meta.first, ignoreCase = true)
-            val liveCount = (baseCount + ((bucket + idx) % 5) - 2 + (if (isMyWatch) 1 else 0)).coerceAtLeast(5)
-            Triple(meta, liveCount, isMyWatch)
-        }
-        val channelSum = rawChannelStats.sumOf { it.second }.coerceAtLeast(1)
-        val topChannels = rawChannelStats.map { (meta, count, isMine) ->
-            ChannelWatchStat(
-                channelId = meta.first,
-                channelName = meta.second,
-                category = meta.third,
-                viewersNow = count,
-                peakToday = (count * 135) / 100,
-                sharePercent = ((count * 100) / channelSum).coerceIn(1, 100),
-                isCurrentDeviceWatching = isMine
-            )
-        }
-
-        // 7. Live Active Viewer Sessions
-        val currentSessionTier = when {
-            NeliAdminManager.isAdminUser(activeUser) -> "ADMIN"
-            NeliFreeForeverAccountsManager.isFreeForeverUser(activeUser) -> "FREE FOREVER VIP"
-            subState.isActiveNow -> "PREMIUM VIP"
-            else -> "FREE USER"
-        }
-        val myDeviceSession = LiveViewerSession(
-            sessionId = "live_self",
-            userName = activeUser?.realName?.ifBlank { "Kifaa Chako (Sasa)" } ?: "Kifaa Chako (Active)",
-            userEmail = activeUser?.email?.ifBlank { "guest@nelitv.co.tz" } ?: "guest@nelitv.co.tz",
-            accountTier = currentSessionTier,
-            deviceModel = NeliFreeForeverAccountsManager.resolveCurrentDeviceName(),
-            deviceIp = subState.deviceIpAddress.ifBlank { NeliSubscriptionManager.resolveDeviceIpAddress(appCtx) },
-            city = currentCity,
-            street = currentStreet,
-            watchingTitle = activeWatchTitle.ifBlank { "Azam Sports 1 HD (Live Preview)" },
-            watchingCategory = currentWatchingCategory.ifBlank { "Live TV" },
-            networkType = "Wi-Fi / 4G LTE",
-            startedMinutesAgo = 1,
-            isCurrentDevice = true
-        )
-
-        val freeForeverSessions = freeForeverAccounts.flatMap { acc ->
-            acc.activeDevices.mapIndexed { dIdx, slot ->
-                val parts = slot.locationCityStreet.split("•").map { it.trim() }
-                LiveViewerSession(
-                    sessionId = "ff_${acc.email}_$dIdx",
-                    userName = "${acc.displayName} (Device ${dIdx + 1}/2)",
-                    userEmail = acc.email,
-                    accountTier = "FREE FOREVER VIP",
-                    deviceModel = slot.deviceName,
-                    deviceIp = slot.deviceIp,
-                    city = parts.getOrNull(0) ?: "Dar es Salaam",
-                    street = parts.getOrNull(1) ?: "Kariakoo • Mtaa wa Msimbazi",
-                    watchingTitle = if (dIdx % 2 == 0) "Azam Sports 1 HD" else "Sinema Zetu HD",
-                    watchingCategory = "Azam TV VIP",
-                    networkType = "4G LTE Tanzania",
-                    startedMinutesAgo = (((now - slot.lastActiveAtMs) / 60_000L).toInt()).coerceIn(1, 45),
-                    isCurrentDevice = false
+        // 7. Real Top Watched Channels right now (strictly from real watching devices)
+        val topChannels = if (watchingDevices.isEmpty()) {
+            emptyList()
+        } else {
+            val byChannel = watchingDevices.groupBy { it.watchingTitle }
+            byChannel.entries.map { (title, viewers) ->
+                val sample = viewers.first()
+                val count = viewers.size
+                val share = ((count * 100) / watchingDevices.size.coerceAtLeast(1)).coerceIn(1, 100)
+                ChannelWatchStat(
+                    channelId = sample.watchingChannelId.ifBlank { title.lowercase().replace(" ", "_") },
+                    channelName = title,
+                    category = sample.watchingCategory.ifBlank { "Live TV" },
+                    viewersNow = count,
+                    peakToday = count,
+                    sharePercent = share,
+                    isCurrentDeviceWatching = viewers.any { it.deviceId == currentDeviceId }
                 )
-            }
+            }.sortedByDescending { it.viewersNow }
         }
 
-        val sampleTzSessions = listOf(
+        // 8. Real Active Sessions (strictly from real online devices)
+        val activeSessions = onlineDevices.map { dev ->
+            val minsAgo = (((now - dev.lastSeenAtMs).coerceAtLeast(0L)) / 60_000L).toInt()
             LiveViewerSession(
-                sessionId = "tz_s1",
-                userName = "Juma Mwinyi",
-                userEmail = "juma.mwinyi@gmail.com",
-                accountTier = "PREMIUM VIP",
-                deviceModel = "Samsung Galaxy A54 5G",
-                deviceIp = "197.250.34.112",
-                city = "Dar es Salaam",
-                street = "Kariakoo • Mtaa wa Msimbazi & Uhuru",
-                watchingTitle = "Azam Sports 1 HD",
-                watchingCategory = "Sports",
-                networkType = "Vodacom 5G",
-                startedMinutesAgo = 14
-            ),
-            LiveViewerSession(
-                sessionId = "tz_s2",
-                userName = "Neema Mwakasege",
-                userEmail = "neema.mwaka@yahoo.com",
-                accountTier = "PREMIUM VIP",
-                deviceModel = "Tecno Camon 30 Pro",
-                deviceIp = "197.250.88.41",
-                city = "Dar es Salaam",
-                street = "Sinza • Mori & Palestina",
-                watchingTitle = "Sinema Zetu HD",
-                watchingCategory = "Movies",
-                networkType = "Mixx 4G LTE",
-                startedMinutesAgo = 26
-            ),
-            LiveViewerSession(
-                sessionId = "tz_s3",
-                userName = "Baraka Mollel",
-                userEmail = "baraka.arusha@gmail.com",
-                accountTier = "PREMIUM VIP",
-                deviceModel = "Infinix Note 40",
-                deviceIp = "196.249.91.18",
-                city = "Arusha",
-                street = "Sakina • Barabara ya Namanga",
-                watchingTitle = "Azam Sports 2 HD",
-                watchingCategory = "Sports",
-                networkType = "Airtel 4G",
-                startedMinutesAgo = 9
-            ),
-            LiveViewerSession(
-                sessionId = "tz_s4",
-                userName = "Salma Bakari",
-                userEmail = "salma.znz@gmail.com",
-                accountTier = "PREMIUM VIP",
-                deviceModel = "Xiaomi Redmi Note 13",
-                deviceIp = "197.250.119.74",
-                city = "Zanzibar",
-                street = "Stone Town • Michenzani",
-                watchingTitle = "ZBC 2 Zanzibar",
-                watchingCategory = "Zanzibar",
-                networkType = "Zantel / Mixx Wi-Fi",
-                startedMinutesAgo = 32
-            ),
-            LiveViewerSession(
-                sessionId = "tz_s5",
-                userName = "Emmanuel Mabula",
-                userEmail = "emmanuel.mwanza@gmail.com",
-                accountTier = "FREE USER",
-                deviceModel = "Oppo Reno 11F",
-                deviceIp = "197.186.14.92",
-                city = "Mwanza",
-                street = "Kirumba • Mtaa wa Kabuhoro",
-                watchingTitle = "Azam Two HD",
-                watchingCategory = "Entertainment",
-                networkType = "Halotel 4G",
-                startedMinutesAgo = 18
-            ),
-            LiveViewerSession(
-                sessionId = "tz_s6",
-                userName = "Fatuma Киlo",
-                userEmail = "fatuma.dodoma@gmail.com",
-                accountTier = "PREMIUM VIP",
-                deviceModel = "Samsung Galaxy S23 FE",
-                deviceIp = "197.250.64.203",
-                city = "Dodoma",
-                street = "Area C • Mtaa wa Bunge",
-                watchingTitle = "Azam One HD",
-                watchingCategory = "Entertainment",
-                networkType = "TTCL Fiber Wi-Fi",
-                startedMinutesAgo = 41
+                sessionId = dev.deviceId,
+                userName = dev.userName,
+                userEmail = dev.userEmail.ifBlank { "Hajalogin (${dev.deviceIp})" },
+                accountTier = dev.accountTier,
+                deviceModel = dev.deviceModel,
+                deviceIp = dev.deviceIp,
+                city = dev.city,
+                street = dev.street,
+                watchingTitle = dev.watchingTitle.ifBlank { "Yuko kwenye App (Hatazami video sasa)" },
+                watchingCategory = dev.watchingCategory.ifBlank { "Browsing App" },
+                networkType = dev.networkType,
+                startedMinutesAgo = minsAgo,
+                isCurrentDevice = dev.deviceId == currentDeviceId
             )
-        )
+        }
 
-        val combinedSessions = (listOf(myDeviceSession) + freeForeverSessions + sampleTzSessions)
-            .distinctBy { "${it.userEmail}_${it.deviceIp}" }
-
-        // 8. Registered Users Directory (5 Free Forever VIP + Local DB Accounts + Tanzania VIP accounts)
-        val registeredSummaries = buildRegisteredUsersDirectory(
+        // 9. Real Registered Users Directory (Local Room Accounts + Cloud Devices with Accounts + 5 Free Forever Accounts)
+        val registeredSummaries = buildRealRegisteredUsersDirectory(
             localUsers = localUsers,
+            allRealDevices = allRealDevices,
             freeForeverAccounts = freeForeverAccounts,
             subState = subState,
             currentCity = currentCity,
             currentStreet = currentStreet,
-            activeWatchTitle = activeWatchTitle
+            activeWatchTitle = activeWatchTitle,
+            now = now
         )
-        val totalRegisteredCount = 1_840 + registeredSummaries.size
+        val realRegisteredCount = registeredSummaries.size
 
-        // 9. Device Brands in Tanzania
-        val brands = listOf(
-            DeviceBrandStat("Samsung Galaxy", (totalAppUsers * 34) / 100, 34),
-            DeviceBrandStat("Tecno Mobile", (totalAppUsers * 26) / 100, 26),
-            DeviceBrandStat("Infinix Mobility", (totalAppUsers * 19) / 100, 19),
-            DeviceBrandStat("Xiaomi / Redmi", (totalAppUsers * 11) / 100, 11),
-            DeviceBrandStat("Oppo / Realme", (totalAppUsers * 6) / 100, 6),
-            DeviceBrandStat("iTel & Others", (totalAppUsers * 4) / 100, 4)
-        )
+        // Real Premium Users Count: distinct confirmed active subscribers + active Free Forever devices
+        val realPremiumUsersCount = (
+            allRealDevices.count { it.isPremium } +
+                confirmedTransactions.map { it.phoneNumber }.distinct().size +
+                freeForeverConnectedDevices
+            ).coerceAtLeast(if (isCurrentDevicePremium) 1 else 0)
 
-        val castConnected = if (NeliCastManager.connectedDevice.value != null) 1 else 0
-        val liveTvViewers = ((totalWatchingNow * 78) / 100).coerceAtLeast(1)
-        val vodViewers = (totalWatchingNow - liveTvViewers).coerceAtLeast(1)
+        // 10. Real Device Brands & Network Ratio
+        val brandGroups = allRealDevices.groupBy { it.deviceBrand.ifBlank { "Android" } }
+        val brands = brandGroups.entries.map { (brand, list) ->
+            DeviceBrandStat(
+                brandName = brand,
+                usersCount = list.size,
+                sharePercent = ((list.size * 100) / totalAppUsers.coerceAtLeast(1)).coerceIn(1, 100)
+            )
+        }.sortedByDescending { it.usersCount }
+
+        val wifiCount = allRealDevices.count { it.networkType.contains("Wi-Fi", ignoreCase = true) }
+        val wifiPercent = ((wifiCount * 100) / totalAppUsers.coerceAtLeast(1)).coerceIn(0, 100)
+        val mobilePercent = (100 - wifiPercent).coerceIn(0, 100)
+        val castConnectedCount = if (NeliCastManager.connectedDevice.value != null) 1 else 0
 
         val newSnapshot = NeliRealtimeAdminSnapshot(
             lastUpdatedMs = now,
             totalAppUsers = totalAppUsers,
-            todayNewAppUsers = 64 + (bucket % 4),
+            todayNewAppUsers = todayNewAppUsers,
             currentOnlineUsers = currentOnlineUsers,
-            peakOnlineToday = (currentOnlineUsers * 142) / 100,
-            registeredUsersCount = totalRegisteredCount,
-            premiumUsersCount = basePremiumUsers,
+            peakOnlineToday = peakOnlineToday,
+            registeredUsersCount = realRegisteredCount,
+            premiumUsersCount = realPremiumUsersCount,
             freeForeverActiveUsersCount = freeForeverConnectedDevices,
             totalWatchingNow = totalWatchingNow,
-            liveTvWatchingNow = liveTvViewers,
-            moviesAndSeriesWatchingNow = vodViewers,
+            liveTvWatchingNow = liveTvWatchingNow,
+            moviesAndSeriesWatchingNow = moviesAndSeriesWatchingNow,
             totalHarakaPayIncomeTzs = totalHarakaPayIncome,
             todayHarakaPayIncomeTzs = todayHarakaPayIncome,
             weeklyHarakaPayIncomeTzs = weeklyHarakaPayIncome,
             monthlyHarakaPayIncomeTzs = monthlyHarakaPayIncome,
             harakaPayWalletBalance = cachedWalletBalanceText,
-            totalHarakaPayTransactions = dailySubscribers + weeklySubscribers + monthlySubscribers,
-            completedHarakaPayTransactions = dailySubscribers + weeklySubscribers + monthlySubscribers,
+            totalHarakaPayTransactions = totalConfirmedCount,
+            completedHarakaPayTransactions = totalConfirmedCount,
             dailyPlanSubscribers = dailySubscribers,
             dailyPlanRevenueTzs = dailyRevenue,
             weeklyPlanSubscribers = weeklySubscribers,
@@ -680,45 +727,42 @@ object NeliRealtimeAnalyticsManager {
             monthlyPlanSubscribers = monthlySubscribers,
             monthlyPlanRevenueTzs = monthlyRevenue,
             mobileMoneyBreakdown = mobileMoneyStats,
-            recentTransactions = allTransactions,
-            tanzaniaLocations = tzLocations,
+            recentTransactions = confirmedTransactions,
+            tanzaniaLocations = realLocations,
             topWatchedChannels = topChannels,
-            activeViewerSessions = combinedSessions,
+            activeViewerSessions = activeSessions,
             registeredUsersList = registeredSummaries,
             topDeviceBrands = brands,
-            activeCastDevicesNow = 42 + castConnected + (bucket % 3),
-            totalSavedOfflineDownloads = 618 + (bucket % 5),
-            wifiUsersPercent = 38,
-            mobileDataUsersPercent = 62,
+            activeCastDevicesNow = castConnectedCount,
+            totalSavedOfflineDownloads = realDownloadsCount,
+            wifiUsersPercent = wifiPercent,
+            mobileDataUsersPercent = mobilePercent,
             azamCdnStatusLabel = "ACTIVE • 18/18 Azam HD Channels Ready",
-            firebaseRealtimeStatusLabel = "LIVE SYNC • Tanzania RTDB Connected",
+            firebaseRealtimeStatusLabel = "LIVE • 100% Real Data",
             currentDeviceCity = currentCity,
             currentDeviceStreet = currentStreet
         )
 
         _snapshot.value = newSnapshot
-
-        if (syncCloud) {
-            pushHeartbeatToFirebaseRtdb(newSnapshot)
-        }
         newSnapshot
     }
 
-    private fun buildRegisteredUsersDirectory(
+    private fun buildRealRegisteredUsersDirectory(
         localUsers: List<UserAccountEntity>,
+        allRealDevices: List<RealDeviceTelemetryRecord>,
         freeForeverAccounts: List<FreeForeverAccountStatus>,
         subState: PremiumSubscriptionState,
         currentCity: String,
         currentStreet: String,
-        activeWatchTitle: String
+        activeWatchTitle: String,
+        now: Long
     ): List<RegisteredUserSummary> {
         val list = mutableListOf<RegisteredUserSummary>()
 
-        // 1. Always show the 5 Free Forever VIP accounts first with their live 2-device status
+        // 1. The 5 Free Forever VIP accounts with their real device count (0/2, 1/2, 2/2)
         freeForeverAccounts.forEachIndexed { idx, ff ->
             val firstSlot = ff.activeDevices.firstOrNull()
             val locParts = firstSlot?.locationCityStreet?.split("•")?.map { it.trim() }.orEmpty()
-            val fallbackStreet = TANZANIA_STREETS_CATALOG[idx % TANZANIA_STREETS_CATALOG.size]
             list.add(
                 RegisteredUserSummary(
                     uid = "free_forever_${idx + 1}",
@@ -726,19 +770,19 @@ object NeliRealtimeAnalyticsManager {
                     email = ff.email,
                     accountType = "FREE FOREVER VIP",
                     activeDevicesLabel = "${ff.activeDeviceCount}/${ff.maxDevices} Vifaa (Password: ${ff.password})",
-                    city = locParts.getOrNull(0) ?: fallbackStreet.city,
-                    street = locParts.getOrNull(1) ?: fallbackStreet.street,
+                    city = locParts.getOrNull(0) ?: currentCity,
+                    street = locParts.getOrNull(1) ?: currentStreet,
                     isOnlineNow = ff.activeDeviceCount > 0,
-                    watchingNow = if (ff.activeDeviceCount > 0) "Azam Sports 1 HD" else "Available (0/2)",
-                    lastActiveLabel = if (ff.activeDeviceCount > 0) "Online Sasa" else "Tayari kutumika"
+                    watchingNow = if (ff.activeDeviceCount > 0) "Active (${ff.activeDeviceCount}/2 Vifaa)" else "Available (0/2 Vifaa)",
+                    lastActiveLabel = if (ff.activeDeviceCount > 0) "Online Sasa" else "Bado haijaingia kifaa"
                 )
             )
         }
 
-        // 2. Local Room DB users (excluding duplicates of the 5 Free Forever emails)
+        // 2. Real registered accounts from Room DB
         localUsers.filterNot { NeliFreeForeverAccountsManager.isFreeForeverEmail(it.email) }.forEach { user ->
             val isAdmin = NeliAdminManager.isAdminUser(user)
-            val isSub = subState.isActiveNow && subState.linkedUserEmail.equals(user.email, ignoreCase = true)
+            val isSub = user.isLoggedIn && subState.isActiveNow && subState.linkedUserEmail.equals(user.email, ignoreCase = true)
             list.add(
                 RegisteredUserSummary(
                     uid = user.uid,
@@ -749,237 +793,124 @@ object NeliRealtimeAnalyticsManager {
                         isSub -> "PREMIUM VIP"
                         else -> "REGISTERED"
                     },
-                    activeDevicesLabel = "1/1 Kifaa",
+                    activeDevicesLabel = if (user.isLoggedIn) "1 Kifaa Active" else "Signed Out",
                     city = currentCity,
                     street = currentStreet,
                     isOnlineNow = user.isLoggedIn,
-                    watchingNow = if (user.isLoggedIn && activeWatchTitle.isNotBlank()) activeWatchTitle else "Online kwenye App",
-                    lastActiveLabel = if (user.isLoggedIn) "Active Sasa" else "Leo"
+                    watchingNow = if (user.isLoggedIn && activeWatchTitle.isNotBlank()) activeWatchTitle else if (user.isLoggedIn) "Yuko kwenye App" else "Offline",
+                    lastActiveLabel = if (user.isLoggedIn) "Online Sasa" else SimpleDateFormat("dd MMM HH:mm", Locale.getDefault()).format(Date(user.lastLoginAt))
                 )
             )
         }
 
-        // 3. Active Tanzania Premium & Registered members
-        val tzMembers = listOf(
-            RegisteredUserSummary(
-                uid = "usr_tz_101",
-                fullName = "Juma Mwinyi",
-                email = "juma.mwinyi@gmail.com",
-                accountType = "PREMIUM VIP",
-                activeDevicesLabel = "1/2 Vifaa • Mwezi (15,000 TSh)",
-                city = "Dar es Salaam",
-                street = "Kariakoo • Mtaa wa Msimbazi & Uhuru",
-                isOnlineNow = true,
-                watchingNow = "Azam Sports 1 HD",
-                lastActiveLabel = "Online Sasa"
-            ),
-            RegisteredUserSummary(
-                uid = "usr_tz_102",
-                fullName = "Neema Mwakasege",
-                email = "neema.mwaka@yahoo.com",
-                accountType = "PREMIUM VIP",
-                activeDevicesLabel = "1/2 Vifaa • Wiki (3,500 TSh)",
-                city = "Dar es Salaam",
-                street = "Sinza • Mori, Palestina & Kumekucha",
-                isOnlineNow = true,
-                watchingNow = "Sinema Zetu HD",
-                lastActiveLabel = "Online Sasa"
-            ),
-            RegisteredUserSummary(
-                uid = "usr_tz_103",
-                fullName = "Baraka Mollel",
-                email = "baraka.arusha@gmail.com",
-                accountType = "PREMIUM VIP",
-                activeDevicesLabel = "1/2 Vifaa • Mwezi (15,000 TSh)",
-                city = "Arusha",
-                street = "Sakina • Barabara ya Namanga",
-                isOnlineNow = true,
-                watchingNow = "Azam Sports 2 HD",
-                lastActiveLabel = "Online Sasa"
-            ),
-            RegisteredUserSummary(
-                uid = "usr_tz_104",
-                fullName = "Salma Bakari",
-                email = "salma.znz@gmail.com",
-                accountType = "PREMIUM VIP",
-                activeDevicesLabel = "1/2 Vifaa • Siku Mbili (1,000 TSh)",
-                city = "Zanzibar",
-                street = "Stone Town • Michenzani & Darajani",
-                isOnlineNow = true,
-                watchingNow = "ZBC 2 Zanzibar",
-                lastActiveLabel = "Online Sasa"
-            ),
-            RegisteredUserSummary(
-                uid = "usr_tz_105",
-                fullName = "Emmanuel Mabula",
-                email = "emmanuel.mwanza@gmail.com",
-                accountType = "REGISTERED",
-                activeDevicesLabel = "1 Kifaa • Free Tier",
-                city = "Mwanza",
-                street = "Kirumba • Mtaa wa Kabuhoro",
-                isOnlineNow = true,
-                watchingNow = "Azam Two HD",
-                lastActiveLabel = "Dakika 2 zilizopita"
-            ),
-            RegisteredUserSummary(
-                uid = "usr_tz_106",
-                fullName = "Fatuma Kilo",
-                email = "fatuma.dodoma@gmail.com",
-                accountType = "PREMIUM VIP",
-                activeDevicesLabel = "1/2 Vifaa • Wiki (3,500 TSh)",
-                city = "Dodoma",
-                street = "Area C • Mtaa wa Bunge",
-                isOnlineNow = true,
-                watchingNow = "Azam One HD",
-                lastActiveLabel = "Online Sasa"
-            ),
-            RegisteredUserSummary(
-                uid = "usr_tz_107",
-                fullName = "Kelvin Mwakalebela",
-                email = "kelvin.mbeya@gmail.com",
-                accountType = "PREMIUM VIP",
-                activeDevicesLabel = "1/2 Vifaa • Siku Mbili (1,000 TSh)",
-                city = "Mbeya",
-                street = "Mwanjelwa • Soweto & Kabwe",
-                isOnlineNow = false,
-                watchingNow = "Azam Sports 1 HD",
-                lastActiveLabel = "Dakika 18 zilizopita"
-            )
-        )
-        list.addAll(tzMembers)
+        // 3. Any additional real logged-in accounts from Cloud RTDB devices
+        allRealDevices
+            .filter { it.userEmail.isNotBlank() && list.none { existing -> existing.email.equals(it.userEmail, ignoreCase = true) } }
+            .forEach { dev ->
+                val isOnline = now - dev.lastSeenAtMs <= ONLINE_TIMEOUT_MS
+                list.add(
+                    RegisteredUserSummary(
+                        uid = "cloud_${dev.deviceId}",
+                        fullName = dev.userName.ifBlank { dev.userEmail.substringBefore("@") },
+                        email = dev.userEmail,
+                        accountType = dev.accountTier,
+                        activeDevicesLabel = dev.deviceModel,
+                        city = dev.city,
+                        street = dev.street,
+                        isOnlineNow = isOnline,
+                        watchingNow = dev.watchingTitle.ifBlank { if (isOnline) "Online kwenye App" else "Offline" },
+                        lastActiveLabel = if (isOnline) "Online Sasa" else SimpleDateFormat("dd MMM HH:mm", Locale.getDefault()).format(Date(dev.lastSeenAtMs))
+                    )
+                )
+            }
+
         return list
     }
 
-    private fun buildCombinedTransactions(
-        prefs: android.content.SharedPreferences,
+    private fun mergeConfirmedTransactions(
+        localList: List<HarakaPayTransactionRecord>,
+        cloudList: List<HarakaPayTransactionRecord>?,
         subState: PremiumSubscriptionState,
         currentCity: String,
         currentStreet: String
     ): List<HarakaPayTransactionRecord> {
-        val saved = loadSavedTransactions(prefs).toMutableList()
-        val now = System.currentTimeMillis()
+        val byOrderId = LinkedHashMap<String, HarakaPayTransactionRecord>()
 
-        // If current device has a verified paid subscription, ensure it's at the top of transactions
-        if (subState.isVerified && subState.amountTzs > 0 && subState.orderId.isNotBlank()) {
-            val alreadyExists = saved.any { it.orderId == subState.orderId }
-            if (!alreadyExists) {
-                saved.add(
-                    0,
-                    HarakaPayTransactionRecord(
-                        orderId = subState.orderId,
-                        phoneNumber = subState.phoneNumber.ifBlank { "0754XXXXXX" },
-                        userEmail = subState.linkedUserEmail.ifBlank { "Kifaa Chako (${subState.deviceIpAddress})" },
-                        planTitle = subState.planTitle.ifBlank { "Kifurushi cha VIP" },
-                        amountTzs = subState.amountTzs,
-                        mobileNetwork = detectTanzaniaMobileNetwork(subState.phoneNumber),
-                        cityAndStreet = "$currentCity • $currentStreet",
-                        status = "COMPLETED",
-                        timestampMs = subState.activatedAtMs.takeIf { it > 0L } ?: now
-                    )
-                )
-            }
+        // If current device has a real verified paid subscription (amountTzs > 0 and not Free Forever), include it
+        if (subState.isVerified && !subState.isFreeForeverAccount && subState.amountTzs > 0 && subState.orderId.isNotBlank()) {
+            byOrderId[subState.orderId] = HarakaPayTransactionRecord(
+                orderId = subState.orderId,
+                phoneNumber = subState.phoneNumber,
+                userEmail = subState.linkedUserEmail.ifBlank { "Mteja (${subState.deviceIpAddress})" },
+                planTitle = subState.planTitle.ifBlank { "Kifurushi cha VIP" },
+                amountTzs = subState.amountTzs,
+                mobileNetwork = detectTanzaniaMobileNetwork(subState.phoneNumber),
+                cityAndStreet = "$currentCity • $currentStreet",
+                status = "COMPLETED",
+                timestampMs = subState.activatedAtMs.takeIf { it > 0L } ?: System.currentTimeMillis()
+            )
         }
 
-        val recentTanzaniaTx = listOf(
-            HarakaPayTransactionRecord(
-                orderId = "HP-894210",
-                phoneNumber = "0754 812 390",
-                userEmail = "juma.mwinyi@gmail.com",
-                planTitle = "Kwa Mwezi",
-                amountTzs = 15000,
-                mobileNetwork = "M-Pesa (Vodacom)",
-                cityAndStreet = "Dar es Salaam • Kariakoo, Mtaa wa Msimbazi",
-                status = "COMPLETED",
-                timestampMs = now - 7 * 60_000L
-            ),
-            HarakaPayTransactionRecord(
-                orderId = "HP-894198",
-                phoneNumber = "0713 449 210",
-                userEmail = "neema.mwaka@yahoo.com",
-                planTitle = "Kwa Wiki",
-                amountTzs = 3500,
-                mobileNetwork = "Mixx by Yas (Tigo Pesa)",
-                cityAndStreet = "Dar es Salaam • Sinza Mori",
-                status = "COMPLETED",
-                timestampMs = now - 19 * 60_000L
-            ),
-            HarakaPayTransactionRecord(
-                orderId = "HP-894175",
-                phoneNumber = "0784 920 114",
-                userEmail = "baraka.arusha@gmail.com",
-                planTitle = "Kwa Mwezi",
-                amountTzs = 15000,
-                mobileNetwork = "Airtel Money",
-                cityAndStreet = "Arusha • Sakina, Barabara ya Namanga",
-                status = "COMPLETED",
-                timestampMs = now - 34 * 60_000L
-            ),
-            HarakaPayTransactionRecord(
-                orderId = "HP-894152",
-                phoneNumber = "0655 301 887",
-                userEmail = "salma.znz@gmail.com",
-                planTitle = "Kwa Siku Mbili",
-                amountTzs = 1000,
-                mobileNetwork = "Mixx by Yas (Tigo Pesa)",
-                cityAndStreet = "Zanzibar • Stone Town, Michenzani",
-                status = "COMPLETED",
-                timestampMs = now - 52 * 60_000L
-            ),
-            HarakaPayTransactionRecord(
-                orderId = "HP-894119",
-                phoneNumber = "0767 512 008",
-                userEmail = "fatuma.dodoma@gmail.com",
-                planTitle = "Kwa Wiki",
-                amountTzs = 3500,
-                mobileNetwork = "M-Pesa (Vodacom)",
-                cityAndStreet = "Dodoma • Area C, Mtaa wa Bunge",
-                status = "COMPLETED",
-                timestampMs = now - 78 * 60_000L
-            ),
-            HarakaPayTransactionRecord(
-                orderId = "HP-894084",
-                phoneNumber = "0621 774 519",
-                userEmail = "kelvin.mbeya@gmail.com",
-                planTitle = "Kwa Siku Mbili",
-                amountTzs = 1000,
-                mobileNetwork = "HaloPesa (Halotel)",
-                cityAndStreet = "Mbeya • Mwanjelwa, Soweto",
-                status = "COMPLETED",
-                timestampMs = now - 115 * 60_000L
-            ),
-            HarakaPayTransactionRecord(
-                orderId = "HP-894041",
-                phoneNumber = "0744 609 332",
-                userEmail = "hassan.kariakoo@gmail.com",
-                planTitle = "Kwa Wiki",
-                amountTzs = 3500,
-                mobileNetwork = "M-Pesa (Vodacom)",
-                cityAndStreet = "Dar es Salaam • Mikocheni B, Warioba",
-                status = "COMPLETED",
-                timestampMs = now - 150 * 60_000L
-            )
-        )
+        localList.filter { it.status == "COMPLETED" && it.orderId.isNotBlank() && it.amountTzs > 0 }.forEach { tx ->
+            byOrderId[tx.orderId] = tx
+        }
+        cloudList?.filter { it.status == "COMPLETED" && it.orderId.isNotBlank() && it.amountTzs > 0 }?.forEach { tx ->
+            byOrderId[tx.orderId] = tx
+        }
 
-        return (saved + recentTanzaniaTx).distinctBy { it.orderId }
+        return byOrderId.values.sortedByDescending { it.timestampMs }
     }
 
-    private fun loadSavedTransactions(prefs: android.content.SharedPreferences): List<HarakaPayTransactionRecord> {
-        val raw = prefs.getString(KEY_TRANSACTIONS_JSON, null) ?: return emptyList()
+    private fun mergeRealDevices(
+        myDevice: RealDeviceTelemetryRecord,
+        cloudDevices: List<RealDeviceTelemetryRecord>?
+    ): List<RealDeviceTelemetryRecord> {
+        val map = LinkedHashMap<String, RealDeviceTelemetryRecord>()
+        map[myDevice.deviceId] = myDevice
+        cloudDevices?.forEach { dev ->
+            if (dev.deviceId.isNotBlank() && dev.deviceId != myDevice.deviceId) {
+                map[dev.deviceId] = dev
+            }
+        }
+        return map.values.toList()
+    }
+
+    private fun getStartOfTodayMs(now: Long): Long {
+        return try {
+            val cal = Calendar.getInstance().apply {
+                timeInMillis = now
+                set(Calendar.HOUR_OF_DAY, 0)
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }
+            cal.timeInMillis
+        } catch (_: Exception) {
+            now - 12 * 3600_000L
+        }
+    }
+
+    private fun loadSavedConfirmedTransactions(prefs: android.content.SharedPreferences): List<HarakaPayTransactionRecord> {
+        val raw = prefs.getString(KEY_CONFIRMED_TX_JSON, null) ?: return emptyList()
         return try {
             val arr = JSONArray(raw)
             val list = mutableListOf<HarakaPayTransactionRecord>()
             for (i in 0 until arr.length()) {
                 val obj = arr.optJSONObject(i) ?: continue
+                val status = obj.optString("status", "").uppercase()
+                val orderId = obj.optString("orderId", "").trim()
+                val amount = obj.optInt("amountTzs", 0)
+                if (status != "COMPLETED" || orderId.isBlank() || amount <= 0) continue
                 list.add(
                     HarakaPayTransactionRecord(
-                        orderId = obj.optString("orderId", ""),
+                        orderId = orderId,
                         phoneNumber = obj.optString("phoneNumber", ""),
                         userEmail = obj.optString("userEmail", ""),
                         planTitle = obj.optString("planTitle", ""),
-                        amountTzs = obj.optInt("amountTzs", 1000),
-                        mobileNetwork = obj.optString("mobileNetwork", "M-Pesa"),
-                        cityAndStreet = obj.optString("cityAndStreet", "Dar es Salaam • Kariakoo"),
-                        status = obj.optString("status", "COMPLETED"),
+                        amountTzs = amount,
+                        mobileNetwork = obj.optString("mobileNetwork", "Mobile Money TZ"),
+                        cityAndStreet = obj.optString("cityAndStreet", "Tanzania"),
+                        status = "COMPLETED",
                         timestampMs = obj.optLong("timestampMs", System.currentTimeMillis())
                     )
                 )
@@ -990,12 +921,12 @@ object NeliRealtimeAnalyticsManager {
         }
     }
 
-    private fun saveTransactionsToPrefs(
+    private fun saveConfirmedTransactionsToPrefs(
         prefs: android.content.SharedPreferences,
         list: List<HarakaPayTransactionRecord>
     ) {
         val arr = JSONArray()
-        list.forEach { tx ->
+        list.filter { it.status == "COMPLETED" && it.orderId.isNotBlank() && it.amountTzs > 0 }.forEach { tx ->
             val obj = JSONObject().apply {
                 put("orderId", tx.orderId)
                 put("phoneNumber", tx.phoneNumber)
@@ -1004,35 +935,48 @@ object NeliRealtimeAnalyticsManager {
                 put("amountTzs", tx.amountTzs)
                 put("mobileNetwork", tx.mobileNetwork)
                 put("cityAndStreet", tx.cityAndStreet)
-                put("status", tx.status)
+                put("status", "COMPLETED")
                 put("timestampMs", tx.timestampMs)
             }
             arr.put(obj)
         }
-        prefs.edit().putString(KEY_TRANSACTIONS_JSON, arr.toString()).apply()
+        prefs.edit().putString(KEY_CONFIRMED_TX_JSON, arr.toString()).apply()
     }
 
-    private fun pushHeartbeatToFirebaseRtdb(snapshot: NeliRealtimeAdminSnapshot) {
+    private fun sanitizeFirebaseKey(raw: String): String {
+        return raw.trim().replace(Regex("[^a-zA-Z0-9_-]"), "_").take(64).ifBlank { "unknown_device" }
+    }
+
+    private fun pushDeviceTelemetryToCloud(record: RealDeviceTelemetryRecord) {
         var conn: HttpURLConnection? = null
         try {
-            val url = URL(RTDB_ANALYTICS_URL)
+            val key = sanitizeFirebaseKey(record.deviceId)
+            val url = URL("$RTDB_BASE_URL/devices/$key.json")
             val payload = JSONObject().apply {
-                put("updatedAtMs", snapshot.lastUpdatedMs)
-                put("totalAppUsers", snapshot.totalAppUsers)
-                put("currentOnlineUsers", snapshot.currentOnlineUsers)
-                put("registeredUsersCount", snapshot.registeredUsersCount)
-                put("premiumUsersCount", snapshot.premiumUsersCount)
-                put("freeForeverActiveUsersCount", snapshot.freeForeverActiveUsersCount)
-                put("totalWatchingNow", snapshot.totalWatchingNow)
-                put("totalHarakaPayIncomeTzs", snapshot.totalHarakaPayIncomeTzs)
+                put("deviceId", record.deviceId)
+                put("deviceModel", record.deviceModel)
+                put("deviceBrand", record.deviceBrand)
+                put("deviceIp", record.deviceIp)
+                put("city", record.city)
+                put("district", record.district)
+                put("street", record.street)
+                put("networkType", record.networkType)
+                put("userEmail", record.userEmail)
+                put("userName", record.userName)
+                put("accountTier", record.accountTier)
+                put("isPremium", record.isPremium)
+                put("watchingChannelId", record.watchingChannelId)
+                put("watchingTitle", record.watchingTitle)
+                put("watchingCategory", record.watchingCategory)
+                put("firstSeenAtMs", record.firstSeenAtMs)
+                put("lastSeenAtMs", record.lastSeenAtMs)
             }
             conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "PATCH"
+                requestMethod = "PUT"
                 connectTimeout = 3500
                 readTimeout = 3500
                 doOutput = true
                 setRequestProperty("Content-Type", "application/json; charset=UTF-8")
-                setRequestProperty("X-HTTP-Method-Override", "PATCH")
             }
             OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use { writer ->
                 writer.write(payload.toString())
@@ -1040,6 +984,149 @@ object NeliRealtimeAnalyticsManager {
             }
             conn.responseCode
         } catch (_: Exception) {
+        } finally {
+            conn?.disconnect()
+        }
+    }
+
+    private fun fetchAllRealDevicesFromCloud(): List<RealDeviceTelemetryRecord>? {
+        var conn: HttpURLConnection? = null
+        return try {
+            val url = URL("$RTDB_BASE_URL/devices.json")
+            conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = 3500
+                readTimeout = 3500
+                setRequestProperty("Accept", "application/json")
+            }
+            if (conn.responseCode in 200..299) {
+                val body = conn.inputStream.bufferedReader().use { it.readText() }.trim()
+                if (body.isBlank() || body == "null") {
+                    emptyList()
+                } else {
+                    val root = JSONObject(body)
+                    val list = mutableListOf<RealDeviceTelemetryRecord>()
+                    val keys = root.keys()
+                    while (keys.hasNext()) {
+                        val k = keys.next()
+                        val obj = root.optJSONObject(k) ?: continue
+                        val devId = obj.optString("deviceId", "").trim()
+                        if (devId.isBlank()) continue
+                        list.add(
+                            RealDeviceTelemetryRecord(
+                                deviceId = devId,
+                                deviceModel = obj.optString("deviceModel", "Android Device"),
+                                deviceBrand = obj.optString("deviceBrand", "Android"),
+                                deviceIp = obj.optString("deviceIp", ""),
+                                city = obj.optString("city", "Dar es Salaam"),
+                                district = obj.optString("district", "Tanzania"),
+                                street = obj.optString("street", "Tanzania"),
+                                networkType = obj.optString("networkType", "Online"),
+                                userEmail = obj.optString("userEmail", ""),
+                                userName = obj.optString("userName", "Mtumiaji"),
+                                accountTier = obj.optString("accountTier", "FREE USER"),
+                                isPremium = obj.optBoolean("isPremium", false),
+                                watchingChannelId = obj.optString("watchingChannelId", ""),
+                                watchingTitle = obj.optString("watchingTitle", ""),
+                                watchingCategory = obj.optString("watchingCategory", ""),
+                                firstSeenAtMs = obj.optLong("firstSeenAtMs", System.currentTimeMillis()),
+                                lastSeenAtMs = obj.optLong("lastSeenAtMs", System.currentTimeMillis())
+                            )
+                        )
+                    }
+                    list
+                }
+            } else {
+                null
+            }
+        } catch (_: Exception) {
+            null
+        } finally {
+            conn?.disconnect()
+        }
+    }
+
+    private fun pushConfirmedTransactionToCloud(tx: HarakaPayTransactionRecord) {
+        if (tx.status != "COMPLETED" || tx.orderId.isBlank() || tx.amountTzs <= 0) return
+        var conn: HttpURLConnection? = null
+        try {
+            val key = sanitizeFirebaseKey(tx.orderId)
+            val url = URL("$RTDB_BASE_URL/confirmed_payments/$key.json")
+            val payload = JSONObject().apply {
+                put("orderId", tx.orderId)
+                put("phoneNumber", tx.phoneNumber)
+                put("userEmail", tx.userEmail)
+                put("planTitle", tx.planTitle)
+                put("amountTzs", tx.amountTzs)
+                put("mobileNetwork", tx.mobileNetwork)
+                put("cityAndStreet", tx.cityAndStreet)
+                put("status", "COMPLETED")
+                put("timestampMs", tx.timestampMs)
+            }
+            conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "PUT"
+                connectTimeout = 3500
+                readTimeout = 3500
+                doOutput = true
+                setRequestProperty("Content-Type", "application/json; charset=UTF-8")
+            }
+            OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use { writer ->
+                writer.write(payload.toString())
+                writer.flush()
+            }
+            conn.responseCode
+        } catch (_: Exception) {
+        } finally {
+            conn?.disconnect()
+        }
+    }
+
+    private fun fetchConfirmedTransactionsFromCloud(): List<HarakaPayTransactionRecord>? {
+        var conn: HttpURLConnection? = null
+        return try {
+            val url = URL("$RTDB_BASE_URL/confirmed_payments.json")
+            conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = 3500
+                readTimeout = 3500
+                setRequestProperty("Accept", "application/json")
+            }
+            if (conn.responseCode in 200..299) {
+                val body = conn.inputStream.bufferedReader().use { it.readText() }.trim()
+                if (body.isBlank() || body == "null") {
+                    emptyList()
+                } else {
+                    val root = JSONObject(body)
+                    val list = mutableListOf<HarakaPayTransactionRecord>()
+                    val keys = root.keys()
+                    while (keys.hasNext()) {
+                        val k = keys.next()
+                        val obj = root.optJSONObject(k) ?: continue
+                        val status = obj.optString("status", "").uppercase()
+                        val orderId = obj.optString("orderId", "").trim()
+                        val amount = obj.optInt("amountTzs", 0)
+                        if (status != "COMPLETED" || orderId.isBlank() || amount <= 0) continue
+                        list.add(
+                            HarakaPayTransactionRecord(
+                                orderId = orderId,
+                                phoneNumber = obj.optString("phoneNumber", ""),
+                                userEmail = obj.optString("userEmail", ""),
+                                planTitle = obj.optString("planTitle", ""),
+                                amountTzs = amount,
+                                mobileNetwork = obj.optString("mobileNetwork", "Mobile Money TZ"),
+                                cityAndStreet = obj.optString("cityAndStreet", "Tanzania"),
+                                status = "COMPLETED",
+                                timestampMs = obj.optLong("timestampMs", System.currentTimeMillis())
+                            )
+                        )
+                    }
+                    list
+                }
+            } else {
+                null
+            }
+        } catch (_: Exception) {
+            null
         } finally {
             conn?.disconnect()
         }

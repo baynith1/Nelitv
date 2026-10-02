@@ -906,6 +906,73 @@ object ChannelRepository {
         get() = _liveChannelsFlow.value.filter { it.isAzamPriority }.ifEmpty { channels.filter { it.isAzamPriority } }
 
     /**
+     * Strictly the hardcoded AZAM TV live channels defined in [channels].
+     * Used as the exclusive source of truth for Scan to Cast.
+     */
+    val hardcodedAzamChannels: List<LiveChannel>
+        get() = channels.filter {
+            it.isLiveBroadcast &&
+                it.isAzamPriority &&
+                it.streamUrl.contains("azamtvltd.co.tz", ignoreCase = true)
+        }
+
+    /**
+     * Returns true ONLY if [channel] is one of the existing hardcoded AZAM TV live channels.
+     * Strictly returns false for Movies, Series, Episodes, Offline Downloads, and non-AZAM Firebase Live TV channels.
+     */
+    fun isHardcodedAzamChannel(channel: LiveChannel?): Boolean {
+        if (channel == null) return false
+        if (!channel.isLiveBroadcast) return false
+        if (channel.seriesId.isNotBlank() || channel.episodeId.isNotBlank()) return false
+        if (channel.id.startsWith("mov_", ignoreCase = true) ||
+            channel.id.startsWith("ser_", ignoreCase = true) ||
+            channel.id.startsWith("ep_", ignoreCase = true) ||
+            channel.id.startsWith("dl_", ignoreCase = true) ||
+            channel.streamUrl.startsWith("file:", ignoreCase = true)
+        ) {
+            return false
+        }
+        val targetMatchKey = normalizeChannelMatchKey(channel.name)
+        return hardcodedAzamChannels.any { hardcoded ->
+            hardcoded.id.equals(channel.id, ignoreCase = true) ||
+                (targetMatchKey.isNotEmpty() && normalizeChannelMatchKey(hardcoded.name) == targetMatchKey)
+        }
+    }
+
+    /**
+     * Resolves [channel] against the canonical hardcoded AZAM channel definition in [hardcodedAzamChannels]
+     * while preserving the exact tokenized stream URL produced by the existing Android playback pipeline.
+     */
+    fun resolveHardcodedAzamChannel(channel: LiveChannel): LiveChannel {
+        val targetMatchKey = normalizeChannelMatchKey(channel.name)
+        val hardcoded = hardcodedAzamChannels.firstOrNull { cand ->
+            cand.id.equals(channel.id, ignoreCase = true) ||
+                (targetMatchKey.isNotEmpty() && normalizeChannelMatchKey(cand.name) == targetMatchKey)
+        } ?: return channel
+
+        val activeMatch = _liveChannelsFlow.value.firstOrNull { cand ->
+            cand.id.equals(hardcoded.id, ignoreCase = true)
+        }
+        val rawPrimaryUrl = when {
+            channel.streamUrl.contains("azamtvltd.co.tz", ignoreCase = true) ||
+                channel.streamUrl.contains("/live/eds/", ignoreCase = true) -> channel.streamUrl
+            activeMatch != null && activeMatch.streamUrl.contains("azamtvltd.co.tz", ignoreCase = true) -> activeMatch.streamUrl
+            else -> hardcoded.streamUrl
+        }
+        val rawBackupUrl = when {
+            channel.backupStreamUrl.isNotBlank() -> channel.backupStreamUrl
+            activeMatch != null && activeMatch.backupStreamUrl.isNotBlank() -> activeMatch.backupStreamUrl
+            else -> hardcoded.backupStreamUrl
+        }
+        return hardcoded.copy(
+            streamUrl = resolvePlayableAzamManifestUrl(rawPrimaryUrl),
+            backupStreamUrl = if (rawBackupUrl.isNotBlank()) resolvePlayableAzamManifestUrl(rawBackupUrl) else "",
+            thumbnailUrl = resolveGuaranteedChannelLogoUrl(hardcoded),
+            clearKeys = if (hardcoded.clearKeys.isNotEmpty()) hardcoded.clearKeys else channel.clearKeys
+        )
+    }
+
+    /**
      * All Tanzania Live TV channels (including Azam bouquet + Tanzania Firestore channels).
      */
     val tanzaniaPriorityChannels: List<LiveChannel>

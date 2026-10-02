@@ -296,6 +296,25 @@ object NeliSubscriptionManager {
             pendingPhone = "",
             pendingAmountTzs = 0
         )
+
+        // Verify asynchronously against Room DB: if no user is logged in and the state is not a fresh post-payment session,
+        // ensure any logged-out account state is cleared so logged-out users never see a stale Premium banner.
+        if (linkedEmail.isNotBlank() || isFreeForever) {
+            ioScope.launch {
+                try {
+                    val activeUser = NeliDatabase.getInstance(context).mediaDao().getActiveUserOnce()
+                    if (activeUser == null || activeUser.email.isBlank()) {
+                        switchActiveAccount(
+                            context = context,
+                            uid = "",
+                            email = "",
+                            realName = ""
+                        )
+                    }
+                } catch (_: Throwable) {
+                }
+            }
+        }
     }
 
     private fun accountKeyPrefix(email: String): String {

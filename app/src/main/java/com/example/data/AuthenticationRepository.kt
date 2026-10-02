@@ -217,6 +217,12 @@ class AuthenticationRepository(
         } catch (_: Throwable) {
         }
         dao.logoutAllUsers()
+        NeliSubscriptionManager.switchActiveAccount(
+            context = context,
+            uid = "",
+            email = "",
+            realName = ""
+        )
     }
 
     // =========================================================================

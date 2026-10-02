@@ -77,12 +77,16 @@ import com.example.data.NeliSubscriptionManager
 import com.example.data.OfflineDownloadManager
 import com.example.model.LiveChannel
 import com.example.player.NeliCastManager
+import com.example.player.ScanToCastManager
 import com.example.ui.NeliViewModel
 import com.example.ui.components.BottomNavTab
+import com.example.ui.components.CameraScannerView
 import com.example.ui.components.ChannelCard
 import com.example.ui.components.LiveIndicatorBadge
 import com.example.ui.components.NeliBottomBar
 import com.example.ui.components.NeliHomepageAutoUpdatePopupDialog
+import com.example.ui.components.ScanToCastAzamGridTabContent
+import com.example.ui.components.ScanToCastCastedDevicePlayerScreen
 import com.example.ui.components.TopNavBar
 import com.example.ui.theme.NeliBackground
 import com.example.ui.theme.NeliGenreCyan
@@ -136,6 +140,8 @@ fun HomeScreen(
 
     val connectedCastDevice by NeliCastManager.connectedDevice.collectAsState()
     val isCastActive = connectedCastDevice != null
+    val scanToCastSession by ScanToCastManager.sessionState.collectAsState()
+    val isScanToCastConnected = scanToCastSession.receiverConnected
     val activeAdminSms by NeliAdminManager.activeAdminSms.collectAsState()
     val adminSmsMessage = activeAdminSms?.message.orEmpty()
     val adminBannerPlacement by NeliAdminManager.adminBannerPlacement.collectAsState()
@@ -145,6 +151,9 @@ fun HomeScreen(
     val lockAllForFree by NeliAdminManager.areAllChannelsLocked.collectAsState()
 
     var showCastDialog by rememberSaveable { mutableStateOf(false) }
+    var showScanToCastCameraDialog by rememberSaveable { mutableStateOf(false) }
+    var isScanToCastAzamGridOpen by rememberSaveable { mutableStateOf(false) }
+    var castedPlayerAzamChannelId by rememberSaveable { mutableStateOf<String?>(null) }
     var lockedChannelToPrompt by remember { mutableStateOf<LiveChannel?>(null) }
     var pendingUnlockedChannelAfterPayment by remember { mutableStateOf<LiveChannel?>(null) }
 
@@ -167,19 +176,23 @@ fun HomeScreen(
     }
 
     val handleChannelSelection: (LiveChannel) -> Unit = { ch ->
-        val isLockedForUser = ch.isLiveBroadcast && NeliAdminManager.isChannelLockedForUser(
-            channelId = ch.id,
-            currentUser = currentUser,
-            isPremiumActive = isPremiumActive,
-            context = context
-        )
-        if (isLockedForUser) {
-            lockedChannelToPrompt = ch
-            pendingUnlockedChannelAfterPayment = ch
+        if (isScanToCastConnected && ChannelRepository.isHardcodedAzamChannel(ch)) {
+            castedPlayerAzamChannelId = ch.id
         } else {
-            lockedChannelToPrompt = null
-            pendingUnlockedChannelAfterPayment = null
-            onChannelSelected(ch)
+            val isLockedForUser = ch.isLiveBroadcast && NeliAdminManager.isChannelLockedForUser(
+                channelId = ch.id,
+                currentUser = currentUser,
+                isPremiumActive = isPremiumActive,
+                context = context
+            )
+            if (isLockedForUser) {
+                lockedChannelToPrompt = ch
+                pendingUnlockedChannelAfterPayment = ch
+            } else {
+                lockedChannelToPrompt = null
+                pendingUnlockedChannelAfterPayment = null
+                onChannelSelected(ch)
+            }
         }
     }
 
@@ -200,11 +213,66 @@ fun HomeScreen(
     if (showCastDialog) {
         NeliCastModalSheet(
             availableChannels = liveChannels.ifEmpty { ChannelRepository.getPrioritizedAllChannels() },
+            currentUser = currentUser,
             onDismiss = { showCastDialog = false },
+            onGoToPremium = {
+                showCastDialog = false
+                isSearchOpen = false
+                neliViewModel.selectTab(BottomNavTab.PREMIUM)
+            },
             onSelectChannelToWatchAndCast = { ch ->
                 handleChannelSelection(ch)
             }
         )
+    }
+
+    if (showScanToCastCameraDialog) {
+        CameraScannerView(
+            currentUser = currentUser,
+            onDismiss = { showScanToCastCameraDialog = false },
+            onQrCodePaired = {
+                showScanToCastCameraDialog = false
+                isSearchOpen = false
+                castedPlayerAzamChannelId = null
+                isScanToCastAzamGridOpen = true
+            },
+            modifier = Modifier.fillMaxSize()
+        )
+        return
+    }
+
+    val activeCastedPlayerChannel = remember(castedPlayerAzamChannelId) {
+        val id = castedPlayerAzamChannelId ?: return@remember null
+        ChannelRepository.hardcodedAzamChannels.firstOrNull { it.id.equals(id, ignoreCase = true) }
+            ?: ChannelRepository.getChannelById(id)
+    }
+
+    if (activeCastedPlayerChannel != null) {
+        ScanToCastCastedDevicePlayerScreen(
+            channel = activeCastedPlayerChannel,
+            currentUser = currentUser,
+            isPremiumActive = isPremiumActive,
+            onBackToAzamGrid = {
+                castedPlayerAzamChannelId = null
+                isScanToCastAzamGridOpen = true
+            },
+            onSwitchChannelOnCastedPlayer = { switchedAzam ->
+                castedPlayerAzamChannelId = switchedAzam.id
+            },
+            onGoToPremiumPayToWatch = { lockedCh ->
+                pendingUnlockedChannelAfterPayment = lockedCh
+                castedPlayerAzamChannelId = null
+                isScanToCastAzamGridOpen = false
+                isSearchOpen = false
+                neliViewModel.selectTab(BottomNavTab.PREMIUM)
+            },
+            onDisconnectCast = {
+                ScanToCastManager.disconnectCastSession()
+                castedPlayerAzamChannelId = null
+                isScanToCastAzamGridOpen = false
+            }
+        )
+        return
     }
 
     if (lockedChannelToPrompt != null && !isPremiumActive) {
@@ -223,9 +291,11 @@ fun HomeScreen(
     // Handle back button:
     // - From MediaDetailScreen -> return to Discovery
     // - From open search or non-Home tab -> return to Homepage
-    BackHandler(enabled = selectedMedia != null || isSearchOpen || selectedTab != BottomNavTab.HOME) {
+    BackHandler(enabled = selectedMedia != null || isSearchOpen || isScanToCastAzamGridOpen || selectedTab != BottomNavTab.HOME) {
         if (selectedMedia != null) {
             neliViewModel.navigateBackFromMediaDetails()
+        } else if (isScanToCastAzamGridOpen) {
+            isScanToCastAzamGridOpen = false
         } else if (isSearchOpen) {
             isSearchOpen = false
             searchQuery = ""
@@ -322,8 +392,15 @@ fun HomeScreen(
             },
             onBrandClick = {
                 isSearchOpen = false
+                isScanToCastAzamGridOpen = false
+                castedPlayerAzamChannelId = null
                 searchQuery = ""
                 neliViewModel.selectTab(BottomNavTab.HOME)
+            },
+            isScanToCastActive = isScanToCastConnected || isScanToCastAzamGridOpen,
+            onScanToCastCamClick = {
+                isSearchOpen = false
+                showScanToCastCameraDialog = true
             },
             isCastActive = isCastActive,
             onCastClick = {
@@ -337,7 +414,27 @@ fun HomeScreen(
                 .fillMaxWidth()
                 .weight(1f)
         ) {
-            if (isSearchOpen) {
+            if (isScanToCastAzamGridOpen) {
+                ScanToCastAzamGridTabContent(
+                    sessionState = scanToCastSession,
+                    currentUser = currentUser,
+                    isPremiumActive = isPremiumActive,
+                    onSelectAzamChannelForCastedPlayer = { azamCh ->
+                        castedPlayerAzamChannelId = azamCh.id
+                    },
+                    onRescanQrCamera = {
+                        showScanToCastCameraDialog = true
+                    },
+                    onDisconnectCast = {
+                        ScanToCastManager.disconnectCastSession()
+                        castedPlayerAzamChannelId = null
+                        isScanToCastAzamGridOpen = false
+                    },
+                    onBackToHome = {
+                        isScanToCastAzamGridOpen = false
+                    }
+                )
+            } else if (isSearchOpen) {
                 SearchTabContent(
                     searchQuery = searchQuery,
                     onSearchQueryChange = { searchQuery = it },
@@ -383,6 +480,20 @@ fun HomeScreen(
                     BottomNavTab.PREMIUM -> {
                         PremiumTabContent(
                             currentUser = currentUser,
+                            pendingChannelToResume = pendingUnlockedChannelAfterPayment,
+                            onPaymentCompletedContinueWatching = {
+                                val pending = pendingUnlockedChannelAfterPayment
+                                if (pending != null) {
+                                    pendingUnlockedChannelAfterPayment = null
+                                    if (isScanToCastConnected && ChannelRepository.isHardcodedAzamChannel(pending)) {
+                                        castedPlayerAzamChannelId = pending.id
+                                    } else {
+                                        onChannelSelected(pending)
+                                    }
+                                } else {
+                                    neliViewModel.selectTab(BottomNavTab.HOME)
+                                }
+                            },
                             onNavigateToLoginOrSignUp = {
                                 neliViewModel.selectTab(BottomNavTab.ACCOUNT)
                             },
@@ -515,6 +626,7 @@ fun HomeScreen(
             selectedTab = selectedTab,
             onTabSelected = { tab ->
                 isSearchOpen = false
+                isScanToCastAzamGridOpen = false
                 neliViewModel.selectTab(tab)
             },
             activeDownloadCount = downloadingIds.size

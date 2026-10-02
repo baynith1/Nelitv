@@ -1094,7 +1094,7 @@ private fun HarakaPayIncomeAnalyticsCard(snapshot: NeliRealtimeAdminSnapshot) {
                         )
                     }
                     LinearProgressIndicator(
-                        progress = { (net.sharePercent / 100f).coerceIn(0.05f, 1f) },
+                        progress = { (net.sharePercent / 100f).coerceIn(0f, 1f) },
                         color = Color(0xFF10B981),
                         trackColor = Color(0xFF1E293B),
                         modifier = Modifier
@@ -1105,53 +1105,61 @@ private fun HarakaPayIncomeAnalyticsCard(snapshot: NeliRealtimeAdminSnapshot) {
                 }
             }
 
-            // Recent HarakaPay Transactions
+            // Recent HarakaPay Transactions (Confirmed Payments Only)
             Text(
-                text = "Miamala ya Hivi Karibuni ya HarakaPay (Live Feed):",
+                text = "Miamala Iliyothibitishwa ya HarakaPay (Confirmed Payments Only):",
                 color = Color.White,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold
             )
 
-            snapshot.recentTransactions.take(7).forEach { tx ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(Color(0xFF0F172A))
-                        .border(0.5.dp, NeliBorder, RoundedCornerShape(10.dp))
-                        .padding(10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
+            if (snapshot.recentTransactions.isEmpty()) {
+                Text(
+                    text = "Hakuna malipo yaliyothibitishwa (Confirmed Payments) kwa sasa. Malipo yataonekana hapa mara tu mteja akithibitisha malipo kwenye HarakaPay.",
+                    color = NeliTextSecondary,
+                    fontSize = 11.sp
+                )
+            } else {
+                snapshot.recentTransactions.take(10).forEach { tx ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color(0xFF0F172A))
+                            .border(0.5.dp, NeliBorder, RoundedCornerShape(10.dp))
+                            .padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = "${tx.planTitle} • ${tx.formattedAmount}",
+                                    color = Color(0xFFFBBF24),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                                Text(
+                                    text = "✓ ${tx.status}",
+                                    color = Color(0xFF34D399),
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
                             Text(
-                                text = "${tx.planTitle} • ${tx.formattedAmount}",
-                                color = Color(0xFFFBBF24),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Black
+                                text = "${tx.phoneNumber} (${tx.mobileNetwork}) • ${tx.orderId}",
+                                color = Color.White,
+                                fontSize = 11.sp
                             )
                             Text(
-                                text = "✓ ${tx.status}",
-                                color = Color(0xFF34D399),
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold
+                                text = "📍 ${tx.cityAndStreet} • ${tx.formattedTime}",
+                                color = NeliTextSecondary,
+                                fontSize = 10.sp
                             )
                         }
-                        Text(
-                            text = "${tx.phoneNumber} (${tx.mobileNetwork}) • ${tx.orderId}",
-                            color = Color.White,
-                            fontSize = 11.sp
-                        )
-                        Text(
-                            text = "📍 ${tx.cityAndStreet} • ${tx.formattedTime}",
-                            color = NeliTextSecondary,
-                            fontSize = 10.sp
-                        )
                     }
                 }
             }
@@ -1490,52 +1498,60 @@ private fun LiveWatchingAnalyticsCard(snapshot: NeliRealtimeAdminSnapshot) {
                 fontWeight = FontWeight.Bold
             )
 
-            snapshot.topWatchedChannels.take(8).forEach { ch ->
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(NeliSurfaceVariant)
-                        .padding(10.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Text(
-                                text = ch.channelName,
-                                color = Color.White,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = "• ${ch.category}",
-                                color = NeliTextSecondary,
-                                fontSize = 10.sp
-                            )
-                        }
-                        Text(
-                            text = "${ch.viewersNow} watching (${ch.sharePercent}%)",
-                            color = Color(0xFF34D399),
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Black
-                        )
-                    }
-                    LinearProgressIndicator(
-                        progress = { (ch.sharePercent / 35f).coerceIn(0.08f, 1f) },
-                        color = NeliLiveRed,
-                        trackColor = Color(0xFF1E293B),
+            if (snapshot.topWatchedChannels.isEmpty()) {
+                Text(
+                    text = "Hakuna anayetazama kipindi au channel kwa sasa (0 Watching Now).",
+                    color = NeliTextSecondary,
+                    fontSize = 11.sp
+                )
+            } else {
+                snapshot.topWatchedChannels.take(8).forEach { ch ->
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(5.dp)
-                            .clip(RoundedCornerShape(3.dp))
-                    )
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(NeliSurfaceVariant)
+                            .padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = ch.channelName,
+                                    color = Color.White,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "• ${ch.category}",
+                                    color = NeliTextSecondary,
+                                    fontSize = 10.sp
+                                )
+                            }
+                            Text(
+                                text = "${ch.viewersNow} watching (${ch.sharePercent}%)",
+                                color = Color(0xFF34D399),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Black
+                            )
+                        }
+                        LinearProgressIndicator(
+                            progress = { (ch.sharePercent / 100f).coerceIn(0.08f, 1f) },
+                            color = NeliLiveRed,
+                            trackColor = Color(0xFF1E293B),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(5.dp)
+                                .clip(RoundedCornerShape(3.dp))
+                        )
+                    }
                 }
             }
 

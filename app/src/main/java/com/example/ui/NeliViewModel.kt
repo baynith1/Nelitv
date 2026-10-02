@@ -255,6 +255,7 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
 
         // Automatically switch active account subscription context & sync Cast user info
         viewModelScope.launch(Dispatchers.IO) {
+            var hadLoggedInUser = false
             combine(
                 authenticationRepository.currentUserFlow,
                 com.example.data.NeliSubscriptionManager.subscriptionState
@@ -262,6 +263,7 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
                 Pair(user, subState)
             }.collect { (user, subState) ->
                 if (user != null && user.email.isNotBlank()) {
+                    hadLoggedInUser = true
                     if (!subState.linkedUserEmail.equals(user.email, ignoreCase = true) || subState.requiresPostPaymentAuth) {
                         com.example.data.NeliSubscriptionManager.switchActiveAccount(
                             context = appContext,
@@ -270,12 +272,22 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
                             realName = user.realName
                         )
                     }
+                } else if (user == null) {
+                    if (hadLoggedInUser || subState.linkedUserEmail.isNotBlank() || subState.isFreeForeverAccount) {
+                        hadLoggedInUser = false
+                        com.example.data.NeliSubscriptionManager.switchActiveAccount(
+                            context = appContext,
+                            uid = "",
+                            email = "",
+                            realName = ""
+                        )
+                    }
                 }
                 com.example.player.NeliCastManager.syncUserAndSubscriptionInfo(
-                    userName = user?.realName ?: subState.linkedUserName,
-                    email = user?.email ?: subState.linkedUserEmail,
-                    planTitle = subState.planTitle,
-                    isVerified = subState.isActiveNow,
+                    userName = user?.realName.orEmpty(),
+                    email = user?.email.orEmpty(),
+                    planTitle = if (user != null) subState.planTitle else "",
+                    isVerified = user != null && subState.isActiveNow,
                     deviceIp = subState.deviceIpAddress
                 )
             }

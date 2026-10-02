@@ -236,6 +236,11 @@ fun PlayerScreen(
     var isEpisodeDrawerOpen by remember { mutableStateOf(false) }
     var isSettingsDrawerOpen by remember { mutableStateOf(false) }
     var isAzamLanguageMenuOpen by remember { mutableStateOf(false) }
+    var showScanToCastSheet by remember { mutableStateOf(false) }
+    val scanToCastState by com.example.player.ScanToCastManager.sessionState.collectAsState()
+    val isHardcodedAzamForCast = remember(activeChannel.id, activeChannel.name, activeChannel.isLiveBroadcast) {
+        com.example.data.ChannelRepository.isHardcodedAzamChannel(activeChannel)
+    }
     var resizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FILL) }
     var orientationMode by remember {
         mutableStateOf(PlayerGestureHelper.readSavedOrientationMode(context))
@@ -564,13 +569,33 @@ fun PlayerScreen(
         // Always-On Live Stream Freeze / Stall Auto-Fix Watchdog (runs even when player controls are hidden):
         // Automatically detects and fixes any live stream stall or freeze so the user never has to manually
         // press the bottom "LIVE STREAM • CONTINUOUS REAL-TIME PLAYBACK" button.
-        LaunchedEffect(activeChannel.id, activeChannel.isLiveBroadcast) {
-            if (activeChannel.isLiveBroadcast) {
+        LaunchedEffect(activeChannel.id, activeChannel.isLiveBroadcast, scanToCastState.receiverConnected) {
+            if (isHardcodedAzamForCast && scanToCastState.receiverConnected) {
+                // While connected to TV via Scan to Cast, phone is ONLY the remote/controller:
+                // pause local ExoPlayer so phone speaker/Bluetooth does not output cast audio.
+                activeExoPlayer.playWhenReady = false
+                activeExoPlayer.pause()
+            } else if (activeChannel.isLiveBroadcast) {
+                if (!activeExoPlayer.isPlaying) {
+                    activeExoPlayer.playWhenReady = true
+                    activeExoPlayer.play()
+                }
                 while (true) {
                     delay(900L)
                     playerController.checkAndAutoFixLiveStreamStall()
                 }
             }
+        }
+
+        if (showScanToCastSheet && isHardcodedAzamForCast) {
+            com.example.ui.components.ScanToCastModalSheet(
+                channel = activeChannel,
+                preferredAudioLanguage = playbackInfo.activeAudioLanguage,
+                onDismiss = { showScanToCastSheet = false },
+                onSelectAzamChannel = { switchedAzam ->
+                    playerController.switchChannel(switchedAzam)
+                }
+            )
         }
 
         // Interactive Gesture Surface:
@@ -872,6 +897,49 @@ fun PlayerScreen(
                             LiveIndicatorBadge()
                         }
 
+                        // SCAN TO CAST Button (ONLY for hardcoded AZAM TV live channels)
+                        if (isHardcodedAzamForCast) {
+                            val isConnectedToTv = scanToCastState.receiverConnected
+                            Box(
+                                modifier = Modifier
+                                    .testTag("scan_to_cast_button")
+                                    .clip(RoundedCornerShape(20.dp))
+                                    .background(
+                                        if (isConnectedToTv) Color(0xFF065F46) else Color(0xCC0E2A38)
+                                    )
+                                    .border(
+                                        1.dp,
+                                        if (isConnectedToTv) Color(0xFF34D399) else NeliGenreCyan,
+                                        RoundedCornerShape(20.dp)
+                                    )
+                                    .clickable {
+                                        isEpisodeDrawerOpen = false
+                                        isSettingsDrawerOpen = false
+                                        isAzamLanguageMenuOpen = false
+                                        showScanToCastSheet = true
+                                    }
+                                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Sensors,
+                                        contentDescription = "SCAN TO CAST",
+                                        tint = if (isConnectedToTv) Color(0xFF34D399) else NeliGenreCyan,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Text(
+                                        text = if (isConnectedToTv) "CONNECTED TO TV" else "SCAN TO CAST",
+                                        color = Color.White,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.ExtraBold
+                                    )
+                                }
+                            }
+                        }
+
                         // Azam TV Language Switcher Button (Kiswahili Primary / English)
                         if (activeChannel.isAzamTvChannel) {
                             val activeLangLabel = if (playbackInfo.activeAudioLanguage == "en") {
@@ -959,8 +1027,22 @@ fun PlayerScreen(
                 }
 
                 // Center Area:
+                // - If connected to TV via Scan to Cast on a hardcoded AZAM channel, show the Remote Controller overlay.
                 // - Live TV: NO play/pause or seek buttons! Always continues playing live until user exits.
                 // - Movies, Adult & Series: Rewind 10s, Play/Pause, Forward 10s, plus Next/Previous Episode buttons for Series.
+                if (isHardcodedAzamForCast && scanToCastState.receiverConnected) {
+                    com.example.ui.components.ScanToCastConnectedPlayerOverlay(
+                        sessionState = scanToCastState,
+                        onOpenFullCastSheet = { showScanToCastSheet = true },
+                        onDisconnect = {
+                            com.example.player.ScanToCastManager.disconnectCastSession()
+                            activeExoPlayer.playWhenReady = true
+                            activeExoPlayer.play()
+                        },
+                        modifier = Modifier.padding(top = 68.dp, bottom = 20.dp)
+                    )
+                }
+
                 Box(
                     modifier = Modifier
                         .fillMaxSize()

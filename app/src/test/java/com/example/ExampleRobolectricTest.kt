@@ -1615,6 +1615,220 @@ class ExampleRobolectricTest {
         )
         liveAutoFixController.release()
 
+        // 17. Verify Free Forever 5 accounts (max 2 devices), 100% real analytics (confirmed payments only), and Premium Logout state clearing
+        assertEquals(5, com.example.data.NeliFreeForeverAccountsManager.FREE_FOREVER_EMAILS.size)
+        assertTrue(com.example.data.NeliFreeForeverAccountsManager.isFreeForeverEmail("user1@login.com"))
+        assertTrue(com.example.data.NeliFreeForeverAccountsManager.isFreeForeverEmail("user5@login.com"))
+        assertTrue(com.example.data.NeliFreeForeverAccountsManager.isValidFreeForeverPassword("Free123"))
+        com.example.data.NeliFreeForeverAccountsManager.adminResetAllDevicesForAccount(context, "user1@login.com")
+        com.example.data.NeliFreeForeverAccountsManager.adminAddTestDeviceSlot(context, "user1@login.com")
+        com.example.data.NeliFreeForeverAccountsManager.adminAddTestDeviceSlot(context, "user1@login.com")
+        // Attempt adding a 3rd slot -> remains capped at MAX_DEVICES_PER_ACCOUNT (2)
+        com.example.data.NeliFreeForeverAccountsManager.adminAddTestDeviceSlot(context, "user1@login.com")
+        val user1Status = com.example.data.NeliFreeForeverAccountsManager.accountsStatusFlow.value.first {
+            it.email.equals("user1@login.com", ignoreCase = true)
+        }
+        assertEquals(2, user1Status.activeDeviceCount)
+        assertTrue(user1Status.isFull)
+        com.example.data.NeliFreeForeverAccountsManager.adminResetAllDevicesForAccount(context, "user1@login.com")
+
+        // Verify logging out from a Premium account immediately clears the active session state so no Premium banner persists
+        val loggedOutSubState = com.example.data.NeliSubscriptionManager.switchActiveAccount(
+            context = context,
+            uid = "",
+            email = "",
+            realName = ""
+        )
+        org.junit.Assert.assertFalse(loggedOutSubState.isVerified)
+        org.junit.Assert.assertFalse(loggedOutSubState.isActiveNow)
+
+        // Verify NeliRealtimeAnalyticsManager strictly ignores PENDING payments and only records CONFIRMED ("COMPLETED") payments
+        com.example.data.NeliRealtimeAnalyticsManager.recordHarakaPayTransaction(
+            context = context,
+            orderId = "HP_PENDING_IGNORED_01",
+            phoneNumber = "0712345678",
+            plan = com.example.data.SubscriptionPlanType.WEEKLY,
+            status = "PENDING"
+        )
+        com.example.data.NeliRealtimeAnalyticsManager.recordHarakaPayTransaction(
+            context = context,
+            orderId = "HP_CONFIRMED_TEST_01",
+            phoneNumber = "0712345678",
+            plan = com.example.data.SubscriptionPlanType.WEEKLY,
+            status = "COMPLETED"
+        )
+        kotlinx.coroutines.runBlocking {
+            com.example.data.NeliRealtimeAnalyticsManager.refreshRealtimeSnapshot(context, syncCloud = false)
+        }
+        val currentSnapshot = com.example.data.NeliRealtimeAnalyticsManager.snapshot.value
+        org.junit.Assert.assertFalse(
+            currentSnapshot.recentTransactions.any { it.orderId == "HP_PENDING_IGNORED_01" }
+        )
+        assertTrue(
+            currentSnapshot.recentTransactions.any { it.orderId == "HP_CONFIRMED_TEST_01" && it.status == "COMPLETED" }
+        )
+
+        // 18. Verify AZAM-only SCAN TO CAST adapter (CastPlaybackPayload.fromLiveChannel), QR handshake, and remote commands
+        assertEquals(18, com.example.data.ChannelRepository.hardcodedAzamChannels.size)
+        assertTrue(com.example.data.ChannelRepository.isHardcodedAzamChannel(azamSportsChannel))
+        val nonAzamCnn = com.example.data.ChannelRepository.channels.first { it.name.equals("CNN", ignoreCase = true) }
+        org.junit.Assert.assertFalse(com.example.data.ChannelRepository.isHardcodedAzamChannel(nonAzamCnn))
+        val moviePlayable = com.example.data.MediaContentRepository.mediaCatalog.value.first { !it.isSeries }.toPlayableChannel()
+        org.junit.Assert.assertFalse(com.example.data.ChannelRepository.isHardcodedAzamChannel(moviePlayable))
+
+        val castPayload = com.example.player.CastPlaybackPayload.fromLiveChannel(
+            channel = azamSportsChannel,
+            preferredAudioLanguageOverride = "sw",
+            playbackVersion = 1
+        )
+        assertEquals(azamSportsChannel.id, castPayload.channelId)
+        assertEquals("Azam Sports 1 HD", castPayload.channelName)
+        assertEquals("dash", castPayload.streamFormat)
+        assertEquals("application/dash+xml", castPayload.mimeType)
+        // Must preserve exact resolved playable stream URL including token path & query
+        assertTrue(castPayload.streamUrl.contains("/live/eds/AzamSport1/DASH/AzamSport1.mpd"))
+        assertTrue(castPayload.streamUrl.contains("cdntoken="))
+        assertTrue(castPayload.clearKeys.containsKey("c31df1600afc33799ecac543331803f2"))
+        assertTrue(castPayload.clearKeyJwk.contains("\"keys\""))
+        assertEquals("sw", castPayload.preferredAudioLanguage)
+        assertEquals(1, castPayload.playbackVersion)
+        assertTrue(castPayload.expiresAt > 0L)
+
+        // Reject non-AZAM channel in ScanToCastManager
+        val rejectedNonAzam = com.example.player.ScanToCastManager.startScanToCastSession(context, nonAzamCnn)
+        assertTrue(rejectedNonAzam.isFailure)
+
+        // Start valid AZAM Scan to Cast session
+        val startedCastRes = com.example.player.ScanToCastManager.startScanToCastSession(
+            context = context,
+            channel = azamSportsChannel,
+            preferredAudioLanguage = "sw"
+        )
+        assertTrue(startedCastRes.isSuccess)
+        val castSession = startedCastRes.getOrThrow()
+        assertEquals(16, castSession.sessionId.length)
+        assertEquals(
+            "${com.example.player.CastReceiverConfig.CAST_RECEIVER_BASE_URL}/cast/${castSession.sessionId}",
+            castSession.qrCastUrl
+        )
+        assertEquals(
+            com.example.player.ScanToCastConnectionStatus.WAITING_FOR_TV,
+            castSession.connectionStatus
+        )
+        org.junit.Assert.assertFalse(castSession.receiverConnected)
+
+        val sessionJson = castSession.toFirebaseSessionJson()
+        assertEquals("WAITING_FOR_RECEIVER", sessionJson.getString("status"))
+        assertEquals(azamSportsChannel.id, sessionJson.getString("channelId"))
+        assertNotNull(sessionJson.getJSONObject("playback"))
+
+        // Simulate QR Handshake from Web Receiver (receiverConnected = true)
+        com.example.player.ScanToCastManager.applyRemoteSessionSnapshot(
+            sessionId = castSession.sessionId,
+            remoteJson = org.json.JSONObject().apply {
+                put("receiverConnected", true)
+                put("status", "CONNECTED")
+                put("isPlaying", true)
+                put("browserLastSeen", System.currentTimeMillis())
+            }
+        )
+        assertTrue(com.example.player.ScanToCastManager.sessionState.value.receiverConnected)
+        assertEquals(
+            com.example.player.ScanToCastConnectionStatus.CONNECTED_TO_TV,
+            com.example.player.ScanToCastManager.sessionState.value.connectionStatus
+        )
+
+        // Verify remote commands (PAUSE, PLAY, SET_QUALITY, MUTE, UNMUTE, SET_VOLUME, DISCONNECT)
+        com.example.player.ScanToCastManager.sendPauseCommand()
+        assertEquals("PAUSE", com.example.player.ScanToCastManager.sessionState.value.command)
+        val pauseCmdId = com.example.player.ScanToCastManager.sessionState.value.commandId
+        assertTrue(pauseCmdId.isNotBlank())
+
+        com.example.player.ScanToCastManager.sendSetQualityCommand(com.example.player.CastQualityPreset.HIGH)
+        assertEquals("SET_QUALITY", com.example.player.ScanToCastManager.sessionState.value.command)
+        assertEquals(
+            com.example.player.CastQualityPreset.HIGH,
+            com.example.player.ScanToCastManager.sessionState.value.currentQuality
+        )
+        org.junit.Assert.assertNotEquals(pauseCmdId, com.example.player.ScanToCastManager.sessionState.value.commandId)
+
+        com.example.player.ScanToCastManager.disconnectCastSession()
+        assertEquals(
+            com.example.player.ScanToCastConnectionStatus.IDLE,
+            com.example.player.ScanToCastManager.sessionState.value.connectionStatus
+        )
+
+        // 19. Verify https://cast-nelitv.web.app domain, CameraScannerView QR decoder, QR camera connect, and Admin "Pay to Watch" lock enforcement
+        assertEquals("https://cast-nelitv.web.app", com.example.player.CastReceiverConfig.DEFAULT_RECEIVER_BASE_URL)
+        val encodedQrMatrix = com.example.ui.components.IsoQrCodeEncoder.encodeByteModeEccL("https://cast-nelitv.web.app/cast/SESSION_QR_99")
+        val decodedQrString = com.example.ui.components.CameraQrFrameDecoder.decodeQrFromBooleanBitmap(encodedQrMatrix)
+        assertEquals("https://cast-nelitv.web.app/cast/SESSION_QR_99", decodedQrString)
+        assertEquals(
+            "SESSION_QR_99",
+            com.example.player.CastReceiverConfig.extractSessionIdFromScannedQr(decodedQrString!!)
+        )
+        val scannedConnectRes = com.example.player.ScanToCastManager.connectToScannedQrSession(
+            context = context,
+            rawScannedQr = "https://cast-nelitv.web.app/cast/SESSION_QR_99"
+        )
+        assertTrue(scannedConnectRes.isSuccess)
+        assertTrue(com.example.player.ScanToCastManager.sessionState.value.receiverConnected)
+        assertEquals("SESSION_QR_99", com.example.player.ScanToCastManager.sessionState.value.sessionId)
+
+        // When channel is FREE, casting to connected device works immediately
+        com.example.data.NeliAdminManager.setSingleChannelLock(context, azamSportsChannel.id, locked = false)
+        val freeCastRes = com.example.player.ScanToCastManager.castAzamChannelToConnectedDevice(
+            context = context,
+            channel = azamSportsChannel,
+            currentUser = null
+        )
+        assertTrue(freeCastRes.isSuccess)
+        org.junit.Assert.assertFalse(com.example.player.ScanToCastManager.sessionState.value.isPayToWatchLocked)
+        assertNotNull(com.example.player.ScanToCastManager.sessionState.value.playback)
+
+        // When Admin locks the channel and user has NOT paid, casting is blocked and writes "Pay to Watch"
+        com.example.data.NeliSubscriptionManager.switchActiveAccount(
+            context = context,
+            uid = "",
+            email = "",
+            realName = ""
+        )
+        com.example.data.NeliAdminManager.setSingleChannelLock(context, azamSportsChannel.id, locked = true)
+        val lockedCastRes = com.example.player.ScanToCastManager.castAzamChannelToConnectedDevice(
+            context = context,
+            channel = azamSportsChannel,
+            currentUser = null
+        )
+        assertTrue(lockedCastRes.isFailure)
+        assertTrue(com.example.player.ScanToCastManager.sessionState.value.isPayToWatchLocked)
+        assertEquals("PAY_TO_WATCH", com.example.player.ScanToCastManager.sessionState.value.status)
+        assertEquals("Pay to Watch", com.example.player.ScanToCastManager.sessionState.value.payToWatchMessage)
+        assertEquals(null, com.example.player.ScanToCastManager.sessionState.value.playback)
+        val lockedFirebaseJson = com.example.player.ScanToCastManager.sessionState.value.toFirebaseSessionJson()
+        assertTrue(lockedFirebaseJson.optBoolean("payToWatch"))
+        assertEquals("Pay to Watch", lockedFirebaseJson.optString("payToWatchMessage"))
+
+        // Also verify NeliCastManager blocks standard TV casting with "Pay to Watch" when channel is locked
+        val dummyTv = com.example.player.CastTvDevice(
+            id = "tv_1",
+            name = "Living Room Smart TV",
+            subtitle = "Wireless Display",
+            protocol = "Smart TV"
+        )
+        val standardCastAllowed = com.example.player.NeliCastManager.connectAndCastToTv(
+            device = dummyTv,
+            channel = azamSportsChannel,
+            currentUser = null,
+            context = context
+        )
+        org.junit.Assert.assertFalse(standardCastAllowed)
+        assertTrue(com.example.player.NeliCastManager.isPayToWatchBlocked.value)
+        assertEquals("Pay to Watch", com.example.player.NeliCastManager.statusMessage.value)
+
+        // Unlock channel for clean state
+        com.example.data.NeliAdminManager.setSingleChannelLock(context, azamSportsChannel.id, locked = false)
+        com.example.player.ScanToCastManager.disconnectCastSession()
+
         completedFile.delete()
         controller.release()
     }

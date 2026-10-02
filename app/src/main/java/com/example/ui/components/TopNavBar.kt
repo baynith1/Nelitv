@@ -39,6 +39,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cast
 import androidx.compose.material.icons.filled.CastConnected
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -86,6 +87,8 @@ fun TopNavBar(
     isOfflineMode: Boolean = false,
     onOfflineClick: () -> Unit = {},
     onBrandClick: () -> Unit = {},
+    isScanToCastActive: Boolean = false,
+    onScanToCastCamClick: () -> Unit = {},
     isCastActive: Boolean = false,
     onCastClick: () -> Unit = {},
     adminSmsMessage: String = "",
@@ -176,10 +179,10 @@ fun TopNavBar(
                 }
             }
 
-            // Right: Search Button followed immediately by Cast Button (Logo -> Search -> Cast)
+            // Right: Search Button -> Scan to Cast (Camera Icon) -> Cast Button (Logo -> Search -> Scan to Cast -> Cast)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 IconButton(
                     onClick = onToggleSearch,
@@ -195,6 +198,24 @@ fun TopNavBar(
                         imageVector = if (isSearchOpen) Icons.Default.Clear else Icons.Default.Search,
                         contentDescription = if (isSearchOpen) "Close search" else "Search Azam TV channels",
                         tint = if (isSearchOpen) NeliMagenta else NeliTextPrimary,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+
+                IconButton(
+                    onClick = onScanToCastCamClick,
+                    modifier = Modifier
+                        .testTag("scan_to_cast_cam_icon_button")
+                        .size(48.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (isScanToCastActive) Color(0x2600E5FF) else Color.Transparent
+                        )
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.PhotoCamera,
+                        contentDescription = if (isScanToCastActive) "Scan to Cast Connected (AZAM TV)" else "Scan to Cast QR Camera",
+                        tint = if (isScanToCastActive) NeliGenreCyan else NeliTextPrimary,
                         modifier = Modifier.size(22.dp)
                     )
                 }

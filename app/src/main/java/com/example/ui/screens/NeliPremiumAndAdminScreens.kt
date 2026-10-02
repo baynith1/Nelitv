@@ -207,6 +207,8 @@ fun AdminTopSmsNotificationBanner(
 @Composable
 fun PremiumTabContent(
     currentUser: UserAccountEntity? = null,
+    pendingChannelToResume: LiveChannel? = null,
+    onPaymentCompletedContinueWatching: () -> Unit = {},
     onNavigateToLoginOrSignUp: () -> Unit = {},
     onBack: () -> Unit = {},
     onSignInUser: (email: String, password: String) -> Unit = { _, _ -> },
@@ -229,6 +231,7 @@ fun PremiumTabContent(
     val lockAllForFree by NeliAdminManager.areAllChannelsLocked.collectAsState()
 
     LaunchedEffect(Unit) {
+        PaymentService.prewarmHarakaPayConnection()
         NeliSubscriptionManager.refreshDeviceIp(context)
     }
 
@@ -264,6 +267,13 @@ fun PremiumTabContent(
                 email = currentUser.email,
                 realName = currentUser.realName
             )
+        } else if (currentUser == null && (subState.linkedUserEmail.isNotBlank() || subState.isFreeForeverAccount)) {
+            NeliSubscriptionManager.switchActiveAccount(
+                context = context,
+                uid = "",
+                email = "",
+                realName = ""
+            )
         }
     }
 
@@ -289,12 +299,12 @@ fun PremiumTabContent(
 
     BackHandler(onBack = handleStepOrScreenBack)
 
-    // Automatic background verification polling while waiting on WAITING_VERIFICATION step
+    // High-speed automatic background verification polling (every 1.5s) while waiting on WAITING_VERIFICATION step
     LaunchedEffect(checkoutStep, subState.pendingOrderId) {
         val currentOrderId = subState.pendingOrderId
         if (checkoutStep == PremiumCheckoutStep.WAITING_VERIFICATION && currentOrderId.isNotBlank()) {
+            delay(1000L)
             while (isActive) {
-                delay(4000L)
                 val plan = SubscriptionPlanType.entries.find { it.id == subState.pendingPlanId } ?: selectedPlan
                 val checkRes = paymentService.verifyOrderStatus(currentOrderId)
                 checkRes.onSuccess { statusObj ->
@@ -308,12 +318,17 @@ fun PremiumTabContent(
                         isErrorFeedback = false
                         statusFeedbackMessage = "Malipo yamekamilika! Umethibitishwa kuwa Premium Member."
                         checkoutStep = PremiumCheckoutStep.VERIFIED_SUCCESS
+                        if (pendingChannelToResume != null) {
+                            delay(500L)
+                            onPaymentCompletedContinueWatching()
+                        }
                         return@LaunchedEffect
                     } else if (statusObj.isFailed) {
                         isErrorFeedback = true
                         statusFeedbackMessage = statusObj.errorMessage.ifBlank { "Malipo yameshindikana (${statusObj.status})." }
                     }
                 }
+                delay(1500L)
             }
         }
     }
@@ -381,7 +396,11 @@ fun PremiumTabContent(
         }
 
         // 1. Active Premium Membership Status Card + Post-Payment Login/SignUp Sync Card
-        if (isPremiumActive) {
+        // Only display when a user is actively logged in with a verified subscription, OR right after completing
+        // a payment in the current checkout session (`VERIFIED_SUCCESS`). Never show when the user has logged out!
+        val showActivePremiumBanner = (currentUser != null && isPremiumActive) ||
+            (isPremiumActive && checkoutStep == PremiumCheckoutStep.VERIFIED_SUCCESS)
+        if (showActivePremiumBanner) {
             item {
                 Card(
                     modifier = Modifier
@@ -576,6 +595,7 @@ fun PremiumTabContent(
 
                         Button(
                             onClick = {
+                                PaymentService.prewarmHarakaPayConnection()
                                 NeliSubscriptionManager.refreshDeviceIp(context)
                                 // Always clear phoneInput so the user must write their payment phone number for every payment
                                 phoneInput = ""
@@ -856,6 +876,9 @@ fun PremiumTabContent(
                                                 isErrorFeedback = false
                                                 statusFeedbackMessage = "Malipo yamethibitishwa! Sasa wewe ni Premium Member."
                                                 checkoutStep = PremiumCheckoutStep.VERIFIED_SUCCESS
+                                                if (pendingChannelToResume != null) {
+                                                    onPaymentCompletedContinueWatching()
+                                                }
                                             } else {
                                                 isErrorFeedback = true
                                                 statusFeedbackMessage =
@@ -951,11 +974,23 @@ fun PremiumTabContent(
                                     onClick = {
                                         phoneInput = ""
                                         checkoutStep = PremiumCheckoutStep.CHOOSE_PLAN
-                                        onBack()
+                                        if (pendingChannelToResume != null) {
+                                            onPaymentCompletedContinueWatching()
+                                        } else {
+                                            onBack()
+                                        }
                                     },
                                     colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta)
                                 ) {
-                                    Text("Endelea Kuangalia TV", color = Color.White, fontWeight = FontWeight.Bold)
+                                    Text(
+                                        text = if (pendingChannelToResume != null) {
+                                            "Endelea Kutazama ${pendingChannelToResume.name} Sasa"
+                                        } else {
+                                            "Endelea Kuangalia TV"
+                                        },
+                                        color = Color.White,
+                                        fontWeight = FontWeight.Bold
+                                    )
                                 }
                             }
                         }
@@ -2133,15 +2168,20 @@ fun MiniAdminPanelScreen(
 }
 
 /**
- * SMART TV CAST MODAL DIALOG:
- * Allows the user to cast Live TV channels from the top header Cast button or Player screen
- * onto a Large Smart TV (Chromecast, Miracast, Google TV, Android TV, Hisense/Samsung/LG Smart TV).
+ * CLEAN SMART TV CAST MODAL DIALOG:
+ * Shows ONLY:
+ * 1. Available TVs & their list (TV Zilizopo)
+ * 2. Tafuta TV / Search button
+ * 3. Wireless TV Setting button
+ * 4. Cast to Play Now button (blocks casting with "Pay to Watch" if Admin locked the channel and user has not paid)
  */
 @Composable
 fun NeliCastModalSheet(
     availableChannels: List<LiveChannel>,
     currentChannel: LiveChannel? = null,
+    currentUser: UserAccountEntity? = null,
     onDismiss: () -> Unit,
+    onGoToPremium: () -> Unit = {},
     onSelectChannelToWatchAndCast: (LiveChannel) -> Unit = {}
 ) {
     val context = LocalContext.current
@@ -2152,24 +2192,38 @@ fun NeliCastModalSheet(
     val castingChannel by NeliCastManager.castingChannel.collectAsState()
     val discoveredDevices by NeliCastManager.availableDevices.collectAsState()
     val castStatusMessage by NeliCastManager.statusMessage.collectAsState()
-    val castUserName by NeliCastManager.userDisplayName.collectAsState()
-    val castUserEmail by NeliCastManager.userEmail.collectAsState()
-    val castSubBadge by NeliCastManager.userSubscriptionBadge.collectAsState()
-    val castDeviceIp by NeliCastManager.deviceIpAddress.collectAsState()
-    val castStreamQuality by NeliCastManager.castStreamQuality.collectAsState()
-    val castBufferHealth by NeliCastManager.castBufferHealthPercent.collectAsState()
+    val isPayToWatchBlocked by NeliCastManager.isPayToWatchBlocked.collectAsState()
     val subState by NeliSubscriptionManager.subscriptionState.collectAsState()
+    val lockedChannelIds by NeliAdminManager.lockedChannelIds.collectAsState()
+    val lockAllForFree by NeliAdminManager.areAllChannelsLocked.collectAsState()
     var isSearchingTv by remember { mutableStateOf(true) }
 
-    var selectedCastChannel by remember(currentChannel, castingChannel, availableChannels) {
-        mutableStateOf(castingChannel ?: currentChannel ?: availableChannels.firstOrNull())
+    val selectedCastChannel = remember(currentChannel, castingChannel, availableChannels) {
+        currentChannel ?: castingChannel ?: availableChannels.firstOrNull()
+    }
+
+    val isChannelLockedForUser = remember(
+        selectedCastChannel?.id,
+        currentUser,
+        subState.isActiveNow,
+        lockedChannelIds,
+        lockAllForFree
+    ) {
+        selectedCastChannel != null &&
+            selectedCastChannel.isLiveBroadcast &&
+            NeliAdminManager.isChannelLockedForUser(
+                channelId = selectedCastChannel.id,
+                currentUser = currentUser,
+                isPremiumActive = subState.isActiveNow,
+                context = context
+            )
     }
 
     val triggerTvSearch: () -> Unit = {
         coroutineScope.launch {
             isSearchingTv = true
             NeliCastManager.refreshAvailableTvDevices(context)
-            delay(550L)
+            delay(450L)
             isSearchingTv = false
         }
     }
@@ -2177,7 +2231,7 @@ fun NeliCastModalSheet(
     LaunchedEffect(Unit) {
         isSearchingTv = true
         NeliCastManager.refreshAvailableTvDevices(context)
-        delay(550L)
+        delay(450L)
         isSearchingTv = false
     }
 
@@ -2189,7 +2243,7 @@ fun NeliCastModalSheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 24.dp)
-                .widthIn(max = 560.dp)
+                .widthIn(max = 500.dp)
                 .testTag("cast_modal_dialog"),
             shape = RoundedCornerShape(22.dp),
             color = Color(0xFF101524)
@@ -2199,9 +2253,9 @@ fun NeliCastModalSheet(
                     .fillMaxWidth()
                     .border(1.dp, Color(0x4400E5FF), RoundedCornerShape(22.dp))
                     .padding(18.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // Header
+                // Clean Header
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -2223,26 +2277,33 @@ fun NeliCastModalSheet(
                         ) {
                             Icon(
                                 imageVector = if (isCasting) Icons.Default.CastConnected else Icons.Default.Cast,
-                                contentDescription = "Cast to Large TV",
+                                contentDescription = "Cast to TV",
                                 tint = if (isCasting) Color(0xFF34D399) else NeliGenreCyan,
                                 modifier = Modifier.size(22.dp)
                             )
                         }
                         Column {
                             Text(
-                                text = "Cast Kwenye Large TV",
+                                text = "Cast to TV",
                                 color = Color.White,
                                 fontSize = 17.sp,
                                 fontWeight = FontWeight.Black
                             )
                             Text(
-                                text = if (isCasting && !connectedTvName.isNullOrBlank()) {
-                                    "Imeunganishwa: $connectedTvName"
+                                text = if (isChannelLockedForUser) {
+                                    "Pay to Watch"
+                                } else if (isCasting && !connectedTvName.isNullOrBlank()) {
+                                    "Connected: $connectedTvName"
                                 } else {
-                                    "Unganisha simu yako na Smart TV uangalie vipindi vya TV"
+                                    selectedCastChannel?.name ?: "Select a TV below"
                                 },
-                                color = if (isCasting) Color(0xFF34D399) else NeliTextSecondary,
-                                fontSize = 12.sp
+                                color = when {
+                                    isChannelLockedForUser -> Color(0xFFFBBF24)
+                                    isCasting -> Color(0xFF34D399)
+                                    else -> NeliTextSecondary
+                                },
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold
                             )
                         }
                     }
@@ -2253,149 +2314,66 @@ fun NeliCastModalSheet(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Close,
-                            contentDescription = "Funga",
+                            contentDescription = "Close",
                             tint = NeliTextSecondary
                         )
                     }
                 }
 
-                // User Account & Subscription Info on Cast Card
-                val effectiveUserName = castUserName.ifBlank { subState.linkedUserName }.ifBlank { "Nelitv Viewer" }
-                val effectiveUserEmail = castUserEmail.ifBlank { subState.linkedUserEmail }.ifBlank { "Auto Device IP Profile" }
-                val effectiveIp = castDeviceIp.ifBlank { subState.deviceIpAddress }.ifBlank {
-                    NeliSubscriptionManager.resolveDeviceIpAddress(context)
-                }
-                val effectiveBadge = if (subState.isActiveNow) {
-                    "Premium VIP (${subState.planTitle}) ✓"
-                } else {
-                    castSubBadge
-                }
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Color(0xFF151E32))
-                        .border(1.dp, NeliGenreCyan.copy(alpha = 0.45f), RoundedCornerShape(12.dp))
-                        .padding(10.dp)
-                        .testTag("cast_user_info_card"),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Person,
-                            contentDescription = null,
-                            tint = NeliGenreCyan,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Column {
-                            Text(
-                                text = "$effectiveUserName • $effectiveUserEmail",
-                                color = Color.White,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                text = effectiveBadge,
-                                color = Color(0xFF34D399),
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
-                    }
-                }
-
-                // High-Quality Anti-Stutter Cast Stream Card
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Color(0xFF121A2A))
-                        .border(1.dp, Color(0xFF10B981).copy(alpha = 0.5f), RoundedCornerShape(12.dp))
-                        .padding(10.dp)
-                        .testTag("cast_quality_anti_stutter_card"),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                // Pay to Watch Enforcement Banner when channel is locked by Admin
+                if (isChannelLockedForUser || isPayToWatchBlocked) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(Color(0xFF2B161E))
+                            .border(1.dp, Color(0xFFF59E0B), RoundedCornerShape(14.dp))
+                            .padding(14.dp)
+                            .testTag("cast_pay_to_watch_banner"),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            modifier = Modifier.weight(1f)
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Speed,
-                                contentDescription = null,
-                                tint = Color(0xFF34D399),
-                                modifier = Modifier.size(16.dp)
+                                imageVector = Icons.Default.Lock,
+                                contentDescription = "Pay to Watch",
+                                tint = Color(0xFFFBBF24),
+                                modifier = Modifier.size(20.dp)
                             )
                             Text(
-                                text = "Stream Quality: $castStreamQuality ($castBufferHealth% Buffer)",
-                                color = Color(0xFFA7F3D0),
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.ExtraBold
+                                text = "Pay to Watch",
+                                color = Color(0xFFFBBF24),
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Black
                             )
                         }
-                        Box(
+                        Text(
+                            text = "Channel hii imefungwa hadi ulipie kifurushi cha Premium. Casting haikubaliwi hadi malipo yakamilike.",
+                            color = Color.White,
+                            fontSize = 12.sp
+                        )
+                        Button(
+                            onClick = {
+                                onDismiss()
+                                onGoToPremium()
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF59E0B)),
+                            shape = RoundedCornerShape(10.dp),
                             modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(NeliMagenta)
-                                .clickable { NeliCastManager.triggerCastStreamBoost() }
-                                .padding(horizontal = 8.dp, vertical = 4.dp)
-                                .testTag("cast_anti_stutter_boost_button")
+                                .fillMaxWidth()
+                                .testTag("cast_pay_to_watch_button")
                         ) {
                             Text(
-                                text = "Anti-Stutter HD ✓",
-                                color = Color.White,
-                                fontSize = 10.sp,
+                                text = "Pay to Watch",
+                                color = Color.Black,
+                                fontSize = 13.sp,
                                 fontWeight = FontWeight.ExtraBold
                             )
                         }
                     }
-
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        NeliCastManager.availableQualityPresets.forEachIndexed { index, preset ->
-                            val isSelectedQuality = castStreamQuality == preset
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(if (isSelectedQuality) Color(0xFF065F46) else NeliSurfaceVariant)
-                                    .border(
-                                        1.dp,
-                                        if (isSelectedQuality) Color(0xFF34D399) else NeliBorder,
-                                        RoundedCornerShape(8.dp)
-                                    )
-                                    .clickable { NeliCastManager.setCastStreamQuality(preset) }
-                                    .padding(horizontal = 10.dp, vertical = 5.dp)
-                                    .testTag("cast_quality_chip_$index")
-                            ) {
-                                Text(
-                                    text = preset,
-                                    color = Color.White,
-                                    fontSize = 10.sp,
-                                    fontWeight = if (isSelectedQuality) FontWeight.ExtraBold else FontWeight.Medium
-                                )
-                            }
-                        }
-                    }
-                }
-
-                if (!castStatusMessage.isNullOrBlank()) {
+                } else if (!castStatusMessage.isNullOrBlank()) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -2412,57 +2390,7 @@ fun NeliCastModalSheet(
                     }
                 }
 
-                // Channel selector for casting
-                Text(
-                    text = "Chagua Kipindi / Channel ya Ku-Cast kwenye TV:",
-                    color = NeliTextPrimary,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold
-                )
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    availableChannels.take(12).forEach { ch ->
-                        val isSelected = selectedCastChannel?.id == ch.id
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(if (isSelected) NeliMagenta else NeliSurfaceVariant)
-                                .clickable {
-                                    selectedCastChannel = ch
-                                    if (isCasting) {
-                                        NeliCastManager.updateCastingChannel(ch)
-                                    }
-                                }
-                                .padding(horizontal = 12.dp, vertical = 8.dp)
-                                .testTag("cast_select_channel_${ch.id}")
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Tv,
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Text(
-                                    text = ch.name,
-                                    color = Color.White,
-                                    fontSize = 12.sp,
-                                    fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // Discovered TV devices list (only real discovered TVs, no hardcoded room TVs)
+                // Available TVs header + Search / Tafuta TV button
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -2470,29 +2398,36 @@ fun NeliCastModalSheet(
                 ) {
                     Text(
                         text = if (isSearchingTv) {
-                            "Inatafuta TV zilizo karibu..."
+                            "Searching TV..."
                         } else {
-                            "TV Zilizopatikana (${discoveredDevices.size}):"
+                            "TV Zilizopo (${discoveredDevices.size})"
                         },
                         color = NeliTextPrimary,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold
                     )
-                    IconButton(
+
+                    OutlinedButton(
                         onClick = triggerTvSearch,
-                        modifier = Modifier
-                            .size(32.dp)
-                            .testTag("cast_search_again_button")
+                        modifier = Modifier.testTag("cast_search_again_button")
                     ) {
                         Icon(
                             imageVector = Icons.Default.Refresh,
-                            contentDescription = "Scan TVs",
+                            contentDescription = "Tafuta TV / Search",
                             tint = NeliGenreCyan,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Tafuta TV / Search",
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
                         )
                     }
                 }
 
+                // Discovered TVs list
                 if (isSearchingTv) {
                     Row(
                         modifier = Modifier
@@ -2509,7 +2444,7 @@ fun NeliCastModalSheet(
                             modifier = Modifier.size(22.dp)
                         )
                         Text(
-                            text = "Inatafuta Smart TV / Wireless Display zilizo wazi kwenye Wi-Fi...",
+                            text = "Inatafuta TV zilizopo kwenye Wi-Fi...",
                             color = NeliTextSecondary,
                             fontSize = 12.sp
                         )
@@ -2524,35 +2459,27 @@ fun NeliCastModalSheet(
                             .padding(14.dp)
                             .testTag("cast_no_devices_found_box"),
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.Tv,
                             contentDescription = null,
                             tint = NeliTextSecondary,
-                            modifier = Modifier.size(28.dp)
+                            modifier = Modifier.size(26.dp)
                         )
                         Text(
-                            text = "Hakuna TV iliyogunduliwa bado.",
+                            text = "Hakuna TV iliyopatikana bado",
                             color = Color.White,
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
                             textAlign = TextAlign.Center
                         )
                         Text(
-                            text = "Washa Smart TV / Cast kwenye TV yako (Wi-Fi moja na simu), kisha bonyeza 'Tafuta TV Tena' hapa chini. TV itakayoonekana utai-tap ili ku-connect moja kwa moja.",
+                            text = "Bonyeza 'Tafuta TV / Search' au fungua 'Wireless TV Setting' kuunganisha Smart TV yako.",
                             color = NeliTextSecondary,
                             fontSize = 11.sp,
                             textAlign = TextAlign.Center
                         )
-                        OutlinedButton(
-                            onClick = triggerTvSearch,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Tafuta TV Tena (Search)", fontSize = 12.sp)
-                        }
                     }
                 } else {
                     Column(
@@ -2574,11 +2501,24 @@ fun NeliCastModalSheet(
                                         shape = RoundedCornerShape(12.dp)
                                     )
                                     .clickable {
-                                        NeliCastManager.connectAndCastToTv(
-                                            device = device,
-                                            channel = selectedCastChannel
-                                        )
-                                        selectedCastChannel?.let { onSelectChannelToWatchAndCast(it) }
+                                        if (isChannelLockedForUser) {
+                                            NeliCastManager.connectAndCastToTv(
+                                                device = device,
+                                                channel = selectedCastChannel,
+                                                currentUser = currentUser,
+                                                context = context
+                                            )
+                                        } else {
+                                            val ok = NeliCastManager.connectAndCastToTv(
+                                                device = device,
+                                                channel = selectedCastChannel,
+                                                currentUser = currentUser,
+                                                context = context
+                                            )
+                                            if (ok) {
+                                                selectedCastChannel?.let { onSelectChannelToWatchAndCast(it) }
+                                            }
+                                        }
                                     }
                                     .padding(12.dp)
                                     .testTag("cast_device_item_${device.id}"),
@@ -2611,8 +2551,16 @@ fun NeliCastModalSheet(
                                 }
 
                                 Text(
-                                    text = if (isThisDeviceConnected) "Connected ✓" else "Tap to Connect",
-                                    color = if (isThisDeviceConnected) Color(0xFF34D399) else NeliMagenta,
+                                    text = when {
+                                        isChannelLockedForUser -> "Pay to Watch"
+                                        isThisDeviceConnected -> "Connected ✓"
+                                        else -> "Connect"
+                                    },
+                                    color = when {
+                                        isChannelLockedForUser -> Color(0xFFFBBF24)
+                                        isThisDeviceConnected -> Color(0xFF34D399)
+                                        else -> NeliMagenta
+                                    },
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.ExtraBold
                                 )
@@ -2621,7 +2569,7 @@ fun NeliCastModalSheet(
                     }
                 }
 
-                // Action buttons: Watch & Cast / System Wireless Display Settings / Disconnect
+                // Bottom Action Buttons: Wireless TV Setting & Cast to Play Now
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -2632,6 +2580,7 @@ fun NeliCastModalSheet(
                         },
                         modifier = Modifier
                             .weight(1f)
+                            .height(48.dp)
                             .testTag("cast_open_system_settings_button")
                     ) {
                         Icon(
@@ -2640,7 +2589,7 @@ fun NeliCastModalSheet(
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Wireless TV Settings", fontSize = 12.sp)
+                        Text("Wireless TV Setting", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
 
                     if (isCasting) {
@@ -2651,28 +2600,52 @@ fun NeliCastModalSheet(
                             colors = ButtonDefaults.buttonColors(containerColor = NeliLiveRed),
                             modifier = Modifier
                                 .weight(1f)
+                                .height(48.dp)
                                 .testTag("cast_disconnect_button")
                         ) {
                             Text("Stop Casting", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
-                    } else if (selectedCastChannel != null) {
+                    } else {
                         Button(
                             onClick = {
-                                val targetDevice = discoveredDevices.firstOrNull()
-                                if (targetDevice != null) {
-                                    NeliCastManager.connectAndCastToTv(targetDevice, selectedCastChannel)
+                                if (isChannelLockedForUser) {
+                                    onDismiss()
+                                    onGoToPremium()
+                                } else {
+                                    val targetDevice = discoveredDevices.firstOrNull()
+                                    if (targetDevice != null) {
+                                        NeliCastManager.connectAndCastToTv(
+                                            device = targetDevice,
+                                            channel = selectedCastChannel,
+                                            currentUser = currentUser,
+                                            context = context
+                                        )
+                                    }
+                                    selectedCastChannel?.let { onSelectChannelToWatchAndCast(it) }
+                                    onDismiss()
                                 }
-                                selectedCastChannel?.let { onSelectChannelToWatchAndCast(it) }
-                                onDismiss()
                             },
-                            colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (isChannelLockedForUser) Color(0xFFF59E0B) else NeliMagenta
+                            ),
                             modifier = Modifier
                                 .weight(1f)
+                                .height(48.dp)
                                 .testTag("cast_start_watching_button")
                         ) {
-                            Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Icon(
+                                imageVector = if (isChannelLockedForUser) Icons.Default.Lock else Icons.Default.PlayArrow,
+                                contentDescription = null,
+                                tint = if (isChannelLockedForUser) Color.Black else Color.White,
+                                modifier = Modifier.size(16.dp)
+                            )
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("Cast & Play Now", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Text(
+                                text = if (isChannelLockedForUser) "Pay to Watch" else "Cast to Play Now",
+                                color = if (isChannelLockedForUser) Color.Black else Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
                         }
                     }
                 }

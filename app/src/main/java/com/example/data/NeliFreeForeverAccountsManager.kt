@@ -60,7 +60,7 @@ object NeliFreeForeverAccountsManager {
 
     private const val PREFS_NAME = "neli_free_forever_accounts_prefs"
     private const val KEY_DEVICES_PREFIX = "devices_json_"
-    private const val RTDB_BASE_URL = "https://nelitv-48269-default-rtdb.firebaseio.com/nelitv_free_forever_devices"
+    private const val RTDB_BASE_URL = "https://neliplay-default-rtdb.firebaseio.com/nelitv_free_forever_devices"
 
     val FREE_FOREVER_EMAILS: List<String> = listOf(
         "user1@login.com",

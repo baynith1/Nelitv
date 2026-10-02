@@ -6,6 +6,9 @@ import android.hardware.display.DisplayManager
 import android.media.MediaRouter
 import android.provider.Settings
 import com.example.data.ChannelRepository
+import com.example.data.NeliAdminManager
+import com.example.data.NeliSubscriptionManager
+import com.example.data.local.UserAccountEntity
 import com.example.model.LiveChannel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -45,6 +48,9 @@ object NeliCastManager {
 
     private val _statusMessage = MutableStateFlow<String?>(null)
     val statusMessage: StateFlow<String?> = _statusMessage.asStateFlow()
+
+    private val _isPayToWatchBlocked = MutableStateFlow(false)
+    val isPayToWatchBlocked: StateFlow<Boolean> = _isPayToWatchBlocked.asStateFlow()
 
     private val _userDisplayName = MutableStateFlow("")
     val userDisplayName: StateFlow<String> = _userDisplayName.asStateFlow()
@@ -195,28 +201,70 @@ object NeliCastManager {
         _isScanning.value = false
     }
 
-    fun connectAndCastToTv(device: CastTvDevice, channel: LiveChannel? = null) {
+    fun isChannelLockedForCasting(
+        channel: LiveChannel?,
+        currentUser: UserAccountEntity? = null,
+        context: Context? = null
+    ): Boolean {
+        if (channel == null || !channel.isLiveBroadcast) return false
+        return NeliAdminManager.isChannelLockedForUser(
+            channelId = channel.id,
+            currentUser = currentUser,
+            isPremiumActive = NeliSubscriptionManager.isPremiumMemberActive(context = context),
+            context = context
+        )
+    }
+
+    fun connectAndCastToTv(
+        device: CastTvDevice,
+        channel: LiveChannel? = null,
+        currentUser: UserAccountEntity? = null,
+        context: Context? = null
+    ): Boolean {
         val targetChannel = channel
             ?: _castingChannel.value
             ?: ChannelRepository.liveChannelsFlow.value.firstOrNull()
+
+        if (isChannelLockedForCasting(targetChannel, currentUser, context)) {
+            _isPayToWatchBlocked.value = true
+            _castingChannel.value = null
+            _statusMessage.value = "Pay to Watch"
+            return false
+        }
+
+        _isPayToWatchBlocked.value = false
         _connectedDevice.value = device
         _castingChannel.value = targetChannel
 
         val channelTitle = targetChannel?.name ?: "Nelitv Live Stream"
         _statusMessage.value = "Inarusha (Casting) \"$channelTitle\" kwenda kwenye ${device.name}"
+        return true
     }
 
-    fun updateCastingChannel(channel: LiveChannel) {
+    fun updateCastingChannel(
+        channel: LiveChannel,
+        currentUser: UserAccountEntity? = null,
+        context: Context? = null
+    ): Boolean {
+        if (isChannelLockedForCasting(channel, currentUser, context)) {
+            _isPayToWatchBlocked.value = true
+            _castingChannel.value = null
+            _statusMessage.value = "Pay to Watch"
+            return false
+        }
+        _isPayToWatchBlocked.value = false
         _castingChannel.value = channel
         val dev = _connectedDevice.value
         if (dev != null) {
             _statusMessage.value = "Inarusha (Casting) \"${channel.name}\" kwenda kwenye ${dev.name}"
         }
+        return true
     }
 
     fun disconnectCast() {
         val prev = _connectedDevice.value
         _connectedDevice.value = null
+        _isPayToWatchBlocked.value = false
         _statusMessage.value = if (prev != null) {
             "Imetenganishwa na ${prev.name}"
         } else {
