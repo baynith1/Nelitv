@@ -48,6 +48,7 @@ import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.NetworkCell
 import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
@@ -237,6 +238,7 @@ fun PlayerScreen(
     var isSettingsDrawerOpen by remember { mutableStateOf(false) }
     var isAzamLanguageMenuOpen by remember { mutableStateOf(false) }
     var showScanToCastSheet by remember { mutableStateOf(false) }
+    var showCameraScannerInPlayer by remember { mutableStateOf(false) }
     val scanToCastState by com.example.player.ScanToCastManager.sessionState.collectAsState()
     val isHardcodedAzamForCast = remember(activeChannel.id, activeChannel.name, activeChannel.isLiveBroadcast) {
         com.example.data.ChannelRepository.isHardcodedAzamChannel(activeChannel)
@@ -587,6 +589,21 @@ fun PlayerScreen(
             }
         }
 
+        if (showCameraScannerInPlayer && isHardcodedAzamForCast) {
+            com.example.ui.components.CameraScannerView(
+                currentUser = null,
+                initialAzamChannel = activeChannel,
+                preferredAudioLanguage = playbackInfo.activeAudioLanguage,
+                onDismiss = { showCameraScannerInPlayer = false },
+                onQrCodePaired = {
+                    showCameraScannerInPlayer = false
+                    showScanToCastSheet = true
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+            return@Box
+        }
+
         if (showScanToCastSheet && isHardcodedAzamForCast) {
             com.example.ui.components.ScanToCastModalSheet(
                 channel = activeChannel,
@@ -897,9 +914,37 @@ fun PlayerScreen(
                             LiveIndicatorBadge()
                         }
 
-                        // SCAN TO CAST Button (ONLY for hardcoded AZAM TV live channels)
+                        // SCAN TO CAST Camera Icon & Button (ONLY for hardcoded AZAM TV live channels)
                         if (isHardcodedAzamForCast) {
                             val isConnectedToTv = scanToCastState.receiverConnected
+                            IconButton(
+                                onClick = {
+                                    isEpisodeDrawerOpen = false
+                                    isSettingsDrawerOpen = false
+                                    isAzamLanguageMenuOpen = false
+                                    showCameraScannerInPlayer = true
+                                },
+                                modifier = Modifier
+                                    .testTag("player_scan_to_cast_cam_button")
+                                    .size(40.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        if (isConnectedToTv) Color(0xFF065F46) else Color(0xCC0E2A38)
+                                    )
+                                    .border(
+                                        1.dp,
+                                        if (isConnectedToTv) Color(0xFF34D399) else NeliGenreCyan,
+                                        CircleShape
+                                    )
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.PhotoCamera,
+                                    contentDescription = "Scan to Cast QR Camera",
+                                    tint = if (isConnectedToTv) Color(0xFF34D399) else NeliGenreCyan,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+
                             Box(
                                 modifier = Modifier
                                     .testTag("scan_to_cast_button")
@@ -916,7 +961,11 @@ fun PlayerScreen(
                                         isEpisodeDrawerOpen = false
                                         isSettingsDrawerOpen = false
                                         isAzamLanguageMenuOpen = false
-                                        showScanToCastSheet = true
+                                        if (!isConnectedToTv) {
+                                            showCameraScannerInPlayer = true
+                                        } else {
+                                            showScanToCastSheet = true
+                                        }
                                     }
                                     .padding(horizontal = 12.dp, vertical = 8.dp)
                             ) {

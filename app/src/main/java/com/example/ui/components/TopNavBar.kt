@@ -87,6 +87,7 @@ fun TopNavBar(
     isOfflineMode: Boolean = false,
     onOfflineClick: () -> Unit = {},
     onBrandClick: () -> Unit = {},
+    showScanToCastCamIcon: Boolean = true,
     isScanToCastActive: Boolean = false,
     onScanToCastCamClick: () -> Unit = {},
     isCastActive: Boolean = false,
@@ -202,22 +203,24 @@ fun TopNavBar(
                     )
                 }
 
-                IconButton(
-                    onClick = onScanToCastCamClick,
-                    modifier = Modifier
-                        .testTag("scan_to_cast_cam_icon_button")
-                        .size(48.dp)
-                        .clip(CircleShape)
-                        .background(
-                            if (isScanToCastActive) Color(0x2600E5FF) else Color.Transparent
+                if (showScanToCastCamIcon) {
+                    IconButton(
+                        onClick = onScanToCastCamClick,
+                        modifier = Modifier
+                            .testTag("scan_to_cast_cam_icon_button")
+                            .size(48.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (isScanToCastActive) Color(0x2600E5FF) else Color.Transparent
+                            )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PhotoCamera,
+                            contentDescription = if (isScanToCastActive) "Scan to Cast Connected (AZAM TV)" else "Scan to Cast QR Camera",
+                            tint = if (isScanToCastActive) NeliGenreCyan else NeliTextPrimary,
+                            modifier = Modifier.size(22.dp)
                         )
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.PhotoCamera,
-                        contentDescription = if (isScanToCastActive) "Scan to Cast Connected (AZAM TV)" else "Scan to Cast QR Camera",
-                        tint = if (isScanToCastActive) NeliGenreCyan else NeliTextPrimary,
-                        modifier = Modifier.size(22.dp)
-                    )
+                    }
                 }
 
                 IconButton(

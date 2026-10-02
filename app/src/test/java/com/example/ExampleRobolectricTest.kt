@@ -1758,7 +1758,7 @@ class ExampleRobolectricTest {
             com.example.player.ScanToCastManager.sessionState.value.connectionStatus
         )
 
-        // 19. Verify https://cast-nelitv.web.app domain, CameraScannerView QR decoder, QR camera connect, and Admin "Pay to Watch" lock enforcement
+        // 19. Verify https://cast-nelitv.web.app domain, CameraScannerView QR decoder, QR camera connect with immediate live stream, and Admin "Pay to Watch" lock enforcement
         assertEquals("https://cast-nelitv.web.app", com.example.player.CastReceiverConfig.DEFAULT_RECEIVER_BASE_URL)
         val encodedQrMatrix = com.example.ui.components.IsoQrCodeEncoder.encodeByteModeEccL("https://cast-nelitv.web.app/cast/SESSION_QR_99")
         val decodedQrString = com.example.ui.components.CameraQrFrameDecoder.decodeQrFromBooleanBitmap(encodedQrMatrix)
@@ -1767,13 +1767,36 @@ class ExampleRobolectricTest {
             "SESSION_QR_99",
             com.example.player.CastReceiverConfig.extractSessionIdFromScannedQr(decodedQrString!!)
         )
+        assertEquals(
+            "TV_PAIR_777",
+            com.example.player.CastReceiverConfig.extractSessionIdFromScannedQr("https://cast-nelitv.web.app/?code=TV_PAIR_777")
+        )
+        assertEquals(
+            "HASH_SES_88",
+            com.example.player.CastReceiverConfig.extractSessionIdFromScannedQr("https://cast-nelitv.web.app/#/cast/HASH_SES_88")
+        )
+        assertEquals(
+            "JSON_SES_55",
+            com.example.player.CastReceiverConfig.extractSessionIdFromScannedQr("{\"sessionId\":\"JSON_SES_55\"}")
+        )
+        com.example.data.NeliAdminManager.setSingleChannelLock(context, azamSportsChannel.id, locked = false)
         val scannedConnectRes = com.example.player.ScanToCastManager.connectToScannedQrSession(
             context = context,
-            rawScannedQr = "https://cast-nelitv.web.app/cast/SESSION_QR_99"
+            rawScannedQr = "https://cast-nelitv.web.app/cast/SESSION_QR_99",
+            initialAzamChannel = azamSportsChannel
         )
         assertTrue(scannedConnectRes.isSuccess)
-        assertTrue(com.example.player.ScanToCastManager.sessionState.value.receiverConnected)
-        assertEquals("SESSION_QR_99", com.example.player.ScanToCastManager.sessionState.value.sessionId)
+        val connectedQrState = com.example.player.ScanToCastManager.sessionState.value
+        assertTrue(connectedQrState.receiverConnected)
+        assertEquals("SESSION_QR_99", connectedQrState.sessionId)
+        assertTrue(connectedQrState.isPlaying)
+        assertNotNull(connectedQrState.playback)
+        assertTrue(connectedQrState.playback!!.streamUrl.contains(".mpd"))
+        assertTrue(connectedQrState.playback!!.streamUrl.contains("cdntoken="))
+        val connectedFirebaseJson = connectedQrState.toFirebaseSessionJson()
+        assertTrue(connectedFirebaseJson.optString("streamUrl").contains(".mpd"))
+        assertNotNull(connectedFirebaseJson.optJSONObject("playback"))
+        assertNotNull(connectedFirebaseJson.optJSONObject("clearKeys"))
 
         // When channel is FREE, casting to connected device works immediately
         com.example.data.NeliAdminManager.setSingleChannelLock(context, azamSportsChannel.id, locked = false)

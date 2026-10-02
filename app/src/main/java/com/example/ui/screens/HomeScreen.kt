@@ -227,8 +227,17 @@ fun HomeScreen(
     }
 
     if (showScanToCastCameraDialog) {
+        val defaultAzamChannel = remember(castedPlayerAzamChannelId) {
+            val id = castedPlayerAzamChannelId
+            if (!id.isNullOrBlank()) {
+                ChannelRepository.hardcodedAzamChannels.firstOrNull { it.id.equals(id, ignoreCase = true) }
+            } else {
+                ChannelRepository.hardcodedAzamChannels.firstOrNull()
+            }
+        }
         CameraScannerView(
             currentUser = currentUser,
+            initialAzamChannel = defaultAzamChannel,
             onDismiss = { showScanToCastCameraDialog = false },
             onQrCodePaired = {
                 showScanToCastCameraDialog = false
@@ -397,10 +406,13 @@ fun HomeScreen(
                 searchQuery = ""
                 neliViewModel.selectTab(BottomNavTab.HOME)
             },
+            showScanToCastCamIcon = selectedTab == BottomNavTab.HOME || isScanToCastAzamGridOpen || isScanToCastConnected,
             isScanToCastActive = isScanToCastConnected || isScanToCastAzamGridOpen,
             onScanToCastCamClick = {
-                isSearchOpen = false
-                showScanToCastCameraDialog = true
+                if (selectedTab == BottomNavTab.HOME || isScanToCastAzamGridOpen || isScanToCastConnected) {
+                    isSearchOpen = false
+                    showScanToCastCameraDialog = true
+                }
             },
             isCastActive = isCastActive,
             onCastClick = {

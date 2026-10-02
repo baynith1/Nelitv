@@ -135,6 +135,8 @@ import java.util.concurrent.Executors
 @Composable
 fun ScanToCastCameraScannerDialog(
     currentUser: UserAccountEntity? = null,
+    initialAzamChannel: LiveChannel? = null,
+    preferredAudioLanguage: String? = null,
     onDismiss: () -> Unit,
     onConnectedOpenAzamGrid: (ScanToCastSessionState) -> Unit
 ) {
@@ -147,6 +149,8 @@ fun ScanToCastCameraScannerDialog(
     ) {
         CameraScannerView(
             currentUser = currentUser,
+            initialAzamChannel = initialAzamChannel,
+            preferredAudioLanguage = preferredAudioLanguage,
             onDismiss = onDismiss,
             onQrCodePaired = onConnectedOpenAzamGrid,
             modifier = Modifier.fillMaxSize()
@@ -1071,6 +1075,8 @@ fun ScanToCastModalSheet(
     if (!sessionState.receiverConnected && !isLockedForUser) {
         ScanToCastCameraScannerDialog(
             currentUser = currentUser,
+            initialAzamChannel = channel,
+            preferredAudioLanguage = preferredAudioLanguage,
             onDismiss = onDismiss,
             onConnectedOpenAzamGrid = {
                 ScanToCastManager.castAzamChannelToConnectedDevice(
