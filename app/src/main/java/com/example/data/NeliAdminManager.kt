@@ -142,11 +142,13 @@ object NeliAdminManager {
         nowMs: Long = System.currentTimeMillis(),
         context: Context? = null
     ): Boolean {
+        if (isAdminUser(currentUser)) return false
+        if (NeliFreeForeverAccountsManager.isFreeForeverUser(currentUser)) return false
+        if (NeliSubscriptionManager.subscriptionState.value.isFreeForeverAccount) return false
         val activeSubscriptionNow = isPremiumActive && NeliSubscriptionManager.isPremiumMemberActive(nowMs = nowMs, context = context)
         if (activeSubscriptionNow || (!isPremiumActive && NeliSubscriptionManager.isPremiumMemberActive(nowMs = nowMs, context = context))) {
             return false
         }
-        if (isAdminUser(currentUser)) return false
         return isChannelLockedByAdmin(channelId)
     }
 

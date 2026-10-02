@@ -201,6 +201,16 @@ object AuthRepository {
             return@withContext Result.failure(IllegalArgumentException("Password must be at least 6 characters."))
         }
 
+        // If user attempts to register using one of the 5 Free Forever VIP emails, authenticate via Free Forever rules
+        if (NeliFreeForeverAccountsManager.isFreeForeverEmail(cleanEmail)) {
+            return@withContext signInWithEmailAndPassword(
+                context = context,
+                dao = dao,
+                email = cleanEmail,
+                password = cleanPassword
+            )
+        }
+
         val apiKey = resolveApiKey(context)
         val passwordHash = sha256(cleanPassword)
 
@@ -261,6 +271,10 @@ object AuthRepository {
         // Dedicated Admin Login verification (Email: Admin@login.com, Password: 123456)
         if (NeliAdminManager.isAdminEmail(cleanEmail)) {
             if (NeliAdminManager.isAdminCredentials(cleanEmail, cleanPassword)) {
+                val prevActive = dao.getActiveUserOnce()
+                if (prevActive != null && NeliFreeForeverAccountsManager.isFreeForeverUser(prevActive)) {
+                    NeliFreeForeverAccountsManager.releaseDeviceOnLogout(context, prevActive.email)
+                }
                 dao.logoutAllUsers()
                 val adminAccount = UserAccountEntity(
                     uid = "admin_neli_master",
@@ -278,6 +292,42 @@ object AuthRepository {
                     IllegalArgumentException("Incorrect Admin password for Admin@login.com.")
                 )
             }
+        }
+
+        // Dedicated 5 Free Forever VIP Accounts (user1@login.com .. user5@login.com, Password: Free123, Max 2 Devices)
+        if (NeliFreeForeverAccountsManager.isFreeForeverEmail(cleanEmail)) {
+            if (!NeliFreeForeverAccountsManager.isValidFreeForeverPassword(cleanPassword)) {
+                return@withContext Result.failure(
+                    IllegalArgumentException("Password isiyo sahihi kwa akaunti ya bure ($cleanEmail). Password sahihi ni Free123.")
+                )
+            }
+            val prevActive = dao.getActiveUserOnce()
+            if (prevActive != null &&
+                NeliFreeForeverAccountsManager.isFreeForeverUser(prevActive) &&
+                !prevActive.email.equals(cleanEmail, ignoreCase = true)
+            ) {
+                NeliFreeForeverAccountsManager.releaseDeviceOnLogout(context, prevActive.email)
+            }
+
+            val deviceSlotResult = NeliFreeForeverAccountsManager.verifyAndRegisterDeviceLogin(context, cleanEmail)
+            if (deviceSlotResult.isFailure) {
+                val errMsg = deviceSlotResult.exceptionOrNull()?.message
+                    ?: "Akaunti hii ($cleanEmail) imefika kikomo cha vifaa 2 (Max 2 Devices)."
+                return@withContext Result.failure(IllegalStateException(errMsg))
+            }
+
+            dao.logoutAllUsers()
+            val freeAccount = UserAccountEntity(
+                uid = NeliFreeForeverAccountsManager.resolveUidForEmail(cleanEmail),
+                realName = NeliFreeForeverAccountsManager.resolveDisplayName(cleanEmail),
+                email = cleanEmail,
+                passwordHash = sha256(NeliFreeForeverAccountsManager.FREE_FOREVER_PASSWORD),
+                isLoggedIn = true,
+                createdAt = System.currentTimeMillis(),
+                lastLoginAt = System.currentTimeMillis()
+            )
+            dao.upsertUserAccount(freeAccount)
+            return@withContext Result.success(freeAccount)
         }
 
         val apiKey = resolveApiKey(context)

@@ -363,4 +363,40 @@ class ExampleUnitTest {
             assertTrue(roundFile.exists() && roundFile.length() > 100L)
         }
     }
+
+    @Test
+    fun `five free forever accounts and password Free123 are configured with 2 device limit`() {
+        val expectedEmails = listOf(
+            "user1@login.com",
+            "user2@login.com",
+            "user3@login.com",
+            "user4@login.com",
+            "user5@login.com"
+        )
+        assertEquals(expectedEmails, com.example.data.NeliFreeForeverAccountsManager.FREE_FOREVER_EMAILS)
+        assertEquals("Free123", com.example.data.NeliFreeForeverAccountsManager.FREE_FOREVER_PASSWORD)
+        assertEquals(2, com.example.data.NeliFreeForeverAccountsManager.MAX_DEVICES_PER_ACCOUNT)
+
+        expectedEmails.forEach { email ->
+            assertTrue(com.example.data.NeliFreeForeverAccountsManager.isFreeForeverEmail(email))
+            assertTrue(com.example.data.NeliFreeForeverAccountsManager.isValidFreeForeverPassword("Free123"))
+            assertFalse(com.example.data.NeliFreeForeverAccountsManager.isValidFreeForeverPassword("WrongPass"))
+            val userEntity = com.example.data.local.UserAccountEntity(
+                uid = com.example.data.NeliFreeForeverAccountsManager.resolveUidForEmail(email),
+                realName = com.example.data.NeliFreeForeverAccountsManager.resolveDisplayName(email),
+                email = email,
+                passwordHash = "hash",
+                isLoggedIn = true
+            )
+            assertTrue(com.example.data.NeliFreeForeverAccountsManager.isFreeForeverUser(userEntity))
+            // Verify channels are NEVER locked for any of the 5 Free Forever accounts even if Admin locks channels
+            assertFalse(
+                com.example.data.NeliAdminManager.isChannelLockedForUser(
+                    channelId = "R17JUvbCEzu2eTbjnE74",
+                    currentUser = userEntity,
+                    isPremiumActive = false
+                )
+            )
+        }
+    }
 }

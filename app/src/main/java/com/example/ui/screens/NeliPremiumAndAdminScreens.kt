@@ -1244,6 +1244,7 @@ fun MiniAdminPanelScreen(
     currentUser: UserAccountEntity?,
     allChannels: List<LiveChannel>,
     onBack: () -> Unit,
+    onOpenFullRealtimeAdminPanel: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -1369,6 +1370,33 @@ fun MiniAdminPanelScreen(
                     contentDescription = null,
                     tint = Color(0xFFFBBF24),
                     modifier = Modifier.size(28.dp)
+                )
+            }
+        }
+
+        // Quick Button to Open the Full Real-Time Admin Panel (Analytics, Locations, Watching, Income & 5 Free Forever Accounts)
+        item {
+            Button(
+                onClick = onOpenFullRealtimeAdminPanel,
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp)
+                    .testTag("mini_admin_open_full_admin_button")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Verified,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Fungua Admin Panel Kuu (Real-Time Data & Locations)",
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Black
                 )
             }
         }

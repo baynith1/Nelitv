@@ -2145,15 +2145,31 @@ fun AccountTabContent(
     }
 
     var isAdminPanelOpen by rememberSaveable { mutableStateOf(false) }
+    var isFullAdminDashboardOpen by rememberSaveable { mutableStateOf(false) }
     val accountContext = LocalContext.current
     val isCurrentUserAdmin = NeliAdminManager.isAdminUser(currentUser)
+    val isFreeForeverVipUser = com.example.data.NeliFreeForeverAccountsManager.isFreeForeverUser(currentUser)
     val subState by NeliSubscriptionManager.subscriptionState.collectAsState()
-    val isVerifiedPremiumMember = subState.isActiveNow
+    val isVerifiedPremiumMember = subState.isActiveNow || isFreeForeverVipUser
 
     // Auto-Ready Device IP & subscription status check kept silently in the background
     LaunchedEffect(Unit) {
+        com.example.data.NeliFreeForeverAccountsManager.initialize(accountContext)
         NeliSubscriptionManager.refreshDeviceIp(accountContext)
         NeliSubscriptionManager.expireSubscriptionIfNeeded(accountContext)
+    }
+
+    if (isFullAdminDashboardOpen && isCurrentUserAdmin) {
+        FullAdminDashboardScreen(
+            currentUser = currentUser,
+            onBack = { isFullAdminDashboardOpen = false },
+            onSwitchToMiniAdminPanel = {
+                isFullAdminDashboardOpen = false
+                isAdminPanelOpen = true
+            },
+            modifier = modifier
+        )
+        return
     }
 
     if (isAdminPanelOpen && isCurrentUserAdmin) {
@@ -2162,6 +2178,10 @@ fun AccountTabContent(
             currentUser = currentUser,
             allChannels = allLiveChannels.ifEmpty { ChannelRepository.getPrioritizedAllChannels() },
             onBack = { isAdminPanelOpen = false },
+            onOpenFullRealtimeAdminPanel = {
+                isAdminPanelOpen = false
+                isFullAdminDashboardOpen = true
+            },
             modifier = modifier
         )
         return
@@ -2259,7 +2279,11 @@ fun AccountTabContent(
                                         modifier = Modifier.size(14.dp)
                                     )
                                     Text(
-                                        text = "Premium Member ✓ (Verified • ${subState.planTitle.ifBlank { "VIP" }})",
+                                        text = if (isFreeForeverVipUser) {
+                                            "Free Forever VIP ✓ (Bure Milele • Max Vifaa 2)"
+                                        } else {
+                                            "Premium Member ✓ (Verified • ${subState.planTitle.ifBlank { "VIP" }})"
+                                        },
                                         color = Color(0xFFFBBF24),
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Black
@@ -2273,10 +2297,10 @@ fun AccountTabContent(
                                 fontWeight = FontWeight.Medium
                             )
                             Text(
-                                text = if (isVerifiedPremiumMember) {
-                                    "Verified Premium Member ✓ • Azam TV Live Streaming"
-                                } else {
-                                    "Account Synced • Azam TV Live Streaming"
+                                text = when {
+                                    isFreeForeverVipUser -> "Free Forever VIP • Channels Zote Wazi Milele (Max 2 Devices)"
+                                    isVerifiedPremiumMember -> "Verified Premium Member ✓ • Azam TV Live Streaming"
+                                    else -> "Account Synced • Azam TV Live Streaming"
                                 },
                                 color = NeliTextSecondary,
                                 fontSize = 11.sp
@@ -2284,8 +2308,31 @@ fun AccountTabContent(
                         }
                     }
 
-                    // Admin-Only Mini Admin Panel Button (Strictly visible ONLY when logged in with Admin@login.com)
+                    // Admin-Only Full Real-Time Admin Panel & Mini Admin Panel Buttons (Strictly visible ONLY when logged in with Admin@login.com)
                     if (isCurrentUserAdmin) {
+                        Button(
+                            onClick = { isFullAdminDashboardOpen = true },
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp)
+                                .testTag("open_full_admin_panel_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Verified,
+                                contentDescription = "Real-Time Admin Panel",
+                                tint = Color.White,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Open Real-Time Admin Panel (Live Data)",
+                                color = Color.White,
+                                fontWeight = FontWeight.Black
+                            )
+                        }
+
                         Button(
                             onClick = { isAdminPanelOpen = true },
                             shape = RoundedCornerShape(12.dp),
@@ -2297,7 +2344,7 @@ fun AccountTabContent(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.CheckCircle,
-                                contentDescription = "Admin Panel",
+                                contentDescription = "Mini Admin Panel",
                                 tint = Color.White,
                                 modifier = Modifier.size(18.dp)
                             )
@@ -2313,6 +2360,7 @@ fun AccountTabContent(
                     OutlinedButton(
                         onClick = {
                             isAdminPanelOpen = false
+                            isFullAdminDashboardOpen = false
                             onSignOut()
                         },
                         shape = RoundedCornerShape(12.dp),

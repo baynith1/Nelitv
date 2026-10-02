@@ -171,6 +171,16 @@ fun PlayerScreen(
     val uiState by playerController.uiState.collectAsState()
     val playbackInfo by playerController.playbackInfo.collectAsState()
 
+    LaunchedEffect(activeChannel.id, activeChannel.name) {
+        com.example.data.NeliRealtimeAnalyticsManager.updateCurrentDeviceWatching(context, activeChannel)
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            com.example.data.NeliRealtimeAnalyticsManager.updateCurrentDeviceWatching(context, null)
+        }
+    }
+
     // Resolve Series VOD episode list for In-Player Episode Switcher, Next/Prev buttons, and Auto-Next
     val episodesCatalog by MediaContentRepository.episodesCatalog.collectAsState()
     val seriesEpisodes = remember(activeChannel.id, activeChannel.seriesId, episodesCatalog) {

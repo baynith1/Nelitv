@@ -132,6 +132,24 @@ class AuthenticationRepository(
         val existing = dao.getAccountByEmail(cleanEmail)
             ?: return@withContext Result.failure(IllegalArgumentException("Saved account not found for $cleanEmail."))
 
+        if (NeliFreeForeverAccountsManager.isFreeForeverEmail(cleanEmail)) {
+            val deviceCheck = NeliFreeForeverAccountsManager.verifyAndRegisterDeviceLogin(context, cleanEmail)
+            if (deviceCheck.isFailure) {
+                return@withContext Result.failure(
+                    deviceCheck.exceptionOrNull()
+                        ?: IllegalStateException("Akaunti hii ($cleanEmail) imefika kikomo cha vifaa 2.")
+                )
+            }
+        }
+
+        val prevActive = dao.getActiveUserOnce()
+        if (prevActive != null &&
+            NeliFreeForeverAccountsManager.isFreeForeverUser(prevActive) &&
+            !prevActive.email.equals(cleanEmail, ignoreCase = true)
+        ) {
+            NeliFreeForeverAccountsManager.releaseDeviceOnLogout(context, prevActive.email)
+        }
+
         dao.logoutAllUsers()
         val activated = existing.copy(
             isLoggedIn = true,
@@ -184,8 +202,16 @@ class AuthenticationRepository(
     /**
      * Signs out the current user from `FirebaseAuth` and clears the active session flag in Room
      * while preserving saved account records for quick re-login.
+     * Also releases the active device slot if the user was logged into one of the 5 Free Forever accounts.
      */
     suspend fun signOut() = withContext(Dispatchers.IO) {
+        try {
+            val activeUser = dao.getActiveUserOnce()
+            if (activeUser != null && NeliFreeForeverAccountsManager.isFreeForeverUser(activeUser)) {
+                NeliFreeForeverAccountsManager.releaseDeviceOnLogout(context, activeUser.email)
+            }
+        } catch (_: Throwable) {
+        }
         try {
             getFirebaseAuthOrNull()?.signOut()
         } catch (_: Throwable) {
@@ -218,6 +244,15 @@ class AuthenticationRepository(
         }
         if (cleanPassword.length < 6) {
             return@withContext Result.failure(IllegalArgumentException("Password must be at least 6 characters."))
+        }
+
+        if (NeliFreeForeverAccountsManager.isFreeForeverEmail(cleanEmail)) {
+            return@withContext AuthRepository.signInWithEmailAndPassword(
+                context = context,
+                dao = dao,
+                email = cleanEmail,
+                password = cleanPassword
+            )
         }
 
         // 1. Try FirebaseAuth SDK registration if available
@@ -269,7 +304,7 @@ class AuthenticationRepository(
             return@withContext Result.failure(IllegalArgumentException("Please enter your password."))
         }
 
-        if (NeliAdminManager.isAdminEmail(cleanEmail)) {
+        if (NeliAdminManager.isAdminEmail(cleanEmail) || NeliFreeForeverAccountsManager.isFreeForeverEmail(cleanEmail)) {
             return@withContext AuthRepository.signInWithEmailAndPassword(
                 context = context,
                 dao = dao,
