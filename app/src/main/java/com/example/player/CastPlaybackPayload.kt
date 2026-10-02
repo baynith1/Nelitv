@@ -98,11 +98,66 @@ object CastReceiverConfig {
         if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
             try {
                 val json = JSONObject(trimmed)
-                val fromJson = json.optString("sessionId", "").ifBlank {
-                    json.optString("session", "")
-                }.trim()
-                if (fromJson.isNotBlank()) return sanitizeSessionId(fromJson)
+                val nestedUrl = json.optString("url", "")
+                    .ifBlank { json.optString("castUrl", "") }
+                    .ifBlank { json.optString("qrCastUrl", "") }
+                if (nestedUrl.isNotBlank()) {
+                    val fromNested = extractSessionIdFromScannedQr(nestedUrl)
+                    if (fromNested.isNotBlank()) return fromNested
+                }
+                val candidateKeys = listOf(
+                    "sessionId", "session_id", "session", "id", "code",
+                    "pairCode", "pair_code", "pair", "room", "roomId",
+                    "room_id", "castId", "cast_id", "token", "key"
+                )
+                for (k in candidateKeys) {
+                    val candidate = sanitizeSessionId(json.optString(k, "").trim())
+                    if (candidate.isNotBlank()) return candidate
+                }
             } catch (_: Exception) {
+            }
+            return ""
+        }
+
+        val queryKeys = setOf(
+            "sessionid", "session_id", "session", "id", "code",
+            "paircode", "pair_code", "pair", "room", "roomid",
+            "room_id", "castid", "cast_id", "s", "tv", "key"
+        )
+        val queryCandidates = buildList {
+            if (trimmed.contains("?")) {
+                add(trimmed.substringAfter("?").substringBefore("#"))
+            }
+            if (trimmed.contains("#")) {
+                val frag = trimmed.substringAfter("#")
+                if (frag.contains("?")) {
+                    add(frag.substringAfter("?"))
+                } else if (frag.contains("=")) {
+                    add(frag)
+                }
+            }
+        }
+        for (qPart in queryCandidates) {
+            qPart.split("&").forEach { param ->
+                val key = param.substringBefore("=").trim().lowercase()
+                val value = param.substringAfter("=", "").trim()
+                if (key in queryKeys) {
+                    val cleanedVal = sanitizeSessionId(value)
+                    if (cleanedVal.isNotBlank()) return cleanedVal
+                }
+            }
+        }
+
+        // Hash fragment route: e.g. https://cast-nelitv.web.app/#/cast/ABC123 or #ABC123
+        if (trimmed.contains("#")) {
+            val fragPath = trimmed.substringAfter("#").substringBefore("?").trim().trim('/')
+            if (fragPath.isNotEmpty() && !fragPath.contains("=")) {
+                val lastFragSeg = fragPath.substringAfterLast("/").trim()
+                val cleanedFrag = sanitizeSessionId(lastFragSeg)
+                val reserved = setOf("cast", "session", "pair", "room", "watch", "index", "home", "app")
+                if (cleanedFrag.isNotBlank() && cleanedFrag.lowercase() !in reserved) {
+                    return cleanedFrag
+                }
             }
         }
 
@@ -115,34 +170,21 @@ object CastReceiverConfig {
             if (afterCast.isNotBlank()) return sanitizeSessionId(afterCast)
         }
 
-        if (trimmed.contains("sessionId=", ignoreCase = true)) {
-            val param = trimmed.substringAfter("sessionId=", "")
-                .substringBefore("&")
-                .substringBefore("#")
-                .trim()
-            if (param.isNotBlank()) return sanitizeSessionId(param)
-        }
-
-        if (trimmed.contains("session=", ignoreCase = true)) {
-            val param = trimmed.substringAfter("session=", "")
-                .substringBefore("&")
-                .substringBefore("#")
-                .trim()
-            if (param.isNotBlank()) return sanitizeSessionId(param)
-        }
-
-        // If user scanned the root domain https://cast-nelitv.web.app without a path segment, return empty so a session is generated
+        // If user scanned the root domain https://cast-nelitv.web.app without a path segment, return empty
         if (trimmed.equals(DEFAULT_RECEIVER_BASE_URL, ignoreCase = true) ||
             trimmed.equals("$DEFAULT_RECEIVER_BASE_URL/", ignoreCase = true) ||
             trimmed.startsWith("http://", ignoreCase = true) ||
-            trimmed.startsWith("https://", ignoreCase = true)
+            trimmed.startsWith("https://", ignoreCase = true) ||
+            trimmed.contains("://")
         ) {
-            val lastSeg = trimmed.trimEnd('/').substringAfterLast('/', "")
-                .substringBefore("?")
-                .trim()
+            val withoutQuery = trimmed.substringBefore("?").substringBefore("#").trimEnd('/')
+            val afterScheme = withoutQuery.substringAfter("://", withoutQuery)
+            if (!afterScheme.contains("/")) return ""
+            val lastSeg = afterScheme.substringAfterLast('/', "").trim()
+            val reserved = setOf("cast", "session", "pair", "room", "watch", "index", "app", "web")
             if (lastSeg.isNotBlank() &&
                 !lastSeg.contains(".") &&
-                !lastSeg.equals("cast", ignoreCase = true)
+                lastSeg.lowercase() !in reserved
             ) {
                 return sanitizeSessionId(lastSeg)
             }
@@ -153,7 +195,7 @@ object CastReceiverConfig {
     }
 
     private fun sanitizeSessionId(raw: String): String {
-        return raw.replace(Regex("[^A-Za-z0-9_-]"), "").take(48)
+        return raw.replace(Regex("[^A-Za-z0-9_-]"), "").take(64)
     }
 }
 

@@ -78,19 +78,40 @@ data class ScanToCastSessionState(
 
     fun toFirebaseSessionJson(): JSONObject {
         return JSONObject().apply {
+            put("sessionId", sessionId)
+            put("qrCastUrl", qrCastUrl)
             put("status", status)
             put("channelId", channelId)
             put("channelName", channelName)
             put("channelLogoUrl", channelLogoUrl)
             if (isPayToWatchLocked) {
                 put("playback", JSONObject.NULL)
+                put("streamUrl", "")
+                put("manifestUrl", "")
+                put("url", "")
                 put("payToWatch", true)
                 put("lockedByAdmin", true)
                 put("payToWatchMessage", payToWatchMessage.ifBlank { "Pay to Watch" })
                 put("errorCode", "PAY_TO_WATCH")
                 put("error", payToWatchMessage.ifBlank { "Pay to Watch" })
             } else if (playback != null) {
-                put("playback", playback.toJsonObject())
+                val playbackJson = playback.toJsonObject()
+                put("playback", playbackJson)
+                // Mirror playback stream & ClearKey properties at top-level so any Web Receiver version reads them directly
+                put("streamUrl", playback.streamUrl)
+                put("backupStreamUrl", playback.backupStreamUrl)
+                put("manifestUrl", playback.streamUrl)
+                put("url", playback.streamUrl)
+                put("streamFormat", playback.streamFormat)
+                put("mimeType", playback.mimeType)
+                put("drmScheme", playback.drmScheme)
+                put("encryptionType", playback.drmScheme)
+                put("clearKeys", playbackJson.optJSONObject("clearKeys") ?: JSONObject())
+                put("clearKeyJwk", playback.clearKeyJwk)
+                put("preferredAudioLanguage", playback.preferredAudioLanguage)
+                put("isLive", playback.isLive)
+                put("expiresAt", playback.expiresAt)
+                put("playbackVersion", playback.playbackVersion)
                 put("payToWatch", false)
                 put("lockedByAdmin", false)
                 put("payToWatchMessage", "")
@@ -108,6 +129,8 @@ data class ScanToCastSessionState(
             put("mobileLastSeen", mobileLastSeen)
             put("browserLastSeen", browserLastSeen)
             put("receiverConnected", receiverConnected)
+            put("senderConnected", true)
+            put("connected", receiverConnected)
         }
     }
 }
@@ -219,15 +242,14 @@ object ScanToCastManager {
 
     /**
      * Connects the Android phone to a TV/PC Web Receiver (`https://cast-nelitv.web.app`) after scanning
-     * its QR code with the phone camera.
-     *
-     * Once connected, the app opens the AZAM TV Channels vertical grid tab so the user can tap any
-     * AZAM channel to immediately start playing on the casted device player.
+     * its QR code with the phone camera, and immediately provides the live tokenized AZAM TV stream.
      */
     fun connectToScannedQrSession(
         context: Context?,
         rawScannedQr: String,
-        currentUser: UserAccountEntity? = null
+        currentUser: UserAccountEntity? = null,
+        initialAzamChannel: LiveChannel? = null,
+        preferredAudioLanguage: String? = null
     ): Result<ScanToCastSessionState> {
         if (context != null) {
             CastReceiverConfig.loadSavedBaseUrl(context)
@@ -237,20 +259,61 @@ object ScanToCastManager {
         val effectiveSessionId = extractedId.ifBlank { generateHighEntropySessionId() }
         val qrUrl = CastReceiverConfig.buildCastUrl(effectiveSessionId)
         val now = System.currentTimeMillis()
-        val initialCommandId = generateUniqueCommandId("CONNECT")
+
+        val targetChannel = initialAzamChannel?.takeIf { isChannelSupportedForScanToCast(it) }
+            ?: activeChannelRef?.takeIf { isChannelSupportedForScanToCast(it) }
+            ?: ChannelRepository.hardcodedAzamChannels.firstOrNull {
+                !isChannelLockedForCast(it, currentUser, context)
+            }
+            ?: ChannelRepository.hardcodedAzamChannels.firstOrNull()
+
+        val isLocked = targetChannel != null && isChannelLockedForCast(
+            channel = targetChannel,
+            currentUser = currentUser,
+            context = context
+        )
+
+        val resolvedChannel = targetChannel?.let { ChannelRepository.resolveHardcodedAzamChannel(it) }
+        if (resolvedChannel != null && !isLocked) {
+            activeChannelRef = resolvedChannel
+        }
+
+        val initialPayload = if (resolvedChannel != null && !isLocked) {
+            CastPlaybackPayload.fromLiveChannel(
+                channel = resolvedChannel,
+                preferredAudioLanguageOverride = preferredAudioLanguage,
+                playbackVersion = 1
+            )
+        } else {
+            null
+        }
+
+        val initialCommand = if (isLocked) {
+            CastRemoteCommand.PAUSE.code
+        } else if (initialPayload != null) {
+            CastRemoteCommand.PLAY.code
+        } else {
+            "CONNECT"
+        }
+        val initialCommandId = generateUniqueCommandId(initialCommand)
 
         val connectedSession = ScanToCastSessionState(
             sessionId = effectiveSessionId,
             qrCastUrl = qrUrl,
-            connectionStatus = ScanToCastConnectionStatus.CONNECTED_TO_TV,
-            status = "CONNECTED",
-            channelId = "",
-            channelName = "",
-            channelLogoUrl = "",
-            playback = null,
-            command = "CONNECT",
+            connectionStatus = if (isLocked) {
+                ScanToCastConnectionStatus.PAY_TO_WATCH
+            } else {
+                ScanToCastConnectionStatus.CONNECTED_TO_TV
+            },
+            status = if (isLocked) "PAY_TO_WATCH" else "CONNECTED",
+            channelId = initialPayload?.channelId ?: resolvedChannel?.id.orEmpty(),
+            channelName = initialPayload?.channelName ?: resolvedChannel?.name.orEmpty(),
+            channelLogoUrl = initialPayload?.channelLogoUrl
+                ?: resolvedChannel?.let { ChannelRepository.resolveGuaranteedChannelLogoUrl(it) }.orEmpty(),
+            playback = initialPayload,
+            command = initialCommand,
             commandId = initialCommandId,
-            isPlaying = false,
+            isPlaying = !isLocked && initialPayload != null,
             currentPosition = 0L,
             duration = 0L,
             volume = 1.0f,
@@ -261,10 +324,10 @@ object ScanToCastManager {
             mobileLastSeen = now,
             browserLastSeen = now,
             receiverConnected = true,
-            isPayToWatchLocked = false,
-            payToWatchMessage = "",
-            errorCode = null,
-            userFriendlyError = null
+            isPayToWatchLocked = isLocked,
+            payToWatchMessage = if (isLocked) "Pay to Watch" else "",
+            errorCode = if (isLocked) "PAY_TO_WATCH" else null,
+            userFriendlyError = if (isLocked) "Pay to Watch" else null
         )
 
         consecutiveNetworkFailures = 0
@@ -272,17 +335,13 @@ object ScanToCastManager {
 
         syncJob?.cancel()
         syncJob = backgroundScope.launch {
-            val patchObj = JSONObject().apply {
-                put("status", "CONNECTED")
-                put("receiverConnected", true)
-                put("updatedAt", now)
-                put("mobileLastSeen", now)
-                put("payToWatch", false)
-                put("lockedByAdmin", false)
-            }
-            val patched = patchSessionInFirebase(effectiveSessionId, patchObj)
+            val fullPayloadJson = connectedSession.toFirebaseSessionJson()
+            val patched = patchSessionInFirebase(effectiveSessionId, fullPayloadJson)
             if (!patched) {
                 writeFullSessionToFirebase(connectedSession)
+            }
+            if (!isLocked && resolvedChannel != null) {
+                refreshCastSessionTokenInternal(effectiveSessionId)
             }
             observeAndHeartbeatSessionLoop(effectiveSessionId)
         }
@@ -411,28 +470,15 @@ object ScanToCastManager {
 
             syncJob?.cancel()
             syncJob = backgroundScope.launch {
-                val patchJson = JSONObject().apply {
-                    put("status", "CONNECTED")
-                    put("receiverConnected", true)
-                    put("channelId", newPayload.channelId)
-                    put("channelName", newPayload.channelName)
-                    put("channelLogoUrl", newPayload.channelLogoUrl)
-                    put("playback", newPayload.toJsonObject())
-                    put("command", CastRemoteCommand.PLAY.code)
-                    put("commandId", cmdId)
-                    put("isPlaying", true)
-                    put("payToWatch", false)
-                    put("lockedByAdmin", false)
-                    put("payToWatchMessage", "")
+                val patchJson = updated.toFirebaseSessionJson().apply {
                     put("errorCode", JSONObject.NULL)
                     put("error", JSONObject.NULL)
-                    put("updatedAt", now)
-                    put("mobileLastSeen", now)
                 }
                 val patched = patchSessionInFirebase(current.sessionId, patchJson)
                 if (!patched) {
                     writeFullSessionToFirebase(updated)
                 }
+                refreshCastSessionTokenInternal(current.sessionId)
                 observeAndHeartbeatSessionLoop(current.sessionId)
             }
             return Result.success(updated)
@@ -612,24 +658,12 @@ object ScanToCastManager {
         _sessionState.value = updated
 
         backgroundScope.launch {
-            val patchJson = JSONObject().apply {
-                put("status", if (current.receiverConnected) "CONNECTED" else current.status)
-                put("channelId", newPayload.channelId)
-                put("channelName", newPayload.channelName)
-                put("channelLogoUrl", newPayload.channelLogoUrl)
-                put("playback", newPayload.toJsonObject())
-                put("command", CastRemoteCommand.PLAY.code)
-                put("commandId", cmdId)
-                put("isPlaying", true)
-                put("payToWatch", false)
-                put("lockedByAdmin", false)
-                put("payToWatchMessage", "")
+            val patchJson = updated.toFirebaseSessionJson().apply {
                 put("errorCode", JSONObject.NULL)
                 put("error", JSONObject.NULL)
-                put("updatedAt", now)
-                put("mobileLastSeen", now)
             }
             patchSessionInFirebase(current.sessionId, patchJson)
+            refreshCastSessionTokenInternal(current.sessionId)
         }
     }
 
@@ -833,8 +867,23 @@ object ScanToCastManager {
             )
 
             val now = System.currentTimeMillis()
+            val refreshedJson = refreshedPayload.toJsonObject()
             val patchObj = JSONObject().apply {
-                put("playback", refreshedPayload.toJsonObject())
+                put("playback", refreshedJson)
+                put("streamUrl", refreshedPayload.streamUrl)
+                put("backupStreamUrl", refreshedPayload.backupStreamUrl)
+                put("manifestUrl", refreshedPayload.streamUrl)
+                put("url", refreshedPayload.streamUrl)
+                put("streamFormat", refreshedPayload.streamFormat)
+                put("mimeType", refreshedPayload.mimeType)
+                put("drmScheme", refreshedPayload.drmScheme)
+                put("encryptionType", refreshedPayload.drmScheme)
+                put("clearKeys", refreshedJson.optJSONObject("clearKeys") ?: JSONObject())
+                put("clearKeyJwk", refreshedPayload.clearKeyJwk)
+                put("preferredAudioLanguage", refreshedPayload.preferredAudioLanguage)
+                put("isLive", refreshedPayload.isLive)
+                put("expiresAt", refreshedPayload.expiresAt)
+                put("playbackVersion", refreshedPayload.playbackVersion)
                 put("status", if (current.receiverConnected) "CONNECTED" else "WAITING_FOR_RECEIVER")
                 put("updatedAt", now)
                 put("mobileLastSeen", now)
@@ -985,6 +1034,12 @@ object ScanToCastManager {
                 continue
             }
 
+            if (remoteJson.optBoolean("_emptyNode", false)) {
+                // Ensure the session document exists in Firebase for the Web Receiver
+                writeFullSessionToFirebase(_sessionState.value)
+                continue
+            }
+
             consecutiveNetworkFailures = 0
             applyRemoteSessionSnapshot(sessionId, remoteJson, now)
 
@@ -1090,10 +1145,14 @@ object ScanToCastManager {
             null
         }
 
-        val effectiveConnected = remoteReceiverConnected ||
+        val effectiveConnected = current.receiverConnected ||
+            remoteReceiverConnected ||
             remoteStatus.equals("CONNECTED", ignoreCase = true) ||
             remoteStatus.equals("PLAYING", ignoreCase = true) ||
-            remoteStatus.equals("PAUSED", ignoreCase = true)
+            remoteStatus.equals("PAUSED", ignoreCase = true) ||
+            remoteStatus.equals("BUFFERING", ignoreCase = true) ||
+            remoteStatus.equals("READY", ignoreCase = true) ||
+            remoteStatus.equals("STREAMING", ignoreCase = true)
 
         val browserStale = effectiveConnected &&
             remoteBrowserLastSeen > 0L &&
@@ -1216,7 +1275,7 @@ object ScanToCastManager {
                 val raw = response.body?.string()?.trim().orEmpty()
                 if (raw.isBlank() || raw == "null") {
                     JSONObject().apply {
-                        put("errorCode", "INVALID_SESSION")
+                        put("_emptyNode", true)
                     }
                 } else {
                     JSONObject(raw)

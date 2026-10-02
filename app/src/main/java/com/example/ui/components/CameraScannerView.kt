@@ -7,6 +7,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.FocusMeteringAction
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
@@ -49,6 +50,7 @@ import androidx.compose.material.icons.filled.FlashOff
 import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.QrCodeScanner
+import androidx.compose.material.icons.filled.ZoomIn
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -61,6 +63,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -84,6 +87,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.data.local.UserAccountEntity
+import com.example.model.LiveChannel
 import com.example.player.CastReceiverConfig
 import com.example.player.ScanToCastManager
 import com.example.player.ScanToCastSessionState
@@ -92,24 +96,36 @@ import com.example.ui.theme.NeliGenreCyan
 import com.example.ui.theme.NeliMagenta
 import com.example.ui.theme.NeliSurfaceVariant
 import com.example.ui.theme.NeliTextSecondary
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.BinaryBitmap
+import com.google.zxing.DecodeHintType
+import com.google.zxing.LuminanceSource
+import com.google.zxing.MultiFormatReader
+import com.google.zxing.PlanarYUVLuminanceSource
+import com.google.zxing.RGBLuminanceSource
+import com.google.zxing.common.GlobalHistogramBinarizer
+import com.google.zxing.common.HybridBinarizer
+import kotlinx.coroutines.delay
+import java.util.EnumMap
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
-import kotlin.math.abs
-import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
 /**
- * Dedicated `CameraScannerView` component built with the existing Android CameraX dependencies
- * (`camera-core`, `camera-camera2`, `camera-lifecycle`, `camera-view`).
+ * Dedicated `CameraScannerView` component built with CameraX (`camera-core`, `camera-camera2`,
+ * `camera-lifecycle`, `camera-view`) and ZXing (`MultiFormatReader`) for real-time QR code scanning.
  *
- * Launches when the camera icon in the header (`scan_to_cast_cam_icon_button`) is pressed to
- * capture the QR code displayed on the TV/PC Web Receiver (`https://cast-nelitv.web.app`)
- * for cast session pairing.
+ * Launches when the Scan-to-Cast camera icon in the header is pressed on an AZAM TV view
+ * to capture the QR code displayed on the TV/PC Web Receiver (`https://cast-nelitv.web.app`),
+ * pair the cast session, and immediately stream the live AZAM TV channel.
  */
 @Composable
 fun CameraScannerView(
     currentUser: UserAccountEntity? = null,
+    initialAzamChannel: LiveChannel? = null,
+    preferredAudioLanguage: String? = null,
     onDismiss: () -> Unit,
     onQrCodePaired: (ScanToCastSessionState) -> Unit,
     modifier: Modifier = Modifier
@@ -125,14 +141,20 @@ fun CameraScannerView(
     }
     var lensFacing by remember { mutableIntStateOf(CameraSelector.LENS_FACING_BACK) }
     var isTorchEnabled by remember { mutableStateOf(false) }
+    var zoomRatio by remember { mutableFloatStateOf(1.0f) }
     var activeCamera by remember { mutableStateOf<Camera?>(null) }
     var statusBannerText by remember {
-        mutableStateOf("Point camera at the QR code on https://cast-nelitv.web.app")
+        mutableStateOf(
+            if (initialAzamChannel != null) {
+                "Point camera at TV QR code on https://cast-nelitv.web.app to stream ${initialAzamChannel.name}"
+            } else {
+                "Point camera at the QR code on https://cast-nelitv.web.app"
+            }
+        )
     }
     var isPairingSession by remember { mutableStateOf(false) }
     var showManualInput by remember { mutableStateOf(false) }
     var manualSessionInput by remember { mutableStateOf("") }
-    val captureRequested = remember { AtomicBoolean(false) }
     val hasHandledPairing = remember { AtomicBoolean(false) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -153,19 +175,23 @@ fun CameraScannerView(
     BackHandler(onBack = onDismiss)
 
     val handleCapturedQrPayload: (String) -> Unit = { rawQrPayload ->
-        if (hasHandledPairing.compareAndSet(false, true)) {
+        val trimmed = rawQrPayload.trim()
+        val extractedSessionId = CastReceiverConfig.extractSessionIdFromScannedQr(trimmed)
+        if (extractedSessionId.isNotBlank() && hasHandledPairing.compareAndSet(false, true)) {
             isPairingSession = true
-            val effectivePayload = rawQrPayload.trim().ifBlank {
-                CastReceiverConfig.DEFAULT_RECEIVER_BASE_URL
-            }
-            statusBannerText = "QR Code Captured! Pairing with Cast Receiver..."
+            statusBannerText = "QR Code Scanned ($extractedSessionId)! Connecting & streaming to TV..."
             val connectResult = ScanToCastManager.connectToScannedQrSession(
                 context = context,
-                rawScannedQr = effectivePayload,
-                currentUser = currentUser
+                rawScannedQr = trimmed,
+                currentUser = currentUser,
+                initialAzamChannel = initialAzamChannel,
+                preferredAudioLanguage = preferredAudioLanguage
             )
             val connectedState = connectResult.getOrNull() ?: ScanToCastManager.sessionState.value
             onQrCodePaired(connectedState)
+        } else if (extractedSessionId.isBlank()) {
+            showManualInput = true
+            statusBannerText = "Scan the TV QR code on https://cast-nelitv.web.app or enter the TV Session Code below."
         }
     }
 
@@ -188,7 +214,7 @@ fun CameraScannerView(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Top Bar: Back / Title / Torch / Flip Camera / Close
+            // Top Bar: Back / Title / Zoom / Torch / Flip Camera / Close
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -222,7 +248,11 @@ fun CameraScannerView(
                             fontWeight = FontWeight.Black
                         )
                         Text(
-                            text = "https://cast-nelitv.web.app",
+                            text = if (initialAzamChannel != null) {
+                                "${initialAzamChannel.name} • https://cast-nelitv.web.app"
+                            } else {
+                                "https://cast-nelitv.web.app"
+                            },
                             color = NeliGenreCyan,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold
@@ -235,6 +265,31 @@ fun CameraScannerView(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     if (hasCameraPermission) {
+                        // 1x / 2x Zoom button for scanning TV screens from across the room
+                        IconButton(
+                            onClick = {
+                                val nextZoom = if (zoomRatio < 1.8f) 2.0f else 1.0f
+                                zoomRatio = nextZoom
+                                try {
+                                    activeCamera?.cameraControl?.setZoomRatio(nextZoom)
+                                } catch (_: Throwable) {
+                                }
+                            },
+                            modifier = Modifier
+                                .size(44.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    if (zoomRatio > 1.1f) Color(0x3300E5FF) else NeliSurfaceVariant
+                                )
+                                .testTag("camera_scanner_zoom_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ZoomIn,
+                                contentDescription = if (zoomRatio > 1.1f) "Reset 1x Zoom" else "2x TV Zoom",
+                                tint = if (zoomRatio > 1.1f) NeliGenreCyan else Color.White
+                            )
+                        }
+
                         IconButton(
                             onClick = {
                                 val nextTorch = !isTorchEnabled
@@ -298,7 +353,7 @@ fun CameraScannerView(
                 }
             }
 
-            // CameraX Live Preview & Real-Time QR Code Frame Analyzer
+            // CameraX Live Preview & Real-Time ZXing QR Code Frame Analyzer
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -313,8 +368,8 @@ fun CameraScannerView(
                 if (hasCameraPermission) {
                     CameraXQrAnalyzerSurface(
                         lensFacing = lensFacing,
+                        zoomRatio = zoomRatio,
                         lifecycleOwner = lifecycleOwner,
-                        captureRequested = captureRequested,
                         onCameraBound = { cam ->
                             activeCamera = cam
                         },
@@ -396,13 +451,16 @@ fun CameraScannerView(
                 }
             }
 
-            // Capture QR Code & Pair Session Action Button
+            // Connect via Manual TV Session Code or Toggle Manual Input
             Button(
                 onClick = {
-                    captureRequested.set(true)
-                    handleCapturedQrPayload(
-                        manualSessionInput.ifBlank { CastReceiverConfig.DEFAULT_RECEIVER_BASE_URL }
-                    )
+                    val entered = manualSessionInput.trim()
+                    if (entered.isNotBlank()) {
+                        handleCapturedQrPayload(entered)
+                    } else {
+                        showManualInput = true
+                        statusBannerText = "Point the camera directly at the QR code on https://cast-nelitv.web.app or enter the TV Session Code below."
+                    }
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta),
                 shape = RoundedCornerShape(14.dp),
@@ -421,9 +479,11 @@ fun CameraScannerView(
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = if (isPairingSession) {
-                        "Pairing Cast Session..."
+                        "Connecting & Streaming to TV..."
+                    } else if (manualSessionInput.isNotBlank()) {
+                        "Connect & Stream to TV (${manualSessionInput.trim()})"
                     } else {
-                        "Capture QR Code & Connect to TV"
+                        "Scanning QR Live... (Or Tap to Enter TV Code)"
                     },
                     color = Color.White,
                     fontSize = 14.sp,
@@ -454,7 +514,7 @@ fun CameraScannerView(
                     singleLine = true,
                     placeholder = {
                         Text(
-                            text = "https://cast-nelitv.web.app/cast/...",
+                            text = "Paste https://cast-nelitv.web.app/cast/... or TV session ID",
                             color = NeliTextSecondary,
                             fontSize = 12.sp
                         )
@@ -536,8 +596,8 @@ private fun QrScannerReticleOverlay(modifier: Modifier = Modifier) {
 @Composable
 private fun CameraXQrAnalyzerSurface(
     lensFacing: Int,
+    zoomRatio: Float,
     lifecycleOwner: androidx.lifecycle.LifecycleOwner,
-    captureRequested: AtomicBoolean,
     onCameraBound: (Camera) -> Unit,
     onQrCodeDetected: (String) -> Unit,
     modifier: Modifier = Modifier
@@ -550,6 +610,7 @@ private fun CameraXQrAnalyzerSurface(
         }
     }
     val analysisExecutor = remember { Executors.newSingleThreadExecutor() }
+    var boundCamera by remember { mutableStateOf<Camera?>(null) }
 
     DisposableEffect(Unit) {
         onDispose {
@@ -557,6 +618,29 @@ private fun CameraXQrAnalyzerSurface(
                 analysisExecutor.shutdown()
             } catch (_: Throwable) {
             }
+        }
+    }
+
+    // Continuous center-reticle autofocus every 2.5s so TV screen QR codes stay crisp
+    LaunchedEffect(boundCamera) {
+        val cam = boundCamera ?: return@LaunchedEffect
+        while (true) {
+            try {
+                val w = previewView.width.toFloat()
+                val h = previewView.height.toFloat()
+                if (w > 0f && h > 0f) {
+                    val point = previewView.meteringPointFactory.createPoint(w * 0.5f, h * 0.5f)
+                    val action = FocusMeteringAction.Builder(
+                        point,
+                        FocusMeteringAction.FLAG_AF or FocusMeteringAction.FLAG_AE
+                    )
+                        .setAutoCancelDuration(2, TimeUnit.SECONDS)
+                        .build()
+                    cam.cameraControl.startFocusAndMetering(action)
+                }
+            } catch (_: Throwable) {
+            }
+            delay(2500L)
         }
     }
 
@@ -569,7 +653,6 @@ private fun CameraXQrAnalyzerSurface(
                     it.surfaceProvider = previewView.surfaceProvider
                 }
 
-                var consecutiveFinderHits = 0
                 val imageAnalysis = ImageAnalysis.Builder()
                     .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                     .build()
@@ -578,15 +661,10 @@ private fun CameraXQrAnalyzerSurface(
                             try {
                                 val decoded = CameraQrFrameDecoder.decodeQrFromImageProxy(imageProxy)
                                 if (!decoded.isNullOrBlank()) {
-                                    onQrCodeDetected(decoded)
-                                } else if (CameraQrFrameDecoder.hasQrFinderRatioInCenter(imageProxy)) {
-                                    consecutiveFinderHits++
-                                    if (consecutiveFinderHits >= 10 || captureRequested.getAndSet(false)) {
-                                        consecutiveFinderHits = 0
-                                        onQrCodeDetected(CastReceiverConfig.DEFAULT_RECEIVER_BASE_URL)
+                                    val sessionId = CastReceiverConfig.extractSessionIdFromScannedQr(decoded)
+                                    if (sessionId.isNotBlank()) {
+                                        onQrCodeDetected(decoded)
                                     }
-                                } else if (captureRequested.getAndSet(false)) {
-                                    onQrCodeDetected(CastReceiverConfig.DEFAULT_RECEIVER_BASE_URL)
                                 }
                             } catch (_: Throwable) {
                             } finally {
@@ -606,6 +684,11 @@ private fun CameraXQrAnalyzerSurface(
                     preview,
                     imageAnalysis
                 )
+                try {
+                    camera.cameraControl.setZoomRatio(zoomRatio)
+                } catch (_: Throwable) {
+                }
+                boundCamera = camera
                 onCameraBound(camera)
             } catch (_: Throwable) {
             }
@@ -614,33 +697,69 @@ private fun CameraXQrAnalyzerSurface(
 
     AndroidView(
         factory = { previewView },
+        update = { view ->
+            if (view.scaleType != PreviewView.ScaleType.FILL_CENTER) {
+                view.scaleType = PreviewView.ScaleType.FILL_CENTER
+            }
+        },
         modifier = modifier
     )
 }
 
 /**
- * Pure-Kotlin ISO/IEC 18004 QR Code Finder & Decoder for CameraX `ImageProxy` YUV_420_888 frames
+ * Real-time ZXing + ISO/IEC 18004 QR Code Decoder for CameraX `ImageProxy` YUV_420_888 frames
  * and boolean module matrices.
  */
 internal object CameraQrFrameDecoder {
 
+    private val zxingHints: Map<DecodeHintType, Any> = EnumMap<DecodeHintType, Any>(DecodeHintType::class.java).apply {
+        put(DecodeHintType.POSSIBLE_FORMATS, listOf(BarcodeFormat.QR_CODE))
+        put(DecodeHintType.TRY_HARDER, java.lang.Boolean.TRUE)
+        put(DecodeHintType.CHARACTER_SET, "UTF-8")
+    }
+
     /**
-     * Attempts to decode a QR code string from a CameraX [ImageProxy] Y-plane luminance buffer.
+     * Decodes a QR code string from a CameraX [ImageProxy] Y-plane luminance buffer using ZXing
+     * (`PlanarYUVLuminanceSource` + `HybridBinarizer` / `GlobalHistogramBinarizer` across 0°/90°
+     * orientations and normal/inverted luminance), with fallback to the ISO module matrix decoder.
      */
     fun decodeQrFromImageProxy(imageProxy: ImageProxy): String? {
         val plane = imageProxy.planes.firstOrNull() ?: return null
         val buffer = plane.buffer ?: return null
         val width = imageProxy.width
         val height = imageProxy.height
-        if (width < 21 || height < 21 || buffer.remaining() < width * height) return null
+        if (width < 21 || height < 21) return null
 
         val rowStride = plane.rowStride
         val pixelStride = plane.pixelStride
+        val yBytes = extractContiguousYPlane(buffer, width, height, rowStride, pixelStride) ?: return null
+
+        // 1. Try ZXing on full frame (0° normal & inverted)
+        decodeWithZxingYuv(yBytes, width, height)?.let { return it }
+
+        // 2. Try ZXing on 90°-rotated frame (for portrait camera sensor orientation)
+        val rotatedBytes = rotateYPlane90Clockwise(yBytes, width, height)
+        decodeWithZxingYuv(rotatedBytes, height, width)?.let { return it }
+
+        // 3. Try ZXing on center 65% cropped ROI (helps when scanning a TV screen from across the room)
+        val cropW = (width * 65) / 100
+        val cropH = (height * 65) / 100
+        if (cropW >= 32 && cropH >= 32) {
+            decodeWithZxingYuvCrop(
+                yBytes = yBytes,
+                dataWidth = width,
+                dataHeight = height,
+                left = (width - cropW) / 2,
+                top = (height - cropH) / 2,
+                cropWidth = cropW,
+                cropHeight = cropH
+            )?.let { return it }
+        }
+
+        // 4. Fallback to direct boolean bitmap decoder
         val cropSide = min(width, height) * 3 / 4
         val startX = (width - cropSide) / 2
         val startY = (height - cropSide) / 2
-
-        // Downsample center ROI to a fast 180x180 luminance grid
         val gridDim = min(180, cropSide)
         val step = cropSide.toFloat() / gridDim.toFloat()
         var sumLum = 0L
@@ -648,15 +767,10 @@ internal object CameraQrFrameDecoder {
 
         for (r in 0 until gridDim) {
             val srcY = (startY + (r * step).toInt()).coerceIn(0, height - 1)
-            val rowOffset = srcY * rowStride
+            val rowOffset = srcY * width
             for (c in 0 until gridDim) {
                 val srcX = (startX + (c * step).toInt()).coerceIn(0, width - 1)
-                val idx = rowOffset + srcX * pixelStride
-                val lum = if (idx in 0 until buffer.limit()) {
-                    buffer.get(idx).toInt() and 0xFF
-                } else {
-                    128
-                }
+                val lum = yBytes[rowOffset + srcX].toInt() and 0xFF
                 lumGrid[r][c] = lum
                 sumLum += lum
             }
@@ -670,60 +784,121 @@ internal object CameraQrFrameDecoder {
         return decodeQrFromBooleanBitmap(darkBitmap)
     }
 
-    /**
-     * Checks whether the center scanlines of [imageProxy] contain 1:1:3:1:1 QR finder pattern transitions.
-     */
-    fun hasQrFinderRatioInCenter(imageProxy: ImageProxy): Boolean {
-        val plane = imageProxy.planes.firstOrNull() ?: return false
-        val buffer = plane.buffer ?: return false
-        val width = imageProxy.width
-        val height = imageProxy.height
-        if (width < 48 || height < 48) return false
-
-        val rowStride = plane.rowStride
-        val pixelStride = plane.pixelStride
-        var finderLines = 0
-
-        for (frac in intArrayOf(35, 50, 65)) {
-            val y = (height * frac) / 100
-            val rowOffset = y * rowStride
-            val runs = ArrayList<Int>(64)
-            var currentDark = false
-            var runLen = 0
-            for (x in (width / 6) until (width * 5 / 6)) {
-                val idx = rowOffset + x * pixelStride
-                if (idx >= buffer.limit()) break
-                val lum = buffer.get(idx).toInt() and 0xFF
-                val isDark = lum < 115
-                if (isDark == currentDark) {
-                    runLen++
+    private fun extractContiguousYPlane(
+        buffer: java.nio.ByteBuffer,
+        width: Int,
+        height: Int,
+        rowStride: Int,
+        pixelStride: Int
+    ): ByteArray? {
+        return try {
+            val duplicate = buffer.duplicate()
+            duplicate.rewind()
+            val out = ByteArray(width * height)
+            if (rowStride == width && pixelStride == 1 && duplicate.remaining() >= width * height) {
+                duplicate.get(out, 0, width * height)
+                return out
+            }
+            val limit = duplicate.limit()
+            var outIdx = 0
+            for (y in 0 until height) {
+                val rowStart = y * rowStride
+                if (pixelStride == 1 && rowStart + width <= limit) {
+                    duplicate.position(rowStart)
+                    duplicate.get(out, outIdx, width)
+                    outIdx += width
                 } else {
-                    if (runLen > 0) runs.add(runLen)
-                    currentDark = isDark
-                    runLen = 1
+                    for (x in 0 until width) {
+                        val pos = rowStart + x * pixelStride
+                        out[outIdx++] = if (pos in 0 until limit) duplicate.get(pos) else 0
+                    }
                 }
             }
-            if (runLen > 0) runs.add(runLen)
-            for (i in 0..(runs.size - 5)) {
-                if (isFinderRatio(runs[i], runs[i + 1], runs[i + 2], runs[i + 3], runs[i + 4])) {
-                    finderLines++
-                    break
-                }
-            }
+            out
+        } catch (_: Throwable) {
+            null
         }
-        return finderLines >= 2
     }
 
-    private fun isFinderRatio(n0: Int, n1: Int, n2: Int, n3: Int, n4: Int): Boolean {
-        val total = n0 + n1 + n2 + n3 + n4
-        if (total < 7) return false
-        val unit = total / 7.0f
-        val maxVariance = unit * 0.65f
-        return abs(n0 - unit) <= maxVariance &&
-            abs(n1 - unit) <= maxVariance &&
-            abs(n2 - 3f * unit) <= 3f * maxVariance &&
-            abs(n3 - unit) <= maxVariance &&
-            abs(n4 - unit) <= maxVariance
+    private fun rotateYPlane90Clockwise(yBytes: ByteArray, width: Int, height: Int): ByteArray {
+        val rotated = ByteArray(width * height)
+        for (y in 0 until height) {
+            val rowOffset = y * width
+            val dstCol = height - 1 - y
+            for (x in 0 until width) {
+                rotated[x * height + dstCol] = yBytes[rowOffset + x]
+            }
+        }
+        return rotated
+    }
+
+    private fun decodeWithZxingYuv(yBytes: ByteArray, width: Int, height: Int): String? {
+        return try {
+            val source = PlanarYUVLuminanceSource(yBytes, width, height, 0, 0, width, height, false)
+            decodeFromLuminanceSource(source)
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    private fun decodeWithZxingYuvCrop(
+        yBytes: ByteArray,
+        dataWidth: Int,
+        dataHeight: Int,
+        left: Int,
+        top: Int,
+        cropWidth: Int,
+        cropHeight: Int
+    ): String? {
+        return try {
+            val source = PlanarYUVLuminanceSource(
+                yBytes,
+                dataWidth,
+                dataHeight,
+                left,
+                top,
+                cropWidth,
+                cropHeight,
+                false
+            )
+            decodeFromLuminanceSource(source)
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    private fun decodeFromLuminanceSource(source: LuminanceSource): String? {
+        val reader = MultiFormatReader().apply { setHints(zxingHints) }
+
+        // 1. Normal HybridBinarizer
+        try {
+            val res = reader.decodeWithState(BinaryBitmap(HybridBinarizer(source)))
+            val text = res.text?.trim()
+            if (!text.isNullOrEmpty()) return text
+        } catch (_: Throwable) {
+            reader.reset()
+        }
+
+        // 2. Normal GlobalHistogramBinarizer (better for low-contrast / screen glare)
+        try {
+            val res = reader.decodeWithState(BinaryBitmap(GlobalHistogramBinarizer(source)))
+            val text = res.text?.trim()
+            if (!text.isNullOrEmpty()) return text
+        } catch (_: Throwable) {
+            reader.reset()
+        }
+
+        // 3. Inverted luminance (for light-on-dark QR codes on dark TV themes)
+        try {
+            val inverted = source.invert()
+            val res = reader.decodeWithState(BinaryBitmap(HybridBinarizer(inverted)))
+            val text = res.text?.trim()
+            if (!text.isNullOrEmpty()) return text
+        } catch (_: Throwable) {
+            reader.reset()
+        }
+
+        return null
     }
 
     /**
@@ -735,6 +910,32 @@ internal object CameraQrFrameDecoder {
         if (h < 21) return null
         val w = bitmap[0].size
         if (w < 21) return null
+
+        // Try ZXing RGBLuminanceSource with quiet zone padding first
+        try {
+            val scale = 4
+            val quietZone = 16
+            val imgW = w * scale + quietZone * 2
+            val imgH = h * scale + quietZone * 2
+            val pixels = IntArray(imgW * imgH) { 0xFFFFFFFF.toInt() }
+            for (r in 0 until h) {
+                for (c in 0 until w) {
+                    if (bitmap[r][c]) {
+                        val baseY = quietZone + r * scale
+                        val baseX = quietZone + c * scale
+                        for (dy in 0 until scale) {
+                            val rowIdx = (baseY + dy) * imgW + baseX
+                            for (dx in 0 until scale) {
+                                pixels[rowIdx + dx] = 0xFF000000.toInt()
+                            }
+                        }
+                    }
+                }
+            }
+            val rgbSource = RGBLuminanceSource(imgW, imgH, pixels)
+            decodeFromLuminanceSource(rgbSource)?.let { return it }
+        } catch (_: Throwable) {
+        }
 
         // Find bounding box of dark modules
         var minR = h
@@ -764,7 +965,7 @@ internal object CameraQrFrameDecoder {
         if (topBorderRun <= 0) return null
 
         val moduleSize = (topBorderRun / 7.0f).coerceAtLeast(1.0f)
-        val rawDim = (( (boxW + boxH) / 2.0f ) / moduleSize).roundToInt()
+        val rawDim = (((boxW + boxH) / 2.0f) / moduleSize).roundToInt()
         val version = ((rawDim - 17) / 4.0f).roundToInt().coerceIn(1, 6)
         val dim = 17 + version * 4
 
@@ -788,10 +989,8 @@ internal object CameraQrFrameDecoder {
         dim: Int,
         modules: Array<BooleanArray>
     ): String? {
-        // Verify top-left and top-right finder centers are dark
         if (!modules[3][3] || !modules[3][dim - 4] || !modules[dim - 4][3]) return null
 
-        // Read 15-bit format info around top-left finder
         var formatBits = 0
         for (i in 0..5) {
             formatBits = (formatBits shl 1) or (if (modules[8][i]) 1 else 0)
@@ -815,7 +1014,6 @@ internal object CameraQrFrameDecoder {
 
         val codewords = extractCodewords(dim, unmasked, isFunction)
         val deinterleaved = if (version == 6 && codewords.size >= 136) {
-            // Version 6-L interleaves 2 blocks of 68 data codewords
             val data = IntArray(136)
             for (i in 0 until 68) {
                 data[i] = codewords[i * 2]
