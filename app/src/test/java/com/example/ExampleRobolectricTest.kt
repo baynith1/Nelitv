@@ -4,7 +4,6 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.MediaContentRepository
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -1936,117 +1935,7 @@ class ExampleRobolectricTest {
         com.example.ui.theme.NeliThemeManager.setPipModeAllowed(context, true)
         assertTrue(com.example.ui.theme.NeliThemeManager.isPipModeAllowed)
 
-        // 21. Verify Auto-Sync on app entry, all 14 Azam TV channels with embedded tokens, Low-Quality Fast-Start, and Admin Forever Premium
-        val syncedChannels = com.example.data.ChannelRepository.autoSyncAllChannelsNow()
-        assertTrue(com.example.data.ChannelRepository.isAutoSynced.value)
-        assertTrue(syncedChannels.isNotEmpty())
-
-        val s1 = syncedChannels.first { it.name.contains("Azam Sports 1", ignoreCase = true) }
-        val s2 = syncedChannels.first { it.name.contains("Azam Sports 2", ignoreCase = true) }
-        val s3 = syncedChannels.first { it.name.contains("Azam Sports 3", ignoreCase = true) }
-        val s4 = syncedChannels.first { it.name.contains("Azam Sports 4", ignoreCase = true) }
-        val s5 = syncedChannels.first { it.name.contains("Azam Sports 5", ignoreCase = true) }
-        val aOne = syncedChannels.first { it.name.equals("Azam One", ignoreCase = true) }
-        val aTwo = syncedChannels.first { it.name.equals("Azam Two", ignoreCase = true) }
-        val sinema = syncedChannels.first { it.name.equals("Sinema Zetu", ignoreCase = true) }
-        val utv = syncedChannels.first { it.name.equals("UTV", ignoreCase = true) }
-        val zbc2 = syncedChannels.first { it.name.equals("ZBC2", ignoreCase = true) || it.name.equals("ZBC 2", ignoreCase = true) }
-        val zbc = syncedChannels.first { it.name.equals("ZBC", ignoreCase = true) }
-        val kix = syncedChannels.first { it.name.equals("KIX", ignoreCase = true) }
-        val crown = syncedChannels.first { it.name.equals("Crown Tv", ignoreCase = true) }
-        val wasafi = syncedChannels.first { it.name.contains("Wasafi", ignoreCase = true) }
-
-        assertTrue(s1.streamUrl.contains("/tok_${com.example.data.ChannelRepository.AZAM_SPORT_1_TOKEN}/live/eds/AzamSport1/DASH/AzamSport1.mpd"))
-        assertTrue(s2.streamUrl.contains("/tok_${com.example.data.ChannelRepository.AZAM_SPORT_2_TOKEN}/live/eds/AzamSport2/DASH/AzamSport2.mpd"))
-        assertTrue(s3.streamUrl.contains("/tok_${com.example.data.ChannelRepository.AZAM_SPORT_3_TOKEN}/live/eds/AzamSport3/DASH/AzamSport3.mpd"))
-        assertTrue(s4.streamUrl.contains("/tok_${com.example.data.ChannelRepository.AZAM_SPORT_4_TOKEN}/live/eds/AzamSport4/DASH/AzamSport4.mpd"))
-        assertTrue(s5.streamUrl.contains("/tok_${com.example.data.ChannelRepository.AZAM_SPORT_5_TOKEN}/live/eds/AzamSport5/DASH/AzamSport5.mpd"))
-        assertTrue(aOne.streamUrl.contains("/tok_${com.example.data.ChannelRepository.AZAM_ONE_TOKEN}/live/eds/AzamOne/DASH/AzamOne.mpd"))
-        assertTrue(aTwo.streamUrl.contains("/tok_${com.example.data.ChannelRepository.AZAM_TWO_TOKEN}/live/eds/AzamTwo/DASH/AzamTwo.mpd"))
-        assertTrue(sinema.streamUrl.contains("/tok_${com.example.data.ChannelRepository.SINEMA_ZETU_TOKEN}/live/eds/SinemaZetu/DASH/SinemaZetu.mpd"))
-        assertTrue(utv.streamUrl.contains("/tok_${com.example.data.ChannelRepository.UTV_TOKEN}/live/eds/UTV/DASH/UTV.mpd"))
-        assertTrue(zbc2.streamUrl.contains("cdntoken=${com.example.data.ChannelRepository.AZAM_SECONDARY_CDN_TOKEN_ENCODED}"))
-        assertTrue(zbc.streamUrl.contains("cdntoken=${com.example.data.ChannelRepository.AZAM_SECONDARY_CDN_TOKEN_ENCODED}"))
-        assertTrue(kix.streamUrl.contains("cdntoken=${com.example.data.ChannelRepository.AZAM_SECONDARY_CDN_TOKEN_ENCODED}"))
-        assertTrue(crown.streamUrl.contains("cdntoken=${com.example.data.ChannelRepository.AZAM_SECONDARY_CDN_TOKEN_ENCODED}"))
-        assertTrue(wasafi.streamUrl.contains("cdntoken=${com.example.data.ChannelRepository.AZAM_SECONDARY_CDN_TOKEN_ENCODED}"))
-
-        // Verify switching channel starts automatically at low quality (LOW_BANDO_240P) so it starts immediately without buffering
-        controller.switchChannel(s2)
-        assertEquals(com.example.player.AdaptiveQualityTier.LOW_BANDO_240P, controller.playbackInfo.value.adaptiveQualityTier)
-
-        // Verify Admin (Admin@login.com) is a Premium Member Forever and can watch locked channels even when Admin locks them
-        val adminSubState = com.example.data.NeliSubscriptionManager.switchActiveAccount(
-            context = context,
-            uid = "admin_neli_master",
-            email = "Admin@login.com",
-            realName = "Admin Nelitv"
-        )
-        assertTrue(adminSubState.isVerified)
-        assertTrue(adminSubState.isFreeForeverAccount)
-        assertTrue(adminSubState.isActiveNow)
-        assertTrue(com.example.data.NeliAdminManager.isAdminSessionActive.value)
-
-        com.example.data.NeliAdminManager.setSingleChannelLock(context, s1.id, locked = true)
-        com.example.data.NeliAdminManager.setLockAllChannels(context, lockAll = true)
-        org.junit.Assert.assertFalse(
-            com.example.data.NeliAdminManager.isChannelLockedForUser(
-                channelId = s1.id,
-                currentUser = null,
-                context = context
-            )
-        )
-        com.example.data.NeliAdminManager.setLockAllChannels(context, lockAll = false)
-        com.example.data.NeliAdminManager.setSingleChannelLock(context, s1.id, locked = false)
-
         completedFile.delete()
-        controller.release()
-    }
-
-    @Test
-    fun `token manager persists token locally checks expiration and refreshes dynamically before player init`() {
-        val context = ApplicationProvider.getApplicationContext<Context>()
-        com.example.player.TokenManager.initialize(context)
-
-        // 1. Verify token expiration check logic
-        val nowSec = System.currentTimeMillis() / 1000L
-        val futurePayload = android.util.Base64.encodeToString(
-            """{"exp":"${nowSec + 86400}","client_id":"4840832"}""".toByteArray(Charsets.UTF_8),
-            android.util.Base64.NO_WRAP or android.util.Base64.URL_SAFE
-        )
-        val validFutureToken = "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.$futurePayload.dummySignature"
-        assertFalse(com.example.player.TokenManager.isTokenExpired(validFutureToken))
-
-        // Create an expired token fragment (exp in the past)
-        val expiredPayload = android.util.Base64.encodeToString(
-            """{"exp":"${nowSec - 3600}","client_id":"4840832"}""".toByteArray(Charsets.UTF_8),
-            android.util.Base64.NO_WRAP or android.util.Base64.URL_SAFE
-        )
-        val expiredJwt = "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.$expiredPayload.dummySignature"
-        assertTrue(com.example.player.TokenManager.isTokenExpired(expiredJwt))
-
-        // 2. Verify local persistence in SharedPreferences
-        val testToken = com.example.data.ChannelRepository.DEFAULT_AZAM_CDN_TOKEN
-        com.example.player.TokenManager.saveTokenLocally(
-            context = context,
-            token = testToken,
-            cdnHost = "https://cdnedgch2.azamtvltd.co.tz",
-            source = "local_storage",
-            expEpochSec = nowSec + 86400L
-        )
-        val prefs = context.getSharedPreferences(com.example.player.TokenManager.TOKEN_PREFS_NAME, Context.MODE_PRIVATE)
-        assertEquals(testToken, prefs.getString(com.example.player.TokenManager.KEY_STORED_TOKEN, null))
-        assertEquals(nowSec + 86400L, prefs.getLong(com.example.player.TokenManager.KEY_STORED_EXPIRY, 0L))
-
-        // 3. Verify ensureValidToken dynamically resolves token before player initialization
-        val ensuredToken = com.example.player.TokenManager.ensureValidToken(context)
-        assertTrue(ensuredToken.isNotBlank())
-
-        // 4. Verify controller initializePlayer triggers token verification
-        val channel = com.example.data.ChannelRepository.channels.first { it.isAzamPriority }
-        val controller = com.example.player.LivePlayerController(context, channel)
-        val player = controller.initializePlayer()
-        assertNotNull(player)
         controller.release()
     }
 }

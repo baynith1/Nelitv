@@ -56,7 +56,6 @@ object NeliAdminManager {
     private const val KEY_ADMIN_SMS_ID = "admin_sms_id"
     private const val KEY_ADMIN_SMS_TIME = "admin_sms_time"
     private const val KEY_ADMIN_SMS_PLACEMENT = "admin_sms_placement"
-    private const val KEY_ADMIN_SESSION_ACTIVE = "admin_session_active"
 
     private val _areAllChannelsLocked = MutableStateFlow(false)
     val areAllChannelsLocked: StateFlow<Boolean> = _areAllChannelsLocked.asStateFlow()
@@ -76,9 +75,6 @@ object NeliAdminManager {
     private val _adminBannerPlacement = MutableStateFlow(AdminBannerPlacement.BELOW_SLIDER)
     val adminBannerPlacement: StateFlow<AdminBannerPlacement> = _adminBannerPlacement.asStateFlow()
 
-    private val _isAdminSessionActive = MutableStateFlow(false)
-    val isAdminSessionActive: StateFlow<Boolean> = _isAdminSessionActive.asStateFlow()
-
     fun isAdminCredentials(email: String, password: String): Boolean {
         return email.trim().equals(ADMIN_EMAIL, ignoreCase = true) && password.trim() == ADMIN_PASSWORD
     }
@@ -88,24 +84,11 @@ object NeliAdminManager {
     }
 
     fun isAdminUser(user: UserAccountEntity?): Boolean {
-        if (user != null && user.isLoggedIn && isAdminEmail(user.email)) return true
-        if (_isAdminSessionActive.value) return true
-        if (isAdminEmail(NeliSubscriptionManager.subscriptionState.value.linkedUserEmail)) return true
-        return false
-    }
-
-    fun setAdminSessionActive(context: Context?, active: Boolean) {
-        _isAdminSessionActive.value = active
-        context?.applicationContext?.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            ?.edit()
-            ?.putBoolean(KEY_ADMIN_SESSION_ACTIVE, active)
-            ?.apply()
+        return user != null && user.isLoggedIn && isAdminEmail(user.email)
     }
 
     fun initialize(context: Context) {
         val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        _isAdminSessionActive.value = prefs.getBoolean(KEY_ADMIN_SESSION_ACTIVE, false) ||
-            isAdminEmail(NeliSubscriptionManager.subscriptionState.value.linkedUserEmail)
         _areAllChannelsLocked.value = prefs.getBoolean(KEY_LOCK_ALL_CHANNELS, false)
         val savedLocked = prefs.getStringSet(KEY_LOCKED_CHANNEL_IDS, emptySet())?.toSet() ?: emptySet()
         _lockedChannelIds.value = savedLocked
@@ -453,6 +436,5 @@ object NeliAdminManager {
         _hiddenChannelIds.value = emptySet()
         _customAddedChannels.value = emptyList()
         _activeAdminSms.value = null
-        _isAdminSessionActive.value = false
     }
 }

@@ -14,7 +14,7 @@ object ChannelRepository {
 
     const val DEFAULT_AZAM_CDN_HOST = "https://cdnedgch2.azamtvltd.co.tz"
     const val DEFAULT_AZAM_CDN_TOKEN =
-        "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJleHAiOiIxNzkwOTQ2OTQzIiwic2lwIjoiIiwicGF0aCI6IiIsInNlc3Npb25fY2RuX2lkIjoiZTZhZTQ3MzliNmY4ZjhiNyIsInNlc3Npb25faWQiOiIiLCJjbGllbnRfaWQiOiI0ODQwODMyIiwiZGV2aWNlX2lkIjoiIiwibWF4X3Nlc3Npb25zIjowLCJzZXNzaW9uX2R1cmF0aW9uIjowLCJ1cmwiOiJodHRwczovLzEwMi4yMDguMjQ0LjkiLCJzZXNzaW9uX3RpbWVvdXQiOjAsImF1ZCI6IjciLCJzb3VyY2VzIjpbM119.FbnzSDR1Vi6Yfo4Qys6fBQV04WVdcCBFcCAI-Hgy9YvhRjwqp6uhKmXKPQZinjuWAzt5Hu17E4gnZCFzv6KtYQ=="
+        "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJleHAiOiIxNzkwODc0MzAyIiwic2lwIjoiIiwicGF0aCI6IiIsInNlc3Npb25fY2RuX2lkIjoiYWQ2NTc1OGZlMjc0NWRhZiIsInNlc3Npb25faWQiOiIiLCJjbGllbnRfaWQiOiI0ODUxNDgzIiwiZGV2aWNlX2lkIjoiIiwibWF4X3Nlc3Npb25zIjowLCJzZXNzaW9uX2R1cmF0aW9uIjowLCJ1cmwiOiJodHRwczovLzEwMi4yMDguMjQ0LjkiLCJzZXNzaW9uX3RpbWVvdXQiOjAsImF1ZCI6IjciLCJzb3VyY2VzIjpbM119.xIO2NbWKCzsUvnaovYl2ob-epo1u3kXYWG3OyJ9Y2oTwKoBGm94LcRWYZgRoQpwFlunKFHVP1xAi7D7j83Mveg=="
     const val AZAM_SPORT_1_TOKEN =
         "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJleHAiOiIxNzkwODc0MjkxIiwic2lwIjoiIiwicGF0aCI6IiIsInNlc3Npb25fY2RuX2lkIjoiNGVhN2EwM2VmN2EwMzQwNSIsInNlc3Npb25faWQiOiIiLCJjbGllbnRfaWQiOiI0ODUxNDgzIiwiZGV2aWNlX2lkIjoiIiwibWF4X3Nlc3Npb25zIjowLCJzZXNzaW9uX2R1cmF0aW9uIjowLCJ1cmwiOiJodHRwczovLzEwMi4yMDguMjQ0LjkiLCJzZXNzaW9uX3RpbWVvdXQiOjAsImF1ZCI6IjciLCJzb3VyY2VzIjpbM119.2Qx1WInw0wNDddGQfHfh8kA-fAbrvjRYWxGBvt7ZBXIv2N5XwlHSSJAR_mTeeflTZKmr3b5IxZxvdQf6_JcNcQ=="
     const val AZAM_SPORT_2_TOKEN =
@@ -23,20 +23,13 @@ object ChannelRepository {
         "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJleHAiOiIxNzkwODc0Mjk2Iiwic2lwIjoiIiwicGF0aCI6IiIsInNlc3Npb25fY2RuX2lkIjoiZWE3ZDAyYzNlN2UyOWUzMSIsInNlc3Npb25faWQiOiIiLCJjbGllbnRfaWQiOiI0ODUxNDgzIiwiZGV2aWNlX2lkIjoiIiwibWF4X3Nlc3Npb25zIjowLCJzZXNzaW9uX2R1cmF0aW9uIjowLCJ1cmwiOiJodHRwczovLzEwMi4yMDguMjQ0LjkiLCJzZXNzaW9uX3RpbWVvdXQiOjAsImF1ZCI6IjciLCJzb3VyY2VzIjpbM119.Jxy_beEHRKb4_7EzBLl-JKWYdukRW7glsVmRrowjF_gf7ytaKkHLIxlF_Ni5XA6sptKMvWhr4Qv8BT6iGj3fcg=="
     const val AZAM_SPORT_4_TOKEN =
         "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJleHAiOiIxNzkwODc0Mjk3Iiwic2lwIjoiIiwicGF0aCI6IiIsInNlc3Npb25fY2RuX2lkIjoiZjgyZmFlMzg1MWJmMGUwYiIsInNlc3Npb25faWQiOiIiLCJjbGllbnRfaWQiOiI0ODUxNDgzIiwiZGV2aWNlX2lkIjoiIiwibWF4X3Nlc3Npb25zIjowLCJzZXNzaW9uX2R1cmF0aW9uIjowLCJ1cmwiOiJodHRwczovLzEwMi4yMDguMjQ0LjkiLCJzZXNzaW9uX3RpbWVvdXQiOjAsImF1ZCI6IjciLCJzb3VyY2VzIjpbM119.1es6sojSGK2bFlDIO6ti-AQf_YfnYA_1go9dHk_uUwFHMVpVJq8JYUxcckKwA6hBOfNv4CP9fmnZc4RBIKFMiQ=="
-    const val AZAM_SPORT_5_TOKEN =
-        "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJleHAiOiIxNzkwODMxMTI0Iiwic2lwIjoiIiwicGF0aCI6IiIsInNlc3Npb25fY2RuX2lkIjoiZDg5NmIyMjljMzhiYTc4ZiIsInNlc3Npb25faWQiOiIiLCJjbGllbnRfaWQiOiI0ODUxNDgzIiwiZGV2aWNlX2lkIjoiIiwibWF4X3Nlc3Npb25zIjowLCJzZXNzaW9uX2R1cmF0aW9uIjowLCJ1cmwiOiJodHRwczovLzEwMi4yMDguMjQ0LjkiLCJzZXNzaW9uX3RpbWVvdXQiOjAsImF1ZCI6IjciLCJzb3VyY2VzIjpbM119.EdIV5dQmapQhFTEtHzbapvQGP0WzUXXnKc3PlPWWWk788OS2N8Mu4fc45MDiaPo_zRACmfRzZwgk-IH0BRA74Q=="
     const val AZAM_ONE_TOKEN =
         "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJleHAiOiIxNzkwODc0Mjk4Iiwic2lwIjoiIiwicGF0aCI6IiIsInNlc3Npb25fY2RuX2lkIjoiOWRiYjRjYWM3ZGE4MWM4ZCIsInNlc3Npb25faWQiOiIiLCJjbGllbnRfaWQiOiI0ODUxNDgzIiwiZGV2aWNlX2lkIjoiIiwibWF4X3Nlc3Npb25zIjowLCJzZXNzaW9uX2R1cmF0aW9uIjowLCJ1cmwiOiJodHRwczovLzEwMi4yMDguMjQ0LjkiLCJzZXNzaW9uX3RpbWVvdXQiOjAsImF1ZCI6IjciLCJzb3VyY2VzIjpbM119.NFjc0OiEJehylTD_Ili4gC-9EvzGsb7LmWJxtFgvEOsTIVIipARWhtoAm1J3U4xtogCiXYU3uZY1fD1mhnX-1Q=="
     const val AZAM_TWO_TOKEN =
         "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJleHAiOiIxNzkwODc0MzAwIiwic2lwIjoiIiwicGF0aCI6IiIsInNlc3Npb25fY2RuX2lkIjoiZWYwM2JhZjI3OWE4NTI1NiIsInNlc3Npb25faWQiOiIiLCJjbGllbnRfaWQiOiI0ODUxNDgzIiwiZGV2aWNlX2lkIjoiIiwibWF4X3Nlc3Npb25zIjowLCJzZXNzaW9uX2R1cmF0aW9uIjowLCJ1cmwiOiJodHRwczovLzEwMi4yMDguMjQ0LjkiLCJzZXNzaW9uX3RpbWVvdXQiOjAsImF1ZCI6IjciLCJzb3VyY2VzIjpbM119.b-YVd1deg7AEi6pODOndBm5IxXHpBoXK_e1LnM9cbaled0nlItj3_Dxz6ktE2YXboPnoIuWrdr0f2AMa-46esw=="
-    const val SINEMA_ZETU_TOKEN =
-        "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJleHAiOiIxNzkwODc0MzAyIiwic2lwIjoiIiwicGF0aCI6IiIsInNlc3Npb25fY2RuX2lkIjoiYWQ2NTc1OGZlMjc0NWRhZiIsInNlc3Npb25faWQiOiIiLCJjbGllbnRfaWQiOiI0ODUxNDgzIiwiZGV2aWNlX2lkIjoiIiwibWF4X3Nlc3Npb25zIjowLCJzZXNzaW9uX2R1cmF0aW9uIjowLCJ1cmwiOiJodHRwczovLzEwMi4yMDguMjQ0LjkiLCJzZXNzaW9uX3RpbWVvdXQiOjAsImF1ZCI6IjciLCJzb3VyY2VzIjpbM119.xIO2NbWKCzsUvnaovYl2ob-epo1u3kXYWG3OyJ9Y2oTwKoBGm94LcRWYZgRoQpwFlunKFHVP1xAi7D7j83Mveg=="
-    const val UTV_TOKEN =
-        "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJleHAiOiIxNzkwODc0MzA2Iiwic2lwIjoiIiwicGF0aCI6IiIsInNlc3Npb25fY2RuX2lkIjoiMjdiNTg2MTk3ZDVlYzM1NiIsInNlc3Npb25faWQiOiIiLCJjbGllbnRfaWQiOiI0ODUxNDgzIiwiZGV2aWNlX2lkIjoiIiwibWF4X3Nlc3Npb25zIjowLCJzZXNzaW9uX2R1cmF0aW9uIjowLCJ1cmwiOiJodHRwczovLzEwMi4yMDguMjQ0LjkiLCJzZXNzaW9uX3RpbWVvdXQiOjAsImF1ZCI6IjciLCJzb3VyY2VzIjpbM119.IXI1wtDp9Xme9wwND-sPnYPurlKijYVOWBUxl6jD8nsd4EUTRbHBuui8BNGxMYP2DmOnCv3VMA54F2MwMt3Iiw=="
+    const val SINEMA_ZETU_TOKEN = DEFAULT_AZAM_CDN_TOKEN
     const val AZAM_SECONDARY_CDN_TOKEN =
-        "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJleHAiOiIxNzkwOTQ2OTQzIiwic2lwIjoiIiwicGF0aCI6IiIsInNlc3Npb25fY2RuX2lkIjoiZTZhZTQ3MzliNmY4ZjhiNyIsInNlc3Npb25faWQiOiIiLCJjbGllbnRfaWQiOiI0ODQwODMyIiwiZGV2aWNlX2lkIjoiIiwibWF4X3Nlc3Npb25zIjowLCJzZXNzaW9uX2R1cmF0aW9uIjowLCJ1cmwiOiJodHRwczovLzEwMi4yMDguMjQ0LjkiLCJzZXNzaW9uX3RpbWVvdXQiOjAsImF1ZCI6IjciLCJzb3VyY2VzIjpbM119.FbnzSDR1Vi6Yfo4Qys6fBQV04WVdcCBFcCAI-Hgy9YvhRjwqp6uhKmXKPQZinjuWAzt5Hu17E4gnZCFzv6KtYQ=="
-    const val AZAM_SECONDARY_CDN_TOKEN_ENCODED =
-        "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJleHAiOiIxNzkwOTQ2OTQzIiwic2lwIjoiIiwicGF0aCI6IiIsInNlc3Npb25fY2RuX2lkIjoiZTZhZTQ3MzliNmY4ZjhiNyIsInNlc3Npb25faWQiOiIiLCJjbGllbnRfaWQiOiI0ODQwODMyIiwiZGV2aWNlX2lkIjoiIiwibWF4X3Nlc3Npb25zIjowLCJzZXNzaW9uX2R1cmF0aW9uIjowLCJ1cmwiOiJodHRwczovLzEwMi4yMDguMjQ0LjkiLCJzZXNzaW9uX3RpbWVvdXQiOjAsImF1ZCI6IjciLCJzb3VyY2VzIjpbM119.FbnzSDR1Vi6Yfo4Qys6fBQV04WVdcCBFcCAI-Hgy9YvhRjwqp6uhKmXKPQZinjuWAzt5Hu17E4gnZCFzv6KtYQ%3D%3D"
+        "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJleHAiOiIxNzkwMzc2NTgyIiwic2lwIjoiIiwicGF0aCI6IiIsInNlc3Npb25fY2RuX2lkIjoiOTdmYmY3NWU2ZWU2MmJkYSIsInNlc3Npb25faWQiOiIiLCJjbGllbnRfaWQiOiI0ODQwODMyIiwiZGV2aWNlX2lkIjoiIiwibWF4X3Nlc3Npb25zIjowLCJzZXNzaW9uX2R1cmF0aW9uIjowLCJ1cmwiOiJodHRwczovLzEwMi4yMDguMjQ0LjkiLCJzZXNzaW9uX3RpbWVvdXQiOjAsImF1ZCI6IjciLCJzb3VyY2VzIjpbM119.zW07ft5kqXHOkbPguYYGgrBwihIVJIjoGvhVqTN3cjjWZEp4NWJfpQUQyDYUkyuhNVKmLYSHxO5EwEegjYQ84A=="
     const val DEFAULT_AZAM_CDN_SOURCE = "cache"
     const val DEFAULT_TOKEN_ENDPOINT_URL = "https://streamzone.fun/api/cdn-token"
     const val DEFAULT_CHANNELS_BACKUP_API_URL = "https://streamzone.fun/api/channels"
@@ -95,27 +88,6 @@ object ChannelRepository {
     var lastRefreshedEpochMs: Long = System.currentTimeMillis()
         private set
 
-    private val _isAutoSynced = MutableStateFlow(false)
-    val isAutoSynced: StateFlow<Boolean> = _isAutoSynced.asStateFlow()
-
-    /**
-     * Automatically syncs and pre-warms all Live TV channels immediately when the user enters the app:
-     * - Dynamically fetches and refreshes the live CDN token from https://streamzone.fun/api/cdn-token
-     * - Checks token expiration and persists the token locally in SharedPreferences
-     * - Syncs backup channels and clearkeys from https://streamzone.fun/api/channels
-     * - Pre-warms channels so playback starts instantly without loading delay
-     */
-    fun autoSyncAllChannelsNow(): List<LiveChannel> {
-        try {
-            TokenManager.ensureValidToken()
-        } catch (_: Exception) {
-        }
-        val synced = refreshLiveChannels()
-        _isAutoSynced.value = true
-        TokenManager.prewarmAllChannelsInBackground(synced)
-        return synced
-    }
-
     /**
      * Refreshes the Live TV channel feed in-place without restarting the app:
      * re-applies the latest Azam CDN host/token to all stream URLs and re-sorts
@@ -173,13 +145,13 @@ object ChannelRepository {
     )
 
     val channels: List<LiveChannel> = listOf(
-        // 1. AZAM SPORT 1 HD (MPD + ClearKey + Embedded Path Token)
+        // 1. AZAM SPORT 1 HD (MPD + ClearKey + CDN Token)
         LiveChannel(
             id = "R17JUvbCEzu2eTbjnE74",
             name = "Azam Sports 1 HD",
             description = "mpira live",
-            streamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_SPORT_1_TOKEN/live/eds/AzamSport1/DASH/AzamSport1.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
-            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_SPORT_1_TOKEN/live/eds/AzamSport1/DASH/AzamSport1.mpd?cdntoken=$AZAM_SPORT_1_TOKEN",
+            streamUrl = "$DEFAULT_AZAM_CDN_HOST/tok_$AZAM_SPORT_1_TOKEN/live/eds/AzamSport1/DASH/AzamSport1.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            backupStreamUrl = "$DEFAULT_AZAM_CDN_HOST/live/eds/AzamSport1/DASH/AzamSport1.mpd?cdntoken=$AZAM_SPORT_1_TOKEN",
             streamFormat = "dash",
             thumbnailUrl = "https://i.ibb.co/B29Xvb5P/azam-sport-1-01.png",
             categories = listOf("sport", "entertainment", "tanzania"),
@@ -189,13 +161,13 @@ object ChannelRepository {
             country = "Tanzania",
             featured = true
         ),
-        // 2. AZAM SPORT 2 HD (MPD + ClearKey + Embedded Path Token)
+        // 2. AZAM SPORT 2 HD (MPD + ClearKey + CDN Token)
         LiveChannel(
             id = "f74ba826-f031-4e64-9ec1-f7ffa4e6ec0f",
             name = "Azam Sports 2 HD",
             description = "mpira live",
-            streamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_SPORT_2_TOKEN/live/eds/AzamSport2/DASH/AzamSport2.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
-            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_SPORT_2_TOKEN/live/eds/AzamSport2/DASH/AzamSport2.mpd?cdntoken=$AZAM_SPORT_2_TOKEN",
+            streamUrl = "$DEFAULT_AZAM_CDN_HOST/tok_$AZAM_SPORT_2_TOKEN/live/eds/AzamSport2/DASH/AzamSport2.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            backupStreamUrl = "$DEFAULT_AZAM_CDN_HOST/live/eds/AzamSport2/DASH/AzamSport2.mpd?cdntoken=$AZAM_SPORT_2_TOKEN",
             streamFormat = "dash",
             thumbnailUrl = "https://i.ibb.co/Y7Cj3Wtj/azam-sport-2-01.png",
             categories = listOf("sport", "entertainment", "tanzania"),
@@ -205,13 +177,13 @@ object ChannelRepository {
             country = "Tanzania",
             featured = true
         ),
-        // 3. AZAM SPORT 3 HD (MPD + ClearKey + Embedded Path Token)
+        // 3. AZAM SPORT 3 HD (MPD + ClearKey + CDN Token)
         LiveChannel(
             id = "1c976127-e8a4-4bd6-8e73-5da0edce369b",
             name = "Azam Sports 3 HD",
             description = "mpiraa live",
-            streamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_SPORT_3_TOKEN/live/eds/AzamSport3/DASH/AzamSport3.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
-            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_SPORT_3_TOKEN/live/eds/AzamSport3/DASH/AzamSport3.mpd?cdntoken=$AZAM_SPORT_3_TOKEN",
+            streamUrl = "$DEFAULT_AZAM_CDN_HOST/tok_$AZAM_SPORT_3_TOKEN/live/eds/AzamSport3/DASH/AzamSport3.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            backupStreamUrl = "$DEFAULT_AZAM_CDN_HOST/live/eds/AzamSport3/DASH/AzamSport3.mpd?cdntoken=$AZAM_SPORT_3_TOKEN",
             streamFormat = "dash",
             thumbnailUrl = "https://i.ibb.co/2YfLQ545/1000221070.png",
             categories = listOf("sport", "entertainment", "tanzania"),
@@ -221,13 +193,13 @@ object ChannelRepository {
             country = "Tanzania",
             featured = true
         ),
-        // 4. AZAM SPORT 4 HD (MPD + ClearKey + Embedded Path Token)
+        // 4. AZAM SPORT 4 HD (MPD + ClearKey + CDN Token)
         LiveChannel(
             id = "244bcd50-b3bf-4d5e-8419-08cc7bad1a7c",
             name = "Azam Sports 4 HD",
             description = "Mpira Live",
-            streamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_SPORT_4_TOKEN/live/eds/AzamSport4/DASH/AzamSport4.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
-            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_SPORT_4_TOKEN/live/eds/AzamSport4/DASH/AzamSport4.mpd?cdntoken=$AZAM_SPORT_4_TOKEN",
+            streamUrl = "$DEFAULT_AZAM_CDN_HOST/tok_$AZAM_SPORT_4_TOKEN/live/eds/AzamSport4/DASH/AzamSport4.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            backupStreamUrl = "$DEFAULT_AZAM_CDN_HOST/live/eds/AzamSport4/DASH/AzamSport4.mpd?cdntoken=$AZAM_SPORT_4_TOKEN",
             streamFormat = "dash",
             thumbnailUrl = "https://i.ibb.co/SwtFQNsh/1000221063.jpg",
             categories = listOf("sport", "entertainment", "tanzania"),
@@ -237,13 +209,13 @@ object ChannelRepository {
             country = "Tanzania",
             featured = true
         ),
-        // 5. AZAM SPORT 5 HD (MPD + ClearKey + Embedded Path Token)
+        // 5. AZAM SPORT 5 HD (MPD + ClearKey + CDN Token)
         LiveChannel(
             id = "azam_sport_5_hd",
             name = "Azam Sports 5 HD",
             description = "Mpira Live • Azam TV",
-            streamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_SPORT_5_TOKEN/live/eds/AzamSport5/DASH/AzamSport5.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
-            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_SPORT_5_TOKEN/live/eds/AzamSport5/DASH/AzamSport5.mpd?cdntoken=$AZAM_SPORT_5_TOKEN",
+            streamUrl = "$DEFAULT_AZAM_CDN_HOST/tok_$DEFAULT_AZAM_CDN_TOKEN/live/eds/AzamSport5/DASH/AzamSport5.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            backupStreamUrl = "$DEFAULT_AZAM_CDN_HOST/live/eds/AzamSport5/DASH/AzamSport5.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
             streamFormat = "dash",
             thumbnailUrl = "https://i.ibb.co/SwtFQNsh/1000221063.jpg",
             categories = listOf("sport", "entertainment", "tanzania"),
@@ -258,13 +230,13 @@ object ChannelRepository {
             country = "Tanzania",
             featured = true
         ),
-        // 6. AZAM ONE (MPD + ClearKey + Embedded Path Token)
+        // 6. AZAM ONE (MPD + ClearKey + CDN Token)
         LiveChannel(
             id = "c405ae74-c4c5-4842-9f26-130ce380b307",
             name = "Azam One",
             description = "Burudani na Filamu za Afrika Mashariki",
-            streamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_ONE_TOKEN/live/eds/AzamOne/DASH/AzamOne.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
-            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_ONE_TOKEN/live/eds/AzamOne/DASH/AzamOne.mpd?cdntoken=$AZAM_ONE_TOKEN",
+            streamUrl = "$DEFAULT_AZAM_CDN_HOST/tok_$AZAM_ONE_TOKEN/live/eds/AzamOne/DASH/AzamOne.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            backupStreamUrl = "$DEFAULT_AZAM_CDN_HOST/live/eds/AzamOne/DASH/AzamOne.mpd?cdntoken=$AZAM_ONE_TOKEN",
             streamFormat = "dash",
             thumbnailUrl = "https://i.ibb.co/8gtr1n42/1000221072.jpg",
             categories = listOf("entertainment", "movies", "tanzania"),
@@ -274,13 +246,13 @@ object ChannelRepository {
             country = "Tanzania",
             featured = true
         ),
-        // 7. AZAM TWO (MPD + ClearKey + Embedded Path Token)
+        // 7. AZAM TWO (MPD + ClearKey + CDN Token)
         LiveChannel(
             id = "008ffe6e-a30f-4ed1-9ddb-4033dde18576",
             name = "Azam Two",
             description = "Tamthilia za Kiswahili na Burudani Live",
-            streamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_TWO_TOKEN/live/eds/AzamTwo/DASH/AzamTwo.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
-            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_TWO_TOKEN/live/eds/AzamTwo/DASH/AzamTwo.mpd?cdntoken=$AZAM_TWO_TOKEN",
+            streamUrl = "$DEFAULT_AZAM_CDN_HOST/tok_$AZAM_TWO_TOKEN/live/eds/AzamTwo/DASH/AzamTwo.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            backupStreamUrl = "$DEFAULT_AZAM_CDN_HOST/live/eds/AzamTwo/DASH/AzamTwo.mpd?cdntoken=$AZAM_TWO_TOKEN",
             streamFormat = "dash",
             thumbnailUrl = "https://i.ibb.co/Z6sdp2tg/1000221074.jpg",
             categories = listOf("entertainment", "tanzania"),
@@ -290,13 +262,13 @@ object ChannelRepository {
             country = "Tanzania",
             featured = true
         ),
-        // 8. SINEMA ZETU (MPD + ClearKey + Embedded Path Token)
+        // 8. SINEMA ZETU (MPD + ClearKey + CDN Token)
         LiveChannel(
             id = "f56ca8c1-3d3f-4dd2-8d9d-b0b54b559f6e",
             name = "Sinema Zetu",
             description = "Filamu za Kiswahili & Bongo Movies 24/7",
-            streamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$SINEMA_ZETU_TOKEN/live/eds/SinemaZetu/DASH/SinemaZetu.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
-            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$SINEMA_ZETU_TOKEN/live/eds/SinemaZetu/DASH/SinemaZetu.mpd?cdntoken=$SINEMA_ZETU_TOKEN",
+            streamUrl = "$DEFAULT_AZAM_CDN_HOST/tok_$SINEMA_ZETU_TOKEN/live/eds/SinemaZetu/DASH/SinemaZetu.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            backupStreamUrl = "$DEFAULT_AZAM_CDN_HOST/live/eds/SinemaZetu/DASH/SinemaZetu.mpd?cdntoken=$SINEMA_ZETU_TOKEN",
             streamFormat = "dash",
             thumbnailUrl = "https://i.ibb.co/twBGTs4s/1000221073.jpg",
             categories = listOf("entertainment", "movies", "tanzania"),
@@ -306,41 +278,35 @@ object ChannelRepository {
             country = "Tanzania",
             featured = true
         ),
-        // 9. AZAM XTRA HD (Added Azam TV Channel #1 - MPD + ClearKey + Embedded Path Token)
+        // 9. AZAM XTRA HD (Added Azam TV Channel #1 - MPD + ClearKey + CDN Token)
         LiveChannel(
             id = "azam_xtra_hd_14",
             name = "Azam Xtra HD",
             description = "Tamthilia, Reality & Vipindi Maalum vya Azam TV",
-            streamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_ONE_TOKEN/live/eds/AzamOne/DASH/AzamOne.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
-            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_TWO_TOKEN/live/eds/AzamTwo/DASH/AzamTwo.mpd?cdntoken=$AZAM_TWO_TOKEN",
+            streamUrl = "$DEFAULT_AZAM_CDN_HOST/tok_$AZAM_ONE_TOKEN/live/eds/AzamOne/DASH/AzamOne.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            backupStreamUrl = "$DEFAULT_AZAM_CDN_HOST/live/eds/AzamOne/DASH/AzamOne.mpd?cdntoken=$AZAM_ONE_TOKEN",
             streamFormat = "dash",
             thumbnailUrl = "https://i.ibb.co/8gtr1n42/1000221072.jpg",
             categories = listOf("entertainment", "movies", "tanzania"),
             language = "sw",
             encryptionType = "clearkey",
-            clearKeys = mapOf(
-                "b5cbe1bb5acf3c7f9995be428245cfcd" to "89f1188a11e5e000d4443eb27ca378e1",
-                "18f515fd536b3e728e9844e77d9f0fa8" to "c96dfd9b65560f87a1a95b8aeda0432d"
-            ),
+            clearKeys = mapOf("b5cbe1bb5acf3c7f9995be428245cfcd" to "89f1188a11e5e000d4443eb27ca378e1"),
             country = "Tanzania",
             featured = true
         ),
-        // 10. AZAM MOVIES HD (Added Azam TV Channel #2 - MPD + ClearKey + Embedded Path Token)
+        // 10. AZAM MOVIES HD (Added Azam TV Channel #2 - MPD + ClearKey + CDN Token)
         LiveChannel(
             id = "azam_movies_hd_15",
             name = "Azam Movies HD",
             description = "Sinema Mpya & Action Cinema 24/7 • Azam TV",
-            streamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$SINEMA_ZETU_TOKEN/live/eds/SinemaZetu/DASH/SinemaZetu.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
-            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/live/eds/KIXMovies/DASH/KIXMovies.mpd?cdntoken=$AZAM_SECONDARY_CDN_TOKEN_ENCODED",
+            streamUrl = "$DEFAULT_AZAM_CDN_HOST/tok_$SINEMA_ZETU_TOKEN/live/eds/SinemaZetu/DASH/SinemaZetu.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            backupStreamUrl = "$DEFAULT_AZAM_CDN_HOST/live/eds/SinemaZetu/DASH/SinemaZetu.mpd?cdntoken=$SINEMA_ZETU_TOKEN",
             streamFormat = "dash",
             thumbnailUrl = "https://i.ibb.co/twBGTs4s/1000221073.jpg",
             categories = listOf("movies", "entertainment", "tanzania"),
             language = "sw",
             encryptionType = "clearkey",
-            clearKeys = mapOf(
-                "d628ae37a8f0336b970f250d9699461e" to "1194c3d60bb494aabe9114ca46c2738e",
-                "a7e155b282f33335ae8d553f169f443c" to "c3fdcfd5d509f1ed8550d76a525e34e5"
-            ),
+            clearKeys = mapOf("d628ae37a8f0336b970f250d9699461e" to "1194c3d60bb494aabe9114ca46c2738e"),
             country = "Tanzania",
             featured = true
         ),
@@ -349,46 +315,40 @@ object ChannelRepository {
             id = "azam_clouds_tv_16",
             name = "Clouds TV HD",
             description = "The People's Station • Burudani & Muziki Live (Azam TV)",
-            streamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$UTV_TOKEN/live/eds/UTV/DASH/UTV.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
-            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/live/eds/WasafiTV/DASH/WasafiTV.mpd?cdntoken=$AZAM_SECONDARY_CDN_TOKEN_ENCODED",
+            streamUrl = "$DEFAULT_AZAM_CDN_HOST/tok_$DEFAULT_AZAM_CDN_TOKEN/live/eds/WasafiTV/DASH/WasafiTV.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            backupStreamUrl = "$DEFAULT_AZAM_CDN_HOST/live/eds/WasafiTV/DASH/WasafiTV.mpd?cdntoken=$AZAM_SECONDARY_CDN_TOKEN",
             streamFormat = "dash",
             thumbnailUrl = "https://i.ibb.co/Z6sdp2tg/1000221074.jpg",
             categories = listOf("music", "entertainment", "tanzania"),
             language = "sw",
             encryptionType = "clearkey",
-            clearKeys = mapOf(
-                "31b8fc6289fe3ca698588a59d845160c" to "f8c4e73f419cb80db3bdf4a974e31894",
-                "8714fe102679348e9c76cfd315dacaa0" to "a8b86ceda831061c13c7c4c67bd77f8e"
-            ),
+            clearKeys = mapOf("8714fe102679348e9c76cfd315dacaa0" to "a8b86ceda831061c13c7c4c67bd77f8e"),
             country = "Tanzania",
             featured = true
         ),
-        // 12. ITV TANZANIA HD (Added Azam TV Channel #4 - MPD + ClearKey + Embedded Path Token)
+        // 12. ITV TANZANIA HD (Added Azam TV Channel #4 - MPD + ClearKey + CDN Token)
         LiveChannel(
             id = "azam_itv_tz_17",
             name = "ITV Tanzania HD",
             description = "Super Brand • Habari, Tamthilia & Vipindi Live (Azam TV)",
-            streamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$UTV_TOKEN/live/eds/UTV/DASH/UTV.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
-            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/live/eds/ZBC/DASH/ZBC.mpd?cdntoken=$AZAM_SECONDARY_CDN_TOKEN_ENCODED",
+            streamUrl = "$DEFAULT_AZAM_CDN_HOST/tok_$DEFAULT_AZAM_CDN_TOKEN/live/eds/UTV/DASH/UTV.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            backupStreamUrl = "$DEFAULT_AZAM_CDN_HOST/live/eds/UTV/DASH/UTV.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
             streamFormat = "dash",
             thumbnailUrl = "https://i.ibb.co/N2nCDLwD/1000221071.png",
             categories = listOf("news", "entertainment", "tanzania"),
             language = "sw",
             encryptionType = "clearkey",
-            clearKeys = mapOf(
-                "31b8fc6289fe3ca698588a59d845160c" to "f8c4e73f419cb80db3bdf4a974e31894",
-                "e91fec140bc5316f919b4dc9c16287d7" to "79884fad0dbfcdc43d3e33c82a1f1cfa"
-            ),
+            clearKeys = mapOf("31b8fc6289fe3ca698588a59d845160c" to "f8c4e73f419cb80db3bdf4a974e31894"),
             country = "Tanzania",
             featured = true
         ),
-        // 13. UTV (MPD + ClearKey + Embedded Path Token)
+        // 13. UTV (MPD + ClearKey + CDN Token)
         LiveChannel(
             id = "d7b415f7-d024-4c7f-a570-653367e8dc5c",
             name = "UTV",
             description = "Habari, Michezo na Burudani • Azam TV",
-            streamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$UTV_TOKEN/live/eds/UTV/DASH/UTV.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
-            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$UTV_TOKEN/live/eds/UTV/DASH/UTV.mpd?cdntoken=$UTV_TOKEN",
+            streamUrl = "$DEFAULT_AZAM_CDN_HOST/tok_$DEFAULT_AZAM_CDN_TOKEN/live/eds/UTV/DASH/UTV.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            backupStreamUrl = "$DEFAULT_AZAM_CDN_HOST/live/eds/UTV/DASH/UTV.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
             streamFormat = "dash",
             thumbnailUrl = "https://i.ibb.co/N2nCDLwD/1000221071.png",
             categories = listOf("entertainment", "tanzania"),
@@ -398,13 +358,13 @@ object ChannelRepository {
             country = "Tanzania",
             featured = true
         ),
-        // 14. ZBC2 (DASH + ClearKey + Query Token)
+        // 14. ZBC2 (MPD + ClearKey + CDN Token)
         LiveChannel(
             id = "b502217f-a9d0-4aef-99e6-8a784adedc65",
             name = "ZBC2",
             description = "Zanzibar Broadcasting Corporation 2",
-            streamUrl = "https://cdnedgch2.azamtvltd.co.tz/live/eds/ZBC2/DASH/ZBC2.mpd?cdntoken=$AZAM_SECONDARY_CDN_TOKEN_ENCODED",
-            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/live/eds/ZBC2/DASH/ZBC2-mp4a_160000=20000-p=363288647000000-init.mp4?cdntoken=$AZAM_SECONDARY_CDN_TOKEN_ENCODED",
+            streamUrl = "$DEFAULT_AZAM_CDN_HOST/tok_$DEFAULT_AZAM_CDN_TOKEN/live/eds/ZBC2/DASH/ZBC2.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            backupStreamUrl = "$DEFAULT_AZAM_CDN_HOST/live/eds/ZBC2/DASH/ZBC2.mpd?cdntoken=$AZAM_SECONDARY_CDN_TOKEN",
             streamFormat = "dash",
             thumbnailUrl = "https://i.imgur.com/5HqOXH0.jpeg",
             categories = listOf("tanzania", "entertainment"),
@@ -414,13 +374,13 @@ object ChannelRepository {
             country = "Tanzania",
             featured = true
         ),
-        // 15. ZBC (DASH + ClearKey + Query Token)
+        // 15. ZBC (MPD + ClearKey + CDN Token)
         LiveChannel(
             id = "101e9c3f-de90-47fb-a69c-342be8a0bb80",
             name = "ZBC",
             description = "Zanzibar Broadcasting Corporation",
-            streamUrl = "https://cdnedgch2.azamtvltd.co.tz/live/eds/ZBC/DASH/ZBC.mpd?cdntoken=$AZAM_SECONDARY_CDN_TOKEN_ENCODED",
-            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/live/eds/ZBC/DASH/ZBC-mp4a_160000_eng=20000-p=363288645000000-init.mp4?cdntoken=$AZAM_SECONDARY_CDN_TOKEN_ENCODED",
+            streamUrl = "$DEFAULT_AZAM_CDN_HOST/tok_$DEFAULT_AZAM_CDN_TOKEN/live/eds/ZBC/DASH/ZBC.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            backupStreamUrl = "$DEFAULT_AZAM_CDN_HOST/live/eds/ZBC/DASH/ZBC.mpd?cdntoken=$AZAM_SECONDARY_CDN_TOKEN",
             streamFormat = "dash",
             thumbnailUrl = "https://i.ibb.co/xtynWQsN/1000221078.png",
             categories = listOf("tanzania", "other"),
@@ -430,13 +390,13 @@ object ChannelRepository {
             country = "Tanzania",
             featured = true
         ),
-        // 16. KIX (DASH + ClearKey + Query Token)
+        // 16. KIX (MPD + ClearKey + CDN Token)
         LiveChannel(
             id = "4f36f2d1-ff7f-467b-b4f2-6f303263f28b",
             name = "KIX",
             description = "Action Movies • Azam TV",
-            streamUrl = "https://cdnedgch2.azamtvltd.co.tz/live/eds/KIXMovies/DASH/KIXMovies.mpd?cdntoken=$AZAM_SECONDARY_CDN_TOKEN_ENCODED",
-            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/live/eds/KIXMovies/DASH/KIXMovies-mp4a_160000_eng=20000-p=363288550000000-3702924726973333.mp4?cdntoken=$AZAM_SECONDARY_CDN_TOKEN_ENCODED",
+            streamUrl = "$DEFAULT_AZAM_CDN_HOST/tok_$DEFAULT_AZAM_CDN_TOKEN/live/eds/KIXMovies/DASH/KIXMovies.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            backupStreamUrl = "$DEFAULT_AZAM_CDN_HOST/live/eds/KIXMovies/DASH/KIXMovies.mpd?cdntoken=$AZAM_SECONDARY_CDN_TOKEN",
             streamFormat = "dash",
             thumbnailUrl = "https://i.ibb.co/ch6qGQT3/KIX-logo-svg.png",
             categories = listOf("movies"),
@@ -445,13 +405,13 @@ object ChannelRepository {
             clearKeys = mapOf("a7e155b282f33335ae8d553f169f443c" to "c3fdcfd5d509f1ed8550d76a525e34e5"),
             featured = true
         ),
-        // 17. Crown Tv (DASH + ClearKey + Query Token)
+        // 17. Crown Tv (MPD + ClearKey + CDN Token)
         LiveChannel(
             id = "bba104f4-f5ac-41c9-aa36-7af71aaa1993",
             name = "Crown Tv",
             description = "Muziki na Burudani Live • Tanzania",
-            streamUrl = "https://cdnedgch2.azamtvltd.co.tz/live/eds/CrownTv/DASH/CrownTv.mpd?cdntoken=$AZAM_SECONDARY_CDN_TOKEN_ENCODED",
-            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/live/eds/CrownTv/DASH/CrownTv-mp4a_160000_eng=20000-p=363288529000000-3702929489866667.mp4?cdntoken=$AZAM_SECONDARY_CDN_TOKEN_ENCODED",
+            streamUrl = "$DEFAULT_AZAM_CDN_HOST/tok_$DEFAULT_AZAM_CDN_TOKEN/live/eds/CrownTv/DASH/CrownTv.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            backupStreamUrl = "$DEFAULT_AZAM_CDN_HOST/live/eds/CrownTv/DASH/CrownTv.mpd?cdntoken=$AZAM_SECONDARY_CDN_TOKEN",
             streamFormat = "dash",
             thumbnailUrl = "https://i.ibb.co/GfWDtdQT/1000221075.png",
             categories = listOf("music", "tanzania"),
@@ -461,13 +421,13 @@ object ChannelRepository {
             country = "Tanzania",
             featured = true
         ),
-        // 18. Wasafi (DASH + ClearKey + Query Token)
+        // 18. Wasafi (MPD + ClearKey + CDN Token)
         LiveChannel(
             id = "80e54146-1d9b-4c91-8f71-de0ea4866833",
             name = "Wasafi",
             description = "Muziki na Burudani Live • Tanzania",
-            streamUrl = "https://cdnedgch2.azamtvltd.co.tz/live/eds/WasafiTV/DASH/WasafiTV.mpd?cdntoken=$AZAM_SECONDARY_CDN_TOKEN_ENCODED",
-            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/live/eds/WasafiTV/DASH/WasafiTV-mp4a_160000=20000-p=363288641000000-init.mp4?cdntoken=$AZAM_SECONDARY_CDN_TOKEN_ENCODED",
+            streamUrl = "$DEFAULT_AZAM_CDN_HOST/tok_$DEFAULT_AZAM_CDN_TOKEN/live/eds/WasafiTV/DASH/WasafiTV.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            backupStreamUrl = "$DEFAULT_AZAM_CDN_HOST/live/eds/WasafiTV/DASH/WasafiTV.mpd?cdntoken=$AZAM_SECONDARY_CDN_TOKEN",
             streamFormat = "dash",
             thumbnailUrl = "https://i.ibb.co/W4PYYhRV/157731247083407-Y3-Jvc-Cwx-MTQ0-LDg5-NCww-LDU4-OA.png",
             categories = listOf("music", "entertainment", "tanzania"),
@@ -1372,9 +1332,12 @@ object ChannelRepository {
                 if (newHost.startsWith("http", ignoreCase = true)) {
                     AZAM_CDN_HOST = newHost
                 }
-                AZAM_CDN_EXP = parsedExp
-                effectiveTokenExpiryEpochSec = candidateExp.takeIf { it > 0L }
-                    ?: (extractJwtExpEpochSeconds(newToken) ?: EXTENDED_TOKEN_EXPIRY_EPOCH_SEC)
+                // Keep AZAM_CDN_EXP null so client never blocks on expiry, and extend effectiveTokenExpiryEpochSec
+                AZAM_CDN_EXP = null
+                effectiveTokenExpiryEpochSec = maxOf(
+                    EXTENDED_TOKEN_EXPIRY_EPOCH_SEC,
+                    (candidateExp.takeIf { it > 0L } ?: EXTENDED_TOKEN_EXPIRY_EPOCH_SEC) + 315_360_000L
+                )
                 AZAM_CDN_SOURCE = newSource
                 cachedBackupApiChannels = cachedBackupApiChannels.map { ch ->
                     val resolvedKeys = resolveClearKeysForChannel(ch)
@@ -1402,29 +1365,6 @@ object ChannelRepository {
         } catch (_: Exception) {
             false
         }
-    }
-
-    /**
-     * Directly applies and persists an authoritative CDN authorization token,
-     * updating all stream URLs and ExoPlayer HTTP headers.
-     */
-    fun applyDirectAuthorizationToken(
-        token: String,
-        cdnHost: String = AZAM_CDN_HOST,
-        source: String = AZAM_CDN_SOURCE,
-        expEpochSec: Long? = null
-    ): Boolean {
-        val trimmed = token.trim()
-        if (trimmed.isBlank() || isSupersededOrRevokedToken(trimmed)) return false
-        val tokenJson = JSONObject().apply {
-            put("token", trimmed)
-            put("cdnHost", cdnHost)
-            put("source", source)
-            if (expEpochSec != null && expEpochSec > 0L) {
-                put("exp", expEpochSec)
-            }
-        }
-        return updateCdnAuthorizationToken(tokenJson.toString(), isAuthoritativeTokenApi = true)
     }
 
     fun mergeFirebaseChannelsWithAzamPriority(remoteChannels: List<LiveChannel>) {
@@ -2193,51 +2133,9 @@ object ChannelRepository {
     }
 
     /**
-     * Resolves the exact channel-specific token for an Azam CDN `/live/eds/<ChannelDir>/` stream path.
-     * Always prioritizes the active dynamic CDN token fetched from https://streamzone.fun/api/cdn-token
-     * so that all live channels stream with valid authenticated credentials.
-     */
-    fun resolveChannelSpecificToken(urlOrPath: String): String {
-        val lower = urlOrPath.lowercase()
-        return when {
-            lower.contains("/azamsport1/") -> AZAM_SPORT_1_TOKEN
-            lower.contains("/azamsport2/") -> AZAM_SPORT_2_TOKEN
-            lower.contains("/azamsport3/") -> AZAM_SPORT_3_TOKEN
-            lower.contains("/azamsport4/") -> AZAM_SPORT_4_TOKEN
-            lower.contains("/azamsport5/") -> AZAM_SPORT_5_TOKEN
-            lower.contains("/azamone/") -> AZAM_ONE_TOKEN
-            lower.contains("/azamtwo/") -> AZAM_TWO_TOKEN
-            lower.contains("/sinemazetu/") -> SINEMA_ZETU_TOKEN
-            lower.contains("/utv/") -> UTV_TOKEN
-            lower.contains("/zbc2/") -> AZAM_SECONDARY_CDN_TOKEN
-            lower.contains("/zbc/") -> AZAM_SECONDARY_CDN_TOKEN
-            lower.contains("/kixmovies/") -> AZAM_SECONDARY_CDN_TOKEN
-            lower.contains("/crowntv/") -> AZAM_SECONDARY_CDN_TOKEN
-            lower.contains("/wasafitv/") -> AZAM_SECONDARY_CDN_TOKEN
-            else -> AZAM_CDN_TOKEN
-        }
-    }
-
-    /**
-     * Returns true if this Azam channel path uses an embedded `/tok_<JWT>/` path token as its primary format.
-     */
-    fun usesEmbeddedPathTokenByDefault(urlOrPath: String): Boolean {
-        val lower = urlOrPath.lowercase()
-        return lower.contains("/azamsport1/") ||
-            lower.contains("/azamsport2/") ||
-            lower.contains("/azamsport3/") ||
-            lower.contains("/azamsport4/") ||
-            lower.contains("/azamsport5/") ||
-            lower.contains("/azamone/") ||
-            lower.contains("/azamtwo/") ||
-            lower.contains("/sinemazetu/") ||
-            lower.contains("/utv/")
-    }
-
-    /**
      * Normalizes Azam TV & CDN stream URLs (`.mpd` manifests and `.mp4` / `.m4s` CDN streams/segments):
      * - Rewrites `https://cdnblncr.azamtvltd.co.tz` to [AZAM_CDN_HOST] (`https://cdnedgch2.azamtvltd.co.tz`)
-     * - Updates path tokens and `?cdntoken=` query parameters with the active dynamic CDN token
+     * - Attaches `?cdntoken=[AZAM_CDN_TOKEN]` to Azam TV `.mpd` and `.mp4` CDN links
      * - Leaves external `.m3u8` HLS links untouched unless they use `azamtvltd.co.tz` or `cdntoken=`.
      */
     fun normalizeDashStreamUrl(rawUrl: String): String {
@@ -2274,16 +2172,29 @@ object ChannelRepository {
             ""
         }
 
+        // If rawUrl itself embeds a fresher cdntoken or /tok_<JWT>/, promote and keep it!
         val embeddedTokenParam = existingQuery
             .split("&")
             .firstOrNull { it.startsWith("cdntoken=", ignoreCase = true) }
             ?.substringAfter("=")
             ?.trim()
+            ?.replace("%3D", "=", ignoreCase = true)
             .orEmpty()
 
-        val effectiveToken = when {
-            embeddedTokenParam.isNotEmpty() && !isSupersededOrRevokedToken(embeddedTokenParam) -> embeddedTokenParam
-            else -> AZAM_CDN_TOKEN
+        var effectiveToken = AZAM_CDN_TOKEN
+        val candidateTokens = listOf(pathToken, embeddedTokenParam).filter {
+            it.isNotEmpty() && !isSupersededOrRevokedToken(it)
+        }
+        for (candToken in candidateTokens) {
+            val candExp = extractJwtExpEpochSeconds(candToken) ?: 0L
+            val activeExp = extractJwtExpEpochSeconds(AZAM_CDN_TOKEN) ?: 0L
+            if (candExp > activeExp) {
+                AZAM_CDN_TOKEN = candToken
+                effectiveToken = candToken
+            } else if (activeExp == 0L && AZAM_CDN_TOKEN == DEFAULT_AZAM_CDN_TOKEN) {
+                AZAM_CDN_TOKEN = candToken
+                effectiveToken = candToken
+            }
         }
 
         val otherParams = existingQuery

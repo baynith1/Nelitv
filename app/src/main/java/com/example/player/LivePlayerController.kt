@@ -731,30 +731,23 @@ class LivePlayerController(
             // Dynamic buffering, bandwidth & battery-aware adaptation during active playback/buffering
             if (_playbackInfo.value.networkMode == NetworkQualityMode.AUTO_ADAPTIVE) {
                 if (player.playbackState == Player.STATE_BUFFERING) {
-                    // Immediately drop to low quality on buffering so stream recovers even on very small internet
-                    latestEstimatedBandwidthBps = minOf(latestEstimatedBandwidthBps, 240_000L)
-                    if (bufferingEnteredAtRealtimeMs > 0L && now - bufferingEnteredAtRealtimeMs >= 2_500L) {
+                    if (bufferingEnteredAtRealtimeMs > 0L && now - bufferingEnteredAtRealtimeMs >= 4_500L) {
+                        // Prolonged buffering stall -> step down another quality tier dynamically
                         consecutiveRebufferCount = (consecutiveRebufferCount + 1).coerceAtMost(4)
                         bufferingEnteredAtRealtimeMs = now
+                        evaluateAndApplyAdaptiveTrackSelection(forceBufferingState = true)
                     }
-                    evaluateAndApplyAdaptiveTrackSelection(forceBufferingState = true)
                 } else if (player.playbackState == Player.STATE_READY && player.isPlaying) {
                     val bufferedAheadMs = (player.bufferedPosition - player.currentPosition).coerceAtLeast(0L)
                     if (healthyPlaybackSinceRealtimeMs == 0L) {
                         healthyPlaybackSinceRealtimeMs = now
                     }
-                    // Only increase quality once network is proven stable (>= 3s steady playback and healthy buffer)
-                    if (bufferedAheadMs >= 3_000L && now - healthyPlaybackSinceRealtimeMs >= 3_000L) {
-                        if (consecutiveRebufferCount > 0) {
-                            consecutiveRebufferCount = (consecutiveRebufferCount - 1).coerceAtLeast(0)
-                        } else if (latestEstimatedBandwidthBps < 3_800_000L) {
-                            latestEstimatedBandwidthBps = when {
-                                latestEstimatedBandwidthBps < 320_000L -> 480_000L   // Step up: 240p -> 360p
-                                latestEstimatedBandwidthBps < 650_000L -> 850_000L   // Step up: 360p -> 480p
-                                latestEstimatedBandwidthBps < 1_200_000L -> 1_600_000L // Step up: 480p -> 720p
-                                else -> 3_800_000L                                    // Step up: 720p -> 1080p
-                            }
-                        }
+                    // When buffer cushion is healthy (>= 6s) and playback has been steady, recover toward HD
+                    if (consecutiveRebufferCount > 0 &&
+                        bufferedAheadMs >= 6_000L &&
+                        now - healthyPlaybackSinceRealtimeMs >= 5_000L
+                    ) {
+                        consecutiveRebufferCount = (consecutiveRebufferCount - 1).coerceAtLeast(0)
                         healthyPlaybackSinceRealtimeMs = now
                         evaluateAndApplyAdaptiveTrackSelection(forceBufferingState = false)
                     } else {
@@ -793,8 +786,6 @@ class LivePlayerController(
                     _uiState.value = PlayerUiState.Buffering
                     bufferingEnteredAtRealtimeMs = now
                     healthyPlaybackSinceRealtimeMs = 0L
-                    // Always drop to low quality (240p) during buffering so playback starts/resumes immediately
-                    latestEstimatedBandwidthBps = minOf(latestEstimatedBandwidthBps, 240_000L)
                     if (hasReachedReadyForCurrentStream) {
                         // Mid-stream rebuffer detected: dynamically step down quality tier immediately
                         consecutiveRebufferCount = (consecutiveRebufferCount + 1).coerceAtMost(4)
@@ -1088,12 +1079,26 @@ class LivePlayerController(
     }
 
     /**
-     * Seeds the initial bandwidth estimate for [DefaultBandwidthMeter] at a low bitrate (240 kbps)
-     * so every channel starts immediately at low quality (240p/360p) without initial buffering,
-     * and then automatically steps up to 480p -> 720p -> 1080p once the network is proven stable.
+     * Seeds the initial bandwidth estimate for [DefaultBandwidthMeter] so that [AdaptiveTrackSelection]
+     * prioritizes high-quality HD streams (1080p/720p) on normal Wi-Fi and Mobile Data connections,
+     * while respecting constrained or low-bando links.
      */
     private fun detectInitialBitrateEstimate(): Long {
-        return 240_000L
+        return try {
+            val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            val caps = cm?.activeNetwork?.let { cm.getNetworkCapabilities(it) }
+            val downKbps = caps?.linkDownstreamBandwidthKbps ?: 4_500
+            val isLowBando = isLowBandoNetworkDetected()
+            when {
+                isLowBando -> 250_000L
+                downKbps in 1..600 -> 520_000L
+                downKbps in 601..1_400 -> 1_100_000L
+                downKbps in 1_401..2_800 -> 2_400_000L
+                else -> 3_800_000L
+            }
+        } catch (_: Exception) {
+            3_800_000L
+        }
     }
 
     /**
@@ -1281,9 +1286,6 @@ class LivePlayerController(
 
     fun initializePlayer(): ExoPlayer {
         NativeLogSuppressor.suppressNonFatalNativeLogs()
-        // Dynamically fetch and refresh authentication tokens from https://streamzone.fun/api/cdn-token
-        // before initializing the Media3 player, ensuring local storage and expiration checks.
-        TokenManager.ensureValidToken(context = context)
         exoPlayer?.let { return it }
         autoReconnectAttempts = 0
         hasReachedReadyForCurrentStream = false
@@ -1446,8 +1448,6 @@ class LivePlayerController(
         }
         channel = newChannel
         _currentChannel.value = newChannel
-        // Validate token freshness before preparing new channel stream
-        TokenManager.ensureValidToken(context = context)
         autoReconnectAttempts = 0
         hasReachedReadyForCurrentStream = false
         consecutiveRebufferCount = 0
@@ -1464,13 +1464,11 @@ class LivePlayerController(
             0L
         }
         val activePowerProfile = resolveActiveBatteryPowerProfile(forceRefreshBattery = false)
-        // Reset to low quality (240 kbps) on channel switch so the new channel starts instantly without buffering
-        latestEstimatedBandwidthBps = detectInitialBitrateEstimate()
         if (_playbackInfo.value.networkMode == NetworkQualityMode.AUTO_ADAPTIVE) {
             evaluateAndApplyAdaptiveTrackSelection(
                 estimatedBitrateBps = latestEstimatedBandwidthBps,
-                bufferedDurationMs = 0L,
-                forceBufferingState = true,
+                bufferedDurationMs = 5_000L,
+                forceBufferingState = false,
                 rebufferCountOverride = 0,
                 batteryProfileOverride = activePowerProfile
             )
@@ -1603,8 +1601,8 @@ class LivePlayerController(
                             .setMaxVideoSize(mappedTier.maxWidth, mappedTier.maxHeight)
                             .setMaxVideoBitrate(mappedTier.maxBitrateBps)
                             .setMaxVideoFrameRate(activePowerProfile.maxFrameRate)
-                            .setMinVideoSize(0, 0)
-                            .setMinVideoBitrate(0)
+                            .setMinVideoSize(mappedTier.minPreferredWidth, mappedTier.minPreferredHeight)
+                            .setMinVideoBitrate(mappedTier.minPreferredBitrateBps)
                             .setForceLowestBitrate(mappedTier.forceLowestBitrate)
                             .setRendererDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
                             .setExceedVideoConstraintsIfNecessary(true)
@@ -1616,8 +1614,8 @@ class LivePlayerController(
                     .setMaxVideoSize(mappedTier.maxWidth, mappedTier.maxHeight)
                     .setMaxVideoBitrate(mappedTier.maxBitrateBps)
                     .setMaxVideoFrameRate(activePowerProfile.maxFrameRate)
-                    .setMinVideoSize(0, 0)
-                    .setMinVideoBitrate(0)
+                    .setMinVideoSize(mappedTier.minPreferredWidth, mappedTier.minPreferredHeight)
+                    .setMinVideoBitrate(mappedTier.minPreferredBitrateBps)
                     .setForceLowestBitrate(mappedTier.forceLowestBitrate)
                     .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
                     .build()
@@ -1811,7 +1809,6 @@ class LivePlayerController(
 
     private fun loadChannelStream(player: ExoPlayer, preserveVodPosition: Boolean = false) {
         try {
-            TokenManager.ensureValidToken(context = context)
             val isLocalOffline = isPlayingLocalOfflineStream(channel)
             val mediaSource = createMediaSource(channel)
             player.repeatMode = if (channel.isLiveBroadcast) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF

@@ -68,28 +68,17 @@ class ClearKeyDecryptingDataSource(
 
         passthroughMode = false
 
-        // If this is a DASH .mpd manifest and we have a freshly pre-warmed manifest in memory, serve it immediately!
-        val cachedMpdBytes = if (isMpd) TokenManager.getPrewarmedManifestBytes(uriString) else null
-        val rawBytes = if (cachedMpdBytes != null && cachedMpdBytes.isNotEmpty()) {
-            currentUri = effectiveDataSpec.uri
-            cachedMpdBytes
-        } else {
-            // Fetch full resource from upstream so we can parse/decrypt complete MP4 boxes or MPD XML
-            val fullFetchSpec = effectiveDataSpec.buildUpon()
-                .setPosition(0)
-                .setLength(C.LENGTH_UNSET.toLong())
-                .build()
+        // Fetch full resource from upstream so we can parse/decrypt complete MP4 boxes or MPD XML
+        val fullFetchSpec = effectiveDataSpec.buildUpon()
+            .setPosition(0)
+            .setLength(C.LENGTH_UNSET.toLong())
+            .build()
 
-            val (openedSpec, _) = openUpstreamWithTokenFailover(dataSpec, fullFetchSpec)
-            currentUri = upstream.uri ?: openedSpec.uri
+        val (openedSpec, _) = openUpstreamWithTokenFailover(dataSpec, fullFetchSpec)
+        currentUri = upstream.uri ?: openedSpec.uri
 
-            val fetched = readAllUpstreamBytes()
-            upstream.close()
-            if (isMpd && fetched.isNotEmpty()) {
-                TokenManager.cachePrewarmedManifestBytes(uriString, fetched)
-            }
-            fetched
-        }
+        val rawBytes = readAllUpstreamBytes()
+        upstream.close()
 
         val processedBytes = if (isMpd) {
             val xml = String(rawBytes, Charsets.UTF_8)
@@ -138,9 +127,6 @@ class ClearKeyDecryptingDataSource(
                 val query = attemptUriStr.substringAfter("?", "")
                 val alternateUris = mutableListOf<String>()
 
-                val channelToken = com.example.data.ChannelRepository.resolveChannelSpecificToken(base)
-                    .ifBlank { TokenManager.currentToken }
-
                 if (base.contains("/tok_", ignoreCase = true)) {
                     // 1. Pure /tok_<JWT>/live/eds/... without query string
                     if (query.isNotEmpty()) {
@@ -151,7 +137,7 @@ class ClearKeyDecryptingDataSource(
                     val tokInPath = base.substringAfter("/tok_").substringBefore("/")
                     val afterTok = base.substringAfter("/tok_").substringAfter("/", "")
                     if (afterTok.isNotEmpty()) {
-                        val tokenToUse = tokInPath.ifBlank { channelToken }
+                        val tokenToUse = tokInPath.ifBlank { TokenManager.currentToken }
                         alternateUris.add("$beforeTok/$afterTok?cdntoken=$tokenToUse")
                     }
                 } else if (base.contains("/live/eds/", ignoreCase = true)) {
@@ -159,8 +145,7 @@ class ClearKeyDecryptingDataSource(
                     val edsIdx = base.indexOf("/live/eds/", ignoreCase = true)
                     val hostPrefix = base.substring(0, edsIdx)
                     val pathAfterHost = base.substring(edsIdx)
-                    alternateUris.add("$hostPrefix/tok_$channelToken$pathAfterHost")
-                    alternateUris.add("$hostPrefix/tok_$channelToken$pathAfterHost?cdntoken=$channelToken")
+                    alternateUris.add("$hostPrefix/tok_${TokenManager.currentToken}$pathAfterHost")
                 }
 
                 for (altUrl in alternateUris) {

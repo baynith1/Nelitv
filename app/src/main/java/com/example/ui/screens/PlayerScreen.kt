@@ -1077,7 +1077,7 @@ fun PlayerScreen(
                             is PlayerUiState.Loading -> {
                                 Column(
                                     horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
                                     CircularProgressIndicator(
                                         color = NeliMagenta,
@@ -1085,7 +1085,7 @@ fun PlayerScreen(
                                     )
                                     Text(
                                         text = if (activeChannel.isLiveBroadcast) {
-                                            "Connecting to ${activeChannel.name} (${playbackInfo.activeVideoResolutionLabel})..."
+                                            "Connecting to ${activeChannel.name}..."
                                         } else {
                                             "Loading ${activeChannel.name}..."
                                         },
@@ -1093,43 +1093,6 @@ fun PlayerScreen(
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.SemiBold
                                     )
-                                    Row(
-                                        modifier = Modifier
-                                            .horizontalScroll(rememberScrollState())
-                                            .testTag("loading_quality_control_bar"),
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        NetworkQualityMode.entries.forEach { qMode ->
-                                            val isSelected = playbackInfo.networkMode == qMode
-                                            val shortText = when (qMode) {
-                                                NetworkQualityMode.AUTO_ADAPTIVE -> "Auto (Low→HD)"
-                                                NetworkQualityMode.ULTRA_LOW_BANDO_SAVER -> "240p Low"
-                                                NetworkQualityMode.WEAK_NETWORK_SAVER -> "360p Saver"
-                                                NetworkQualityMode.STANDARD_480P -> "480p SD"
-                                                NetworkQualityMode.STRONG_NETWORK_HD -> "1080p HD"
-                                            }
-                                            Box(
-                                                modifier = Modifier
-                                                    .clip(RoundedCornerShape(12.dp))
-                                                    .background(if (isSelected) NeliMagenta else Color(0xBB1B0A3A))
-                                                    .border(
-                                                        1.dp,
-                                                        if (isSelected) NeliGenreCyan else Color(0x55FFFFFF),
-                                                        RoundedCornerShape(12.dp)
-                                                    )
-                                                    .clickable { playerController.applyNetworkQualityMode(qMode) }
-                                                    .padding(horizontal = 8.dp, vertical = 4.dp)
-                                            ) {
-                                                Text(
-                                                    text = shortText,
-                                                    color = Color.White,
-                                                    fontSize = 10.sp,
-                                                    fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.SemiBold
-                                                )
-                                            }
-                                        }
-                                    }
                                 }
                             }
 
@@ -1143,49 +1106,10 @@ fun PlayerScreen(
                                         modifier = Modifier.size(if (isPortraitYoutubeMode) 34.dp else 40.dp)
                                     )
                                     Text(
-                                        text = "Buffering (${playbackInfo.connectionLabel} • ${playbackInfo.activeVideoResolutionLabel})...",
+                                        text = "Buffering (${playbackInfo.connectionLabel})...",
                                         color = Color.White,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.SemiBold
+                                        fontSize = 11.sp
                                     )
-                                    Row(
-                                        modifier = Modifier
-                                            .horizontalScroll(rememberScrollState())
-                                            .testTag("buffering_quality_control_bar"),
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        NetworkQualityMode.entries.forEach { qMode ->
-                                            val isSelected = playbackInfo.networkMode == qMode
-                                            val shortText = when (qMode) {
-                                                NetworkQualityMode.AUTO_ADAPTIVE -> "Auto (Low→HD)"
-                                                NetworkQualityMode.ULTRA_LOW_BANDO_SAVER -> "240p Low"
-                                                NetworkQualityMode.WEAK_NETWORK_SAVER -> "360p Saver"
-                                                NetworkQualityMode.STANDARD_480P -> "480p SD"
-                                                NetworkQualityMode.STRONG_NETWORK_HD -> "1080p HD"
-                                            }
-                                            Box(
-                                                modifier = Modifier
-                                                    .testTag("buffering_quality_chip_${qMode.name.lowercase()}")
-                                                    .clip(RoundedCornerShape(12.dp))
-                                                    .background(if (isSelected) NeliMagenta else Color(0xBB1B0A3A))
-                                                    .border(
-                                                        1.dp,
-                                                        if (isSelected) NeliGenreCyan else Color(0x55FFFFFF),
-                                                        RoundedCornerShape(12.dp)
-                                                    )
-                                                    .clickable { playerController.applyNetworkQualityMode(qMode) }
-                                                    .padding(horizontal = 8.dp, vertical = 4.dp)
-                                            ) {
-                                                Text(
-                                                    text = shortText,
-                                                    color = Color.White,
-                                                    fontSize = 10.sp,
-                                                    fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.SemiBold
-                                                )
-                                            }
-                                        }
-                                    }
                                 }
                             }
 
