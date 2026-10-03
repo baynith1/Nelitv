@@ -101,6 +101,9 @@ object FirebaseGlobalManager {
     private fun processGlobalStateSnapshot(context: Context, snapshot: DataSnapshot) {
         try {
             val lockAll = snapshot.child("lock_all_channels").getValue(Boolean::class.java) ?: false
+            val lockAllAzam = snapshot.child("lock_all_azam_channels").getValue(Boolean::class.java)
+                ?: snapshot.child("lock_azam_channels").getValue(Boolean::class.java)
+                ?: false
 
             val lockedMap = mutableSetOf<String>()
             snapshot.child("locked_channel_ids").children.forEach { child ->
@@ -162,6 +165,7 @@ object FirebaseGlobalManager {
             NeliAdminManager.applyCloudState(
                 context = context,
                 lockAll = lockAll,
+                lockAllAzam = lockAllAzam,
                 lockedIds = lockedMap,
                 hiddenIds = hiddenMap,
                 customChannels = customList,
@@ -193,6 +197,7 @@ object FirebaseGlobalManager {
                 if (jsonStr.isNotBlank() && jsonStr != "null") {
                     val root = JSONObject(jsonStr)
                     val lockAll = root.optBoolean("lock_all_channels", false)
+                    val lockAllAzam = root.optBoolean("lock_all_azam_channels", false) || root.optBoolean("lock_azam_channels", false)
 
                     val lockedIds = mutableSetOf<String>()
                     val lockedObj = root.optJSONObject("locked_channel_ids")
@@ -250,6 +255,7 @@ object FirebaseGlobalManager {
                         NeliAdminManager.applyCloudState(
                             context = context,
                             lockAll = lockAll,
+                            lockAllAzam = lockAllAzam,
                             lockedIds = lockedIds,
                             hiddenIds = hiddenIds,
                             customChannels = customList,
@@ -294,17 +300,32 @@ object FirebaseGlobalManager {
         }
     }
 
-    fun syncSingleChannelLockToCloud(channelId: String, locked: Boolean) {
-        if (channelId.isBlank()) return
+    fun syncLockAllAzamChannelsToCloud(lockAllAzam: Boolean) {
         scope.launch {
             try {
                 getDatabase().getReference(NODE_GLOBAL_STATE)
-                    .child("locked_channel_ids")
-                    .child(channelId)
-                    .setValue(locked)
+                    .child("lock_all_azam_channels")
+                    .setValue(lockAllAzam)
             } catch (_: Throwable) {
             }
-            writeRestValue("$NODE_GLOBAL_STATE/locked_channel_ids/$channelId", locked)
+            writeRestValue("$NODE_GLOBAL_STATE/lock_all_azam_channels", lockAllAzam)
+        }
+    }
+
+    fun syncSingleChannelLockToCloud(channelId: String, locked: Boolean) {
+        if (channelId.isBlank()) return
+        scope.launch {
+            val keysToSync = NeliAdminManager.getChannelMatchKeys(channelId) + channelId
+            try {
+                val dbRef = getDatabase().getReference(NODE_GLOBAL_STATE).child("locked_channel_ids")
+                keysToSync.forEach { k ->
+                    dbRef.child(k).setValue(locked)
+                }
+            } catch (_: Throwable) {
+            }
+            keysToSync.forEach { k ->
+                writeRestValue("$NODE_GLOBAL_STATE/locked_channel_ids/$k", locked)
+            }
         }
     }
 
