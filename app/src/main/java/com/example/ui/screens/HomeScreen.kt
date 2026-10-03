@@ -77,16 +77,12 @@ import com.example.data.NeliSubscriptionManager
 import com.example.data.OfflineDownloadManager
 import com.example.model.LiveChannel
 import com.example.player.NeliCastManager
-import com.example.player.ScanToCastManager
 import com.example.ui.NeliViewModel
 import com.example.ui.components.BottomNavTab
-import com.example.ui.components.CameraScannerView
 import com.example.ui.components.ChannelCard
 import com.example.ui.components.LiveIndicatorBadge
 import com.example.ui.components.NeliBottomBar
 import com.example.ui.components.NeliHomepageAutoUpdatePopupDialog
-import com.example.ui.components.ScanToCastAzamGridTabContent
-import com.example.ui.components.ScanToCastCastedDevicePlayerScreen
 import com.example.ui.components.TopNavBar
 import com.example.ui.theme.NeliBackground
 import com.example.ui.theme.NeliGenreCyan
@@ -152,7 +148,7 @@ fun HomeScreen(
     var lockedChannelToPrompt by remember { mutableStateOf<LiveChannel?>(null) }
     var pendingUnlockedChannelAfterPayment by remember { mutableStateOf<LiveChannel?>(null) }
 
-    // Continuously evaluate subscription status & expiry so channels stay unlocked while active,
+    // Continuously evaluate subscription status & expiry in real time (every 1s) so channels stay unlocked while active,
     // lock immediately when subscription expires, and unlock immediately when payment succeeds.
     LaunchedEffect(subState.isVerified, subState.expiresAtMs, lockAllForFree, lockedChannelIds) {
         NeliSubscriptionManager.expireSubscriptionIfNeeded(context)
@@ -164,7 +160,7 @@ fun HomeScreen(
                     NeliSubscriptionManager.expireSubscriptionIfNeeded(context)
                     break
                 }
-                delay(minOf(remaining + 250L, 15_000L).coerceAtLeast(500L))
+                delay(minOf(remaining + 100L, 1_000L).coerceAtLeast(250L))
                 NeliSubscriptionManager.expireSubscriptionIfNeeded(context)
             }
         }

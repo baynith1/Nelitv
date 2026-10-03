@@ -12,6 +12,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -28,12 +29,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -127,6 +130,8 @@ import com.example.ui.components.PlayerGestureTouchSurface
 import com.example.ui.components.PlayerOrientationMode
 import com.example.ui.components.PlayerSettingsDrawer
 import com.example.ui.components.resolveOrientationModeIcon
+import com.example.ui.theme.NeliBackground
+import com.example.ui.theme.NeliBorder
 import com.example.ui.theme.NeliCardPurple
 import com.example.ui.theme.NeliGenreCyan
 import com.example.ui.theme.NeliMagenta
@@ -241,19 +246,42 @@ fun PlayerScreen(
     var isAzamLanguageMenuOpen by remember { mutableStateOf(false) }
     var showCastDialog by remember { mutableStateOf(false) }
     val connectedCastDevice by com.example.player.NeliCastManager.connectedDevice.collectAsState()
-    val scanToCastState by com.example.player.ScanToCastManager.sessionState.collectAsState()
-    val isCastConnected = connectedCastDevice != null || scanToCastState.receiverConnected
-    val isHardcodedAzamForCast = remember(activeChannel.id, activeChannel.name, activeChannel.isLiveBroadcast) {
-        com.example.data.ChannelRepository.isHardcodedAzamChannel(activeChannel)
-    }
+    val isCastConnected = connectedCastDevice != null
+    val subState by com.example.data.NeliSubscriptionManager.subscriptionState.collectAsState()
     var resizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FILL) }
     // Always open every channel or movie in Full Screen Landscape until the user explicitly switches to Portrait mode
     var orientationMode by remember(channel.id) {
         mutableStateOf(PlayerOrientationMode.LOCKED_LANDSCAPE)
     }
+    val isPortraitYoutubeMode = !orientationMode.isLandscapeLocked
     var showOrientationStatusBadge by remember { mutableStateOf(false) }
     var orientationBadgeTriggerToken by remember { mutableLongStateOf(0L) }
     val activeExoPlayer = remember(playerController) { playerController.initializePlayer() }
+
+    // Real-time subscription expiry enforcement while watching a locked Live TV channel:
+    // As soon as the countdown expires (1 day = 24 hours), user reverts to Free User and locked channel closes.
+    LaunchedEffect(activeChannel.id, activeChannel.isLiveBroadcast, subState.isVerified, subState.expiresAtMs) {
+        if (activeChannel.isLiveBroadcast) {
+            while (true) {
+                val now = System.currentTimeMillis()
+                if (subState.isVerified && !subState.isFreeForeverAccount && subState.expiresAtMs in 1..now) {
+                    com.example.data.NeliSubscriptionManager.expireSubscriptionIfNeeded(context, now)
+                }
+                val isLockedNow = com.example.data.NeliAdminManager.isChannelLockedForUser(
+                    channelId = activeChannel.id,
+                    currentUser = null,
+                    isPremiumActive = com.example.data.NeliSubscriptionManager.isPremiumMemberActive(now, context),
+                    nowMs = now,
+                    context = context
+                )
+                if (isLockedNow) {
+                    onBack()
+                    break
+                }
+                delay(1000L)
+            }
+        }
+    }
 
     LaunchedEffect(channel.id) {
         orientationMode = PlayerOrientationMode.LOCKED_LANDSCAPE
@@ -545,698 +573,776 @@ fun PlayerScreen(
         }
     }
 
-    Box(
+    val allLiveChannels by com.example.data.ChannelRepository.liveChannelsFlow.collectAsState()
+    val allMediaCatalog by MediaContentRepository.mediaCatalog.collectAsState()
+    var selectedPortraitCategory by remember(activeChannel.category) {
+        mutableStateOf("All")
+    }
+
+    Column(
         modifier = modifier
             .fillMaxSize()
-            .background(Color.Black)
+            .background(if (isPortraitYoutubeMode) NeliBackground else Color.Black)
+            .then(if (isPortraitYoutubeMode) Modifier.statusBarsPadding() else Modifier)
             .testTag("player_screen")
     ) {
-        // Full-Screen Landscape Video Surface
-        AndroidView(
-            factory = { ctx ->
-                PlayerView(ctx).apply {
-                    useController = false
-                    keepScreenOn = true
-                    setShutterBackgroundColor(android.graphics.Color.BLACK)
-                    setKeepContentOnPlayerReset(false)
-                    this.resizeMode = resizeMode
-                    layoutParams = ViewGroup.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.MATCH_PARENT
-                    )
-                    this.player = activeExoPlayer
-                }
-            },
-            update = { playerView ->
-                if (playerView.player != activeExoPlayer) {
-                    playerView.player = activeExoPlayer
-                }
-                if (playerView.resizeMode != resizeMode) {
-                    playerView.resizeMode = resizeMode
-                }
-            },
-            onRelease = { playerView ->
-                playerView.player = null
-            },
-            modifier = Modifier.fillMaxSize()
-        )
-
-        // Always-On Live Stream Freeze / Stall Auto-Fix Watchdog (runs even when player controls are hidden):
-        // Automatically detects and fixes any live stream stall or freeze so the user never has to manually
-        // press the bottom "LIVE STREAM • CONTINUOUS REAL-TIME PLAYBACK" button.
-        LaunchedEffect(activeChannel.id, activeChannel.isLiveBroadcast) {
-            if (activeChannel.isLiveBroadcast) {
-                if (!activeExoPlayer.isPlaying) {
-                    activeExoPlayer.playWhenReady = true
-                    activeExoPlayer.play()
-                }
-                while (true) {
-                    delay(900L)
-                    playerController.checkAndAutoFixLiveStreamStall()
-                }
+        // Video Player Container:
+        // - Full-Screen Landscape by default when opening any channel or movie
+        // - Responsive 16:9 YouTube-style top player when the user clicks Portrait mode
+        Box(
+            modifier = if (isPortraitYoutubeMode) {
+                Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(16f / 9f)
+                    .background(Color.Black)
+                    .testTag("player_youtube_video_box")
+            } else {
+                Modifier
+                    .fillMaxSize()
+                    .background(Color.Black)
             }
-        }
-
-        // Sync active channel to connected Cast device / TV in the background without showing any remote overlay
-        LaunchedEffect(
-            activeChannel.id,
-            playbackInfo.activeAudioLanguage,
-            connectedCastDevice?.id,
-            scanToCastState.receiverConnected
         ) {
-            if (connectedCastDevice != null) {
-                com.example.player.NeliCastManager.updateCastingChannel(
-                    channel = activeChannel,
-                    context = context
-                )
+            val effectiveResizeMode = if (isPortraitYoutubeMode && resizeMode == AspectRatioFrameLayout.RESIZE_MODE_FILL) {
+                AspectRatioFrameLayout.RESIZE_MODE_FIT
+            } else {
+                resizeMode
             }
-            if (isHardcodedAzamForCast && scanToCastState.receiverConnected) {
-                com.example.player.ScanToCastManager.castAzamChannelToConnectedDevice(
-                    context = context,
-                    channel = activeChannel,
-                    currentUser = null,
-                    preferredAudioLanguage = playbackInfo.activeAudioLanguage
-                )
-            }
-        }
+            AndroidView(
+                factory = { ctx ->
+                    PlayerView(ctx).apply {
+                        useController = false
+                        keepScreenOn = true
+                        setShutterBackgroundColor(android.graphics.Color.BLACK)
+                        setKeepContentOnPlayerReset(false)
+                        this.resizeMode = effectiveResizeMode
+                        layoutParams = ViewGroup.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT
+                        )
+                        this.player = activeExoPlayer
+                    }
+                },
+                update = { playerView ->
+                    if (playerView.player != activeExoPlayer) {
+                        playerView.player = activeExoPlayer
+                    }
+                    if (playerView.resizeMode != effectiveResizeMode) {
+                        playerView.resizeMode = effectiveResizeMode
+                    }
+                },
+                onRelease = { playerView ->
+                    playerView.player = null
+                },
+                modifier = Modifier.fillMaxSize()
+            )
 
-        if (showCastDialog) {
-            NeliCastModalSheet(
-                availableChannels = com.example.data.ChannelRepository.getPrioritizedAllChannels(),
-                currentChannel = activeChannel,
-                currentUser = null,
-                onDismiss = { showCastDialog = false },
-                onSelectChannelToWatchAndCast = { selectedCh ->
-                    playerController.switchChannel(selectedCh)
+            // Always-On Live Stream Freeze / Stall Auto-Fix Watchdog & Real-Time Premium Package Expiry Check
+            LaunchedEffect(activeChannel.id, activeChannel.isLiveBroadcast) {
+                if (activeChannel.isLiveBroadcast) {
+                    if (!activeExoPlayer.isPlaying) {
+                        activeExoPlayer.playWhenReady = true
+                        activeExoPlayer.play()
+                    }
+                    while (true) {
+                        delay(900L)
+                        playerController.checkAndAutoFixLiveStreamStall()
+                        com.example.data.NeliSubscriptionManager.expireSubscriptionIfNeeded(context)
+                        val isNowLocked = com.example.data.NeliAdminManager.isChannelLockedForUser(
+                            channelId = activeChannel.id,
+                            currentUser = null,
+                            context = context
+                        )
+                        if (isNowLocked) {
+                            playerController.pause()
+                            handleExit()
+                            break
+                        }
+                    }
+                }
+            }
+
+            // Sync active channel to connected Google Cast / Smart TV device
+            LaunchedEffect(
+                activeChannel.id,
+                playbackInfo.activeAudioLanguage,
+                connectedCastDevice?.id
+            ) {
+                if (connectedCastDevice != null) {
+                    com.example.player.NeliCastManager.updateCastingChannel(
+                        channel = activeChannel,
+                        context = context
+                    )
+                }
+            }
+
+            if (showCastDialog) {
+                NeliCastModalSheet(
+                    availableChannels = com.example.data.ChannelRepository.getPrioritizedAllChannels(),
+                    currentChannel = activeChannel,
+                    currentUser = null,
+                    onDismiss = { showCastDialog = false },
+                    onSelectChannelToWatchAndCast = { selectedCh ->
+                        playerController.switchChannel(selectedCh)
+                    }
+                )
+            }
+
+            // Interactive Gesture Surface:
+            // - Single Tap: Toggle overlay controls
+            // - Double Tap Left / Right: Custom 10s backward / forward seek with cumulative multi-tap counter
+            // - Double Tap Center: Toggle Play/Pause (or sync live edge)
+            // - Vertical Drag Left / Right: Brightness (left) and Volume (right) HUD control
+            PlayerGestureTouchSurface(
+                isLiveBroadcast = activeChannel.isLiveBroadcast,
+                activeSeekFeedback = doubleTapSeekFeedback,
+                onSingleTapToggleControls = {
+                    when {
+                        isSettingsDrawerOpen -> isSettingsDrawerOpen = false
+                        isEpisodeDrawerOpen -> isEpisodeDrawerOpen = false
+                        else -> areControlsVisible = !areControlsVisible
+                    }
+                },
+                onDoubleTapSeek = { zone, normX, normY ->
+                    when {
+                        isSettingsDrawerOpen -> isSettingsDrawerOpen = false
+                        isEpisodeDrawerOpen -> isEpisodeDrawerOpen = false
+                        else -> triggerDoubleTapSeek(zone, normX, normY)
+                    }
+                },
+                onVerticalGestureStart = { gestureType ->
+                    val startLvl = if (gestureType == GestureControlType.BRIGHTNESS) {
+                        brightnessLevel
+                    } else {
+                        volumeLevel
+                    }
+                    gestureControlFeedback = GestureControlFeedback(
+                        type = gestureType,
+                        level = startLvl,
+                        isDragging = true
+                    )
+                },
+                onVerticalGestureDelta = { gestureType, dragDeltaPx, containerHeightPx ->
+                    if (gestureType == GestureControlType.BRIGHTNESS) {
+                        val updated = PlayerGestureHelper.computeUpdatedGestureLevel(
+                            currentLevel = brightnessLevel,
+                            verticalDragDeltaPx = dragDeltaPx,
+                            containerHeightPx = containerHeightPx
+                        )
+                        applyBrightnessGestureLevel(updated, true)
+                    } else {
+                        val updated = PlayerGestureHelper.computeUpdatedGestureLevel(
+                            currentLevel = volumeLevel,
+                            verticalDragDeltaPx = dragDeltaPx,
+                            containerHeightPx = containerHeightPx
+                        )
+                        applyVolumeGestureLevel(updated, true)
+                    }
+                },
+                onVerticalGestureEnd = {
+                    gestureControlFeedback = gestureControlFeedback?.copy(
+                        isDragging = false,
+                        triggerToken = System.nanoTime()
+                    )
                 }
             )
-        }
 
-        // Interactive Gesture Surface:
-        // - Single Tap: Toggle overlay controls
-        // - Double Tap Left / Right: Custom 10s backward / forward seek with cumulative multi-tap counter
-        // - Double Tap Center: Toggle Play/Pause (or sync live edge)
-        // - Vertical Drag Left / Right: Brightness (left) and Volume (right) HUD control
-        PlayerGestureTouchSurface(
-            isLiveBroadcast = activeChannel.isLiveBroadcast,
-            activeSeekFeedback = doubleTapSeekFeedback,
-            onSingleTapToggleControls = {
-                when {
-                    isSettingsDrawerOpen -> isSettingsDrawerOpen = false
-                    isEpisodeDrawerOpen -> isEpisodeDrawerOpen = false
-                    else -> areControlsVisible = !areControlsVisible
-                }
-            },
-            onDoubleTapSeek = { zone, normX, normY ->
-                when {
-                    isSettingsDrawerOpen -> isSettingsDrawerOpen = false
-                    isEpisodeDrawerOpen -> isEpisodeDrawerOpen = false
-                    else -> triggerDoubleTapSeek(zone, normX, normY)
-                }
-            },
-            onVerticalGestureStart = { gestureType ->
-                val startLvl = if (gestureType == GestureControlType.BRIGHTNESS) {
-                    brightnessLevel
-                } else {
-                    volumeLevel
-                }
-                gestureControlFeedback = GestureControlFeedback(
-                    type = gestureType,
-                    level = startLvl,
-                    isDragging = true
-                )
-            },
-            onVerticalGestureDelta = { gestureType, dragDeltaPx, containerHeightPx ->
-                if (gestureType == GestureControlType.BRIGHTNESS) {
-                    val updated = PlayerGestureHelper.computeUpdatedGestureLevel(
-                        currentLevel = brightnessLevel,
-                        verticalDragDeltaPx = dragDeltaPx,
-                        containerHeightPx = containerHeightPx
-                    )
-                    applyBrightnessGestureLevel(updated, true)
-                } else {
-                    val updated = PlayerGestureHelper.computeUpdatedGestureLevel(
-                        currentLevel = volumeLevel,
-                        verticalDragDeltaPx = dragDeltaPx,
-                        containerHeightPx = containerHeightPx
-                    )
-                    applyVolumeGestureLevel(updated, true)
-                }
-            },
-            onVerticalGestureEnd = {
-                gestureControlFeedback = gestureControlFeedback?.copy(
-                    isDragging = false,
-                    triggerToken = System.nanoTime()
-                )
-            }
-        )
-
-        // Swahili Narrated Movie 5:30 Auto-Skip Notification Pill
-        AnimatedVisibility(
-            visible = showSwahiliSkipBadge && activeChannel.shouldAutoSkipSwahiliMovieIntro,
-            enter = fadeIn(),
-            exit = fadeOut(),
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(start = 24.dp, top = 78.dp)
-        ) {
-            Row(
+            // Swahili Narrated Movie 5:30 Auto-Skip Notification Pill
+            androidx.compose.animation.AnimatedVisibility(
+                visible = showSwahiliSkipBadge && activeChannel.shouldAutoSkipSwahiliMovieIntro,
+                enter = fadeIn(),
+                exit = fadeOut(),
                 modifier = Modifier
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(Color(0xEE10B981))
-                    .padding(horizontal = 14.dp, vertical = 7.dp)
-                    .testTag("swahili_movie_autoskip_badge"),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    .align(Alignment.TopStart)
+                    .padding(start = 16.dp, top = 56.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Default.SkipNext,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(16.dp)
-                )
-                Text(
-                    text = "Auto-Skipped to 05:30 • Swahili Movie Intro Ads Skipped",
-                    color = Color.White,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.ExtraBold
-                )
-            }
-        }
-
-        // Overlay Controls
-        AnimatedVisibility(
-            visible = areControlsVisible || uiState !is PlayerUiState.Ready,
-            enter = fadeIn(),
-            exit = fadeOut()
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color(0x660B021A))
-            ) {
-                // Top Bar (with safe display cutout padding so camera notch/edge never overlaps controls)
                 Row(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .align(Alignment.TopCenter)
-                        .background(
-                            Brush.verticalGradient(
-                                colors = listOf(Color(0xE614052B), Color.Transparent)
-                            )
-                        )
-                        .windowInsetsPadding(WindowInsets.displayCutout)
-                        .padding(horizontal = 20.dp, vertical = 14.dp),
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(Color(0xEE10B981))
+                        .padding(horizontal = 10.dp, vertical = 5.dp)
+                        .testTag("swahili_movie_autoskip_badge"),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        IconButton(
-                            onClick = handleExit,
-                            modifier = Modifier
-                                .testTag("player_back_button")
-                                .size(48.dp)
-                                .clip(CircleShape)
-                                .background(Color(0x882B1055))
-                        ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Back",
-                                tint = Color.White
-                            )
-                        }
+                    Icon(
+                        imageVector = Icons.Default.SkipNext,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Text(
+                        text = "Auto-Skipped to 05:30 • Swahili Intro Skipped",
+                        color = Color.White,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                }
+            }
 
-                        Column {
-                            Text(
-                                text = activeChannel.name,
-                                color = Color.White,
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+            // Overlay Controls (Small & Responsive across all devices, no PiP button, no Live button)
+            androidx.compose.animation.AnimatedVisibility(
+                visible = areControlsVisible || uiState !is PlayerUiState.Ready,
+                enter = fadeIn(),
+                exit = fadeOut()
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color(0x660B021A))
+                ) {
+                    // Top Bar: Back + Title on Left, Small Responsive Scrollable Action Pills on Right
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .align(Alignment.TopCenter)
+                            .background(
+                                Brush.verticalGradient(
+                                    colors = listOf(Color(0xE614052B), Color.Transparent)
+                                )
                             )
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            .then(
+                                if (isPortraitYoutubeMode) Modifier else Modifier.windowInsetsPadding(WindowInsets.displayCutout)
+                            )
+                            .padding(
+                                horizontal = if (isPortraitYoutubeMode) 10.dp else 14.dp,
+                                vertical = if (isPortraitYoutubeMode) 8.dp else 10.dp
+                            ),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.weight(1f, fill = false)
+                        ) {
+                            IconButton(
+                                onClick = handleExit,
+                                modifier = Modifier
+                                    .testTag("player_back_button")
+                                    .size(if (isPortraitYoutubeMode) 34.dp else 38.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0x882B1055))
                             ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = "Back",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+
+                            Column(modifier = Modifier.widthIn(max = if (isPortraitYoutubeMode) 150.dp else 240.dp)) {
                                 Text(
-                                    text = if (isSeriesVod) "SERIES" else activeChannel.category,
-                                    color = NeliMagenta,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold
+                                    text = activeChannel.name,
+                                    color = Color.White,
+                                    fontSize = if (isPortraitYoutubeMode) 13.sp else 15.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                                 Text(
-                                    text = "•",
-                                    color = NeliTextSecondary,
-                                    fontSize = 12.sp
-                                )
-                                Text(
-                                    text = if (activeChannel.isLiveBroadcast) {
-                                        "LIVE STREAM • ${playbackInfo.connectionLabel.uppercase()}"
+                                    text = if (isSeriesVod) {
+                                        "SERIES • ${playbackInfo.connectionLabel.uppercase()}"
                                     } else if (isOfflineSavedPlayback) {
-                                        "OFFLINE INTERNAL STORAGE • ${activeChannel.description}"
+                                        "OFFLINE • ${activeChannel.category}"
                                     } else {
-                                        "${activeChannel.description.ifBlank { "HD STREAM" }} • ${playbackInfo.connectionLabel.uppercase()}"
+                                        "${activeChannel.category} • ${playbackInfo.connectionLabel.uppercase()}"
                                     },
                                     color = NeliGenreCyan,
-                                    fontSize = 11.sp,
+                                    fontSize = 10.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
                             }
                         }
-                    }
 
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        // In-Player VOD Episode Switcher Button (for Series)
-                        if (isSeriesVod) {
-                            Box(
-                                modifier = Modifier
-                                    .testTag("player_episodes_drawer_button")
-                                    .clip(RoundedCornerShape(20.dp))
-                                    .background(NeliMagenta)
-                                    .clickable {
-                                        isEpisodeDrawerOpen = !isEpisodeDrawerOpen
-                                    }
-                                    .padding(horizontal = 14.dp, vertical = 8.dp)
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.horizontalScroll(rememberScrollState())
+                        ) {
+                            // In-Player VOD Episode Switcher Button (for Series)
+                            if (isSeriesVod) {
+                                Box(
+                                    modifier = Modifier
+                                        .testTag("player_episodes_drawer_button")
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .background(NeliMagenta)
+                                        .clickable {
+                                            isEpisodeDrawerOpen = !isEpisodeDrawerOpen
+                                        }
+                                        .padding(horizontal = 8.dp, vertical = 5.dp)
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Default.VideoLibrary,
-                                        contentDescription = "Episodes VOD",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Text(
-                                        text = if (currentEpisodeItem != null) {
-                                            "Episodes (S${currentEpisodeItem.seasonNumber}:E${currentEpisodeItem.episodeNumber})"
-                                        } else {
-                                            "Episodes (${seriesEpisodes.size})"
-                                        },
-                                        color = Color.White,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.ExtraBold
-                                    )
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.VideoLibrary,
+                                            contentDescription = "Episodes VOD",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(13.dp)
+                                        )
+                                        Text(
+                                            text = if (currentEpisodeItem != null) {
+                                                "S${currentEpisodeItem.seasonNumber}:E${currentEpisodeItem.episodeNumber}"
+                                            } else {
+                                                "Episodes (${seriesEpisodes.size})"
+                                            },
+                                            color = Color.White,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.ExtraBold
+                                        )
+                                    }
                                 }
                             }
-                        }
 
-                        // Outside-App System PiP Mode Button
-                        if (onEnterPipMode != null) {
+                            // Small Responsive Auto Quality Control Pill
                             Box(
                                 modifier = Modifier
-                                    .testTag("player_pip_button")
-                                    .clip(RoundedCornerShape(20.dp))
-                                    .background(Color(0xCC121520))
-                                    .border(1.dp, NeliGenreCyan.copy(alpha = 0.7f), RoundedCornerShape(20.dp))
-                                    .clickable {
-                                        onEnterPipMode()
-                                    }
-                                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                                    .testTag("quality_mode_button")
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(Color(0xAA2B1055))
+                                    .border(
+                                        1.dp,
+                                        if (playbackInfo.isDynamicallyDownscaled) NeliGenreCyan else NeliMagenta.copy(alpha = 0.6f),
+                                        RoundedCornerShape(14.dp)
+                                    )
+                                    .clickable { playerController.cycleNetworkQualityMode() }
+                                    .padding(horizontal = 8.dp, vertical = 5.dp)
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Default.PictureInPictureAlt,
-                                        contentDescription = "Outside App PiP Mode",
+                                        imageVector = Icons.Default.NetworkCell,
+                                        contentDescription = "Auto Quality Control",
                                         tint = NeliGenreCyan,
-                                        modifier = Modifier.size(16.dp)
+                                        modifier = Modifier.size(13.dp)
                                     )
-                                    Text(
-                                        text = "PiP",
-                                        color = Color.White,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.ExtraBold
-                                    )
-                                }
-                            }
-                        }
-
-                        // Auto Quality Control according to user internet (Mobile Data & Wi-Fi)
-                        Box(
-                            modifier = Modifier
-                                .testTag("quality_mode_button")
-                                .clip(RoundedCornerShape(20.dp))
-                                .background(Color(0xAA2B1055))
-                                .border(
-                                    1.dp,
-                                    if (playbackInfo.isDynamicallyDownscaled) NeliGenreCyan else NeliMagenta.copy(alpha = 0.6f),
-                                    RoundedCornerShape(20.dp)
-                                )
-                                .clickable { playerController.cycleNetworkQualityMode() }
-                                .padding(horizontal = 12.dp, vertical = 8.dp)
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.NetworkCell,
-                                    contentDescription = "Auto Quality Control",
-                                    tint = NeliGenreCyan,
-                                    modifier = Modifier.size(15.dp)
-                                )
-                                val qualitySummary = if (playbackInfo.networkMode == NetworkQualityMode.AUTO_ADAPTIVE) {
-                                    if (playbackInfo.adaptiveQualityTier == com.example.player.AdaptiveQualityTier.LOW_BANDO_240P) {
-                                        "Auto HD → Low Data"
+                                    val qualitySummary = if (playbackInfo.networkMode == NetworkQualityMode.AUTO_ADAPTIVE) {
+                                        if (playbackInfo.adaptiveQualityTier == com.example.player.AdaptiveQualityTier.LOW_BANDO_240P) {
+                                            "Low Data"
+                                        } else {
+                                            "Auto ${playbackInfo.adaptiveQualityTier.badgeLabel}"
+                                        }
                                     } else {
-                                        "Auto Full HD (${playbackInfo.adaptiveQualityTier.badgeLabel})"
+                                        playbackInfo.networkMode.label
                                     }
-                                } else {
-                                    playbackInfo.networkMode.label
+                                    Text(
+                                        text = qualitySummary,
+                                        color = Color.White,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
                                 }
-                                Text(
-                                    text = "$qualitySummary • ${playbackInfo.connectionLabel}",
-                                    color = Color.White,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
                             }
-                        }
 
-                        if (activeChannel.isLiveBroadcast) {
-                            LiveIndicatorBadge()
-                        }
-
-                        // Standard Cast Button (Simple & working like other casting devices)
-                        Box(
-                            modifier = Modifier
-                                .testTag("player_cast_button")
-                                .clip(RoundedCornerShape(20.dp))
-                                .background(
-                                    if (isCastConnected) Color(0xFF065F46) else Color(0xCC122238)
-                                )
-                                .border(
-                                    1.dp,
-                                    if (isCastConnected) Color(0xFF34D399) else NeliGenreCyan.copy(alpha = 0.7f),
-                                    RoundedCornerShape(20.dp)
-                                )
-                                .clickable {
-                                    isEpisodeDrawerOpen = false
-                                    isSettingsDrawerOpen = false
-                                    isAzamLanguageMenuOpen = false
-                                    showCastDialog = true
-                                }
-                                .padding(horizontal = 12.dp, vertical = 8.dp)
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Icon(
-                                    imageVector = if (isCastConnected) Icons.Default.CastConnected else Icons.Default.Cast,
-                                    contentDescription = if (isCastConnected) "Connected to TV" else "Cast to TV",
-                                    tint = if (isCastConnected) Color(0xFF34D399) else NeliGenreCyan,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Text(
-                                    text = if (isCastConnected) "Casting" else "Cast",
-                                    color = Color.White,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.ExtraBold
-                                )
-                            }
-                        }
-
-                        // Azam TV Language Switcher Button (Kiswahili Primary / English)
-                        if (activeChannel.isAzamTvChannel) {
-                            val activeLangLabel = if (playbackInfo.activeAudioLanguage == "en") {
-                                "ENG"
-                            } else {
-                                "KISW (Primary)"
-                            }
+                            // Normal Google Cast Button (Small & Responsive)
                             Box(
                                 modifier = Modifier
-                                    .testTag("player_azam_language_button")
-                                    .clip(RoundedCornerShape(20.dp))
+                                    .testTag("player_cast_button")
+                                    .clip(RoundedCornerShape(14.dp))
                                     .background(
-                                        if (isAzamLanguageMenuOpen) NeliMagenta else Color(0xCC122238)
+                                        if (isCastConnected) Color(0xFF065F46) else Color(0xCC122238)
                                     )
                                     .border(
                                         1.dp,
-                                        NeliGenreCyan,
-                                        RoundedCornerShape(20.dp)
+                                        if (isCastConnected) Color(0xFF34D399) else NeliGenreCyan.copy(alpha = 0.7f),
+                                        RoundedCornerShape(14.dp)
                                     )
                                     .clickable {
                                         isEpisodeDrawerOpen = false
                                         isSettingsDrawerOpen = false
-                                        isAzamLanguageMenuOpen = !isAzamLanguageMenuOpen
+                                        isAzamLanguageMenuOpen = false
+                                        showCastDialog = true
                                     }
-                                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                                    .padding(horizontal = 8.dp, vertical = 5.dp)
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Default.Language,
-                                        contentDescription = "Badilisha Lugha (Azam TV)",
-                                        tint = NeliGenreCyan,
-                                        modifier = Modifier.size(16.dp)
+                                        imageVector = if (isCastConnected) Icons.Default.CastConnected else Icons.Default.Cast,
+                                        contentDescription = if (isCastConnected) "Connected to TV" else "Cast to TV",
+                                        tint = if (isCastConnected) Color(0xFF34D399) else NeliGenreCyan,
+                                        modifier = Modifier.size(13.dp)
                                     )
                                     Text(
-                                        text = "Lugha: $activeLangLabel",
+                                        text = if (isCastConnected) "Casting" else "Cast",
                                         color = Color.White,
-                                        fontSize = 11.sp,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.ExtraBold
+                                    )
+                                }
+                            }
+
+                            // Azam TV Language Switcher Button (Small & Responsive)
+                            if (activeChannel.isAzamTvChannel) {
+                                val activeLangLabel = if (playbackInfo.activeAudioLanguage == "en") {
+                                    "ENG"
+                                } else {
+                                    "KISW"
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .testTag("player_azam_language_button")
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .background(
+                                            if (isAzamLanguageMenuOpen) NeliMagenta else Color(0xCC122238)
+                                        )
+                                        .border(
+                                            1.dp,
+                                            NeliGenreCyan,
+                                            RoundedCornerShape(14.dp)
+                                        )
+                                        .clickable {
+                                            isEpisodeDrawerOpen = false
+                                            isSettingsDrawerOpen = false
+                                            isAzamLanguageMenuOpen = !isAzamLanguageMenuOpen
+                                        }
+                                        .padding(horizontal = 8.dp, vertical = 5.dp)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Language,
+                                            contentDescription = "Badilisha Lugha (Azam TV)",
+                                            tint = NeliGenreCyan,
+                                            modifier = Modifier.size(13.dp)
+                                        )
+                                        Text(
+                                            text = activeLangLabel,
+                                            color = Color.White,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.ExtraBold
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Small Responsive Video Player Settings Button
+                            Box(
+                                modifier = Modifier
+                                    .testTag("player_settings_button")
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(
+                                        if (isSettingsDrawerOpen) NeliMagenta else Color(0xAA2B1055)
+                                    )
+                                    .border(
+                                        1.dp,
+                                        if (orientationMode.isLandscapeLocked) NeliGenreCyan else Color(0x66FFFFFF),
+                                        RoundedCornerShape(14.dp)
+                                    )
+                                    .clickable {
+                                        isEpisodeDrawerOpen = false
+                                        isSettingsDrawerOpen = !isSettingsDrawerOpen
+                                    }
+                                    .padding(horizontal = 8.dp, vertical = 5.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Settings,
+                                        contentDescription = "Video Player Settings",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(13.dp)
+                                    )
+                                    Text(
+                                        text = "Settings",
+                                        color = Color.White,
+                                        fontSize = 10.sp,
                                         fontWeight = FontWeight.ExtraBold
                                     )
                                 }
                             }
                         }
-
-                        // Video Player Settings Button (Screen Orientation Lock, Fit & Audio/Display)
-                        Box(
-                            modifier = Modifier
-                                .testTag("player_settings_button")
-                                .clip(RoundedCornerShape(20.dp))
-                                .background(
-                                    if (isSettingsDrawerOpen) NeliMagenta else Color(0xAA2B1055)
-                                )
-                                .border(
-                                    1.dp,
-                                    if (orientationMode.isLandscapeLocked) NeliGenreCyan else Color(0x66FFFFFF),
-                                    RoundedCornerShape(20.dp)
-                                )
-                                .clickable {
-                                    isEpisodeDrawerOpen = false
-                                    isSettingsDrawerOpen = !isSettingsDrawerOpen
-                                }
-                                .padding(horizontal = 12.dp, vertical = 8.dp)
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Settings,
-                                    contentDescription = "Video Player Settings",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Text(
-                                    text = "Settings",
-                                    color = Color.White,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.ExtraBold
-                                )
-                            }
-                        }
                     }
-                }
 
-                // Center Area:
-                // - Live TV: NO play/pause or seek buttons! Always continues playing live until user exits.
-                // - Movies, Adult & Series: Rewind 10s, Play/Pause, Forward 10s, plus Next/Previous Episode buttons for Series.
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 24.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    when (val state = uiState) {
-                        is PlayerUiState.Loading -> {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(14.dp)
-                            ) {
-                                CircularProgressIndicator(
-                                    color = NeliMagenta,
-                                    modifier = Modifier.size(52.dp)
-                                )
-                                Text(
-                                    text = if (activeChannel.isLiveBroadcast) {
-                                        "Connecting to ${activeChannel.name} Live Stream..."
-                                    } else {
-                                        "Loading ${activeChannel.name}..."
-                                    },
-                                    color = Color.White,
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            }
-                        }
-
-                        is PlayerUiState.Buffering -> {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                CircularProgressIndicator(
-                                    color = NeliMagenta,
-                                    modifier = Modifier.size(46.dp)
-                                )
-                                Text(
-                                    text = if (playbackInfo.networkMode == NetworkQualityMode.AUTO_ADAPTIVE) {
-                                        if (playbackInfo.adaptiveQualityTier == com.example.player.AdaptiveQualityTier.LOW_BANDO_240P) {
-                                            "Buffering • Low Data Mode (${playbackInfo.connectionLabel})..."
-                                        } else {
-                                            "Buffering • Auto Full HD (${playbackInfo.connectionLabel})..."
-                                        }
-                                    } else {
-                                        "Buffering stream (${playbackInfo.connectionLabel})..."
-                                    },
-                                    color = Color.White,
-                                    fontSize = 13.sp
-                                )
-                            }
-                        }
-
-                        is PlayerUiState.Error -> {
-                            if (isOfflineSavedPlayback) {
-                                Box(
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentAlignment = Alignment.Center
+                    // Center Area
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 16.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        when (val state = uiState) {
+                            is PlayerUiState.Loading -> {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
-                                    if (activeChannel.thumbnailUrl.isNotBlank()) {
-                                        SubcomposeAsyncImage(
-                                            model = ImageRequest.Builder(context)
-                                                .data(activeChannel.thumbnailUrl)
-                                                .crossfade(true)
-                                                .build(),
-                                            contentDescription = activeChannel.name,
-                                            contentScale = ContentScale.Crop,
-                                            modifier = Modifier.fillMaxSize()
-                                        )
+                                    CircularProgressIndicator(
+                                        color = NeliMagenta,
+                                        modifier = Modifier.size(if (isPortraitYoutubeMode) 36.dp else 44.dp)
+                                    )
+                                    Text(
+                                        text = if (activeChannel.isLiveBroadcast) {
+                                            "Connecting to ${activeChannel.name}..."
+                                        } else {
+                                            "Loading ${activeChannel.name}..."
+                                        },
+                                        color = Color.White,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                            }
+
+                            is PlayerUiState.Buffering -> {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    CircularProgressIndicator(
+                                        color = NeliMagenta,
+                                        modifier = Modifier.size(if (isPortraitYoutubeMode) 34.dp else 40.dp)
+                                    )
+                                    Text(
+                                        text = "Buffering (${playbackInfo.connectionLabel})...",
+                                        color = Color.White,
+                                        fontSize = 11.sp
+                                    )
+                                }
+                            }
+
+                            is PlayerUiState.Error -> {
+                                if (isOfflineSavedPlayback) {
+                                    Box(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        if (activeChannel.thumbnailUrl.isNotBlank()) {
+                                            SubcomposeAsyncImage(
+                                                model = ImageRequest.Builder(context)
+                                                    .data(activeChannel.thumbnailUrl)
+                                                    .crossfade(true)
+                                                    .build(),
+                                                contentDescription = activeChannel.name,
+                                                contentScale = ContentScale.Crop,
+                                                modifier = Modifier.fillMaxSize()
+                                            )
+                                        }
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(16.dp))
+                                                .background(Color(0xDD14052B))
+                                                .border(1.dp, Color(0xFF10B981), RoundedCornerShape(16.dp))
+                                                .padding(14.dp)
+                                        ) {
+                                            Column(
+                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.CheckCircle,
+                                                    contentDescription = null,
+                                                    tint = Color(0xFF10B981),
+                                                    modifier = Modifier.size(32.dp)
+                                                )
+                                                Text(
+                                                    text = "${activeChannel.name} • Offline Mode",
+                                                    color = Color.White,
+                                                    fontSize = 14.sp,
+                                                    fontWeight = FontWeight.ExtraBold
+                                                )
+                                                Text(
+                                                    text = "Playing from phone internal storage",
+                                                    color = NeliGenreCyan,
+                                                    fontSize = 11.sp
+                                                )
+                                            }
+                                        }
                                     }
+                                } else {
                                     Box(
                                         modifier = Modifier
-                                            .clip(RoundedCornerShape(20.dp))
-                                            .background(Color(0xDD14052B))
-                                            .border(1.dp, Color(0xFF10B981), RoundedCornerShape(20.dp))
-                                            .padding(20.dp)
+                                            .clip(RoundedCornerShape(16.dp))
+                                            .background(NeliCardPurple)
+                                            .border(1.dp, NeliMagenta.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
+                                            .padding(16.dp),
+                                        contentAlignment = Alignment.Center
                                     ) {
                                         Column(
                                             horizontalAlignment = Alignment.CenterHorizontally,
                                             verticalArrangement = Arrangement.spacedBy(8.dp)
                                         ) {
                                             Icon(
-                                                imageVector = Icons.Default.CheckCircle,
-                                                contentDescription = null,
-                                                tint = Color(0xFF10B981),
-                                                modifier = Modifier.size(40.dp)
+                                                imageVector = Icons.Default.ErrorOutline,
+                                                contentDescription = "Error",
+                                                tint = NeliMagenta,
+                                                modifier = Modifier.size(32.dp)
                                             )
                                             Text(
-                                                text = "${activeChannel.name} • Offline Cinema Mode",
+                                                text = state.userFriendlyMessage,
                                                 color = Color.White,
-                                                fontSize = 16.sp,
-                                                fontWeight = FontWeight.ExtraBold
+                                                fontSize = 14.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                textAlign = TextAlign.Center
                                             )
-                                            Text(
-                                                text = "Playing from phone internal storage without internet",
-                                                color = NeliGenreCyan,
-                                                fontSize = 12.sp
-                                            )
+                                            Row(
+                                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                            ) {
+                                                Button(
+                                                    onClick = { playerController.retry() },
+                                                    colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta),
+                                                    shape = RoundedCornerShape(10.dp),
+                                                    modifier = Modifier.testTag("retry_stream_button")
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Refresh,
+                                                        contentDescription = null,
+                                                        tint = Color.White,
+                                                        modifier = Modifier.size(16.dp)
+                                                    )
+                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                    Text(
+                                                        text = "Retry",
+                                                        color = Color.White,
+                                                        fontSize = 12.sp,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                }
+
+                                                OutlinedButton(
+                                                    onClick = handleExit,
+                                                    shape = RoundedCornerShape(10.dp)
+                                                ) {
+                                                    Text(
+                                                        text = "Back",
+                                                        color = Color.White,
+                                                        fontSize = 12.sp
+                                                    )
+                                                }
+                                            }
                                         }
                                     }
                                 }
-                            } else {
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(20.dp))
-                                        .background(NeliCardPurple)
-                                        .border(1.dp, NeliMagenta.copy(alpha = 0.5f), RoundedCornerShape(20.dp))
-                                        .padding(24.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Column(
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.ErrorOutline,
-                                            contentDescription = "Error",
-                                            tint = NeliMagenta,
-                                            modifier = Modifier.size(44.dp)
-                                        )
-                                        Text(
-                                            text = state.userFriendlyMessage,
-                                            color = Color.White,
-                                            fontSize = 17.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            textAlign = TextAlign.Center
-                                        )
-                                        Text(
-                                            text = activeChannel.name,
-                                            color = NeliGenreCyan,
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.Medium
-                                        )
+                            }
 
-                                        if (!state.technicalDetail.isNullOrBlank()) {
-                                            Text(
-                                                text = state.technicalDetail,
-                                                color = NeliTextSecondary,
-                                                fontSize = 11.sp,
-                                                textAlign = TextAlign.Center,
-                                                maxLines = 2
+                            is PlayerUiState.Ready -> {
+                                if (areControlsVisible && !activeChannel.isLiveBroadcast) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(if (isPortraitYoutubeMode) 14.dp else 18.dp)
+                                    ) {
+                                        if (isSeriesVod) {
+                                            IconButton(
+                                                onClick = {
+                                                    previousEpisode?.let { prev ->
+                                                        playerController.switchChannel(prev.toPlayableChannel(seriesTitlePrefix))
+                                                    }
+                                                },
+                                                enabled = previousEpisode != null,
+                                                modifier = Modifier
+                                                    .testTag("previous_episode_button")
+                                                    .size(if (isPortraitYoutubeMode) 38.dp else 44.dp)
+                                                    .clip(CircleShape)
+                                                    .background(
+                                                        if (previousEpisode != null) Color(0xAA2B1055) else Color(0x442B1055)
+                                                    )
+                                                    .border(
+                                                        1.dp,
+                                                        if (previousEpisode != null) NeliGenreCyan else Color(0x33FFFFFF),
+                                                        CircleShape
+                                                    )
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.SkipPrevious,
+                                                    contentDescription = "Previous Episode",
+                                                    tint = if (previousEpisode != null) Color.White else NeliTextSecondary,
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                            }
+                                        }
+
+                                        IconButton(
+                                            onClick = {
+                                                triggerDoubleTapSeek(DoubleTapZone.LEFT_REWIND, 0.22f, 0.5f)
+                                            },
+                                            modifier = Modifier
+                                                .testTag("seek_rewind_button")
+                                                .size(if (isPortraitYoutubeMode) 40.dp else 46.dp)
+                                                .clip(CircleShape)
+                                                .background(Color(0xAA2B1055))
+                                                .border(1.dp, Color(0x55FFFFFF), CircleShape)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Replay10,
+                                                contentDescription = "Rewind 10 seconds",
+                                                tint = Color.White,
+                                                modifier = Modifier.size(22.dp)
                                             )
                                         }
 
-                                        Spacer(modifier = Modifier.height(4.dp))
-
-                                        Row(
-                                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                        IconButton(
+                                            onClick = { playerController.togglePlayPause() },
+                                            modifier = Modifier
+                                                .testTag("play_pause_button")
+                                                .size(if (isPortraitYoutubeMode) 50.dp else 58.dp)
+                                                .clip(CircleShape)
+                                                .background(NeliMagenta)
                                         ) {
-                                            Button(
-                                                onClick = { playerController.retry() },
-                                                colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta),
-                                                shape = RoundedCornerShape(12.dp),
-                                                modifier = Modifier.testTag("retry_stream_button")
+                                            Icon(
+                                                imageVector = if (playbackInfo.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                                contentDescription = if (playbackInfo.isPlaying) "Pause" else "Play",
+                                                tint = Color.White,
+                                                modifier = Modifier.size(if (isPortraitYoutubeMode) 28.dp else 32.dp)
+                                            )
+                                        }
+
+                                        IconButton(
+                                            onClick = {
+                                                triggerDoubleTapSeek(DoubleTapZone.RIGHT_FORWARD, 0.78f, 0.5f)
+                                            },
+                                            modifier = Modifier
+                                                .testTag("seek_forward_button")
+                                                .size(if (isPortraitYoutubeMode) 40.dp else 46.dp)
+                                                .clip(CircleShape)
+                                                .background(Color(0xAA2B1055))
+                                                .border(1.dp, Color(0x55FFFFFF), CircleShape)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Forward10,
+                                                contentDescription = "Forward 10 seconds",
+                                                tint = Color.White,
+                                                modifier = Modifier.size(22.dp)
+                                            )
+                                        }
+
+                                        if (isSeriesVod) {
+                                            IconButton(
+                                                onClick = {
+                                                    nextEpisode?.let { next ->
+                                                        playerController.switchChannel(next.toPlayableChannel(seriesTitlePrefix))
+                                                    }
+                                                },
+                                                enabled = nextEpisode != null,
+                                                modifier = Modifier
+                                                    .testTag("next_episode_button")
+                                                    .size(if (isPortraitYoutubeMode) 38.dp else 44.dp)
+                                                    .clip(CircleShape)
+                                                    .background(
+                                                        if (nextEpisode != null) Color(0xAA2B1055) else Color(0x442B1055)
+                                                    )
+                                                    .border(
+                                                        1.dp,
+                                                        if (nextEpisode != null) NeliGenreCyan else Color(0x33FFFFFF),
+                                                        CircleShape
+                                                    )
                                             ) {
                                                 Icon(
-                                                    imageVector = Icons.Default.Refresh,
-                                                    contentDescription = null,
-                                                    tint = Color.White,
-                                                    modifier = Modifier.size(18.dp)
-                                                )
-                                                Spacer(modifier = Modifier.width(6.dp))
-                                                Text(
-                                                    text = "Retry",
-                                                    color = Color.White,
-                                                    fontWeight = FontWeight.Bold
-                                                )
-                                            }
-
-                                            OutlinedButton(
-                                                onClick = handleExit,
-                                                shape = RoundedCornerShape(12.dp)
-                                            ) {
-                                                Text(
-                                                    text = "Back",
-                                                    color = Color.White
+                                                    imageVector = Icons.Default.SkipNext,
+                                                    contentDescription = "Next Episode",
+                                                    tint = if (nextEpisode != null) Color.White else NeliTextSecondary,
+                                                    modifier = Modifier.size(20.dp)
                                                 )
                                             }
                                         }
@@ -1244,506 +1350,865 @@ fun PlayerScreen(
                                 }
                             }
                         }
+                    }
 
-                        is PlayerUiState.Ready -> {
-                            // Strictly ONLY Movies, Adult & Series have Play/Pause, Seek, and Next/Previous Episode buttons.
-                            // Live TV has NO pause/play button and plays continuously until exit.
-                            if (areControlsVisible && !activeChannel.isLiveBroadcast) {
+                    // Bottom Bar (Compact & Responsive across all devices, Live button removed)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .align(Alignment.BottomCenter)
+                            .background(
+                                Brush.verticalGradient(
+                                    colors = listOf(Color.Transparent, Color(0xEE14052B))
+                                )
+                            )
+                            .then(
+                                if (isPortraitYoutubeMode) Modifier else Modifier.windowInsetsPadding(WindowInsets.displayCutout)
+                            )
+                            .padding(
+                                horizontal = if (isPortraitYoutubeMode) 10.dp else 14.dp,
+                                vertical = if (isPortraitYoutubeMode) 6.dp else 10.dp
+                            )
+                    ) {
+                        if (!isPortraitYoutubeMode) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(bottom = 4.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                PlayerGestureQuickBar(
+                                    brightnessLevel = brightnessLevel,
+                                    volumeLevel = volumeLevel,
+                                    isLiveBroadcast = activeChannel.isLiveBroadcast,
+                                    onStepBrightness = { nextBrightness ->
+                                        applyBrightnessGestureLevel(nextBrightness, false)
+                                    },
+                                    onStepVolume = { nextVolume ->
+                                        applyVolumeGestureLevel(nextVolume, false)
+                                    },
+                                    onQuickSeekRelative = { seekZone ->
+                                        val normX = if (seekZone == DoubleTapZone.LEFT_REWIND) 0.22f else 0.78f
+                                        triggerDoubleTapSeek(seekZone, normX, 0.5f)
+                                    }
+                                )
+                            }
+                        }
+
+                        if (!activeChannel.isLiveBroadcast) {
+                            val hasKnownDuration = playbackInfo.duration != C.TIME_UNSET && playbackInfo.duration > 0L
+                            val durationMs = if (hasKnownDuration) {
+                                playbackInfo.duration
+                            } else {
+                                maxOf(playbackInfo.currentPosition + 600_000L, 3_600_000L)
+                            }
+                            val liveProgress = (playbackInfo.currentPosition.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
+                            val displayFraction = if (isScrubbing) scrubFraction else liveProgress
+                            val displayPositionMs = if (isScrubbing) {
+                                (scrubFraction * durationMs).toLong()
+                            } else {
+                                playbackInfo.currentPosition
+                            }
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("vod_timeline_row"),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text(
+                                    text = formatDurationMs(displayPositionMs),
+                                    color = Color.White,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Slider(
+                                    value = displayFraction,
+                                    onValueChange = { fraction ->
+                                        val clamped = fraction.coerceIn(0f, 1f)
+                                        isScrubbing = true
+                                        scrubFraction = clamped
+                                        playerController.seekTo((clamped * durationMs).toLong())
+                                    },
+                                    onValueChangeFinished = {
+                                        playerController.seekTo((scrubFraction * durationMs).toLong())
+                                        isScrubbing = false
+                                    },
+                                    enabled = true,
+                                    colors = SliderDefaults.colors(
+                                        thumbColor = NeliMagenta,
+                                        activeTrackColor = NeliMagenta,
+                                        inactiveTrackColor = Color(0x55FFFFFF)
+                                    ),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(26.dp)
+                                        .testTag("vod_timeline_slider")
+                                )
+                                Text(
+                                    text = formatDurationMs(durationMs),
+                                    color = NeliTextSecondary,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            if (activeChannel.isLiveBroadcast) {
+                                // Compact channel info subtitle on left (Live button removed as requested)
+                                Text(
+                                    text = "${activeChannel.name} • ${playbackInfo.activeVideoResolutionLabel}",
+                                    color = NeliGenreCyan,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f, fill = false)
+                                )
+                            } else {
+                                // Compact bottom transport bar for Movies, Adult & Series
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(22.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    modifier = Modifier.weight(1f, fill = false)
                                 ) {
-                                    // Previous Episode button for Series
-                                    if (isSeriesVod) {
-                                        IconButton(
-                                            onClick = {
-                                                previousEpisode?.let { prev ->
-                                                    playerController.switchChannel(prev.toPlayableChannel(seriesTitlePrefix))
-                                                }
-                                            },
-                                            enabled = previousEpisode != null,
-                                            modifier = Modifier
-                                                .testTag("previous_episode_button")
-                                                .size(54.dp)
-                                                .clip(CircleShape)
-                                                .background(
-                                                    if (previousEpisode != null) Color(0xAA2B1055) else Color(0x442B1055)
-                                                )
-                                                .border(
-                                                    1.dp,
-                                                    if (previousEpisode != null) NeliGenreCyan else Color(0x33FFFFFF),
-                                                    CircleShape
-                                                )
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.SkipPrevious,
-                                                contentDescription = "Previous Episode",
-                                                tint = if (previousEpisode != null) Color.White else NeliTextSecondary,
-                                                modifier = Modifier.size(28.dp)
-                                            )
-                                        }
-                                    }
-
-                                    IconButton(
-                                        onClick = {
-                                            triggerDoubleTapSeek(DoubleTapZone.LEFT_REWIND, 0.22f, 0.5f)
-                                        },
-                                        modifier = Modifier
-                                            .testTag("seek_rewind_button")
-                                            .size(56.dp)
-                                            .clip(CircleShape)
-                                            .background(Color(0xAA2B1055))
-                                            .border(1.dp, Color(0x55FFFFFF), CircleShape)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Replay10,
-                                            contentDescription = "Rewind 10 seconds",
-                                            tint = Color.White,
-                                            modifier = Modifier.size(30.dp)
-                                        )
-                                    }
-
                                     IconButton(
                                         onClick = { playerController.togglePlayPause() },
                                         modifier = Modifier
-                                            .testTag("play_pause_button")
-                                            .size(76.dp)
+                                            .size(34.dp)
                                             .clip(CircleShape)
-                                            .background(NeliMagenta)
+                                            .background(Color(0x882B1055))
                                     ) {
                                         Icon(
                                             imageVector = if (playbackInfo.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                                             contentDescription = if (playbackInfo.isPlaying) "Pause" else "Play",
                                             tint = Color.White,
-                                            modifier = Modifier.size(42.dp)
+                                            modifier = Modifier.size(18.dp)
                                         )
                                     }
-
-                                    IconButton(
-                                        onClick = {
-                                            triggerDoubleTapSeek(DoubleTapZone.RIGHT_FORWARD, 0.78f, 0.5f)
-                                        },
-                                        modifier = Modifier
-                                            .testTag("seek_forward_button")
-                                            .size(56.dp)
-                                            .clip(CircleShape)
-                                            .background(Color(0xAA2B1055))
-                                            .border(1.dp, Color(0x55FFFFFF), CircleShape)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Forward10,
-                                            contentDescription = "Forward 10 seconds",
-                                            tint = Color.White,
-                                            modifier = Modifier.size(30.dp)
-                                        )
-                                    }
-
-                                    // Next Episode button for Series
-                                    if (isSeriesVod) {
-                                        IconButton(
-                                            onClick = {
-                                                nextEpisode?.let { next ->
-                                                    playerController.switchChannel(next.toPlayableChannel(seriesTitlePrefix))
-                                                }
-                                            },
-                                            enabled = nextEpisode != null,
+                                    if (isSeriesVod && !isPortraitYoutubeMode) {
+                                        Box(
                                             modifier = Modifier
-                                                .testTag("next_episode_button")
-                                                .size(54.dp)
-                                                .clip(CircleShape)
-                                                .background(
-                                                    if (nextEpisode != null) Color(0xAA2B1055) else Color(0x442B1055)
-                                                )
-                                                .border(
-                                                    1.dp,
-                                                    if (nextEpisode != null) NeliGenreCyan else Color(0x33FFFFFF),
-                                                    CircleShape
-                                                )
+                                                .clip(RoundedCornerShape(12.dp))
+                                                .background(Color(0xAA2B1055))
+                                                .border(1.dp, NeliGenreCyan.copy(alpha = 0.6f), RoundedCornerShape(12.dp))
+                                                .clickable { isEpisodeDrawerOpen = true }
+                                                .padding(horizontal = 8.dp, vertical = 5.dp)
                                         ) {
-                                            Icon(
-                                                imageVector = Icons.Default.SkipNext,
-                                                contentDescription = "Next Episode",
-                                                tint = if (nextEpisode != null) Color.White else NeliTextSecondary,
-                                                modifier = Modifier.size(28.dp)
+                                            Text(
+                                                text = "All Episodes",
+                                                color = Color.White,
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Bold
                                             )
                                         }
+                                    }
+                                }
+                            }
+
+                            // Right: Small & Responsive Mute, Orientation (Landscape <-> Portrait YT), and Fit/Full Toggle
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                IconButton(
+                                    onClick = { playerController.toggleMute() },
+                                    modifier = Modifier
+                                        .testTag("volume_mute_button")
+                                        .size(34.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0x882B1055))
+                                ) {
+                                    Icon(
+                                        imageVector = if (playbackInfo.isMuted) Icons.AutoMirrored.Filled.VolumeMute else Icons.AutoMirrored.Filled.VolumeUp,
+                                        contentDescription = if (playbackInfo.isMuted) "Unmute" else "Mute",
+                                        tint = if (playbackInfo.isMuted) NeliMagenta else Color.White,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+
+                                // Screen Orientation Lock / Portrait YouTube Toggle Button
+                                Box(
+                                    modifier = Modifier
+                                        .testTag("orientation_lock_toggle_button")
+                                        .height(34.dp)
+                                        .clip(RoundedCornerShape(17.dp))
+                                        .background(
+                                            if (orientationMode.isLandscapeLocked) Color(0xCC1B0A3A) else Color(0x882B1055)
+                                        )
+                                        .border(
+                                            1.dp,
+                                            if (orientationMode.isLandscapeLocked) NeliGenreCyan else Color(0x55FFFFFF),
+                                            RoundedCornerShape(17.dp)
+                                        )
+                                        .clickable {
+                                            val nextMode = if (orientationMode == PlayerOrientationMode.PORTRAIT) {
+                                                PlayerOrientationMode.LOCKED_LANDSCAPE
+                                            } else {
+                                                PlayerOrientationMode.PORTRAIT
+                                            }
+                                            updateOrientationMode(nextMode)
+                                        }
+                                        .padding(horizontal = 10.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = resolveOrientationModeIcon(orientationMode),
+                                            contentDescription = "Screen Orientation Lock",
+                                            tint = if (orientationMode.isLandscapeLocked) NeliGenreCyan else Color.White,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        Text(
+                                            text = if (isPortraitYoutubeMode) "Full Screen" else "Portrait",
+                                            color = if (orientationMode.isLandscapeLocked) NeliGenreCyan else Color.White,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+
+                                // Small Responsive Aspect Ratio Fit / Full Toggle
+                                Box(
+                                    modifier = Modifier
+                                        .testTag("fullscreen_toggle_button")
+                                        .height(34.dp)
+                                        .clip(RoundedCornerShape(17.dp))
+                                        .background(Color(0x882B1055))
+                                        .border(1.dp, Color(0x55FFFFFF), RoundedCornerShape(17.dp))
+                                        .clickable {
+                                            resizeMode = when (resizeMode) {
+                                                AspectRatioFrameLayout.RESIZE_MODE_FILL -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+                                                AspectRatioFrameLayout.RESIZE_MODE_FIT -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                                                else -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+                                            }
+                                        }
+                                        .padding(horizontal = 10.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.AspectRatio,
+                                            contentDescription = "Screen Fit Mode",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        Text(
+                                            text = when (resizeMode) {
+                                                AspectRatioFrameLayout.RESIZE_MODE_FILL -> "Full"
+                                                AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> "Zoom"
+                                                else -> "Fit"
+                                            },
+                                            color = Color.White,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
                                     }
                                 }
                             }
                         }
                     }
                 }
+            }
 
-                // Bottom Bar:
-                // - Live TV: NO timeline slider and NO pause button; strictly real-time broadcast indicator
-                // - Movie / Adult / Series Episode: Interactive seekbar + time labels + play/pause/seek + Next/Prev & Episodes drawer
+            // Custom Double-Tap 10s Seek Ripple & Arc Overlay
+            DoubleTapSeekOverlay(
+                feedback = doubleTapSeekFeedback
+            )
+
+            // Custom Vertical Swipe Brightness & Volume HUD Overlay
+            BrightnessVolumeGestureOverlay(
+                feedback = gestureControlFeedback
+            )
+
+            // Floating Orientation Lock Status Pill
+            OrientationLockStatusBadge(
+                visible = showOrientationStatusBadge && gestureControlFeedback == null,
+                orientationMode = orientationMode,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 18.dp)
+            )
+
+            // Azam TV Language Switcher Floating Card & Notice
+            if (activeChannel.isAzamTvChannel && (isAzamLanguageMenuOpen || !playbackInfo.languageSwitchNotice.isNullOrBlank())) {
                 Column(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .align(Alignment.BottomCenter)
-                        .background(
-                            Brush.verticalGradient(
-                                colors = listOf(Color.Transparent, Color(0xEE14052B))
-                            )
-                        )
-                        .windowInsetsPadding(WindowInsets.displayCutout)
-                        .padding(horizontal = 20.dp, vertical = 14.dp)
+                        .align(Alignment.TopEnd)
+                        .padding(top = 54.dp, end = 14.dp)
+                        .widthIn(max = 310.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(Color(0xEE101626))
+                        .border(1.dp, NeliGenreCyan.copy(alpha = 0.7f), RoundedCornerShape(14.dp))
+                        .padding(12.dp)
+                        .testTag("player_azam_language_panel"),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    // Quick Gesture Status & Interactive Controls Pill (Brightness • Double-Tap ±10s • Volume)
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 6.dp),
-                        contentAlignment = Alignment.Center
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        PlayerGestureQuickBar(
-                            brightnessLevel = brightnessLevel,
-                            volumeLevel = volumeLevel,
-                            isLiveBroadcast = activeChannel.isLiveBroadcast,
-                            onStepBrightness = { nextBrightness ->
-                                applyBrightnessGestureLevel(nextBrightness, false)
-                            },
-                            onStepVolume = { nextVolume ->
-                                applyVolumeGestureLevel(nextVolume, false)
-                            },
-                            onQuickSeekRelative = { seekZone ->
-                                val normX = if (seekZone == DoubleTapZone.LEFT_REWIND) 0.22f else 0.78f
-                                triggerDoubleTapSeek(seekZone, normX, 0.5f)
-                            }
-                        )
-                    }
-
-                    if (!activeChannel.isLiveBroadcast) {
-                        val hasKnownDuration = playbackInfo.duration != C.TIME_UNSET && playbackInfo.duration > 0L
-                        val durationMs = if (hasKnownDuration) {
-                            playbackInfo.duration
-                        } else {
-                            maxOf(playbackInfo.currentPosition + 600_000L, 3_600_000L)
-                        }
-                        val liveProgress = (playbackInfo.currentPosition.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
-                        val displayFraction = if (isScrubbing) scrubFraction else liveProgress
-                        val displayPositionMs = if (isScrubbing) {
-                            (scrubFraction * durationMs).toLong()
-                        } else {
-                            playbackInfo.currentPosition
-                        }
-
                         Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("vod_timeline_row"),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
+                            Icon(
+                                imageVector = Icons.Default.Language,
+                                contentDescription = null,
+                                tint = NeliGenreCyan,
+                                modifier = Modifier.size(16.dp)
+                            )
                             Text(
-                                text = formatDurationMs(displayPositionMs),
+                                text = "Lugha ya Azam TV (Kiswahili / ENG)",
                                 color = Color.White,
                                 fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
+                                fontWeight = FontWeight.ExtraBold
                             )
-                            Slider(
-                                value = displayFraction,
-                                onValueChange = { fraction ->
-                                    val clamped = fraction.coerceIn(0f, 1f)
-                                    isScrubbing = true
-                                    scrubFraction = clamped
-                                    playerController.seekTo((clamped * durationMs).toLong())
-                                },
-                                onValueChangeFinished = {
-                                    playerController.seekTo((scrubFraction * durationMs).toLong())
-                                    isScrubbing = false
-                                },
-                                enabled = true,
-                                colors = SliderDefaults.colors(
-                                    thumbColor = NeliMagenta,
-                                    activeTrackColor = NeliMagenta,
-                                    inactiveTrackColor = Color(0x55FFFFFF)
-                                ),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .testTag("vod_timeline_slider")
-                            )
-                            Text(
-                                text = if (hasKnownDuration) formatDurationMs(durationMs) else formatDurationMs(durationMs),
-                                color = NeliTextSecondary,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold
+                        }
+                        IconButton(
+                            onClick = {
+                                isAzamLanguageMenuOpen = false
+                                playerController.clearLanguageSwitchNotice()
+                            },
+                            modifier = Modifier.size(22.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Funga",
+                                tint = NeliTextSecondary,
+                                modifier = Modifier.size(14.dp)
                             )
                         }
                     }
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        if (activeChannel.isLiveBroadcast) {
-                            // Live Real-Time Broadcast Badge with Auto-Fix (No timeline, no pause!)
-                            Row(
-                                modifier = Modifier
-                                    .testTag("live_stream_continuous_playback_button")
-                                    .clip(RoundedCornerShape(20.dp))
-                                    .background(Color(0xAA2B1055))
-                                    .border(1.dp, NeliMagenta, RoundedCornerShape(20.dp))
-                                    .clickable { playerController.syncToLiveEdge("manual_live_edge_button") }
-                                    .padding(horizontal = 14.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(8.dp)
-                                        .clip(CircleShape)
-                                        .background(NeliMagenta)
-                                )
-                                Icon(
-                                    imageVector = Icons.Default.Sensors,
-                                    contentDescription = null,
-                                    tint = NeliMagenta,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Text(
-                                    text = "LIVE STREAM • CONTINUOUS REAL-TIME PLAYBACK (AUTO-FIX)",
-                                    color = Color.White,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        } else {
-                            // Bottom transport bar for Movies, Adult & Series
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                if (isSeriesVod) {
-                                    IconButton(
-                                        onClick = {
-                                            previousEpisode?.let { prev ->
-                                                playerController.switchChannel(prev.toPlayableChannel(seriesTitlePrefix))
-                                            }
-                                        },
-                                        enabled = previousEpisode != null,
-                                        modifier = Modifier
-                                            .size(48.dp)
-                                            .clip(CircleShape)
-                                            .background(Color(0x882B1055))
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.SkipPrevious,
-                                            contentDescription = "Previous Episode",
-                                            tint = if (previousEpisode != null) Color.White else NeliTextSecondary
-                                        )
-                                    }
-                                }
+                        val isSwActive = playbackInfo.activeAudioLanguage != "en"
+                        val isEnActive = playbackInfo.activeAudioLanguage == "en"
 
-                                IconButton(
-                                    onClick = { playerController.togglePlayPause() },
-                                    modifier = Modifier
-                                        .size(48.dp)
-                                        .clip(CircleShape)
-                                        .background(Color(0x882B1055))
-                                ) {
-                                    Icon(
-                                        imageVector = if (playbackInfo.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                        contentDescription = if (playbackInfo.isPlaying) "Pause" else "Play",
-                                        tint = Color.White
-                                    )
-                                }
-                                IconButton(
-                                    onClick = {
-                                        triggerDoubleTapSeek(DoubleTapZone.LEFT_REWIND, 0.22f, 0.5f)
-                                    },
-                                    modifier = Modifier
-                                        .size(48.dp)
-                                        .clip(CircleShape)
-                                        .background(Color(0x882B1055))
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Replay10,
-                                        contentDescription = "Rewind 10s",
-                                        tint = Color.White
-                                    )
-                                }
-                                IconButton(
-                                    onClick = {
-                                        triggerDoubleTapSeek(DoubleTapZone.RIGHT_FORWARD, 0.78f, 0.5f)
-                                    },
-                                    modifier = Modifier
-                                        .size(48.dp)
-                                        .clip(CircleShape)
-                                        .background(Color(0x882B1055))
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Forward10,
-                                        contentDescription = "Forward 10s",
-                                        tint = Color.White
-                                    )
-                                }
-
-                                if (isSeriesVod) {
-                                    IconButton(
-                                        onClick = {
-                                            nextEpisode?.let { next ->
-                                                playerController.switchChannel(next.toPlayableChannel(seriesTitlePrefix))
-                                            }
-                                        },
-                                        enabled = nextEpisode != null,
-                                        modifier = Modifier
-                                            .size(48.dp)
-                                            .clip(CircleShape)
-                                            .background(Color(0x882B1055))
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.SkipNext,
-                                            contentDescription = "Next Episode",
-                                            tint = if (nextEpisode != null) Color.White else NeliTextSecondary
-                                        )
-                                    }
-
-                                    // Quick button in bottom bar to open In-Player Episode Switcher
-                                    Box(
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(16.dp))
-                                            .background(Color(0xAA2B1055))
-                                            .border(1.dp, NeliGenreCyan.copy(alpha = 0.6f), RoundedCornerShape(16.dp))
-                                            .clickable { isEpisodeDrawerOpen = true }
-                                            .padding(horizontal = 12.dp, vertical = 8.dp)
-                                    ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(5.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.VideoLibrary,
-                                                contentDescription = null,
-                                                tint = NeliGenreCyan,
-                                                modifier = Modifier.size(15.dp)
-                                            )
-                                            Text(
-                                                text = "All Episodes",
-                                                color = Color.White,
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                        }
-                                    }
-                                }
-
-                                Text(
-                                    text = if (isSeriesVod && nextEpisode != null) {
-                                        "Auto-Next: S${nextEpisode.seasonNumber}E${nextEpisode.episodeNumber} ${nextEpisode.name}"
-                                    } else {
-                                        activeChannel.description.ifBlank { "HD Cinema Mode" }
-                                    },
-                                    color = NeliGenreCyan,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(if (isSwActive) NeliMagenta else Color(0xFF1E293B))
+                                .border(
+                                    1.dp,
+                                    if (isSwActive) Color(0xFF34D399) else Color(0x44FFFFFF),
+                                    RoundedCornerShape(10.dp)
                                 )
-                            }
+                                .clickable {
+                                    playerController.switchAzamAudioLanguage("sw")
+                                }
+                                .padding(vertical = 8.dp, horizontal = 6.dp)
+                                .testTag("player_lang_option_sw"),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = if (isSwActive) "Kiswahili ✓" else "Kiswahili",
+                                color = Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.ExtraBold
+                            )
                         }
 
-                        // Right: Volume, Screen Orientation Lock Toggle & Full Screen Fill/Fit Ratio Toggle
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(if (isEnActive) NeliMagenta else Color(0xFF1E293B))
+                                .border(
+                                    1.dp,
+                                    if (isEnActive) Color(0xFF34D399) else Color(0x44FFFFFF),
+                                    RoundedCornerShape(10.dp)
+                                )
+                                .clickable {
+                                    playerController.switchAzamAudioLanguage("en")
+                                }
+                                .padding(vertical = 8.dp, horizontal = 6.dp)
+                                .testTag("player_lang_option_en"),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = if (isEnActive) "English ✓" else "English",
+                                color = Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.ExtraBold
+                            )
+                        }
+                    }
+
+                    if (!playbackInfo.languageSwitchNotice.isNullOrBlank()) {
+                        Text(
+                            text = playbackInfo.languageSwitchNotice!!,
+                            color = if (activeChannel.isKiswahiliOnlyProgram && playbackInfo.preferredAudioLanguage == "en") {
+                                Color(0xFFFBBF24)
+                            } else {
+                                Color(0xFF34D399)
+                            },
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.testTag("player_language_switch_notice")
+                        )
+                    }
+                }
+            }
+
+            // In-Player Video Settings Drawer
+            androidx.compose.animation.AnimatedVisibility(
+                visible = isSettingsDrawerOpen,
+                enter = fadeIn(),
+                exit = fadeOut(),
+                modifier = Modifier.align(Alignment.CenterEnd)
+            ) {
+                val resizeModeLabel = when (resizeMode) {
+                    AspectRatioFrameLayout.RESIZE_MODE_FILL -> "Full Screen"
+                    AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> "Zoom"
+                    else -> "Fit"
+                }
+                PlayerSettingsDrawer(
+                    orientationMode = orientationMode,
+                    onSelectOrientationMode = { selectedMode ->
+                        updateOrientationMode(selectedMode)
+                    },
+                    onToggleForceLandscapeLock = { forceLocked ->
+                        val nextMode = PlayerGestureHelper.setForceLandscapeLocked(forceLocked)
+                        updateOrientationMode(nextMode)
+                    },
+                    resizeModeLabel = resizeModeLabel,
+                    onCycleResizeMode = {
+                        resizeMode = when (resizeMode) {
+                            AspectRatioFrameLayout.RESIZE_MODE_FILL -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+                            AspectRatioFrameLayout.RESIZE_MODE_FIT -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                            else -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+                        }
+                    },
+                    networkQualityMode = playbackInfo.networkMode,
+                    onSelectNetworkQualityMode = { mode ->
+                        playerController.applyNetworkQualityMode(mode)
+                    },
+                    adaptiveQualityBadge = playbackInfo.activeVideoResolutionLabel,
+                    adaptiveQualityDescription = playbackInfo.adaptiveQualityTier.description,
+                    estimatedBandwidthKbps = playbackInfo.estimatedBandwidthKbps,
+                    bufferedDurationMs = playbackInfo.bufferedDurationMs,
+                    isDynamicallyDownscaled = playbackInfo.isDynamicallyDownscaled,
+                    batteryOptimizationMode = playbackInfo.batteryOptimizationMode,
+                    onSelectBatteryOptimizationMode = { mode ->
+                        playerController.setBatteryOptimizationMode(mode)
+                    },
+                    batteryPowerProfile = playbackInfo.batteryPowerProfile,
+                    batteryLevelPct = playbackInfo.batteryLevelPct,
+                    isBatteryCharging = playbackInfo.isBatteryCharging,
+                    isOsPowerSaveMode = playbackInfo.isOsPowerSaveMode,
+                    isCpuSavingActive = playbackInfo.isCpuSavingActive,
+                    activeMaxFrameRate = playbackInfo.activeMaxFrameRate,
+                    brightnessLevel = brightnessLevel,
+                    onBrightnessChange = { newBrightness ->
+                        applyBrightnessGestureLevel(newBrightness, false)
+                    },
+                    volumeLevel = volumeLevel,
+                    onVolumeChange = { newVolume ->
+                        applyVolumeGestureLevel(newVolume, false)
+                    },
+                    onClose = { isSettingsDrawerOpen = false }
+                )
+            }
+
+            // In-Player VOD Episode & Season Selector Overlay Drawer (for Series)
+            androidx.compose.animation.AnimatedVisibility(
+                visible = isSeriesVod && isEpisodeDrawerOpen,
+                enter = fadeIn(),
+                exit = fadeOut(),
+                modifier = Modifier.align(Alignment.CenterEnd)
+            ) {
+                InPlayerEpisodesDrawer(
+                    seriesTitle = seriesTitlePrefix,
+                    episodes = seriesEpisodes,
+                    currentEpisodeId = currentEpisodeItem?.id.orEmpty(),
+                    onSelectEpisode = { selectedEp ->
+                        playerController.switchChannel(selectedEp.toPlayableChannel(seriesTitlePrefix))
+                        isEpisodeDrawerOpen = false
+                    },
+                    onClose = { isEpisodeDrawerOpen = false }
+                )
+            }
+        }
+
+        // YouTube-Style Portrait System Below the 16:9 Player (Only visible when user switches to Portrait mode)
+        if (isPortraitYoutubeMode) {
+            val filteredLiveChannels = remember(allLiveChannels, selectedPortraitCategory) {
+                val baseList = allLiveChannels.ifEmpty { com.example.data.ChannelRepository.getPrioritizedAllChannels() }
+                if (selectedPortraitCategory == "All") {
+                    baseList
+                } else {
+                    baseList.filter { it.category.equals(selectedPortraitCategory, ignoreCase = true) }
+                        .ifEmpty { baseList }
+                }
+            }
+            val relatedMovies = remember(allMediaCatalog, activeChannel.id) {
+                allMediaCatalog.filter { !it.isSeries && !it.isAdultContent && it.id != activeChannel.id }.take(18)
+            }
+
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .background(NeliBackground)
+                    .testTag("player_youtube_portrait_layout"),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // YouTube-style Title, Metadata & Quick Action Chips Bar
+                item {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(NeliSurface)
+                            .border(1.dp, NeliBorder, RoundedCornerShape(16.dp))
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            IconButton(
-                                onClick = { playerController.toggleMute() },
-                                modifier = Modifier
-                                    .testTag("volume_mute_button")
-                                    .size(48.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0x882B1055))
-                            ) {
-                                Icon(
-                                    imageVector = if (playbackInfo.isMuted) Icons.AutoMirrored.Filled.VolumeMute else Icons.AutoMirrored.Filled.VolumeUp,
-                                    contentDescription = if (playbackInfo.isMuted) "Unmute" else "Mute",
-                                    tint = if (playbackInfo.isMuted) NeliMagenta else Color.White
+                            if (activeChannel.thumbnailUrl.isNotBlank()) {
+                                SubcomposeAsyncImage(
+                                    model = ImageRequest.Builder(context)
+                                        .data(activeChannel.thumbnailUrl)
+                                        .crossfade(true)
+                                        .build(),
+                                    contentDescription = activeChannel.name,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier
+                                        .size(44.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(NeliSurfaceVariant)
                                 )
                             }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = activeChannel.name,
+                                    color = NeliTextPrimary,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Black,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = "${activeChannel.category} • ${playbackInfo.activeVideoResolutionLabel} • ${playbackInfo.connectionLabel}",
+                                    color = NeliGenreCyan,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
 
-                            // Screen Orientation Lock / Portrait Toggle Button (Opens in Full Landscape; switches to Portrait only when user clicks)
+                        // YouTube-style Horizontal Action Pills Row
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Return to Full Landscape Chip
                             Box(
                                 modifier = Modifier
-                                    .testTag("orientation_lock_toggle_button")
-                                    .height(48.dp)
-                                    .clip(RoundedCornerShape(24.dp))
-                                    .background(
-                                        if (orientationMode.isLandscapeLocked) Color(0xCC1B0A3A) else Color(0x882B1055)
-                                    )
-                                    .border(
-                                        1.dp,
-                                        if (orientationMode.isLandscapeLocked) NeliGenreCyan else Color(0x55FFFFFF),
-                                        RoundedCornerShape(24.dp)
-                                    )
+                                    .testTag("portrait_return_landscape_button")
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(NeliMagenta)
                                     .clickable {
-                                        val nextMode = if (orientationMode == PlayerOrientationMode.PORTRAIT) {
-                                            PlayerOrientationMode.LOCKED_LANDSCAPE
-                                        } else {
-                                            PlayerOrientationMode.PORTRAIT
-                                        }
-                                        updateOrientationMode(nextMode)
+                                        updateOrientationMode(PlayerOrientationMode.LOCKED_LANDSCAPE)
                                     }
-                                    .padding(horizontal = 14.dp),
-                                contentAlignment = Alignment.Center
+                                    .padding(horizontal = 12.dp, vertical = 7.dp)
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(5.dp)
                                 ) {
                                     Icon(
-                                        imageVector = resolveOrientationModeIcon(orientationMode),
-                                        contentDescription = "Screen Orientation Lock",
-                                        tint = if (orientationMode.isLandscapeLocked) NeliGenreCyan else Color.White,
-                                        modifier = Modifier.size(18.dp)
+                                        imageVector = Icons.Default.AspectRatio,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(14.dp)
                                     )
                                     Text(
-                                        text = orientationMode.shortBadgeLabel,
-                                        color = if (orientationMode.isLandscapeLocked) NeliGenreCyan else Color.White,
-                                        fontSize = 12.sp,
+                                        text = "Full Landscape",
+                                        color = Color.White,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.ExtraBold
+                                    )
+                                }
+                            }
+
+                            // Normal Cast Chip
+                            Box(
+                                modifier = Modifier
+                                    .testTag("portrait_cast_chip")
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(if (isCastConnected) Color(0xFF065F46) else NeliSurfaceVariant)
+                                    .border(1.dp, NeliBorder, RoundedCornerShape(16.dp))
+                                    .clickable { showCastDialog = true }
+                                    .padding(horizontal = 12.dp, vertical = 7.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = if (isCastConnected) Icons.Default.CastConnected else Icons.Default.Cast,
+                                        contentDescription = null,
+                                        tint = if (isCastConnected) Color(0xFF34D399) else NeliGenreCyan,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Text(
+                                        text = if (isCastConnected) "Casting to TV" else "Cast to TV",
+                                        color = NeliTextPrimary,
+                                        fontSize = 11.sp,
                                         fontWeight = FontWeight.Bold
                                     )
                                 }
                             }
 
-                            // Aspect Ratio Full Mode / Fit Toggle
+                            // Auto Quality Chip
                             Box(
                                 modifier = Modifier
-                                    .testTag("fullscreen_toggle_button")
-                                    .height(48.dp)
-                                    .clip(RoundedCornerShape(24.dp))
-                                    .background(Color(0x882B1055))
-                                    .border(1.dp, Color(0x55FFFFFF), RoundedCornerShape(24.dp))
-                                    .clickable {
-                                        resizeMode = when (resizeMode) {
-                                            AspectRatioFrameLayout.RESIZE_MODE_FILL -> AspectRatioFrameLayout.RESIZE_MODE_FIT
-                                            AspectRatioFrameLayout.RESIZE_MODE_FIT -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                                            else -> AspectRatioFrameLayout.RESIZE_MODE_FILL
-                                        }
-                                    }
-                                    .padding(horizontal = 14.dp),
-                                contentAlignment = Alignment.Center
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(NeliSurfaceVariant)
+                                    .border(1.dp, NeliBorder, RoundedCornerShape(16.dp))
+                                    .clickable { playerController.cycleNetworkQualityMode() }
+                                    .padding(horizontal = 12.dp, vertical = 7.dp)
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(5.dp)
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Default.AspectRatio,
-                                        contentDescription = "Screen Fit Mode",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(18.dp)
+                                        imageVector = Icons.Default.NetworkCell,
+                                        contentDescription = null,
+                                        tint = NeliGenreCyan,
+                                        modifier = Modifier.size(14.dp)
                                     )
                                     Text(
-                                        text = when (resizeMode) {
-                                            AspectRatioFrameLayout.RESIZE_MODE_FILL -> "Full Screen"
-                                            AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> "Zoom"
-                                            else -> "Fit"
-                                        },
-                                        color = Color.White,
-                                        fontSize = 12.sp,
+                                        text = playbackInfo.networkMode.label,
+                                        color = NeliTextPrimary,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+
+                            // Azam TV Language Chip
+                            if (activeChannel.isAzamTvChannel) {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(16.dp))
+                                        .background(NeliSurfaceVariant)
+                                        .border(1.dp, NeliGenreCyan.copy(alpha = 0.6f), RoundedCornerShape(16.dp))
+                                        .clickable {
+                                            val nextLang = if (playbackInfo.activeAudioLanguage == "en") "sw" else "en"
+                                            playerController.switchAzamAudioLanguage(nextLang)
+                                        }
+                                        .padding(horizontal = 12.dp, vertical = 7.dp)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Language,
+                                            contentDescription = null,
+                                            tint = NeliGenreCyan,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        Text(
+                                            text = if (playbackInfo.activeAudioLanguage == "en") "Lugha: ENG" else "Lugha: KISW",
+                                            color = NeliTextPrimary,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Series Episodes Section (if watching a Series)
+                if (isSeriesVod && seriesEpisodes.isNotEmpty()) {
+                    item {
+                        Text(
+                            text = "Vipindi vya Series (${seriesEpisodes.size})",
+                            color = NeliTextPrimary,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Black
+                        )
+                    }
+                    items(seriesEpisodes, key = { "yt_ep_${it.id}" }) { ep ->
+                        val isCurrentEp = ep.id == currentEpisodeItem?.id
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(if (isCurrentEp) NeliCardPurple else NeliSurface)
+                                .border(
+                                    1.dp,
+                                    if (isCurrentEp) NeliMagenta else NeliBorder,
+                                    RoundedCornerShape(14.dp)
+                                )
+                                .clickable {
+                                    playerController.switchChannel(ep.toPlayableChannel(seriesTitlePrefix))
+                                }
+                                .padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .width(96.dp)
+                                    .aspectRatio(16f / 9f)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(NeliSurfaceVariant),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (ep.stillPath.isNotBlank()) {
+                                    SubcomposeAsyncImage(
+                                        model = ImageRequest.Builder(context)
+                                            .data(ep.stillPath)
+                                            .crossfade(true)
+                                            .build(),
+                                        contentDescription = ep.name,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                }
+                                Icon(
+                                    imageVector = Icons.Default.PlayArrow,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "S${ep.seasonNumber}:E${ep.episodeNumber} • ${ep.name}",
+                                    color = NeliTextPrimary,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = ep.durationLabel,
+                                    color = NeliTextSecondary,
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Related Movies Section (if watching a Movie)
+                if (!activeChannel.isLiveBroadcast && !isSeriesVod && relatedMovies.isNotEmpty()) {
+                    item {
+                        Text(
+                            text = "Movies Nyingine (More Movies)",
+                            color = NeliTextPrimary,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Black
+                        )
+                    }
+                    items(relatedMovies, key = { "yt_mov_${it.id}" }) { movie ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(NeliSurface)
+                                .border(1.dp, NeliBorder, RoundedCornerShape(14.dp))
+                                .clickable {
+                                    playerController.switchChannel(movie.toPlayableChannel())
+                                }
+                                .padding(10.dp)
+                                .testTag("portrait_yt_movie_item_${movie.id}"),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            SubcomposeAsyncImage(
+                                model = ImageRequest.Builder(context)
+                                    .data(movie.backdropUrl.ifBlank { movie.posterUrl })
+                                    .crossfade(true)
+                                    .build(),
+                                contentDescription = movie.title,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .width(108.dp)
+                                    .aspectRatio(16f / 9f)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(NeliSurfaceVariant)
+                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = movie.title,
+                                    color = NeliTextPrimary,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = "${movie.genre} • ${movie.releaseYear} • ${movie.duration}",
+                                    color = NeliGenreCyan,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Live TV Channels Section (Always available below player like YouTube Up Next feed)
+                item {
+                    val categories = listOf("All", "Sports", "Entertainment", "News", "Movies", "Music", "Kids", "Religious")
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            text = "Live TV Channels (${filteredLiveChannels.size})",
+                            color = NeliTextPrimary,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Black
+                        )
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(categories) { cat ->
+                                val isSelected = selectedPortraitCategory.equals(cat, ignoreCase = true)
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .background(if (isSelected) NeliMagenta else NeliSurfaceVariant)
+                                        .border(1.dp, if (isSelected) NeliMagenta else NeliBorder, RoundedCornerShape(14.dp))
+                                        .clickable { selectedPortraitCategory = cat }
+                                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                                ) {
+                                    Text(
+                                        text = cat,
+                                        color = if (isSelected) Color.White else NeliTextPrimary,
+                                        fontSize = 11.sp,
                                         fontWeight = FontWeight.Bold
                                     )
                                 }
@@ -1751,231 +2216,88 @@ fun PlayerScreen(
                         }
                     }
                 }
-            }
-        }
 
-        // Custom Double-Tap 10s Seek Ripple & Arc Overlay
-        DoubleTapSeekOverlay(
-            feedback = doubleTapSeekFeedback
-        )
-
-        // Custom Vertical Swipe Brightness & Volume HUD Overlay
-        BrightnessVolumeGestureOverlay(
-            feedback = gestureControlFeedback
-        )
-
-        // Floating Orientation Lock Status Pill
-        OrientationLockStatusBadge(
-            visible = showOrientationStatusBadge && gestureControlFeedback == null,
-            orientationMode = orientationMode,
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .padding(top = 28.dp)
-        )
-
-        // Azam TV Language Switcher Floating Card & Notice
-        if (activeChannel.isAzamTvChannel && (isAzamLanguageMenuOpen || !playbackInfo.languageSwitchNotice.isNullOrBlank())) {
-            Column(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(top = 86.dp, end = 24.dp)
-                    .widthIn(max = 340.dp)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(Color(0xEE101626))
-                    .border(1.dp, NeliGenreCyan.copy(alpha = 0.7f), RoundedCornerShape(16.dp))
-                    .padding(14.dp)
-                    .testTag("player_azam_language_panel"),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Language,
-                            contentDescription = null,
-                            tint = NeliGenreCyan,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Text(
-                            text = "Lugha ya Azam TV (Primary: Kiswahili)",
-                            color = Color.White,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.ExtraBold
-                        )
-                    }
-                    IconButton(
-                        onClick = {
-                            isAzamLanguageMenuOpen = false
-                            playerController.clearLanguageSwitchNotice()
-                        },
-                        modifier = Modifier.size(24.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Funga",
-                            tint = NeliTextSecondary,
-                            modifier = Modifier.size(16.dp)
-                        )
-                    }
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    val isSwActive = playbackInfo.activeAudioLanguage != "en"
-                    val isEnActive = playbackInfo.activeAudioLanguage == "en"
-
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(if (isSwActive) NeliMagenta else Color(0xFF1E293B))
-                            .border(
-                                1.dp,
-                                if (isSwActive) Color(0xFF34D399) else Color(0x44FFFFFF),
-                                RoundedCornerShape(10.dp)
-                            )
-                            .clickable {
-                                playerController.switchAzamAudioLanguage("sw")
-                            }
-                            .padding(vertical = 10.dp, horizontal = 8.dp)
-                            .testTag("player_lang_option_sw"),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = if (isSwActive) "Kiswahili ✓ (Primary)" else "Kiswahili (Primary)",
-                            color = Color.White,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.ExtraBold
-                        )
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(if (isEnActive) NeliMagenta else Color(0xFF1E293B))
-                            .border(
-                                1.dp,
-                                if (isEnActive) Color(0xFF34D399) else Color(0x44FFFFFF),
-                                RoundedCornerShape(10.dp)
-                            )
-                            .clickable {
-                                playerController.switchAzamAudioLanguage("en")
-                            }
-                            .padding(vertical = 10.dp, horizontal = 8.dp)
-                            .testTag("player_lang_option_en"),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = if (isEnActive) "English ✓" else "English",
-                            color = Color.White,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.ExtraBold
-                        )
-                    }
-                }
-
-                if (!playbackInfo.languageSwitchNotice.isNullOrBlank()) {
-                    Text(
-                        text = playbackInfo.languageSwitchNotice!!,
-                        color = if (activeChannel.isKiswahiliOnlyProgram && playbackInfo.preferredAudioLanguage == "en") {
-                            Color(0xFFFBBF24)
-                        } else {
-                            Color(0xFF34D399)
-                        },
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.testTag("player_language_switch_notice")
+                items(filteredLiveChannels, key = { "yt_ch_${it.id}" }) { ch ->
+                    val isPlayingThisChannel = ch.id == activeChannel.id
+                    val isLockedForUser = ch.isLiveBroadcast && com.example.data.NeliAdminManager.isChannelLockedForUser(
+                        channelId = ch.id,
+                        currentUser = null,
+                        context = context
                     )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(if (isPlayingThisChannel) NeliCardPurple else NeliSurface)
+                            .border(
+                                1.dp,
+                                if (isPlayingThisChannel) NeliMagenta else NeliBorder,
+                                RoundedCornerShape(14.dp)
+                            )
+                            .clickable {
+                                if (!isLockedForUser) {
+                                    playerController.switchChannel(ch)
+                                }
+                            }
+                            .padding(10.dp)
+                            .testTag("portrait_yt_channel_item_${ch.id}"),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .width(84.dp)
+                                .aspectRatio(16f / 9f)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(NeliSurfaceVariant),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (ch.thumbnailUrl.isNotBlank()) {
+                                SubcomposeAsyncImage(
+                                    model = ImageRequest.Builder(context)
+                                        .data(ch.thumbnailUrl)
+                                        .crossfade(true)
+                                        .build(),
+                                    contentDescription = ch.name,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = ch.name,
+                                color = NeliTextPrimary,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = "${ch.category} • ${ch.description.ifBlank { "Live HD Broadcast" }}",
+                                color = NeliTextSecondary,
+                                fontSize = 11.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        Text(
+                            text = when {
+                                isLockedForUser -> "VIP Lock"
+                                isPlayingThisChannel -> "Playing ✓"
+                                else -> "Watch"
+                            },
+                            color = when {
+                                isLockedForUser -> Color(0xFFFBBF24)
+                                isPlayingThisChannel -> Color(0xFF34D399)
+                                else -> NeliMagenta
+                            },
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                    }
                 }
             }
-        }
-
-        // In-Player Video Settings Drawer (Screen Orientation Lock, Aspect Ratio, Quality & Audio/Display)
-        AnimatedVisibility(
-            visible = isSettingsDrawerOpen,
-            enter = fadeIn(),
-            exit = fadeOut(),
-            modifier = Modifier.align(Alignment.CenterEnd)
-        ) {
-            val resizeModeLabel = when (resizeMode) {
-                AspectRatioFrameLayout.RESIZE_MODE_FILL -> "Full Screen"
-                AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> "Zoom"
-                else -> "Fit"
-            }
-            PlayerSettingsDrawer(
-                orientationMode = orientationMode,
-                onSelectOrientationMode = { selectedMode ->
-                    updateOrientationMode(selectedMode)
-                },
-                onToggleForceLandscapeLock = { forceLocked ->
-                    val nextMode = PlayerGestureHelper.setForceLandscapeLocked(forceLocked)
-                    updateOrientationMode(nextMode)
-                },
-                resizeModeLabel = resizeModeLabel,
-                onCycleResizeMode = {
-                    resizeMode = when (resizeMode) {
-                        AspectRatioFrameLayout.RESIZE_MODE_FILL -> AspectRatioFrameLayout.RESIZE_MODE_FIT
-                        AspectRatioFrameLayout.RESIZE_MODE_FIT -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                        else -> AspectRatioFrameLayout.RESIZE_MODE_FILL
-                    }
-                },
-                networkQualityMode = playbackInfo.networkMode,
-                onSelectNetworkQualityMode = { mode ->
-                    playerController.applyNetworkQualityMode(mode)
-                },
-                adaptiveQualityBadge = playbackInfo.activeVideoResolutionLabel,
-                adaptiveQualityDescription = playbackInfo.adaptiveQualityTier.description,
-                estimatedBandwidthKbps = playbackInfo.estimatedBandwidthKbps,
-                bufferedDurationMs = playbackInfo.bufferedDurationMs,
-                isDynamicallyDownscaled = playbackInfo.isDynamicallyDownscaled,
-                batteryOptimizationMode = playbackInfo.batteryOptimizationMode,
-                onSelectBatteryOptimizationMode = { mode ->
-                    playerController.setBatteryOptimizationMode(mode)
-                },
-                batteryPowerProfile = playbackInfo.batteryPowerProfile,
-                batteryLevelPct = playbackInfo.batteryLevelPct,
-                isBatteryCharging = playbackInfo.isBatteryCharging,
-                isOsPowerSaveMode = playbackInfo.isOsPowerSaveMode,
-                isCpuSavingActive = playbackInfo.isCpuSavingActive,
-                activeMaxFrameRate = playbackInfo.activeMaxFrameRate,
-                brightnessLevel = brightnessLevel,
-                onBrightnessChange = { newBrightness ->
-                    applyBrightnessGestureLevel(newBrightness, false)
-                },
-                volumeLevel = volumeLevel,
-                onVolumeChange = { newVolume ->
-                    applyVolumeGestureLevel(newVolume, false)
-                },
-                onClose = { isSettingsDrawerOpen = false }
-            )
-        }
-
-        // In-Player VOD Episode & Season Selector Overlay Drawer (for Series)
-        AnimatedVisibility(
-            visible = isSeriesVod && isEpisodeDrawerOpen,
-            enter = fadeIn(),
-            exit = fadeOut(),
-            modifier = Modifier.align(Alignment.CenterEnd)
-        ) {
-            InPlayerEpisodesDrawer(
-                seriesTitle = seriesTitlePrefix,
-                episodes = seriesEpisodes,
-                currentEpisodeId = currentEpisodeItem?.id.orEmpty(),
-                onSelectEpisode = { selectedEp ->
-                    playerController.switchChannel(selectedEp.toPlayableChannel(seriesTitlePrefix))
-                    isEpisodeDrawerOpen = false
-                },
-                onClose = { isEpisodeDrawerOpen = false }
-            )
         }
     }
 }
