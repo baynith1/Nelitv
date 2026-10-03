@@ -49,7 +49,6 @@ object NeliAdminManager {
 
     private const val PREFS_NAME = "neli_mini_admin_prefs"
     private const val KEY_LOCK_ALL_CHANNELS = "lock_all_channels"
-    private const val KEY_LOCK_ALL_AZAM_CHANNELS = "lock_all_azam_channels"
     private const val KEY_LOCKED_CHANNEL_IDS = "locked_channel_ids"
     private const val KEY_HIDDEN_CHANNEL_IDS = "hidden_channel_ids"
     private const val KEY_CUSTOM_CHANNELS_JSON = "custom_channels_json"
@@ -60,9 +59,6 @@ object NeliAdminManager {
 
     private val _areAllChannelsLocked = MutableStateFlow(false)
     val areAllChannelsLocked: StateFlow<Boolean> = _areAllChannelsLocked.asStateFlow()
-
-    private val _areAllAzamChannelsLocked = MutableStateFlow(false)
-    val areAllAzamChannelsLocked: StateFlow<Boolean> = _areAllAzamChannelsLocked.asStateFlow()
 
     private val _lockedChannelIds = MutableStateFlow<Set<String>>(emptySet())
     val lockedChannelIds: StateFlow<Set<String>> = _lockedChannelIds.asStateFlow()
@@ -94,7 +90,6 @@ object NeliAdminManager {
     fun initialize(context: Context) {
         val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         _areAllChannelsLocked.value = prefs.getBoolean(KEY_LOCK_ALL_CHANNELS, false)
-        _areAllAzamChannelsLocked.value = prefs.getBoolean(KEY_LOCK_ALL_AZAM_CHANNELS, false)
         val savedLocked = prefs.getStringSet(KEY_LOCKED_CHANNEL_IDS, emptySet())?.toSet() ?: emptySet()
         _lockedChannelIds.value = savedLocked
         val savedHidden = prefs.getStringSet(KEY_HIDDEN_CHANNEL_IDS, emptySet())?.toSet() ?: emptySet()
@@ -133,7 +128,6 @@ object NeliAdminManager {
     fun applyCloudState(
         context: Context,
         lockAll: Boolean,
-        lockAllAzam: Boolean = false,
         lockedIds: Set<String>,
         hiddenIds: Set<String>,
         customChannels: List<LiveChannel>,
@@ -143,7 +137,6 @@ object NeliAdminManager {
         smsPlacementKey: String
     ) {
         _areAllChannelsLocked.value = lockAll
-        _areAllAzamChannelsLocked.value = lockAllAzam
         _lockedChannelIds.value = lockedIds
         _hiddenChannelIds.value = hiddenIds
         if (customChannels.isNotEmpty() || _customAddedChannels.value.isNotEmpty()) {
@@ -169,7 +162,6 @@ object NeliAdminManager {
             val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             val editor = prefs.edit()
                 .putBoolean(KEY_LOCK_ALL_CHANNELS, lockAll)
-                .putBoolean(KEY_LOCK_ALL_AZAM_CHANNELS, lockAllAzam)
                 .putStringSet(KEY_LOCKED_CHANNEL_IDS, lockedIds)
                 .putStringSet(KEY_HIDDEN_CHANNEL_IDS, hiddenIds)
                 .putString(KEY_ADMIN_SMS_PLACEMENT, placement.key)
@@ -190,95 +182,11 @@ object NeliAdminManager {
         ChannelRepository.refreshLiveChannels()
     }
 
-    fun isAzamChannel(channelId: String): Boolean {
-        val clean = channelId.trim()
-        val ch = ChannelRepository.getChannelById(clean)
-            ?: ChannelRepository.channels.find { it.id.equals(clean, ignoreCase = true) }
-            ?: ChannelRepository.liveChannelsFlow.value.find { it.id.equals(clean, ignoreCase = true) }
-        if (ch != null) {
-            return ch.isAzamTvChannel
-        }
-        val lower = clean.lowercase()
-        return lower.startsWith("azam") || lower.contains("azam_") || lower.contains("sinema_zetu") || lower.contains("sinemazetu")
-    }
-
-    /**
-     * Resolves all possible alias keys and slug variants for a channel so that
-     * locking in Firebase web console by name, slug, or ID works immediately.
-     */
-    fun getChannelMatchKeys(channelId: String): Set<String> {
-        val keys = mutableSetOf<String>()
-        val cleanId = channelId.trim()
-        if (cleanId.isNotBlank()) {
-            keys.add(cleanId)
-            keys.add(cleanId.lowercase())
-            keys.add(cleanId.replace("-", "_"))
-        }
-
-        val ch = ChannelRepository.getChannelById(cleanId)
-            ?: ChannelRepository.channels.find { it.id.equals(cleanId, ignoreCase = true) }
-            ?: ChannelRepository.liveChannelsFlow.value.find { it.id.equals(cleanId, ignoreCase = true) }
-
-        if (ch != null) {
-            val nameSlug = ch.name.lowercase().trim()
-                .replace(" ", "_")
-                .replace("-", "_")
-                .replace(".", "")
-            if (nameSlug.isNotBlank()) {
-                keys.add(nameSlug)
-            }
-
-            val nameLower = ch.name.lowercase()
-            when {
-                nameLower.contains("azam sport") && nameLower.contains("1") -> {
-                    keys.addAll(listOf("azam_sports_1", "azam_sport_1", "azam_sports_1_hd", "azam_sport_1_hd", "r17juvbcezu2etbjne74"))
-                }
-                nameLower.contains("azam sport") && nameLower.contains("2") -> {
-                    keys.addAll(listOf("azam_sports_2", "azam_sport_2", "azam_sports_2_hd", "azam_sport_2_hd", "f74ba826_f031_4e64_9ec1_f7ffa4e6ec0f", "f74ba826-f031-4e64-9ec1-f7ffa4e6ec0f"))
-                }
-                nameLower.contains("azam sport") && nameLower.contains("3") -> {
-                    keys.addAll(listOf("azam_sports_3", "azam_sport_3", "azam_sports_3_hd", "azam_sport_3_hd", "1c976127_e8a4_4bd6_8e73_5da0edce369b", "1c976127-e8a4-4bd6-8e73-5da0edce369b"))
-                }
-                nameLower.contains("azam sport") && nameLower.contains("4") -> {
-                    keys.addAll(listOf("azam_sports_4", "azam_sport_4", "azam_sports_4_hd", "azam_sport_4_hd", "244bcd50_b3bf_4d5e_8419_08cc7bad1a7c", "244bcd50-b3bf-4d5e-8419-08cc7bad1a7c"))
-                }
-                nameLower.contains("azam sport") && nameLower.contains("5") -> {
-                    keys.addAll(listOf("azam_sports_5", "azam_sport_5", "azam_sports_5_hd", "azam_sport_5_hd", "azam_sport_5"))
-                }
-                nameLower.contains("azam one") -> {
-                    keys.addAll(listOf("azam_one", "azam_1", "azam_one_hd", "c405ae74-c4c5-4842-9f26-130ce380b307", "c405ae74_c4c5_4842_9f26_130ce380b307"))
-                }
-                nameLower.contains("azam two") -> {
-                    keys.addAll(listOf("azam_two", "azam_2", "azam_two_hd", "008ffe6e-a30f-4ed1-9ddb-4033dde18576", "008ffe6e_a30f_4ed1_9ddb_4033dde18576"))
-                }
-                nameLower.contains("sinema zetu") -> {
-                    keys.addAll(listOf("sinema_zetu", "sinemazetu", "f56ca8c1-3d3f-4dd2-8d9d-b0b54b559f6e", "f56ca8c1_3d3f_4dd2_8d9d_b0b54b559f6e"))
-                }
-                nameLower.contains("azam xtra") -> {
-                    keys.addAll(listOf("azam_xtra", "azam_extra", "azam_xtra_hd", "azam_xtra_hd_14"))
-                }
-                nameLower.contains("azam movies") -> {
-                    keys.addAll(listOf("azam_movies", "azam_movies_hd", "azam_movies_hd_15"))
-                }
-            }
-        }
-        return keys
-    }
-
     /**
      * Checks whether the Admin has marked this channel as locked for Free Users.
-     * Evaluates:
-     * 1. Lock all channels globally
-     * 2. Lock all Azam TV channels specifically
-     * 3. Individual channel lock by ID or any alias key
      */
     fun isChannelLockedByAdmin(channelId: String): Boolean {
-        if (_areAllChannelsLocked.value) return true
-        if (_areAllAzamChannelsLocked.value && isAzamChannel(channelId)) return true
-        val currentLocked = _lockedChannelIds.value
-        if (currentLocked.contains(channelId)) return true
-        val aliases = getChannelMatchKeys(channelId)
-        return aliases.any { currentLocked.contains(it) }
+        return _areAllChannelsLocked.value || _lockedChannelIds.value.contains(channelId)
     }
 
     /**
@@ -327,49 +235,51 @@ object NeliAdminManager {
         FirebaseGlobalManager.syncLockAllChannelsToCloud(lockAll)
     }
 
-    fun setLockAllAzamChannels(context: Context, lockAllAzam: Boolean) {
-        NeliSubscriptionManager.expireSubscriptionIfNeeded(context)
-        val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        prefs.edit()
-            .putBoolean(KEY_LOCK_ALL_AZAM_CHANNELS, lockAllAzam)
-            .apply()
-        _areAllAzamChannelsLocked.value = lockAllAzam
-
-        // Propagate to all client apps globally via Firebase Realtime Database
-        FirebaseGlobalManager.syncLockAllAzamChannelsToCloud(lockAllAzam)
-    }
-
     fun toggleSingleChannelLock(context: Context, channelId: String) {
-        val currentlyLocked = isChannelLockedByAdmin(channelId)
-        setSingleChannelLock(context, channelId, !currentlyLocked)
-    }
-
-    fun setSingleChannelLock(context: Context, channelId: String, locked: Boolean) {
         NeliSubscriptionManager.expireSubscriptionIfNeeded(context)
         val currentSet = _lockedChannelIds.value.toMutableSet()
-        val matchKeys = getChannelMatchKeys(channelId) + channelId
-
-        if (!locked && _areAllChannelsLocked.value) {
+        val currentlyLocked = _areAllChannelsLocked.value || currentSet.contains(channelId)
+        val newLockedState = !currentlyLocked
+        if (_areAllChannelsLocked.value) {
+            // Populate all current channel IDs first, then remove this one
             currentSet.addAll(ChannelRepository.liveChannelsFlow.value.map { it.id })
-            currentSet.removeAll(matchKeys)
+            currentSet.remove(channelId)
             _areAllChannelsLocked.value = false
             FirebaseGlobalManager.syncLockAllChannelsToCloud(false)
-        } else if (!locked && _areAllAzamChannelsLocked.value && isAzamChannel(channelId)) {
-            val allAzamIds = ChannelRepository.channels.filter { it.isAzamTvChannel }.map { it.id }
-            currentSet.addAll(allAzamIds)
-            currentSet.removeAll(matchKeys)
-            _areAllAzamChannelsLocked.value = false
-            FirebaseGlobalManager.syncLockAllAzamChannelsToCloud(false)
-        } else if (locked) {
-            currentSet.addAll(matchKeys)
+        } else if (currentlyLocked) {
+            currentSet.remove(channelId)
         } else {
-            currentSet.removeAll(matchKeys)
+            currentSet.add(channelId)
         }
 
         val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit()
             .putBoolean(KEY_LOCK_ALL_CHANNELS, _areAllChannelsLocked.value)
-            .putBoolean(KEY_LOCK_ALL_AZAM_CHANNELS, _areAllAzamChannelsLocked.value)
+            .putStringSet(KEY_LOCKED_CHANNEL_IDS, currentSet)
+            .apply()
+        _lockedChannelIds.value = currentSet.toSet()
+
+        // Propagate to all client apps globally in real-time
+        FirebaseGlobalManager.syncSingleChannelLockToCloud(channelId, newLockedState)
+    }
+
+    fun setSingleChannelLock(context: Context, channelId: String, locked: Boolean) {
+        NeliSubscriptionManager.expireSubscriptionIfNeeded(context)
+        val currentSet = _lockedChannelIds.value.toMutableSet()
+        if (!locked && _areAllChannelsLocked.value) {
+            currentSet.addAll(ChannelRepository.liveChannelsFlow.value.map { it.id })
+            currentSet.remove(channelId)
+            _areAllChannelsLocked.value = false
+            FirebaseGlobalManager.syncLockAllChannelsToCloud(false)
+        } else if (locked) {
+            currentSet.add(channelId)
+        } else {
+            currentSet.remove(channelId)
+        }
+
+        val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit()
+            .putBoolean(KEY_LOCK_ALL_CHANNELS, _areAllChannelsLocked.value)
             .putStringSet(KEY_LOCKED_CHANNEL_IDS, currentSet)
             .apply()
         _lockedChannelIds.value = currentSet.toSet()
@@ -608,7 +518,6 @@ object NeliAdminManager {
         context?.applicationContext?.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             ?.edit()?.clear()?.commit()
         _areAllChannelsLocked.value = false
-        _areAllAzamChannelsLocked.value = false
         _lockedChannelIds.value = emptySet()
         _hiddenChannelIds.value = emptySet()
         _customAddedChannels.value = emptyList()

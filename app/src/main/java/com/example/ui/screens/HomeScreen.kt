@@ -143,7 +143,6 @@ fun HomeScreen(
     val isPremiumActive = subState.isActiveNow
     val lockedChannelIds by NeliAdminManager.lockedChannelIds.collectAsState()
     val lockAllForFree by NeliAdminManager.areAllChannelsLocked.collectAsState()
-    val lockAllAzamForFree by NeliAdminManager.areAllAzamChannelsLocked.collectAsState()
 
     var showCastDialog by rememberSaveable { mutableStateOf(false) }
     var lockedChannelToPrompt by remember { mutableStateOf<LiveChannel?>(null) }
@@ -151,7 +150,7 @@ fun HomeScreen(
 
     // Continuously evaluate subscription status & expiry in real time (every 1s) so channels stay unlocked while active,
     // lock immediately when subscription expires, and unlock immediately when payment succeeds.
-    LaunchedEffect(subState.isVerified, subState.expiresAtMs, lockAllForFree, lockAllAzamForFree, lockedChannelIds) {
+    LaunchedEffect(subState.isVerified, subState.expiresAtMs, lockAllForFree, lockedChannelIds) {
         NeliSubscriptionManager.expireSubscriptionIfNeeded(context)
         if (subState.isVerified && subState.expiresAtMs > 0L) {
             lockedChannelToPrompt = null
@@ -1182,10 +1181,9 @@ private fun HomepageLiveChannelCard(
     val context = LocalContext.current
     val lockedChannelIds by NeliAdminManager.lockedChannelIds.collectAsState()
     val lockAllForFree by NeliAdminManager.areAllChannelsLocked.collectAsState()
-    val lockAllAzamForFree by NeliAdminManager.areAllAzamChannelsLocked.collectAsState()
     val subState by NeliSubscriptionManager.subscriptionState.collectAsState()
     val isPremiumActive = subState.isActiveNow
-    val isLockedByAdmin = NeliAdminManager.isChannelLockedByAdmin(channel.id)
+    val isLockedByAdmin = lockAllForFree || lockedChannelIds.contains(channel.id)
     val isLockedForCurrentUser = isLockedByAdmin && !isPremiumActive
 
     val primaryLogoUrl = remember(channel.id, channel.thumbnailUrl) {

@@ -248,9 +248,6 @@ fun PlayerScreen(
     val connectedCastDevice by com.example.player.NeliCastManager.connectedDevice.collectAsState()
     val isCastConnected = connectedCastDevice != null
     val subState by com.example.data.NeliSubscriptionManager.subscriptionState.collectAsState()
-    val lockAllForFree by com.example.data.NeliAdminManager.areAllChannelsLocked.collectAsState()
-    val lockAllAzamForFree by com.example.data.NeliAdminManager.areAllAzamChannelsLocked.collectAsState()
-    val lockedChannelIds by com.example.data.NeliAdminManager.lockedChannelIds.collectAsState()
     var resizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FILL) }
     // Always open every channel or movie in Full Screen Landscape until the user explicitly switches to Portrait mode
     var orientationMode by remember(channel.id) {
@@ -261,17 +258,9 @@ fun PlayerScreen(
     var orientationBadgeTriggerToken by remember { mutableLongStateOf(0L) }
     val activeExoPlayer = remember(playerController) { playerController.initializePlayer() }
 
-    // Real-time subscription expiry and admin lock enforcement while watching a Live TV channel:
-    // As soon as Admin locks this channel or Azam channels, or subscription expires, Free Users are immediately blocked.
-    LaunchedEffect(
-        activeChannel.id,
-        activeChannel.isLiveBroadcast,
-        subState.isVerified,
-        subState.expiresAtMs,
-        lockAllForFree,
-        lockAllAzamForFree,
-        lockedChannelIds
-    ) {
+    // Real-time subscription expiry enforcement while watching a locked Live TV channel:
+    // As soon as the countdown expires (1 day = 24 hours), user reverts to Free User and locked channel closes.
+    LaunchedEffect(activeChannel.id, activeChannel.isLiveBroadcast, subState.isVerified, subState.expiresAtMs) {
         if (activeChannel.isLiveBroadcast) {
             while (true) {
                 val now = System.currentTimeMillis()
