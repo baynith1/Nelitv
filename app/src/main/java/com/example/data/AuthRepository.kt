@@ -286,6 +286,13 @@ object AuthRepository {
                     lastLoginAt = System.currentTimeMillis()
                 )
                 dao.upsertUserAccount(adminAccount)
+                NeliAdminManager.setAdminSessionActive(context, true)
+                NeliSubscriptionManager.switchActiveAccount(
+                    context = context,
+                    uid = adminAccount.uid,
+                    email = adminAccount.email,
+                    realName = adminAccount.realName
+                )
                 return@withContext Result.success(adminAccount)
             } else {
                 return@withContext Result.failure(

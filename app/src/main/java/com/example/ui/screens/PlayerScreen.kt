@@ -1181,7 +1181,11 @@ fun PlayerScreen(
                                                 modifier = Modifier.size(32.dp)
                                             )
                                             Text(
-                                                text = state.userFriendlyMessage,
+                                                text = if (state.userFriendlyMessage.isNotBlank()) {
+                                                    state.userFriendlyMessage
+                                                } else {
+                                                    "Kuna shida ya mtandao kwa sasa jaribu tena baadae"
+                                                },
                                                 color = Color.White,
                                                 fontSize = 14.sp,
                                                 fontWeight = FontWeight.Bold,

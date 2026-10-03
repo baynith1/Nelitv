@@ -484,7 +484,7 @@ fun PremiumTabContent(
                             )
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                horizontalArrangement = Arrangement.spacedBy(if (screenProfile.isSmallPhone) 4.dp else 8.dp)
                             ) {
                                 val units = listOf(
                                     "SIKU" to countdownBreakdown.days.toString(),
@@ -499,19 +499,19 @@ fun PremiumTabContent(
                                             .clip(RoundedCornerShape(10.dp))
                                             .background(Color(0xFF1E293B))
                                             .border(1.dp, Color(0x4400E5FF), RoundedCornerShape(10.dp))
-                                            .padding(vertical = 8.dp),
+                                            .padding(vertical = if (screenProfile.isSmallPhone) 6.dp else 8.dp),
                                         horizontalAlignment = Alignment.CenterHorizontally
                                     ) {
                                         Text(
                                             text = value,
                                             color = Color(0xFFFBBF24),
-                                            fontSize = 18.sp,
+                                            fontSize = if (screenProfile.isSmallPhone) 14.sp else 18.sp,
                                             fontWeight = FontWeight.Black
                                         )
                                         Text(
                                             text = label,
                                             color = NeliTextSecondary,
-                                            fontSize = 9.sp,
+                                            fontSize = if (screenProfile.isSmallPhone) 8.sp else 9.sp,
                                             fontWeight = FontWeight.Bold
                                         )
                                     }
@@ -622,34 +622,36 @@ fun PremiumTabContent(
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(16.dp),
+                                        .padding(if (screenProfile.isSmallPhone) 12.dp else 16.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
                                     Column(
                                         modifier = Modifier.weight(1f),
-                                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                                        verticalArrangement = Arrangement.spacedBy(3.dp)
                                     ) {
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                                         ) {
                                             Text(
                                                 text = plan.titleSwahili,
                                                 color = NeliTextPrimary,
-                                                fontSize = 17.sp,
-                                                fontWeight = FontWeight.Black
+                                                fontSize = if (screenProfile.isSmallPhone) 15.sp else 17.sp,
+                                                fontWeight = FontWeight.Black,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
                                             )
                                             Box(
                                                 modifier = Modifier
                                                     .clip(RoundedCornerShape(6.dp))
                                                     .background(NeliSurfaceVariant)
-                                                    .padding(horizontal = 8.dp, vertical = 2.dp)
+                                                    .padding(horizontal = 6.dp, vertical = 2.dp)
                                             ) {
                                                 Text(
                                                     text = plan.badgeText,
                                                     color = NeliGenreCyan,
-                                                    fontSize = 10.sp,
+                                                    fontSize = 9.sp,
                                                     fontWeight = FontWeight.Bold
                                                 )
                                             }
@@ -657,7 +659,9 @@ fun PremiumTabContent(
                                         Text(
                                             text = plan.subtitleSwahili,
                                             color = NeliTextSecondary,
-                                            fontSize = 12.sp
+                                            fontSize = if (screenProfile.isSmallPhone) 11.sp else 12.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
                                         )
                                     }
 
@@ -665,13 +669,13 @@ fun PremiumTabContent(
                                         Text(
                                             text = plan.priceFormatted,
                                             color = if (isSelected) NeliMagenta else Color(0xFFFBBF24),
-                                            fontSize = 18.sp,
+                                            fontSize = if (screenProfile.isSmallPhone) 15.sp else 18.sp,
                                             fontWeight = FontWeight.Black
                                         )
                                         Text(
                                             text = if (isSelected) "Imechaguliwa ✓" else "Gusa kuchagua",
                                             color = if (isSelected) Color(0xFF34D399) else NeliTextSecondary,
-                                            fontSize = 11.sp,
+                                            fontSize = if (screenProfile.isSmallPhone) 10.sp else 11.sp,
                                             fontWeight = FontWeight.SemiBold
                                         )
                                     }
@@ -699,13 +703,15 @@ fun PremiumTabContent(
                         ) {
                             Text(
                                 text = if (isPremiumActive) {
-                                    "Ongeza Muda Mbele (+${selectedPlan.durationLabel} • ${selectedPlan.priceFormatted})"
+                                    "Ongeza Muda (+${selectedPlan.durationLabel} • ${selectedPlan.priceFormatted})"
                                 } else {
                                     "Endelea (${selectedPlan.titleSwahili} • ${selectedPlan.priceFormatted})"
                                 },
                                 color = Color.White,
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.ExtraBold
+                                fontSize = if (screenProfile.isSmallPhone) 13.sp else 15.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }

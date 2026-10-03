@@ -581,6 +581,15 @@ object NeliSubscriptionManager {
         if (!accountState.isVerified) {
             ioScope.launch {
                 try {
+                    // 1. Check Firebase Realtime Database first (restores subscription even after cache clearing or on new device)
+                    val cloudSub = FirebaseGlobalManager.restoreUserSubscriptionFromCloud(context, cleanEmail, uid)
+                    if (cloudSub != null && cloudSub.isVerified && cloudSub.expiresAtMs > System.currentTimeMillis()) {
+                        saveAccountSubscriptionToPrefs(context, cleanEmail, cloudSub)
+                        _subscriptionState.value = cloudSub
+                        return@launch
+                    }
+
+                    // 2. Check local database
                     val dao = NeliDatabase.getInstance(context).mediaDao()
                     val existingSub = dao.getDeviceSubscriptionByUserEmail(cleanEmail)
                     val now = System.currentTimeMillis()
@@ -600,10 +609,15 @@ object NeliSubscriptionManager {
                         if (_subscriptionState.value.linkedUserEmail.equals(cleanEmail, ignoreCase = true)) {
                             _subscriptionState.value = restored
                         }
+                        // Also backup to Firebase
+                        FirebaseGlobalManager.syncUserSubscriptionToCloud(restored)
                     }
                 } catch (_: Throwable) {
                 }
             }
+        } else {
+            // Already verified locally -> ensure synced to Firebase Realtime Database
+            FirebaseGlobalManager.syncUserSubscriptionToCloud(accountState)
         }
         return accountState
     }
@@ -814,6 +828,9 @@ object NeliSubscriptionManager {
             userEmail = newState.linkedUserEmail
         )
 
+        // Sync subscription details to Firebase Realtime Database
+        FirebaseGlobalManager.syncUserSubscriptionToCloud(newState)
+
         ioScope.launch {
             try {
                 val dao = NeliDatabase.getInstance(context).mediaDao()
@@ -878,6 +895,7 @@ object NeliSubscriptionManager {
         if (context != null) {
             if (updated.isVerified && cleanEmail.isNotBlank()) {
                 saveAccountSubscriptionToPrefs(context, cleanEmail, updated)
+                FirebaseGlobalManager.syncUserSubscriptionToCloud(updated)
             }
             val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             prefs.edit()
@@ -896,7 +914,26 @@ object NeliSubscriptionManager {
                     val dao = NeliDatabase.getInstance(context).mediaDao()
                     if (updated.isVerified) {
                         saveRealSubscriptionDataByDeviceIp(dao, updated)
+                        FirebaseGlobalManager.syncUserSubscriptionToCloud(updated)
                     } else if (cleanEmail.isNotBlank()) {
+                        // Check Firebase Realtime Database first
+                        val cloudSub = FirebaseGlobalManager.restoreUserSubscriptionFromCloud(context, cleanEmail, uid)
+                        if (cloudSub != null && cloudSub.isVerified && cloudSub.expiresAtMs > System.currentTimeMillis()) {
+                            saveAccountSubscriptionToPrefs(context, cleanEmail, cloudSub)
+                            _subscriptionState.value = cloudSub
+                            prefs.edit()
+                                .putBoolean(KEY_IS_VERIFIED, true)
+                                .putString(KEY_PLAN_ID, cloudSub.planId)
+                                .putString(KEY_PLAN_TITLE, cloudSub.planTitle)
+                                .putInt(KEY_AMOUNT_TZS, cloudSub.amountTzs)
+                                .putString(KEY_PHONE, cloudSub.phoneNumber)
+                                .putString(KEY_ORDER_ID, cloudSub.orderId)
+                                .putLong(KEY_ACTIVATED_AT, cloudSub.activatedAtMs)
+                                .putLong(KEY_EXPIRES_AT, cloudSub.expiresAtMs)
+                                .apply()
+                            return@launch
+                        }
+
                         val existingSub = dao.getDeviceSubscriptionByUserEmail(cleanEmail)
                         val now = System.currentTimeMillis()
                         if (existingSub != null && existingSub.isVerified && existingSub.expiresAtMs > now) {
@@ -923,6 +960,7 @@ object NeliSubscriptionManager {
                                 .putLong(KEY_ACTIVATED_AT, restored.activatedAtMs)
                                 .putLong(KEY_EXPIRES_AT, restored.expiresAtMs)
                                 .apply()
+                            FirebaseGlobalManager.syncUserSubscriptionToCloud(restored)
                         }
                     }
                 } catch (_: Throwable) {
