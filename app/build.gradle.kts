@@ -119,7 +119,6 @@ dependencies {
 
   // Uncomment ALL FOUR of the following dependencies together to use Firebase Auth and Google
   // Sign-In via Credential Manager:
-  implementation(libs.firebase.database)
   implementation(libs.firebase.auth)
   implementation(libs.androidx.credentials)
   implementation(libs.androidx.credentials.play.services)
@@ -167,7 +166,7 @@ tasks.matching { it.name.startsWith("ksp") }.configureEach {
       }
       if (prev != null) {
         prev.uncaughtException(thread, throwable)
-      } else if (throwable.javaClass.name != "java.lang.ThreadDeath") {
+      } else if (throwable !is ThreadDeath) {
         System.err.print("Exception in thread \"${thread.name}\" ")
         throwable.printStackTrace(System.err)
       }

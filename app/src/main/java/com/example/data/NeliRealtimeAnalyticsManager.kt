@@ -415,7 +415,6 @@ object NeliRealtimeAnalyticsManager {
         val now = System.currentTimeMillis()
 
         NeliFreeForeverAccountsManager.initialize(appCtx)
-        NeliSubscriptionManager.expireSubscriptionIfNeeded(appCtx, now)
         fetchRealIpGeolocationIfNeeded(appCtx)
 
         val firstSeenMs = prefs.getLong(KEY_FIRST_SEEN_MS, 0L).let { saved ->

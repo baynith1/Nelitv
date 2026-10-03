@@ -20,29 +20,11 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-data class CountdownBreakdown(
-    val days: Long,
-    val hours: Long,
-    val minutes: Long,
-    val seconds: Long,
-    val totalRemainingMillis: Long
-) {
-    val totalHours: Long
-        get() = totalRemainingMillis / (1000L * 60L * 60L)
-
-    val totalDaysCeiling: Long
-        get() = if (totalRemainingMillis <= 0L) {
-            0L
-        } else {
-            (totalRemainingMillis + SubscriptionPlanType.ONE_DAY_MILLIS - 1L) / SubscriptionPlanType.ONE_DAY_MILLIS
-        }
-}
-
 /**
- * Subscription plans available in the Premium tab (1 Day = 24 Hours):
- * - Kwa Siku Mbili: 1,000 TSh (2 days = 48 hours)
- * - Kwa Wiki: 3,500 TSh (7 days = 168 hours)
- * - Kwa Mwezi: 15,000 TSh (30 days = 720 hours)
+ * Subscription plans available in the Premium tab:
+ * - Kwa Siku Mbili: 1,000 TSh (48 hours / 2 days)
+ * - Kwa Wiki: 3,500 TSh (7 days)
+ * - Kwa Mwezi: 15,000 TSh (30 days)
  */
 enum class SubscriptionPlanType(
     val id: String,
@@ -50,7 +32,6 @@ enum class SubscriptionPlanType(
     val subtitleSwahili: String,
     val amountTzs: Int,
     val priceFormatted: String,
-    val daysCount: Int,
     val durationMillis: Long,
     val durationLabel: String,
     val badgeText: String
@@ -58,10 +39,9 @@ enum class SubscriptionPlanType(
     DAILY(
         id = "TWO_DAYS_1000",
         titleSwahili = "Kwa Siku Mbili",
-        subtitleSwahili = "Fungua channel zote za VIP kwa siku 2 kamili (saa 48)",
+        subtitleSwahili = "Fungua channel zote za VIP kwa siku 2 (saa 48)",
         amountTzs = 1000,
         priceFormatted = "1,000 TSh",
-        daysCount = 2,
         durationMillis = 2L * 24L * 60L * 60L * 1000L,
         durationLabel = "Siku 2 (Saa 48)",
         badgeText = "MAARUFU KWA SIKU 2"
@@ -69,10 +49,9 @@ enum class SubscriptionPlanType(
     WEEKLY(
         id = "WEEKLY_3500",
         titleSwahili = "Kwa Wiki",
-        subtitleSwahili = "Fungua channel zote za VIP kwa siku 7 kamili (saa 168)",
+        subtitleSwahili = "Fungua channel zote za VIP kwa siku 7 mfululizo",
         amountTzs = 3500,
         priceFormatted = "3,500 TSh",
-        daysCount = 7,
         durationMillis = 7L * 24L * 60L * 60L * 1000L,
         durationLabel = "Wiki 1 (Siku 7)",
         badgeText = "OFA BORA YA WIKI"
@@ -80,18 +59,15 @@ enum class SubscriptionPlanType(
     MONTHLY(
         id = "MONTHLY_15000",
         titleSwahili = "Kwa Mwezi",
-        subtitleSwahili = "Fungua channel zote za VIP kwa siku 30 kamili (saa 720)",
+        subtitleSwahili = "Fungua channel zote za VIP kwa siku 30 bila kikomo",
         amountTzs = 15000,
         priceFormatted = "15,000 TSh",
-        daysCount = 30,
         durationMillis = 30L * 24L * 60L * 60L * 1000L,
         durationLabel = "Mwezi 1 (Siku 30)",
         badgeText = "VIP FULL ACCESS"
     );
 
     companion object {
-        const val ONE_HOUR_MILLIS: Long = 60L * 60L * 1000L
-        const val ONE_DAY_MILLIS: Long = 24L * ONE_HOUR_MILLIS
         val TWO_DAYS: SubscriptionPlanType get() = DAILY
     }
 }
@@ -120,35 +96,10 @@ data class PremiumSubscriptionState(
         get() = NeliFreeForeverAccountsManager.isFreeForeverEmail(linkedUserEmail) || planId == "free_forever"
 
     val isActiveNow: Boolean
-        get() = isActiveAt(System.currentTimeMillis())
-
-    fun isActiveAt(nowMs: Long): Boolean {
-        return isFreeForeverAccount || (isVerified && expiresAtMs > nowMs)
-    }
+        get() = isFreeForeverAccount || (isVerified && expiresAtMs > System.currentTimeMillis())
 
     val isLinkedToUserAccount: Boolean
         get() = linkedUserEmail.isNotBlank() || linkedUserUid.isNotBlank()
-
-    val totalPackageHours: Long
-        get() = if (expiresAtMs > activatedAtMs && activatedAtMs > 0L) {
-            (expiresAtMs - activatedAtMs) / SubscriptionPlanType.ONE_HOUR_MILLIS
-        } else {
-            0L
-        }
-
-    val totalPackageDays: Int
-        get() = (totalPackageHours / 24L).toInt()
-
-    val formattedActivationDate: String
-        get() {
-            if (activatedAtMs <= 0L) return ""
-            return try {
-                val sdf = SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault())
-                sdf.format(Date(activatedAtMs))
-            } catch (_: Exception) {
-                ""
-            }
-        }
 
     val formattedExpiryDate: String
         get() {
@@ -162,58 +113,21 @@ data class PremiumSubscriptionState(
             }
         }
 
-    fun remainingBreakdown(nowMs: Long = System.currentTimeMillis()): CountdownBreakdown {
-        if (isFreeForeverAccount) {
-            return CountdownBreakdown(
-                days = 999L,
-                hours = 23L,
-                minutes = 59L,
-                seconds = 59L,
-                totalRemainingMillis = 3_153_600_000_000L
-            )
-        }
-        val remainingMs = (expiresAtMs - nowMs).coerceAtLeast(0L)
-        val totalSeconds = remainingMs / 1000L
-        val days = totalSeconds / (24L * 3600L)
-        val hours = (totalSeconds % (24L * 3600L)) / 3600L
-        val minutes = (totalSeconds % 3600L) / 60L
-        val seconds = totalSeconds % 60L
-        return CountdownBreakdown(
-            days = days,
-            hours = hours,
-            minutes = minutes,
-            seconds = seconds,
-            totalRemainingMillis = remainingMs
-        )
-    }
-
-    fun formatLiveCountdown(nowMs: Long = System.currentTimeMillis()): String {
-        if (isFreeForeverAccount) return "Bure Milele (∞)"
-        val b = remainingBreakdown(nowMs)
-        if (b.totalRemainingMillis <= 0L) return "Imeisha Muda (Free User)"
-        return String.format(
-            Locale.US,
-            "Siku %d : Saa %02d : Dak %02d : Sek %02d",
-            b.days,
-            b.hours,
-            b.minutes,
-            b.seconds
-        )
-    }
-
     val remainingDaysOrHoursLabel: String
-        get() = formatRemainingLabelAt(System.currentTimeMillis())
-
-    fun formatRemainingLabelAt(nowMs: Long = System.currentTimeMillis()): String {
-        if (isFreeForeverAccount) return "Bure Milele (Free Forever • Max Vifaa 2)"
-        val b = remainingBreakdown(nowMs)
-        if (b.totalRemainingMillis <= 0L) return "Imeisha muda (Free User)"
-        return when {
-            b.days > 0 -> "Siku ${b.days}, Saa ${b.hours}, Dakika ${b.minutes} na Sekunde ${b.seconds} zimebaki"
-            b.hours > 0 -> "Saa ${b.hours}, Dakika ${b.minutes} na Sekunde ${b.seconds} zimebaki"
-            else -> "Dakika ${b.minutes} na Sekunde ${b.seconds.coerceAtLeast(1)} zimebaki"
+        get() {
+            if (isFreeForeverAccount) return "Bure Milele (Free Forever • Max Vifaa 2)"
+            val remainingMs = (expiresAtMs - System.currentTimeMillis()).coerceAtLeast(0L)
+            if (remainingMs == 0L) return "Imeisha muda"
+            val totalHours = remainingMs / (1000L * 60L * 60L)
+            val days = totalHours / 24L
+            val hours = totalHours % 24L
+            val minutes = (remainingMs / (1000L * 60L)) % 60L
+            return when {
+                days > 0 -> "Siku $days na Saa $hours zimebaki"
+                hours > 0 -> "Saa $hours na Dakika $minutes zimebaki"
+                else -> "Dakika ${minutes.coerceAtLeast(1)} zimebaki"
+            }
         }
-    }
 }
 
 /**
@@ -581,15 +495,6 @@ object NeliSubscriptionManager {
         if (!accountState.isVerified) {
             ioScope.launch {
                 try {
-                    // 1. Check Firebase Realtime Database first (restores subscription even after cache clearing or on new device)
-                    val cloudSub = FirebaseGlobalManager.restoreUserSubscriptionFromCloud(context, cleanEmail, uid)
-                    if (cloudSub != null && cloudSub.isVerified && cloudSub.expiresAtMs > System.currentTimeMillis()) {
-                        saveAccountSubscriptionToPrefs(context, cleanEmail, cloudSub)
-                        _subscriptionState.value = cloudSub
-                        return@launch
-                    }
-
-                    // 2. Check local database
                     val dao = NeliDatabase.getInstance(context).mediaDao()
                     val existingSub = dao.getDeviceSubscriptionByUserEmail(cleanEmail)
                     val now = System.currentTimeMillis()
@@ -609,15 +514,10 @@ object NeliSubscriptionManager {
                         if (_subscriptionState.value.linkedUserEmail.equals(cleanEmail, ignoreCase = true)) {
                             _subscriptionState.value = restored
                         }
-                        // Also backup to Firebase
-                        FirebaseGlobalManager.syncUserSubscriptionToCloud(restored)
                     }
                 } catch (_: Throwable) {
                 }
             }
-        } else {
-            // Already verified locally -> ensure synced to Firebase Realtime Database
-            FirebaseGlobalManager.syncUserSubscriptionToCloud(accountState)
         }
         return accountState
     }
@@ -653,38 +553,16 @@ object NeliSubscriptionManager {
             return true
         }
         if (current.isVerified && current.expiresAtMs <= nowMs) {
-            val expiredState = current.copy(
+            _subscriptionState.value = current.copy(
                 isVerified = false,
-                planId = "",
-                planTitle = "",
-                amountTzs = 0,
-                activatedAtMs = 0L,
                 expiresAtMs = 0L,
                 requiresPostPaymentAuth = false
             )
-            _subscriptionState.value = expiredState
-            if (context != null) {
-                val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                val editor = prefs.edit()
-                    .putBoolean(KEY_IS_VERIFIED, false)
-                    .putLong(KEY_EXPIRES_AT, 0L)
-                    .putBoolean(KEY_REQUIRES_POST_PAYMENT_AUTH, false)
-                if (current.linkedUserEmail.isNotBlank()) {
-                    val prefix = accountKeyPrefix(current.linkedUserEmail)
-                    editor.putBoolean(prefix + KEY_IS_VERIFIED, false)
-                        .putLong(prefix + KEY_EXPIRES_AT, 0L)
-                }
-                editor.apply()
-                val appCtx = context.applicationContext
-                ioScope.launch {
-                    try {
-                        val dao = NeliDatabase.getInstance(appCtx).mediaDao()
-                        saveRealSubscriptionDataByDeviceIp(dao, expiredState)
-                        NeliRealtimeAnalyticsManager.refreshRealtimeSnapshot(appCtx, syncCloud = false)
-                    } catch (_: Throwable) {
-                    }
-                }
-            }
+            context?.applicationContext?.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                ?.edit()
+                ?.putBoolean(KEY_IS_VERIFIED, false)
+                ?.putBoolean(KEY_REQUIRES_POST_PAYMENT_AUTH, false)
+                ?.apply()
             return false
         }
         return current.isVerified && current.expiresAtMs > nowMs
@@ -747,32 +625,26 @@ object NeliSubscriptionManager {
     }
 
     /**
-     * Activates or extends Premium Membership ONLY after HarakaPay verifies `payment.status == "completed"`.
-     * - 1 Day = 24 Hours (`86,400,000 ms`).
-     * - If the user already has an active package (`current.isVerified && current.expiresAtMs > nowMs`),
-     *   the new package's duration is added directly onto `current.expiresAtMs` so the days accumulate
-     *   forward (e.g., 2 days paid in the morning + 2 days paid in the afternoon = 4 full days total).
-     * - Once `nowMs >= expiresAtMs`, the user automatically reverts to a Free User.
+     * Activates Premium Membership ONLY after HarakaPay verifies `payment.status == "completed"`.
+     * Saves real payment data bound to the user's automatic Device IP (`deviceIpAddress`) and
+     * Device ID (`deviceId`) so even users who have not logged in or signed up keep their
+     * verified Premium Member status and real data.
+     * Also flags `requiresPostPaymentAuth = true` if the user has not yet linked an account so
+     * they can log in or sign up to sync their subscription across other devices and Cast sessions.
      */
     fun activateVerifiedSubscription(
         context: Context,
         plan: SubscriptionPlanType,
         phone: String,
-        verifiedOrderId: String,
-        nowMs: Long = System.currentTimeMillis()
+        verifiedOrderId: String
     ): PremiumSubscriptionState {
+        val now = System.currentTimeMillis()
         val current = _subscriptionState.value
         val detectedIp = resolveDeviceIpAddress(context)
         val deviceId = resolveDeviceIdentityId(context)
-        val isExtendingActive = current.isVerified && !current.isFreeForeverAccount && current.expiresAtMs > nowMs
-        // If user already had active time remaining, extend from current expiry; otherwise start from nowMs
-        val baseStart = if (isExtendingActive) current.expiresAtMs else nowMs
+        // If user already had active time remaining, extend from current expiry; otherwise from now
+        val baseStart = if (current.isActiveNow && current.expiresAtMs > now) current.expiresAtMs else now
         val newExpiresAt = baseStart + plan.durationMillis
-        val effectiveActivatedAt = if (isExtendingActive && current.activatedAtMs > 0L) {
-            current.activatedAtMs
-        } else {
-            nowMs
-        }
 
         val needsPostPaymentAuth = current.linkedUserEmail.isBlank() && current.linkedUserUid.isBlank()
 
@@ -786,7 +658,7 @@ object NeliSubscriptionManager {
             .putString(KEY_ORDER_ID, verifiedOrderId)
             .putString(KEY_DEVICE_IP, detectedIp)
             .putString(KEY_DEVICE_ID, deviceId)
-            .putLong(KEY_ACTIVATED_AT, effectiveActivatedAt)
+            .putLong(KEY_ACTIVATED_AT, now)
             .putLong(KEY_EXPIRES_AT, newExpiresAt)
             .putBoolean(KEY_REQUIRES_POST_PAYMENT_AUTH, needsPostPaymentAuth)
             .remove(KEY_PENDING_ORDER_ID)
@@ -804,7 +676,7 @@ object NeliSubscriptionManager {
             orderId = verifiedOrderId,
             deviceIpAddress = detectedIp,
             deviceId = deviceId,
-            activatedAtMs = effectiveActivatedAt,
+            activatedAtMs = now,
             expiresAtMs = newExpiresAt,
             linkedUserUid = current.linkedUserUid,
             linkedUserEmail = current.linkedUserEmail,
@@ -827,9 +699,6 @@ object NeliSubscriptionManager {
             status = "COMPLETED",
             userEmail = newState.linkedUserEmail
         )
-
-        // Sync subscription details to Firebase Realtime Database
-        FirebaseGlobalManager.syncUserSubscriptionToCloud(newState)
 
         ioScope.launch {
             try {
@@ -895,7 +764,6 @@ object NeliSubscriptionManager {
         if (context != null) {
             if (updated.isVerified && cleanEmail.isNotBlank()) {
                 saveAccountSubscriptionToPrefs(context, cleanEmail, updated)
-                FirebaseGlobalManager.syncUserSubscriptionToCloud(updated)
             }
             val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             prefs.edit()
@@ -914,26 +782,7 @@ object NeliSubscriptionManager {
                     val dao = NeliDatabase.getInstance(context).mediaDao()
                     if (updated.isVerified) {
                         saveRealSubscriptionDataByDeviceIp(dao, updated)
-                        FirebaseGlobalManager.syncUserSubscriptionToCloud(updated)
                     } else if (cleanEmail.isNotBlank()) {
-                        // Check Firebase Realtime Database first
-                        val cloudSub = FirebaseGlobalManager.restoreUserSubscriptionFromCloud(context, cleanEmail, uid)
-                        if (cloudSub != null && cloudSub.isVerified && cloudSub.expiresAtMs > System.currentTimeMillis()) {
-                            saveAccountSubscriptionToPrefs(context, cleanEmail, cloudSub)
-                            _subscriptionState.value = cloudSub
-                            prefs.edit()
-                                .putBoolean(KEY_IS_VERIFIED, true)
-                                .putString(KEY_PLAN_ID, cloudSub.planId)
-                                .putString(KEY_PLAN_TITLE, cloudSub.planTitle)
-                                .putInt(KEY_AMOUNT_TZS, cloudSub.amountTzs)
-                                .putString(KEY_PHONE, cloudSub.phoneNumber)
-                                .putString(KEY_ORDER_ID, cloudSub.orderId)
-                                .putLong(KEY_ACTIVATED_AT, cloudSub.activatedAtMs)
-                                .putLong(KEY_EXPIRES_AT, cloudSub.expiresAtMs)
-                                .apply()
-                            return@launch
-                        }
-
                         val existingSub = dao.getDeviceSubscriptionByUserEmail(cleanEmail)
                         val now = System.currentTimeMillis()
                         if (existingSub != null && existingSub.isVerified && existingSub.expiresAtMs > now) {
@@ -960,7 +809,6 @@ object NeliSubscriptionManager {
                                 .putLong(KEY_ACTIVATED_AT, restored.activatedAtMs)
                                 .putLong(KEY_EXPIRES_AT, restored.expiresAtMs)
                                 .apply()
-                            FirebaseGlobalManager.syncUserSubscriptionToCloud(restored)
                         }
                     }
                 } catch (_: Throwable) {

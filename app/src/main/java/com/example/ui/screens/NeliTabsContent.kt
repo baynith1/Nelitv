@@ -2151,21 +2151,13 @@ fun AccountTabContent(
     val isCurrentUserAdmin = NeliAdminManager.isAdminUser(currentUser)
     val isFreeForeverVipUser = com.example.data.NeliFreeForeverAccountsManager.isFreeForeverUser(currentUser)
     val subState by NeliSubscriptionManager.subscriptionState.collectAsState()
-    var accountCurrentTimeMs by remember { androidx.compose.runtime.mutableLongStateOf(System.currentTimeMillis()) }
-    val isVerifiedPremiumMember = subState.isActiveAt(accountCurrentTimeMs) || isFreeForeverVipUser
+    val isVerifiedPremiumMember = subState.isActiveNow || isFreeForeverVipUser
 
-    // Auto-Ready Device IP & real-time 1-second subscription countdown / expiry check
-    LaunchedEffect(subState.isVerified, subState.expiresAtMs) {
+    // Auto-Ready Device IP & subscription status check kept silently in the background
+    LaunchedEffect(Unit) {
         com.example.data.NeliFreeForeverAccountsManager.initialize(accountContext)
         NeliSubscriptionManager.refreshDeviceIp(accountContext)
-        while (true) {
-            val now = System.currentTimeMillis()
-            accountCurrentTimeMs = now
-            if (subState.isVerified && !subState.isFreeForeverAccount && subState.expiresAtMs in 1..now) {
-                NeliSubscriptionManager.expireSubscriptionIfNeeded(accountContext, now)
-            }
-            kotlinx.coroutines.delay(1000L)
-        }
+        NeliSubscriptionManager.expireSubscriptionIfNeeded(accountContext)
     }
 
     if (isFullAdminDashboardOpen && isCurrentUserAdmin) {
@@ -2308,12 +2300,11 @@ fun AccountTabContent(
                             Text(
                                 text = when {
                                     isFreeForeverVipUser -> "Free Forever VIP • Channels Zote Wazi Milele (Max 2 Devices)"
-                                    isVerifiedPremiumMember -> "Muda Uliobaki: ${subState.formatLiveCountdown(accountCurrentTimeMs)}"
-                                    else -> "Free User • Account Synced"
+                                    isVerifiedPremiumMember -> "Verified Premium Member ✓ • Azam TV Live Streaming"
+                                    else -> "Account Synced • Azam TV Live Streaming"
                                 },
-                                color = if (isVerifiedPremiumMember) Color(0xFF34D399) else NeliTextSecondary,
-                                fontSize = 11.sp,
-                                fontWeight = if (isVerifiedPremiumMember) FontWeight.Bold else FontWeight.Normal
+                                color = NeliTextSecondary,
+                                fontSize = 11.sp
                             )
                         }
                     }

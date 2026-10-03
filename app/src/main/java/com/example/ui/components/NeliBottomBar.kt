@@ -47,8 +47,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.text.style.TextOverflow
-import com.example.ui.theme.rememberNeliScreenProfile
 import com.example.ui.theme.NeliBackground
 import com.example.ui.theme.NeliBorder
 import com.example.ui.theme.NeliGenreCyan
@@ -81,7 +79,6 @@ fun NeliBottomBar(
     modifier: Modifier = Modifier
 ) {
     val isLightMode = NeliThemeManager.isLightMode
-    val screenProfile = rememberNeliScreenProfile()
     val barBgColor = if (isLightMode) Color(0xFFFFFFFF) else Color(0xFF0F0F0F)
     val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val safeBottomPadding = if (navBarBottom < 8.dp) 8.dp else navBarBottom
@@ -110,7 +107,7 @@ fun NeliBottomBar(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 2.dp, vertical = 6.dp),
+                    .padding(horizontal = 4.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.SpaceAround,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -123,14 +120,10 @@ fun NeliBottomBar(
 
                     Column(
                         modifier = Modifier
-                            .weight(1f)
                             .testTag(tab.tag)
                             .clip(RoundedCornerShape(12.dp))
                             .clickable { onTabSelected(tab) }
-                            .padding(
-                                horizontal = screenProfile.bottomBarHorizontalItemPadding,
-                                vertical = 4.dp
-                            ),
+                            .padding(horizontal = 12.dp, vertical = 4.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center
                     ) {
@@ -141,13 +134,13 @@ fun NeliBottomBar(
                                 imageVector = if (isSelected) tab.selectedIcon else tab.unselectedIcon,
                                 contentDescription = tab.label,
                                 tint = tintColor,
-                                modifier = Modifier.size(screenProfile.bottomBarIconSize)
+                                modifier = Modifier.size(24.dp)
                             )
                             if (tab == BottomNavTab.DOWNLOAD && activeDownloadCount > 0) {
                                 Box(
                                     modifier = Modifier
                                         .align(Alignment.TopEnd)
-                                        .size(7.dp)
+                                        .size(8.dp)
                                         .clip(RoundedCornerShape(4.dp))
                                         .background(Color(0xFFFF0033))
                                 )
@@ -157,10 +150,8 @@ fun NeliBottomBar(
                         Text(
                             text = tab.label,
                             color = tintColor,
-                            fontSize = screenProfile.bottomBarFontSize,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            fontSize = 10.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
                         )
                     }
                 }

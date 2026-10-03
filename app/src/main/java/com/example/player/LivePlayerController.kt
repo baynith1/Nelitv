@@ -2286,7 +2286,38 @@ class LivePlayerController(
     }
 
     private fun mapPlaybackError(error: PlaybackException): String {
-        return "Kuna shida ya mtandao kwa sasa jaribu tena baadae"
+        val httpCode = extractHttpErrorCode(error)
+        val message = error.message ?: ""
+        val causeMsg = error.cause?.message ?: ""
+
+        if (channel.isLiveBroadcast ||
+            httpCode == 401 || httpCode == 403 ||
+            error.errorCode in listOf(
+                PlaybackException.ERROR_CODE_DRM_LICENSE_ACQUISITION_FAILED,
+                PlaybackException.ERROR_CODE_DRM_PROVISIONING_FAILED,
+                PlaybackException.ERROR_CODE_DRM_SYSTEM_ERROR,
+                PlaybackException.ERROR_CODE_DRM_DEVICE_REVOKED,
+                PlaybackException.ERROR_CODE_DRM_LICENSE_EXPIRED,
+                PlaybackException.ERROR_CODE_DRM_UNSPECIFIED
+            ) || message.contains("drm", ignoreCase = true) || causeMsg.contains("drm", ignoreCase = true)
+        ) {
+            return "Tafadhari badilisha mtandao unaotumia au wifi inaonekana ina low quality"
+        }
+
+        if (httpCode == 404 || httpCode == 410) {
+            return "Stream unavailable"
+        }
+
+        if (error.errorCode in listOf(
+                PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
+                PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT,
+                PlaybackException.ERROR_CODE_IO_UNSPECIFIED
+            ) || message.contains("timeout", ignoreCase = true) || causeMsg.contains("timeout", ignoreCase = true)
+        ) {
+            return "Tafadhari badilisha mtandao unaotumia au wifi inaonekana ina low quality"
+        }
+
+        return "Tafadhari badilisha mtandao unaotumia au wifi inaonekana ina low quality"
     }
 
     private class LiveStreamLoadErrorHandlingPolicy : DefaultLoadErrorHandlingPolicy() {

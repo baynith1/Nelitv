@@ -234,7 +234,11 @@ object NeliAppUpdateManager {
     }
 
     fun triggerHomepageUpdatePopupForNewRelease(versionTag: String = _releaseInfo.value.versionTag) {
-        _showHomepageUpdatePopup.value = true
+        if (dismissedPopupTagInSession == null ||
+            !dismissedPopupTagInSession.equals(versionTag.trim(), ignoreCase = true)
+        ) {
+            _showHomepageUpdatePopup.value = true
+        }
     }
 
     /**

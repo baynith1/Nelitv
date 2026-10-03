@@ -117,69 +117,6 @@ object NeliAdminManager {
         if (parsedCustom.isNotEmpty() || savedHidden.isNotEmpty()) {
             ChannelRepository.refreshLiveChannels()
         }
-
-        // Initialize Firebase Realtime Database Global Channel State listener
-        FirebaseGlobalManager.initialize(context)
-    }
-
-    /**
-     * Applies global state received from Firebase Realtime Database across all client devices.
-     */
-    fun applyCloudState(
-        context: Context,
-        lockAll: Boolean,
-        lockedIds: Set<String>,
-        hiddenIds: Set<String>,
-        customChannels: List<LiveChannel>,
-        smsId: String,
-        smsText: String,
-        smsCreatedAtMs: Long,
-        smsPlacementKey: String
-    ) {
-        _areAllChannelsLocked.value = lockAll
-        _lockedChannelIds.value = lockedIds
-        _hiddenChannelIds.value = hiddenIds
-        if (customChannels.isNotEmpty() || _customAddedChannels.value.isNotEmpty()) {
-            _customAddedChannels.value = customChannels
-        }
-
-        val placement = AdminBannerPlacement.fromKey(smsPlacementKey)
-        _adminBannerPlacement.value = placement
-
-        if (smsText.isNotBlank()) {
-            _activeAdminSms.value = AdminBroadcastMessage(
-                id = smsId.ifBlank { "sms_${smsCreatedAtMs}" },
-                message = smsText,
-                createdAtMs = if (smsCreatedAtMs > 0L) smsCreatedAtMs else System.currentTimeMillis(),
-                placement = placement
-            )
-        } else {
-            _activeAdminSms.value = null
-        }
-
-        // Cache in local prefs for offline resilience
-        try {
-            val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            val editor = prefs.edit()
-                .putBoolean(KEY_LOCK_ALL_CHANNELS, lockAll)
-                .putStringSet(KEY_LOCKED_CHANNEL_IDS, lockedIds)
-                .putStringSet(KEY_HIDDEN_CHANNEL_IDS, hiddenIds)
-                .putString(KEY_ADMIN_SMS_PLACEMENT, placement.key)
-            if (smsText.isNotBlank()) {
-                editor.putString(KEY_ADMIN_SMS_TEXT, smsText)
-                    .putString(KEY_ADMIN_SMS_ID, smsId)
-                    .putLong(KEY_ADMIN_SMS_TIME, smsCreatedAtMs)
-            } else {
-                editor.remove(KEY_ADMIN_SMS_TEXT)
-                    .remove(KEY_ADMIN_SMS_ID)
-                    .remove(KEY_ADMIN_SMS_TIME)
-            }
-            editor.apply()
-            saveCustomChannels(context, customChannels)
-        } catch (_: Throwable) {
-        }
-
-        ChannelRepository.refreshLiveChannels()
     }
 
     /**
@@ -230,22 +167,17 @@ object NeliAdminManager {
             .apply()
         _areAllChannelsLocked.value = lockAll
         _lockedChannelIds.value = allIds
-
-        // Propagate to all client apps globally in real-time
-        FirebaseGlobalManager.syncLockAllChannelsToCloud(lockAll)
     }
 
     fun toggleSingleChannelLock(context: Context, channelId: String) {
         NeliSubscriptionManager.expireSubscriptionIfNeeded(context)
         val currentSet = _lockedChannelIds.value.toMutableSet()
         val currentlyLocked = _areAllChannelsLocked.value || currentSet.contains(channelId)
-        val newLockedState = !currentlyLocked
         if (_areAllChannelsLocked.value) {
             // Populate all current channel IDs first, then remove this one
             currentSet.addAll(ChannelRepository.liveChannelsFlow.value.map { it.id })
             currentSet.remove(channelId)
             _areAllChannelsLocked.value = false
-            FirebaseGlobalManager.syncLockAllChannelsToCloud(false)
         } else if (currentlyLocked) {
             currentSet.remove(channelId)
         } else {
@@ -258,9 +190,6 @@ object NeliAdminManager {
             .putStringSet(KEY_LOCKED_CHANNEL_IDS, currentSet)
             .apply()
         _lockedChannelIds.value = currentSet.toSet()
-
-        // Propagate to all client apps globally in real-time
-        FirebaseGlobalManager.syncSingleChannelLockToCloud(channelId, newLockedState)
     }
 
     fun setSingleChannelLock(context: Context, channelId: String, locked: Boolean) {
@@ -270,7 +199,6 @@ object NeliAdminManager {
             currentSet.addAll(ChannelRepository.liveChannelsFlow.value.map { it.id })
             currentSet.remove(channelId)
             _areAllChannelsLocked.value = false
-            FirebaseGlobalManager.syncLockAllChannelsToCloud(false)
         } else if (locked) {
             currentSet.add(channelId)
         } else {
@@ -283,9 +211,6 @@ object NeliAdminManager {
             .putStringSet(KEY_LOCKED_CHANNEL_IDS, currentSet)
             .apply()
         _lockedChannelIds.value = currentSet.toSet()
-
-        // Propagate to all client apps globally in real-time
-        FirebaseGlobalManager.syncSingleChannelLockToCloud(channelId, locked)
     }
 
     /**
@@ -341,9 +266,6 @@ object NeliAdminManager {
         _customAddedChannels.value = updatedList
         saveCustomChannels(context, updatedList)
 
-        // Propagate newly added channel to Firebase Realtime Database
-        FirebaseGlobalManager.syncCustomChannelToCloud(newChannel)
-
         if (lockForFreeUsers) {
             setSingleChannelLock(context, newChannel.id, true)
         }
@@ -373,9 +295,6 @@ object NeliAdminManager {
             .apply()
         _hiddenChannelIds.value = currentSet.toSet()
         ChannelRepository.refreshLiveChannels()
-
-        // Propagate hidden state to Firebase Realtime Database
-        FirebaseGlobalManager.syncSingleChannelHiddenToCloud(channelId, hidden)
     }
 
     fun toggleChannelHidden(context: Context, channelId: String): Boolean {
@@ -397,7 +316,6 @@ object NeliAdminManager {
         prefs.edit().putString(KEY_ADMIN_SMS_PLACEMENT, placement.key).apply()
         _adminBannerPlacement.value = placement
         _activeAdminSms.value = _activeAdminSms.value?.copy(placement = placement)
-        _activeAdminSms.value?.let { FirebaseGlobalManager.syncBroadcastSmsToCloud(it) }
     }
 
     /**
@@ -434,9 +352,6 @@ object NeliAdminManager {
 
         _activeAdminSms.value = msg
 
-        // Broadcast to Firebase Realtime Database so all client apps receive it
-        FirebaseGlobalManager.syncBroadcastSmsToCloud(msg)
-
         if (sendPushNotification) {
             NeliNotificationScheduler.sendAdminBroadcastNotification(context, cleanText)
         }
@@ -452,7 +367,6 @@ object NeliAdminManager {
             .remove(KEY_ADMIN_SMS_TIME)
             .apply()
         _activeAdminSms.value = null
-        FirebaseGlobalManager.clearBroadcastSmsInCloud()
     }
 
     private fun saveCustomChannels(context: Context, channels: List<LiveChannel>) {

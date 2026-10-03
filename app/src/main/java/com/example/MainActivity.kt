@@ -82,13 +82,10 @@ class MainActivity : ComponentActivity() {
         }
         extractDeepLinkFromIntent(intent)
 
-        // Schedule notifications, widget updates, and GitHub update check asynchronously
+        // Schedule notifications and widget updates asynchronously so onCreate/setContent never stalls the main thread
         lifecycleScope.launch(Dispatchers.Default) {
             NeliNotificationScheduler.scheduleAllDailyNotifications(this@MainActivity)
             NeliHomeWidgetProvider.ensureWidgetAutomaticallyPinnedAndUpdated(this@MainActivity)
-        }
-        lifecycleScope.launch(Dispatchers.IO) {
-            com.example.data.NeliAppUpdateManager.checkForUpdates(this@MainActivity, triggeredByUser = false)
         }
 
         setContent {
@@ -128,9 +125,6 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         com.example.data.NeliAppUpdateManager.reconcileInstalledPackageState(this)
-        lifecycleScope.launch(Dispatchers.IO) {
-            com.example.data.NeliAppUpdateManager.checkForUpdates(this@MainActivity, triggeredByUser = false)
-        }
         if (wasInBackground) {
             wasInBackground = false
         }
@@ -369,8 +363,5 @@ fun NeliApp(
                 neliViewModel = neliViewModel
             )
         }
-
-        // Global Mandatory In-App Update Modal: always rendered on top regardless of screen
-        com.example.ui.components.NeliHomepageAutoUpdatePopupDialog()
     }
 }

@@ -4,7 +4,6 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.MediaContentRepository
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -1853,200 +1852,71 @@ class ExampleRobolectricTest {
         com.example.data.NeliAdminManager.setSingleChannelLock(context, azamSportsChannel.id, locked = false)
         com.example.player.ScanToCastManager.disconnectCastSession()
 
-        // 20. Verify 1 Day = 24 Hours Subscription Countdown, Cumulative Package Extension (2 days + 2 days = 4 days; 30 days + extension),
-        //     Real-Time Expiry to Free User, and Account PiP Background Mode Allow/Disallow setting
-        com.example.data.NeliSubscriptionManager.resetForTesting(context)
-        assertEquals(24L * 60L * 60L * 1000L, com.example.data.SubscriptionPlanType.ONE_DAY_MILLIS)
-        assertEquals(2, com.example.data.SubscriptionPlanType.DAILY.daysCount)
-        assertEquals(2L * com.example.data.SubscriptionPlanType.ONE_DAY_MILLIS, com.example.data.SubscriptionPlanType.DAILY.durationMillis)
-        assertEquals(7, com.example.data.SubscriptionPlanType.WEEKLY.daysCount)
-        assertEquals(7L * com.example.data.SubscriptionPlanType.ONE_DAY_MILLIS, com.example.data.SubscriptionPlanType.WEEKLY.durationMillis)
-        assertEquals(30, com.example.data.SubscriptionPlanType.MONTHLY.daysCount)
-        assertEquals(30L * com.example.data.SubscriptionPlanType.ONE_DAY_MILLIS, com.example.data.SubscriptionPlanType.MONTHLY.durationMillis)
-
-        // Example 1: User pays 2 days at 10:00 AM on Day 1 (tMorning)
-        val tMorning = System.currentTimeMillis()
-        val firstTwoDaysState = com.example.data.NeliSubscriptionManager.activateVerifiedSubscription(
-            context = context,
-            plan = com.example.data.SubscriptionPlanType.DAILY,
-            phone = "0712345678",
-            verifiedOrderId = "HP_MORNING_2DAYS",
-            nowMs = tMorning
-        )
-        assertEquals(2, firstTwoDaysState.totalPackageDays)
-        assertEquals(48L, firstTwoDaysState.totalPackageHours)
-        assertEquals(tMorning + 2L * com.example.data.SubscriptionPlanType.ONE_DAY_MILLIS, firstTwoDaysState.expiresAtMs)
-        // At 10:00 AM on Day 2 (+24h), 1 full day (24h) has passed and 1 day (24h) remains
-        val afterDayOne = tMorning + com.example.data.SubscriptionPlanType.ONE_DAY_MILLIS
-        assertTrue(firstTwoDaysState.isActiveAt(afterDayOne))
-        assertEquals(1L, firstTwoDaysState.remainingBreakdown(afterDayOne).days)
-
-        // In the afternoon of Day 1 (+4 hours), user adds another 2-day package -> total becomes 4 full days (96 hours) from tMorning!
-        val tAfternoon = tMorning + 4L * com.example.data.SubscriptionPlanType.ONE_HOUR_MILLIS
-        val extendedFourDaysState = com.example.data.NeliSubscriptionManager.activateVerifiedSubscription(
-            context = context,
-            plan = com.example.data.SubscriptionPlanType.DAILY,
-            phone = "0712345678",
-            verifiedOrderId = "HP_AFTERNOON_PLUS_2DAYS",
-            nowMs = tAfternoon
-        )
-        assertEquals(4, extendedFourDaysState.totalPackageDays)
-        assertEquals(96L, extendedFourDaysState.totalPackageHours)
-        assertEquals(tMorning + 4L * com.example.data.SubscriptionPlanType.ONE_DAY_MILLIS, extendedFourDaysState.expiresAtMs)
-        val afternoonBreakdown = extendedFourDaysState.remainingBreakdown(tAfternoon)
-        assertEquals(3L, afternoonBreakdown.days)
-        assertEquals(20L, afternoonBreakdown.hours)
-        assertEquals(4L, afternoonBreakdown.totalDaysCeiling)
-
-        // Once 4 days (96 hours) finish -> user immediately expires and reverts to Free User!
-        val afterFourDaysExpired = tMorning + 4L * com.example.data.SubscriptionPlanType.ONE_DAY_MILLIS + 1000L
-        assertTrue(com.example.data.NeliSubscriptionManager.expireSubscriptionIfNeeded(context, afterFourDaysExpired))
-        org.junit.Assert.assertFalse(com.example.data.NeliSubscriptionManager.subscriptionState.value.isVerified)
-        org.junit.Assert.assertFalse(com.example.data.NeliSubscriptionManager.subscriptionState.value.isActiveAt(afterFourDaysExpired))
-        assertEquals(
-            "Imeisha Muda (Free User)",
-            com.example.data.NeliSubscriptionManager.subscriptionState.value.formatLiveCountdown(afterFourDaysExpired)
-        )
-
-        // Example 2: User pays Monthly (15,000 TSh = 30 days) and before expiry adds Weekly (7 days) -> total 37 days
-        val tMonthStart = System.currentTimeMillis()
-        val monthlyState = com.example.data.NeliSubscriptionManager.activateVerifiedSubscription(
-            context = context,
-            plan = com.example.data.SubscriptionPlanType.MONTHLY,
-            phone = "0755112233",
-            verifiedOrderId = "HP_MONTHLY_30DAYS",
-            nowMs = tMonthStart
-        )
-        assertEquals(30, monthlyState.totalPackageDays)
-        val monthlyPlusWeeklyState = com.example.data.NeliSubscriptionManager.activateVerifiedSubscription(
-            context = context,
-            plan = com.example.data.SubscriptionPlanType.WEEKLY,
-            phone = "0755112233",
-            verifiedOrderId = "HP_EXTEND_WEEKLY_7DAYS",
-            nowMs = tMonthStart + 5L * com.example.data.SubscriptionPlanType.ONE_DAY_MILLIS
-        )
-        assertEquals(37, monthlyPlusWeeklyState.totalPackageDays)
-        assertEquals(37L * 24L, monthlyPlusWeeklyState.totalPackageHours)
-
-        // Verify Account PiP Background Mode Allow / Disallow setting
-        com.example.ui.theme.NeliThemeManager.initialize(context)
-        assertTrue(com.example.ui.theme.NeliThemeManager.isPipModeAllowed)
-        com.example.ui.theme.NeliThemeManager.setPipModeAllowed(context, false)
-        org.junit.Assert.assertFalse(com.example.ui.theme.NeliThemeManager.isPipModeAllowed)
-        com.example.ui.theme.NeliThemeManager.setPipModeAllowed(context, true)
-        assertTrue(com.example.ui.theme.NeliThemeManager.isPipModeAllowed)
-
-        // 21. Verify Auto-Sync on app entry, all 14 Azam TV channels with embedded tokens, Low-Quality Fast-Start, and Admin Forever Premium
-        val syncedChannels = com.example.data.ChannelRepository.autoSyncAllChannelsNow()
-        assertTrue(com.example.data.ChannelRepository.isAutoSynced.value)
-        assertTrue(syncedChannels.isNotEmpty())
-
-        val s1 = syncedChannels.first { it.name.contains("Azam Sports 1", ignoreCase = true) }
-        val s2 = syncedChannels.first { it.name.contains("Azam Sports 2", ignoreCase = true) }
-        val s3 = syncedChannels.first { it.name.contains("Azam Sports 3", ignoreCase = true) }
-        val s4 = syncedChannels.first { it.name.contains("Azam Sports 4", ignoreCase = true) }
-        val s5 = syncedChannels.first { it.name.contains("Azam Sports 5", ignoreCase = true) }
-        val aOne = syncedChannels.first { it.name.equals("Azam One", ignoreCase = true) }
-        val aTwo = syncedChannels.first { it.name.equals("Azam Two", ignoreCase = true) }
-        val sinema = syncedChannels.first { it.name.equals("Sinema Zetu", ignoreCase = true) }
-        val utv = syncedChannels.first { it.name.equals("UTV", ignoreCase = true) }
-        val zbc2 = syncedChannels.first { it.name.equals("ZBC2", ignoreCase = true) || it.name.equals("ZBC 2", ignoreCase = true) }
-        val zbc = syncedChannels.first { it.name.equals("ZBC", ignoreCase = true) }
-        val kix = syncedChannels.first { it.name.equals("KIX", ignoreCase = true) }
-        val crown = syncedChannels.first { it.name.equals("Crown Tv", ignoreCase = true) }
-        val wasafi = syncedChannels.first { it.name.contains("Wasafi", ignoreCase = true) }
-
-        assertTrue(s1.streamUrl.contains("/tok_${com.example.data.ChannelRepository.AZAM_SPORT_1_TOKEN}/live/eds/AzamSport1/DASH/AzamSport1.mpd"))
-        assertTrue(s2.streamUrl.contains("/tok_${com.example.data.ChannelRepository.AZAM_SPORT_2_TOKEN}/live/eds/AzamSport2/DASH/AzamSport2.mpd"))
-        assertTrue(s3.streamUrl.contains("/tok_${com.example.data.ChannelRepository.AZAM_SPORT_3_TOKEN}/live/eds/AzamSport3/DASH/AzamSport3.mpd"))
-        assertTrue(s4.streamUrl.contains("/tok_${com.example.data.ChannelRepository.AZAM_SPORT_4_TOKEN}/live/eds/AzamSport4/DASH/AzamSport4.mpd"))
-        assertTrue(s5.streamUrl.contains("/tok_${com.example.data.ChannelRepository.AZAM_SPORT_5_TOKEN}/live/eds/AzamSport5/DASH/AzamSport5.mpd"))
-        assertTrue(aOne.streamUrl.contains("/tok_${com.example.data.ChannelRepository.AZAM_ONE_TOKEN}/live/eds/AzamOne/DASH/AzamOne.mpd"))
-        assertTrue(aTwo.streamUrl.contains("/tok_${com.example.data.ChannelRepository.AZAM_TWO_TOKEN}/live/eds/AzamTwo/DASH/AzamTwo.mpd"))
-        assertTrue(sinema.streamUrl.contains("/tok_${com.example.data.ChannelRepository.SINEMA_ZETU_TOKEN}/live/eds/SinemaZetu/DASH/SinemaZetu.mpd"))
-        assertTrue(utv.streamUrl.contains("/tok_${com.example.data.ChannelRepository.UTV_TOKEN}/live/eds/UTV/DASH/UTV.mpd"))
-        assertTrue(zbc2.streamUrl.contains("cdntoken=${com.example.data.ChannelRepository.AZAM_SECONDARY_CDN_TOKEN_ENCODED}"))
-        assertTrue(zbc.streamUrl.contains("cdntoken=${com.example.data.ChannelRepository.AZAM_SECONDARY_CDN_TOKEN_ENCODED}"))
-        assertTrue(kix.streamUrl.contains("cdntoken=${com.example.data.ChannelRepository.AZAM_SECONDARY_CDN_TOKEN_ENCODED}"))
-        assertTrue(crown.streamUrl.contains("cdntoken=${com.example.data.ChannelRepository.AZAM_SECONDARY_CDN_TOKEN_ENCODED}"))
-        assertTrue(wasafi.streamUrl.contains("cdntoken=${com.example.data.ChannelRepository.AZAM_SECONDARY_CDN_TOKEN_ENCODED}"))
-
-        // Verify switching channel starts automatically at low quality (LOW_BANDO_240P) so it starts immediately without buffering
-        controller.switchChannel(s2)
-        assertEquals(com.example.player.AdaptiveQualityTier.LOW_BANDO_240P, controller.playbackInfo.value.adaptiveQualityTier)
-
-        // Verify Admin (Admin@login.com) is a Premium Member Forever and can watch locked channels even when Admin locks them
-        val adminSubState = com.example.data.NeliSubscriptionManager.switchActiveAccount(
-            context = context,
-            uid = "admin_neli_master",
-            email = "Admin@login.com",
-            realName = "Admin Nelitv"
-        )
-        assertTrue(adminSubState.isVerified)
-        assertTrue(adminSubState.isFreeForeverAccount)
-        assertTrue(adminSubState.isActiveNow)
-        assertTrue(com.example.data.NeliAdminManager.isAdminSessionActive.value)
-
-        com.example.data.NeliAdminManager.setSingleChannelLock(context, s1.id, locked = true)
-        com.example.data.NeliAdminManager.setLockAllChannels(context, lockAll = true)
-        org.junit.Assert.assertFalse(
-            com.example.data.NeliAdminManager.isChannelLockedForUser(
-                channelId = s1.id,
-                currentUser = null,
-                context = context
-            )
-        )
-        com.example.data.NeliAdminManager.setLockAllChannels(context, lockAll = false)
-        com.example.data.NeliAdminManager.setSingleChannelLock(context, s1.id, locked = false)
-
         completedFile.delete()
         controller.release()
     }
 
     @Test
-    fun `token manager persists token locally checks expiration and refreshes dynamically before player init`() {
+    fun neliCastManager_supportsGoogleCastDiscoveryAndFullRemoteControlStyle() {
         val context = ApplicationProvider.getApplicationContext<Context>()
-        com.example.player.TokenManager.initialize(context)
+        com.example.player.NeliCastManager.disconnectCast()
+        com.example.data.NeliAdminManager.initialize(context)
 
-        // 1. Verify token expiration check logic
-        val nowSec = System.currentTimeMillis() / 1000L
-        val futurePayload = android.util.Base64.encodeToString(
-            """{"exp":"${nowSec + 86400}","client_id":"4840832"}""".toByteArray(Charsets.UTF_8),
-            android.util.Base64.NO_WRAP or android.util.Base64.URL_SAFE
+        val channels = com.example.data.ChannelRepository.getPrioritizedAllChannels()
+        assertTrue(channels.size >= 2)
+        val ch1 = channels[0]
+        val ch2 = channels[1]
+        com.example.data.NeliAdminManager.setSingleChannelLock(context, ch1.id, locked = false)
+        com.example.data.NeliAdminManager.setSingleChannelLock(context, ch2.id, locked = false)
+
+        val googleCastDevice = com.example.player.CastTvDevice(
+            id = "google_cast_living_room",
+            name = "Living Room Google Cast TV",
+            subtitle = "Google Cast • Smart TV Receiver",
+            protocol = "Google Cast"
         )
-        val validFutureToken = "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.$futurePayload.dummySignature"
-        assertFalse(com.example.player.TokenManager.isTokenExpired(validFutureToken))
 
-        // Create an expired token fragment (exp in the past)
-        val expiredPayload = android.util.Base64.encodeToString(
-            """{"exp":"${nowSec - 3600}","client_id":"4840832"}""".toByteArray(Charsets.UTF_8),
-            android.util.Base64.NO_WRAP or android.util.Base64.URL_SAFE
+        val connected = com.example.player.NeliCastManager.connectAndCastToTv(
+            device = googleCastDevice,
+            channel = ch1,
+            currentUser = null,
+            context = context
         )
-        val expiredJwt = "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.$expiredPayload.dummySignature"
-        assertTrue(com.example.player.TokenManager.isTokenExpired(expiredJwt))
+        assertTrue(connected)
+        assertNotNull(com.example.player.NeliCastManager.connectedDevice.value)
+        assertEquals(ch1.id, com.example.player.NeliCastManager.castingChannel.value?.id)
+        assertTrue(com.example.player.NeliCastManager.isPlayingOnTv.value)
 
-        // 2. Verify local persistence in SharedPreferences
-        val testToken = com.example.data.ChannelRepository.DEFAULT_AZAM_CDN_TOKEN
-        com.example.player.TokenManager.saveTokenLocally(
-            context = context,
-            token = testToken,
-            cdnHost = "https://cdnedgch2.azamtvltd.co.tz",
-            source = "local_storage",
-            expEpochSec = nowSec + 86400L
-        )
-        val prefs = context.getSharedPreferences(com.example.player.TokenManager.TOKEN_PREFS_NAME, Context.MODE_PRIVATE)
-        assertEquals(testToken, prefs.getString(com.example.player.TokenManager.KEY_STORED_TOKEN, null))
-        assertEquals(nowSec + 86400L, prefs.getLong(com.example.player.TokenManager.KEY_STORED_EXPIRY, 0L))
+        // Test Remote Play/Pause toggle
+        com.example.player.NeliCastManager.togglePlayPauseOnTv()
+        assertEquals(false, com.example.player.NeliCastManager.isPlayingOnTv.value)
+        com.example.player.NeliCastManager.togglePlayPauseOnTv()
+        assertEquals(true, com.example.player.NeliCastManager.isPlayingOnTv.value)
 
-        // 3. Verify ensureValidToken dynamically resolves token before player initialization
-        val ensuredToken = com.example.player.TokenManager.ensureValidToken(context)
-        assertTrue(ensuredToken.isNotBlank())
+        // Test Remote Seek +10s / -10s
+        com.example.player.NeliCastManager.seekForwardOnTv()
+        assertTrue(com.example.player.NeliCastManager.statusMessage.value.orEmpty().contains("+10s"))
+        com.example.player.NeliCastManager.seekBackOnTv()
+        assertTrue(com.example.player.NeliCastManager.statusMessage.value.orEmpty().contains("-10s"))
 
-        // 4. Verify controller initializePlayer triggers token verification
-        val channel = com.example.data.ChannelRepository.channels.first { it.isAzamPriority }
-        val controller = com.example.player.LivePlayerController(context, channel)
-        val player = controller.initializePlayer()
-        assertNotNull(player)
-        controller.release()
+        // Test Remote Mute & Volume
+        com.example.player.NeliCastManager.toggleMuteOnTv(context)
+        assertEquals(true, com.example.player.NeliCastManager.isMutedOnTv.value)
+        com.example.player.NeliCastManager.setVolumeOnTv(0.65f, context)
+        assertEquals(false, com.example.player.NeliCastManager.isMutedOnTv.value)
+        assertEquals(0.65f, com.example.player.NeliCastManager.castVolume.value, 0.01f)
+
+        // Test Remote Quality Switch
+        com.example.player.NeliCastManager.setCastStreamQuality("1080p Full HD")
+        assertEquals("1080p Full HD", com.example.player.NeliCastManager.castStreamQuality.value)
+
+        // Test Remote Channel Step (CH+ / CH-)
+        val stepped = com.example.player.NeliCastManager.stepChannelOnTv(1, listOf(ch1, ch2), null, context)
+        assertNotNull(stepped)
+        assertEquals(ch2.id, stepped?.id)
+        assertEquals(ch2.id, com.example.player.NeliCastManager.castingChannel.value?.id)
+
+        com.example.player.NeliCastManager.disconnectCast()
+        assertEquals(null, com.example.player.NeliCastManager.connectedDevice.value)
     }
 }
