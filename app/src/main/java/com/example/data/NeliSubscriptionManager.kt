@@ -396,6 +396,12 @@ object NeliSubscriptionManager {
                             email = "",
                             realName = ""
                         )
+                    } else {
+                        NeliFirebaseSyncManager.syncUserSubscriptionFromFirebase(
+                            context = context,
+                            uid = activeUser.uid,
+                            email = activeUser.email
+                        )
                     }
                 } catch (_: Throwable) {
                 }
@@ -605,7 +611,52 @@ object NeliSubscriptionManager {
                 }
             }
         }
+
+        if (cleanEmail.isNotBlank()) {
+            ioScope.launch {
+                NeliFirebaseSyncManager.syncUserSubscriptionFromFirebase(
+                    context = context,
+                    uid = uid,
+                    email = cleanEmail
+                )
+            }
+        }
+
         return accountState
+    }
+
+    /**
+     * Restores verified subscription state received from Firebase Realtime Database / Firestore.
+     */
+    fun restoreSubscriptionFromCloud(context: Context, cloudState: PremiumSubscriptionState) {
+        _subscriptionState.value = cloudState
+        val cleanEmail = cloudState.linkedUserEmail.trim().lowercase()
+        if (cleanEmail.isNotBlank()) {
+            saveAccountSubscriptionToPrefs(context, cleanEmail, cloudState)
+        }
+        val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit()
+            .putBoolean(KEY_IS_VERIFIED, true)
+            .putString(KEY_PLAN_ID, cloudState.planId)
+            .putString(KEY_PLAN_TITLE, cloudState.planTitle)
+            .putInt(KEY_AMOUNT_TZS, cloudState.amountTzs)
+            .putString(KEY_PHONE, cloudState.phoneNumber)
+            .putString(KEY_ORDER_ID, cloudState.orderId)
+            .putLong(KEY_ACTIVATED_AT, cloudState.activatedAtMs)
+            .putLong(KEY_EXPIRES_AT, cloudState.expiresAtMs)
+            .putString(KEY_LINKED_UID, cloudState.linkedUserUid)
+            .putString(KEY_LINKED_EMAIL, cloudState.linkedUserEmail)
+            .putString(KEY_LINKED_NAME, cloudState.linkedUserName)
+            .putBoolean(KEY_REQUIRES_POST_PAYMENT_AUTH, false)
+            .apply()
+
+        ioScope.launch {
+            try {
+                val dao = NeliDatabase.getInstance(context).mediaDao()
+                saveRealSubscriptionDataByDeviceIp(dao, cloudState)
+            } catch (_: Throwable) {
+            }
+        }
     }
 
     fun refreshDeviceIp(context: Context): String {
@@ -805,6 +856,7 @@ object NeliSubscriptionManager {
         if (newState.linkedUserEmail.isNotBlank()) {
             saveAccountSubscriptionToPrefs(context, newState.linkedUserEmail, newState)
         }
+        NeliFirebaseSyncManager.saveUserSubscriptionToFirebase(newState)
         NeliRealtimeAnalyticsManager.recordHarakaPayTransaction(
             context = context,
             orderId = verifiedOrderId,

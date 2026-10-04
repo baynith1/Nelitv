@@ -40,14 +40,14 @@ data class AppUpdateReleaseInfo(
 
 object NeliAppUpdateManager {
 
-    const val CURRENT_APP_VERSION_TAG = "v1.0.0"
-    const val CURRENT_APP_VERSION_NAME = "1.0.0"
+    const val CURRENT_APP_VERSION_TAG = "v1.0.2"
+    const val CURRENT_APP_VERSION_NAME = "1.0.2"
 
     const val DEFAULT_APK_DOWNLOAD_URL =
-        "https://github.com/baynith1/Nelitv/releases/download/v1.0.0/Nelitv.apk"
+        "https://github.com/baynith1/Nelitv/releases/download/v1.0.2/Nelitv.apk"
 
     const val DEFAULT_GITHUB_RELEASE_TAG_URL =
-        "https://github.com/baynith1/Nelitv/releases/tag/v1.0.0"
+        "https://github.com/baynith1/Nelitv/releases/tag/v1.0.2"
 
     const val GITHUB_LATEST_RELEASE_API_URL =
         "https://api.github.com/repos/baynith1/Nelitv/releases/latest"
@@ -97,6 +97,9 @@ object NeliAppUpdateManager {
 
     private val _showHomepageUpdatePopup = MutableStateFlow(false)
     val showHomepageUpdatePopup: StateFlow<Boolean> = _showHomepageUpdatePopup.asStateFlow()
+
+    private val _isMandatoryUpdateRequired = MutableStateFlow(false)
+    val isMandatoryUpdateRequired: StateFlow<Boolean> = _isMandatoryUpdateRequired.asStateFlow()
 
     @Volatile
     private var dismissedPopupTagInSession: String? = null
@@ -229,14 +232,41 @@ object NeliAppUpdateManager {
     }
 
     fun dismissHomepageUpdatePopup(versionTag: String = _releaseInfo.value.versionTag) {
+        if (_isMandatoryUpdateRequired.value) {
+            // Update is strictly mandatory across all screens! User must update to continue using.
+            _showHomepageUpdatePopup.value = true
+            return
+        }
         dismissedPopupTagInSession = versionTag.trim()
         _showHomepageUpdatePopup.value = false
     }
 
     fun triggerHomepageUpdatePopupForNewRelease(versionTag: String = _releaseInfo.value.versionTag) {
-        if (dismissedPopupTagInSession == null ||
-            !dismissedPopupTagInSession.equals(versionTag.trim(), ignoreCase = true)
-        ) {
+        _isMandatoryUpdateRequired.value = true
+        _showHomepageUpdatePopup.value = true
+    }
+
+    fun applyCloudUpdateInfo(
+        latestVersion: String,
+        apkUrl: String,
+        whatsNewNotes: String,
+        isMandatory: Boolean = true
+    ) {
+        val currentTag = effectiveInstalledVersionTag
+        val isNewer = isRemoteVersionNewer(currentTag, latestVersion)
+        if (isNewer) {
+            val resolvedApk = apkUrl.ifBlank {
+                "https://github.com/baynith1/Nelitv/releases/download/$latestVersion/Nelitv.apk"
+            }
+            _releaseInfo.value = _releaseInfo.value.copy(
+                versionTag = latestVersion,
+                releaseTitle = "Nelitv $latestVersion Update",
+                apkDownloadUrl = resolvedApk,
+                whatsNewNotes = whatsNewNotes.ifBlank { DEFAULT_WHATS_NEW_NOTES },
+                isNewUpdateAvailable = true,
+                statusMessage = "Please update our App to continue using"
+            )
+            _isMandatoryUpdateRequired.value = isMandatory
             _showHomepageUpdatePopup.value = true
         }
     }

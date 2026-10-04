@@ -1284,81 +1284,86 @@ fun NeliHomepageAutoUpdatePopupDialog() {
     val showPopup by NeliAppUpdateManager.showHomepageUpdatePopup.collectAsState()
     val autoUpdateEnabled by NeliAppUpdateManager.autoUpdateEnabled.collectAsState()
     val statusBannerMessage by NeliAppUpdateManager.apkDownloadStatusMessage.collectAsState()
+    val isMandatory by NeliAppUpdateManager.isMandatoryUpdateRequired.collectAsState()
 
-    if (!showPopup || !releaseInfo.isNewUpdateAvailable) return
+    if (!releaseInfo.isNewUpdateAvailable) return
 
     Dialog(
         onDismissRequest = {
-            NeliAppUpdateManager.dismissHomepageUpdatePopup(releaseInfo.versionTag)
-        }
+            // Strictly mandatory across all pages! Cannot dismiss until app is updated.
+        },
+        properties = androidx.compose.ui.window.DialogProperties(
+            dismissOnBackPress = false,
+            dismissOnClickOutside = false
+        )
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(24.dp))
                 .background(Color(0xFF101422))
-                .border(1.5.dp, NeliGenreCyan, RoundedCornerShape(24.dp))
-                .padding(20.dp)
-                .testTag("homepage_auto_update_popup_dialog"),
+                .border(2.dp, NeliMagenta, RoundedCornerShape(24.dp))
+                .padding(22.dp)
+                .testTag("mandatory_in_app_update_dialog"),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(44.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(NeliMagenta),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.SystemUpdate,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(24.dp)
-                        )
-                    }
-                    Column {
-                        Text(
-                            text = "New GitHub Update (${releaseInfo.versionTag})",
-                            color = Color.White,
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.ExtraBold
-                        )
-                        Text(
-                            text = releaseInfo.releaseTitle,
-                            color = NeliGenreCyan,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-
-                IconButton(
-                    onClick = {
-                        NeliAppUpdateManager.dismissHomepageUpdatePopup(releaseInfo.versionTag)
-                    },
+                Box(
                     modifier = Modifier
-                        .size(34.dp)
-                        .clip(CircleShape)
-                        .background(NeliSurfaceVariant)
-                        .testTag("homepage_popup_close_button")
+                        .size(48.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(NeliMagenta),
+                    contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Close Update Popup",
+                        imageVector = Icons.Default.SystemUpdate,
+                        contentDescription = null,
                         tint = Color.White,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(28.dp)
                     )
                 }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "App Update Required",
+                        color = Color.White,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Black
+                    )
+                    Text(
+                        text = "Toleo Jipya: ${releaseInfo.versionTag}",
+                        color = NeliGenreCyan,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            // Mandatory notice banner
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(NeliMagenta.copy(alpha = 0.15f))
+                    .border(1.dp, NeliMagenta.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    text = "Please update our App to continue using",
+                    color = Color.White,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.ExtraBold
+                )
+                Text(
+                    text = "Tafadhali sasisha App yetu ili kuendelea kuitumia. Sasisho hili ni la lazima kwa ajili ya Live TV na usalama wa data zako.",
+                    color = NeliTextSecondary,
+                    fontSize = 11.sp,
+                    lineHeight = 16.sp
+                )
             }
 
             // What's New box
@@ -1382,7 +1387,7 @@ fun NeliHomepageAutoUpdatePopupDialog() {
                         modifier = Modifier.size(16.dp)
                     )
                     Text(
-                        text = "What's New on GitHub (${releaseInfo.publishedAt})",
+                        text = "Yaliyomo kwenye Sasisho Jipya",
                         color = NeliGenreCyan,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.ExtraBold
@@ -1393,58 +1398,8 @@ fun NeliHomepageAutoUpdatePopupDialog() {
                     color = NeliTextPrimary,
                     fontSize = 11.sp,
                     lineHeight = 16.sp,
-                    maxLines = 6,
+                    maxLines = 5,
                     overflow = TextOverflow.Ellipsis
-                )
-            }
-
-            // Auto-Update Toggle inside Homepage Popup
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(NeliCardPurple)
-                    .border(1.dp, Color(0x44A855F7), RoundedCornerShape(14.dp))
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.AutoMode,
-                        contentDescription = null,
-                        tint = NeliGenreCyan,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Column {
-                        Text(
-                            text = "Auto-Update from GitHub",
-                            color = Color.White,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.ExtraBold
-                        )
-                        Text(
-                            text = "Sasisha app moja kwa moja kila toleo jipya linapowekwa GitHub",
-                            color = NeliTextSecondary,
-                            fontSize = 10.sp
-                        )
-                    }
-                }
-
-                Switch(
-                    checked = autoUpdateEnabled,
-                    onCheckedChange = { enabled ->
-                        NeliAppUpdateManager.setAutoUpdateEnabled(context, enabled)
-                    },
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = Color.White,
-                        checkedTrackColor = NeliMagenta
-                    ),
-                    modifier = Modifier.testTag("homepage_popup_auto_update_switch")
                 )
             }
 
@@ -1457,57 +1412,36 @@ fun NeliHomepageAutoUpdatePopupDialog() {
                 )
             }
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            // Full-width Mandatory Update Now Button
+            Button(
+                onClick = {
+                    NeliAppUpdateManager.downloadAndInstallApk(
+                        context = context,
+                        apkUrl = releaseInfo.apkDownloadUrl,
+                        versionTag = releaseInfo.versionTag,
+                        isAutoUpdate = false
+                    )
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta),
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp)
+                    .testTag("mandatory_update_now_button")
             ) {
-                OutlinedButton(
-                    onClick = {
-                        NeliAppUpdateManager.dismissHomepageUpdatePopup(releaseInfo.versionTag)
-                    },
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier
-                        .weight(1f)
-                        .testTag("homepage_popup_later_button")
-                ) {
-                    Text(
-                        text = "Baadaye",
-                        color = Color.White,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-
-                Button(
-                    onClick = {
-                        NeliAppUpdateManager.downloadAndInstallApk(
-                            context = context,
-                            apkUrl = releaseInfo.apkDownloadUrl,
-                            versionTag = releaseInfo.versionTag,
-                            isAutoUpdate = false
-                        )
-                        NeliAppUpdateManager.dismissHomepageUpdatePopup(releaseInfo.versionTag)
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier
-                        .weight(1f)
-                        .testTag("homepage_popup_update_now_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Download,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "Update Now",
-                        color = Color.White,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.ExtraBold
-                    )
-                }
+                Icon(
+                    imageVector = Icons.Default.Download,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "SASISHA SASA (UPDATE NOW)",
+                    color = Color.White,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Black
+                )
             }
         }
     }

@@ -201,9 +201,6 @@ fun HomeScreen(
         NeliAdminManager.initialize(context)
     }
 
-    // Automatic popup on Homepage whenever a new update arrives in GitHub Releases
-    NeliHomepageAutoUpdatePopupDialog()
-
     if (showCastDialog) {
         NeliCastModalSheet(
             availableChannels = liveChannels.ifEmpty { ChannelRepository.getPrioritizedAllChannels() },
@@ -480,6 +477,9 @@ fun HomeScreen(
                             downloadsCount = downloads.count { it.downloadStatus == "COMPLETED" },
                             onSignInWithGoogle = {
                                 neliViewModel.signInWithGoogle(context)
+                            },
+                            onChooseGoogleAccount = {
+                                neliViewModel.chooseGoogleAccount(context)
                             },
                             onCompleteGoogleSignIn = { googleEmail, googleName ->
                                 neliViewModel.completeGoogleSignIn(googleEmail, googleName)

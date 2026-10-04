@@ -16,8 +16,8 @@ android {
     applicationId = "com.nelitv.app"
     minSdk = 24
     targetSdk = 36
-    versionCode = 200
-    versionName = "1.0.0"
+    versionCode = 202
+    versionName = "1.0.2"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -114,8 +114,9 @@ dependencies {
   testImplementation(libs.jna)
   // implementation(libs.converter.moshi)
   // implementation(libs.firebase.ai)
-  // Uncomment to use Firestore:
-  // implementation(libs.firebase.firestore)
+  // Firebase Firestore & Realtime Database for web sync, subscriptions & channel lock
+  implementation(libs.firebase.firestore)
+  implementation(libs.firebase.database)
 
   // Uncomment ALL FOUR of the following dependencies together to use Firebase Auth and Google
   // Sign-In via Credential Manager:

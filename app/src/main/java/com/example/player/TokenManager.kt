@@ -252,7 +252,7 @@ object TokenManager {
         apiUrl: String = ChannelRepository.AZAM_TOKEN_ENDPOINT_URL
     ): String = synchronized(blockingLock) {
         val now = System.currentTimeMillis()
-        val minCooldownMs = if (forceRefresh) 10_000L else 30_000L
+        val minCooldownMs = if (forceRefresh) 2_000L else 15_000L
         if (lastNetworkRefreshAttemptMs > 0L && (now - lastNetworkRefreshAttemptMs) < minCooldownMs) {
             return currentToken
         }
@@ -260,7 +260,10 @@ object TokenManager {
 
         val targetUrls = listOf(
             apiUrl.ifBlank { DEFAULT_TOKEN_API_URL },
-            DEFAULT_TOKEN_API_URL
+            DEFAULT_TOKEN_API_URL,
+            "https://neliplay-default-rtdb.firebaseio.com/config/azam_token.json",
+            "https://neliplay-default-rtdb.firebaseio.com/azam_token.json",
+            "https://neliplay-default-rtdb.firebaseio.com/cdn_token.json"
         ).distinct()
 
         for (endpoint in targetUrls) {
@@ -306,7 +309,7 @@ object TokenManager {
         httpStatusCode: Int? = null
     ): String = synchronized(blockingLock) {
         val now = System.currentTimeMillis()
-        if (lastNetworkRefreshAttemptMs > 0L && (now - lastNetworkRefreshAttemptMs) < 10_000L) {
+        if (lastNetworkRefreshAttemptMs > 0L && (now - lastNetworkRefreshAttemptMs) < 2_000L) {
             return currentToken
         }
         // 1. Fetch fresh token from the primary token API endpoint
@@ -339,8 +342,8 @@ object TokenManager {
             val url = URL(urlStr)
             connection = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "GET"
-                connectTimeout = 2_500
-                readTimeout = 2_500
+                connectTimeout = 5_000
+                readTimeout = 5_000
                 instanceFollowRedirects = true
                 useCaches = false
                 setRequestProperty("User-Agent", USER_AGENT)

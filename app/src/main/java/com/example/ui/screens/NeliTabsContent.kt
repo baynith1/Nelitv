@@ -1850,6 +1850,7 @@ fun AccountTabContent(
     watchlist: List<WatchlistItemEntity>,
     downloadsCount: Int,
     onSignInWithGoogle: () -> Unit = {},
+    onChooseGoogleAccount: () -> Unit = {},
     onCompleteGoogleSignIn: (email: String, displayName: String) -> Unit = { _, _ -> },
     onDismissGoogleSignInSheet: () -> Unit = {},
     onSignUp: (realName: String, email: String, password: String) -> Unit,
@@ -1987,12 +1988,12 @@ fun AccountTabContent(
 
                     if (savedGoogleAccounts.isNotEmpty()) {
                         Text(
-                            text = "Saved accounts on this device:",
+                            text = "Chagua akaunti (Select an account):",
                             color = NeliTextSecondary,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.SemiBold
                         )
-                        savedGoogleAccounts.take(3).forEach { acc ->
+                        savedGoogleAccounts.take(10).forEach { acc ->
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -2473,6 +2474,32 @@ fun AccountTabContent(
                             color = NeliTextPrimary,
                             fontWeight = FontWeight.Bold,
                             fontSize = 14.sp
+                        )
+                    }
+
+                    // Choose among multiple Google Accounts Button
+                    OutlinedButton(
+                        onClick = onChooseGoogleAccount,
+                        enabled = !isAuthLoading,
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .testTag("choose_google_account_picker_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Person,
+                            contentDescription = null,
+                            tint = NeliGenreCyan,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Chagua Akaunti ya Google (Select Account)",
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp
                         )
                     }
 
@@ -3150,7 +3177,7 @@ fun AccountTabContent(
             }
         }
 
-        // Customer Care (+255760816851 • Neliplay Customercare • Alex Michael Baineth), About Us, Contact Us & Relevant Pages
+        // Information & Relevant Pages (About Us, Help & FAQ, Terms & Privacy)
         item {
             NeliAccountSupportAndPagesSection(
                 onOpenPage = { pageType -> activeInfoPage = pageType }

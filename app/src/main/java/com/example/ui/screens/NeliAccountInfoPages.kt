@@ -63,15 +63,13 @@ import com.example.ui.theme.NeliTextSecondary
 import com.example.widget.NeliHomeWidgetProvider
 
 enum class AccountInfoPageType(val title: String) {
-    ABOUT_US("About Us • Kuhusu NeliPlay"),
-    CONTACT_US("Contact Us • Neliplay Customercare"),
+    ABOUT_US("About Us • Kuhusu Nelitv"),
+    CONTACT_US("System Information • Nelitv"),
     HELP_FAQ("Help Center & Maswali (FAQ)"),
     PRIVACY_TERMS("Privacy Policy & Terms of Service")
 }
 
-const val CUSTOMER_CARE_BRAND_NAME = "Neliplay Customercare"
-const val CUSTOMER_CARE_AGENT_NAME = "Alex Michael Baineth"
-const val CUSTOMER_CARE_PHONE = "+255760816851"
+const val APP_BRAND_NAME = "Nelitv Official"
 
 /**
  * Displays the Customer Care quick card, About Us, Contact Us, Help/FAQ,
@@ -83,154 +81,13 @@ fun NeliAccountSupportAndPagesSection(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-
     Column(
         modifier = modifier
             .fillMaxWidth()
             .testTag("account_support_and_pages_section"),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        // 1. Direct Neliplay Customercare Card (Alex Michael Baineth • +255760816851)
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(20.dp))
-                .background(
-                    Brush.linearGradient(
-                        colors = listOf(Color(0xFF172036), Color(0xFF0F1422))
-                    )
-                )
-                .border(1.dp, NeliGenreCyan.copy(alpha = 0.45f), RoundedCornerShape(20.dp))
-                .padding(16.dp)
-                .testTag("customer_care_card"),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(CircleShape)
-                        .background(NeliMagenta),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.SupportAgent,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(26.dp)
-                    )
-                }
-
-                Column(modifier = Modifier.weight(1f)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Text(
-                            text = CUSTOMER_CARE_BRAND_NAME,
-                            color = Color.White,
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.ExtraBold
-                        )
-                        Icon(
-                            imageVector = Icons.Default.CheckCircle,
-                            contentDescription = "Verified Support",
-                            tint = Color(0xFF10B981),
-                            modifier = Modifier.size(15.dp)
-                        )
-                    }
-                    Text(
-                        text = "Customer Care: $CUSTOMER_CARE_AGENT_NAME",
-                        color = NeliGenreCyan,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = "Phone & WhatsApp: $CUSTOMER_CARE_PHONE (24/7 Support)",
-                        color = NeliTextSecondary,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Button(
-                    onClick = {
-                        try {
-                            context.startActivity(
-                                Intent(Intent.ACTION_DIAL, Uri.parse("tel:$CUSTOMER_CARE_PHONE")).apply {
-                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                }
-                            )
-                        } catch (_: Exception) {
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier
-                        .weight(1f)
-                        .testTag("call_customer_care_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Call,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "Call Now",
-                        color = Color.White,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.ExtraBold
-                    )
-                }
-
-                OutlinedButton(
-                    onClick = {
-                        try {
-                            val cleanPhone = CUSTOMER_CARE_PHONE.removePrefix("+")
-                            context.startActivity(
-                                Intent(
-                                    Intent.ACTION_VIEW,
-                                    Uri.parse("https://wa.me/$cleanPhone?text=Habari%20Neliplay%20Customercare%20(Alex%20Michael%20Baineth)")
-                                ).apply {
-                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                }
-                            )
-                        } catch (_: Exception) {
-                        }
-                    },
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier
-                        .weight(1f)
-                        .testTag("whatsapp_customer_care_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.Chat,
-                        contentDescription = null,
-                        tint = Color(0xFF10B981),
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "WhatsApp",
-                        color = Color.White,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.ExtraBold
-                    )
-                }
-            }
-        }
-
-        // 2. Navigation Rows for Relevant Pages (About Us, Contact Us, Help & FAQ, Privacy & Terms)
+        // Navigation Rows for Relevant Information Pages
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -241,7 +98,7 @@ fun NeliAccountSupportAndPagesSection(
             verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
             Text(
-                text = "More Pages & Support Center",
+                text = "Information & Help Center",
                 color = NeliTextPrimary,
                 fontSize = 15.sp,
                 fontWeight = FontWeight.ExtraBold,
@@ -251,19 +108,10 @@ fun NeliAccountSupportAndPagesSection(
             AccountPageLinkRow(
                 icon = Icons.Default.Info,
                 iconTint = NeliMagenta,
-                title = "About Us (Kuhusu NeliPlay)",
+                title = "About Us (Kuhusu Nelitv)",
                 subtitle = "East Africa's #1 Cinema, Swahili Movies & Azam TV Live App",
                 testTag = "about_us_page_button",
                 onClick = { onOpenPage(AccountInfoPageType.ABOUT_US) }
-            )
-
-            AccountPageLinkRow(
-                icon = Icons.Default.Call,
-                iconTint = Color(0xFF10B981),
-                title = "Contact Us ($CUSTOMER_CARE_BRAND_NAME)",
-                subtitle = "$CUSTOMER_CARE_AGENT_NAME • $CUSTOMER_CARE_PHONE",
-                testTag = "contact_us_page_button",
-                onClick = { onOpenPage(AccountInfoPageType.CONTACT_US) }
             )
 
             AccountPageLinkRow(
@@ -428,9 +276,9 @@ fun AccountInfoDetailScreen(
                     }
                     item {
                         InfoCardBlock(
-                            badge = "MANAGEMENT & CUSTOMER SUPPORT",
-                            title = CUSTOMER_CARE_BRAND_NAME,
-                            body = "Managed and supported by $CUSTOMER_CARE_AGENT_NAME.\nDirect Customer Care Line: $CUSTOMER_CARE_PHONE\nHeadquarters: Dar es Salaam, Tanzania (East Africa Time - UTC+3)."
+                            badge = "SYSTEM ARCHITECTURE",
+                            title = "Cloud Server Infrastructure",
+                            body = "Nelitv operates with automated real-time database cloud sync and high-availability CDN stream relays. Subscriptions and tokens update seamlessly across your devices and web without manual support intervention."
                         )
                     }
                 }
@@ -438,125 +286,10 @@ fun AccountInfoDetailScreen(
                 AccountInfoPageType.CONTACT_US -> {
                     item {
                         InfoCardBlock(
-                            badge = "24/7 OFFICIAL SUPPORT",
-                            title = CUSTOMER_CARE_BRAND_NAME,
-                            body = "Need help with Live TV channels, movie requests, account sign-in, or app updates? Reach out directly to our dedicated customer care representative:"
+                            badge = "AUTOMATED PLATFORM",
+                            title = "Self-Service Digital Platform",
+                            body = "Nelitv is engineered as a fully self-healing, automated application. Subscription status, payments, and Live TV streams sync 24/7 directly with Firebase and cloud CDN relays."
                         )
-                    }
-                    item {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(18.dp))
-                                .background(NeliSurface)
-                                .border(1.dp, NeliMagenta.copy(alpha = 0.5f), RoundedCornerShape(18.dp))
-                                .padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            Text(
-                                text = "Customer Care Representative",
-                                color = NeliGenreCyan,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = CUSTOMER_CARE_AGENT_NAME,
-                                color = NeliTextPrimary,
-                                fontSize = 20.sp,
-                                fontWeight = FontWeight.Black
-                            )
-                            Text(
-                                text = "Official Department: $CUSTOMER_CARE_BRAND_NAME",
-                                color = NeliTextPrimary,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Text(
-                                text = "Phone / WhatsApp / SMS: $CUSTOMER_CARE_PHONE",
-                                color = Color(0xFF10B981),
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.ExtraBold
-                            )
-
-                            Spacer(modifier = Modifier.height(4.dp))
-
-                            Button(
-                                onClick = {
-                                    try {
-                                        context.startActivity(
-                                            Intent(Intent.ACTION_DIAL, Uri.parse("tel:$CUSTOMER_CARE_PHONE")).apply {
-                                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                            }
-                                        )
-                                    } catch (_: Exception) {
-                                    }
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta),
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Icon(imageVector = Icons.Default.Call, contentDescription = null, tint = Color.White)
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "Call $CUSTOMER_CARE_AGENT_NAME ($CUSTOMER_CARE_PHONE)",
-                                    color = Color.White,
-                                    fontWeight = FontWeight.ExtraBold
-                                )
-                            }
-
-                            OutlinedButton(
-                                onClick = {
-                                    try {
-                                        val clean = CUSTOMER_CARE_PHONE.removePrefix("+")
-                                        context.startActivity(
-                                            Intent(
-                                                Intent.ACTION_VIEW,
-                                                Uri.parse("https://wa.me/$clean?text=Habari%20Alex%20Michael%20Baineth%20-%20Neliplay%20Customercare")
-                                            ).apply {
-                                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                            }
-                                        )
-                                    } catch (_: Exception) {
-                                    }
-                                },
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.Chat,
-                                    contentDescription = null,
-                                    tint = Color(0xFF10B981)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "Chat on WhatsApp ($CUSTOMER_CARE_PHONE)",
-                                    color = NeliTextPrimary,
-                                    fontWeight = FontWeight.ExtraBold
-                                )
-                            }
-
-                            OutlinedButton(
-                                onClick = {
-                                    try {
-                                        context.startActivity(
-                                            Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:$CUSTOMER_CARE_PHONE")).apply {
-                                                putExtra("sms_body", "Habari Neliplay Customercare (Alex Michael Baineth), ")
-                                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                            }
-                                        )
-                                    } catch (_: Exception) {
-                                    }
-                                },
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text(
-                                    text = "Send Direct SMS ($CUSTOMER_CARE_PHONE)",
-                                    color = NeliGenreCyan,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
                     }
                 }
 
@@ -603,7 +336,7 @@ fun AccountInfoDetailScreen(
                         InfoCardBlock(
                             badge = "TERMS OF SERVICE",
                             title = "NeliPlay Usage & Streaming Terms",
-                            body = "By using NeliPlay, you agree to use the platform for personal, non-commercial entertainment. Automated daily EAT notifications and the NeliPlay Home Screen Widget are built-in core features designed to keep you updated on Live Football (Azam Sports 1 HD & ZBC2) and new 2026 Cinema releases.\n\nFor inquiries, contact $CUSTOMER_CARE_BRAND_NAME ($CUSTOMER_CARE_AGENT_NAME) at $CUSTOMER_CARE_PHONE."
+                            body = "By using NeliPlay, you agree to use the platform for personal, non-commercial entertainment. Automated notifications and updates are designed to keep you updated on Live Channels, Football and new Cinema releases."
                         )
                     }
                 }

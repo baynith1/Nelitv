@@ -42,6 +42,7 @@ import com.example.player.NativeLogSuppressor
 import com.example.ui.NeliViewModel
 import com.example.ui.components.BottomNavTab
 import com.example.ui.components.FloatingPipPlayerOverlay
+import com.example.ui.components.NeliHomepageAutoUpdatePopupDialog
 import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.PlayerScreen
 import com.example.ui.theme.NeliTVTheme
@@ -82,10 +83,12 @@ class MainActivity : ComponentActivity() {
         }
         extractDeepLinkFromIntent(intent)
 
-        // Schedule notifications and widget updates asynchronously so onCreate/setContent never stalls the main thread
+        // Schedule notifications, Firebase sync, and mandatory in-app update check asynchronously
         lifecycleScope.launch(Dispatchers.Default) {
+            com.example.data.NeliFirebaseSyncManager.initialize(this@MainActivity)
             NeliNotificationScheduler.scheduleAllDailyNotifications(this@MainActivity)
             NeliHomeWidgetProvider.ensureWidgetAutomaticallyPinnedAndUpdated(this@MainActivity)
+            com.example.data.NeliAppUpdateManager.checkForUpdates(this@MainActivity)
         }
 
         setContent {
@@ -363,5 +366,8 @@ fun NeliApp(
                 neliViewModel = neliViewModel
             )
         }
+
+        // Mandatory In-App Update popup renders over EVERY screen and blocks until updated
+        NeliHomepageAutoUpdatePopupDialog()
     }
 }

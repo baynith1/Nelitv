@@ -484,7 +484,7 @@ fun PremiumTabContent(
                             )
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                horizontalArrangement = Arrangement.spacedBy(if (screenProfile.isSmallPhone) 4.dp else 8.dp)
                             ) {
                                 val units = listOf(
                                     "SIKU" to countdownBreakdown.days.toString(),
@@ -499,19 +499,19 @@ fun PremiumTabContent(
                                             .clip(RoundedCornerShape(10.dp))
                                             .background(Color(0xFF1E293B))
                                             .border(1.dp, Color(0x4400E5FF), RoundedCornerShape(10.dp))
-                                            .padding(vertical = 8.dp),
+                                            .padding(vertical = if (screenProfile.isSmallPhone) 6.dp else 8.dp),
                                         horizontalAlignment = Alignment.CenterHorizontally
                                     ) {
                                         Text(
                                             text = value,
                                             color = Color(0xFFFBBF24),
-                                            fontSize = 18.sp,
+                                            fontSize = if (screenProfile.isSmallPhone) 14.sp else 18.sp,
                                             fontWeight = FontWeight.Black
                                         )
                                         Text(
                                             text = label,
                                             color = NeliTextSecondary,
-                                            fontSize = 9.sp,
+                                            fontSize = if (screenProfile.isSmallPhone) 8.sp else 9.sp,
                                             fontWeight = FontWeight.Bold
                                         )
                                     }
@@ -622,34 +622,36 @@ fun PremiumTabContent(
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(16.dp),
+                                        .padding(if (screenProfile.isSmallPhone) 12.dp else 16.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
                                     Column(
                                         modifier = Modifier.weight(1f),
-                                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                                        verticalArrangement = Arrangement.spacedBy(3.dp)
                                     ) {
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                                         ) {
                                             Text(
                                                 text = plan.titleSwahili,
                                                 color = NeliTextPrimary,
-                                                fontSize = 17.sp,
-                                                fontWeight = FontWeight.Black
+                                                fontSize = if (screenProfile.isSmallPhone) 15.sp else 17.sp,
+                                                fontWeight = FontWeight.Black,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
                                             )
                                             Box(
                                                 modifier = Modifier
                                                     .clip(RoundedCornerShape(6.dp))
                                                     .background(NeliSurfaceVariant)
-                                                    .padding(horizontal = 8.dp, vertical = 2.dp)
+                                                    .padding(horizontal = 6.dp, vertical = 2.dp)
                                             ) {
                                                 Text(
                                                     text = plan.badgeText,
                                                     color = NeliGenreCyan,
-                                                    fontSize = 10.sp,
+                                                    fontSize = 9.sp,
                                                     fontWeight = FontWeight.Bold
                                                 )
                                             }
@@ -657,7 +659,9 @@ fun PremiumTabContent(
                                         Text(
                                             text = plan.subtitleSwahili,
                                             color = NeliTextSecondary,
-                                            fontSize = 12.sp
+                                            fontSize = if (screenProfile.isSmallPhone) 11.sp else 12.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
                                         )
                                     }
 
@@ -665,13 +669,13 @@ fun PremiumTabContent(
                                         Text(
                                             text = plan.priceFormatted,
                                             color = if (isSelected) NeliMagenta else Color(0xFFFBBF24),
-                                            fontSize = 18.sp,
+                                            fontSize = if (screenProfile.isSmallPhone) 15.sp else 18.sp,
                                             fontWeight = FontWeight.Black
                                         )
                                         Text(
                                             text = if (isSelected) "Imechaguliwa ✓" else "Gusa kuchagua",
                                             color = if (isSelected) Color(0xFF34D399) else NeliTextSecondary,
-                                            fontSize = 11.sp,
+                                            fontSize = if (screenProfile.isSmallPhone) 10.sp else 11.sp,
                                             fontWeight = FontWeight.SemiBold
                                         )
                                     }
@@ -699,13 +703,15 @@ fun PremiumTabContent(
                         ) {
                             Text(
                                 text = if (isPremiumActive) {
-                                    "Ongeza Muda Mbele (+${selectedPlan.durationLabel} • ${selectedPlan.priceFormatted})"
+                                    "Ongeza Muda (+${selectedPlan.durationLabel} • ${selectedPlan.priceFormatted})"
                                 } else {
                                     "Endelea (${selectedPlan.titleSwahili} • ${selectedPlan.priceFormatted})"
                                 },
                                 color = Color.White,
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.ExtraBold
+                                fontSize = if (screenProfile.isSmallPhone) 13.sp else 15.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }
@@ -1454,6 +1460,7 @@ fun MiniAdminPanelScreen(
     val lockedChannelIds by NeliAdminManager.lockedChannelIds.collectAsState()
     val hiddenChannelIds by NeliAdminManager.hiddenChannelIds.collectAsState()
     val lockAllForFree by NeliAdminManager.areAllChannelsLocked.collectAsState()
+    val lockAllAzamForFree by NeliAdminManager.areAllAzamChannelsLocked.collectAsState()
     val customAddedChannels by NeliAdminManager.customAddedChannels.collectAsState()
     val adminAllChannels = remember(allChannels, customAddedChannels, hiddenChannelIds) {
         com.example.data.ChannelRepository.getAllChannelsIncludingHiddenForAdmin()
@@ -2053,11 +2060,12 @@ fun MiniAdminPanelScreen(
                     }
 
                     Text(
-                        text = "Ukifunga channel moja au zote hapa, Free Users wataombwa kulipia Premium. Kwa Premium Members waliodhibitishwa, channels zote zitaendelea kuwa WAZI mpaka kifurushi kiishe.",
+                        text = "Ukifunga channel moja au zote hapa, Free Users watalazimika kulipia Premium (state ya kulipia). Kwa Premium Members waliodhibitishwa, channels zote zitaendelea kuwa WAZI mpaka kifurushi kiishe.",
                         color = NeliTextSecondary,
                         fontSize = 12.sp
                     )
 
+                    // 3A. Global Master Switch: Lock ALL channels
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -2069,19 +2077,20 @@ fun MiniAdminPanelScreen(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Funga Channels ZOTE kwa Free Users",
+                                text = "Funga Channels ZOTE (Global Master Lock)",
                                 color = NeliTextPrimary,
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
                                 text = if (lockAllForFree) {
-                                    "ZIMEFUNGWA ZOTE kwa Free Users (Premium pekee)"
+                                    "STATE YA KULIPIA: ZIMEFUNGWA ZOTE (Premium Pekee)"
                                 } else {
                                     "Ziko wazi (isipokuwa ulizofunga moja moja hapa chini)"
                                 },
-                                color = if (lockAllForFree) Color(0xFFFBBF24) else Color(0xFF34D399),
-                                fontSize = 11.sp
+                                color = if (lockAllForFree) Color(0xFFEF4444) else Color(0xFF34D399),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold
                             )
                         }
                         Switch(
@@ -2089,13 +2098,80 @@ fun MiniAdminPanelScreen(
                             onCheckedChange = { enabled ->
                                 NeliAdminManager.setLockAllChannels(context, enabled)
                                 adminFeedback = if (enabled) {
-                                    "Channels ZOTE zimefungwa kwa Free Users! Premium Members bado wanaona zote."
+                                    "Channels ZOTE zimefungwa kwenye Firebase! Free Users wanatakiwa kulipia."
                                 } else {
-                                    "Channels zimefunguliwa kwa Free Users!"
+                                    "Channels zimefunguliwa kwenye Firebase kwa Free Users!"
                                 }
                             },
                             modifier = Modifier.testTag("admin_lock_all_channels_switch"),
                             colors = SwitchDefaults.colors(checkedThumbColor = NeliLiveRed)
+                        )
+                    }
+
+                    // 3B. Dedicated Azam TV Channels Lock & Paid State Controller
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color(0xFF131D33))
+                            .border(1.dp, NeliGenreCyan.copy(alpha = 0.6f), RoundedCornerShape(12.dp))
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = "Funga Channels ZOTE za AZAM TV",
+                                    color = Color.White,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(Color(0xFF0284C7))
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = "AZAM TV HD",
+                                        color = Color.White,
+                                        fontSize = 8.sp,
+                                        fontWeight = FontWeight.Black
+                                    )
+                                }
+                            }
+                            Text(
+                                text = if (lockAllAzamForFree || lockAllForFree) {
+                                    "STATE YA KULIPIA: ZIMEFUNGWA (Inahitaji Kulipia Premium)"
+                                } else {
+                                    "STATE YA KULIPIA: WAZI BURE (Au kufungwa moja moja chini)"
+                                },
+                                color = if (lockAllAzamForFree || lockAllForFree) Color(0xFFEF4444) else Color(0xFF34D399),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Channels za Azam TV zimehifadhiwa ndani ya app, lakini kufunga/kufungua na state ya kulipia inadhibitiwa papo hapo kupitia Firebase na Admin.",
+                                color = NeliTextSecondary,
+                                fontSize = 10.sp
+                            )
+                        }
+                        Switch(
+                            checked = lockAllAzamForFree || lockAllForFree,
+                            onCheckedChange = { enabled ->
+                                NeliAdminManager.setLockAllAzamChannels(context, enabled)
+                                adminFeedback = if (enabled) {
+                                    "Channels ZOTE za Azam TV zimefungwa kwenye Firebase! Free Users wanatakiwa kulipia Premium."
+                                } else {
+                                    "Channels ZOTE za Azam TV zimefunguliwa kwenye Firebase (Wazi bure)!"
+                                }
+                            },
+                            modifier = Modifier.testTag("admin_lock_all_azam_channels_switch"),
+                            colors = SwitchDefaults.colors(checkedThumbColor = NeliGenreCyan)
                         )
                     }
                 }
@@ -2107,7 +2183,8 @@ fun MiniAdminPanelScreen(
             items = adminAllChannels,
             key = { ch -> "admin_lock_row_${ch.id}" }
         ) { channel ->
-            val isChannelLocked = lockAllForFree || lockedChannelIds.contains(channel.id)
+            val isAzamChannel = NeliAdminManager.isAzamChannel(channel.id) || channel.isAzamTvChannel
+            val isChannelLocked = NeliAdminManager.isChannelLockedByAdmin(channel.id)
             val isChannelHidden = hiddenChannelIds.contains(channel.id)
             Row(
                 modifier = Modifier
@@ -2119,6 +2196,7 @@ fun MiniAdminPanelScreen(
                         color = when {
                             isChannelHidden -> Color(0xFFF59E0B).copy(alpha = 0.6f)
                             isChannelLocked -> NeliLiveRed.copy(alpha = 0.5f)
+                            isAzamChannel -> NeliGenreCyan.copy(alpha = 0.35f)
                             else -> NeliBorder
                         },
                         shape = RoundedCornerShape(12.dp)
@@ -2147,22 +2225,47 @@ fun MiniAdminPanelScreen(
                         modifier = Modifier.size(20.dp)
                     )
                     Column {
-                        Text(
-                            text = channel.name,
-                            color = NeliTextPrimary,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = channel.name,
+                                color = NeliTextPrimary,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            if (isAzamChannel) {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(Color(0xFF0284C7))
+                                        .padding(horizontal = 4.dp, vertical = 1.dp)
+                                ) {
+                                    Text(
+                                        text = "AZAM TV",
+                                        color = Color.White,
+                                        fontSize = 8.sp,
+                                        fontWeight = FontWeight.Black
+                                    )
+                                }
+                            }
+                        }
                         Text(
                             text = when {
                                 isChannelHidden -> "${channel.category} • IMEFICHWA (Hidden)"
-                                isChannelLocked -> "${channel.category} • IMEFUNGWA (Free Users)"
-                                else -> "${channel.category} • WAZI (Free & Premium)"
+                                isChannelLocked -> "${channel.category} • STATE: IMEFUNGWA (Lipiwa Premium)"
+                                else -> "${channel.category} • STATE: WAZI BURE (Free & VIP)"
                             },
-                            color = if (isChannelHidden || isChannelLocked) Color(0xFFFBBF24) else NeliTextSecondary,
-                            fontSize = 11.sp
+                            color = when {
+                                isChannelHidden -> Color(0xFFFBBF24)
+                                isChannelLocked -> Color(0xFFEF4444)
+                                else -> Color(0xFF34D399)
+                            },
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold
                         )
                     }
                 }
@@ -2194,12 +2297,15 @@ fun MiniAdminPanelScreen(
                         onCheckedChange = { shouldLock ->
                             NeliAdminManager.setSingleChannelLock(context, channel.id, shouldLock)
                             adminFeedback = if (shouldLock) {
-                                "${channel.name} imefungwa kwa Free Users."
+                                "${channel.name}: State ya kulipia imebadilishwa kuwa IMEFUNGWA kwenye Firebase!"
                             } else {
-                                "${channel.name} imefunguliwa."
+                                "${channel.name}: State ya kulipia imebadilishwa kuwa WAZI BURE kwenye Firebase!"
                             }
                         },
-                        modifier = Modifier.testTag("admin_toggle_lock_${channel.id}")
+                        modifier = Modifier.testTag("admin_toggle_lock_${channel.id}"),
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = if (isAzamChannel) NeliGenreCyan else NeliLiveRed
+                        )
                     )
                 }
             }

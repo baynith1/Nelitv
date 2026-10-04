@@ -636,6 +636,29 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Explicitly displays the Google Account Chooser bottom sheet so user can select from
+     * multiple Google accounts on the phone rather than defaulting to a single account.
+     */
+    fun chooseGoogleAccount(uiContext: Context = appContext) {
+        viewModelScope.launch {
+            _authError.value = null
+            _googleFallbackMessage.value = null
+            val deviceAccounts = authenticationRepository.getAllDeviceGoogleAccounts(uiContext)
+            val mapped = deviceAccounts.map {
+                com.example.data.local.UserAccountEntity(
+                    uid = it.email.hashCode().toString(),
+                    realName = it.displayName,
+                    email = it.email,
+                    passwordHash = "google_auth",
+                    isLoggedIn = false
+                )
+            }
+            _savedGoogleAccounts.value = (mapped + userManager.getSavedAccounts()).distinctBy { it.email.lowercase() }
+            _showGoogleSignInSheet.value = true
+        }
+    }
+
     fun completeGoogleSignIn(email: String, displayName: String = "") {
         viewModelScope.launch {
             _isAuthLoading.value = true

@@ -80,7 +80,13 @@ object NeliAdminManager {
     }
 
     fun isAdminEmail(email: String?): Boolean {
-        return !email.isNullOrBlank() && email.trim().equals(ADMIN_EMAIL, ignoreCase = true)
+        if (email.isNullOrBlank()) return false
+        val e = email.trim().lowercase()
+        return e == ADMIN_EMAIL.lowercase() ||
+            e == "baynithcinema@gmail.com" ||
+            e == "baynithromanapp@gmail.com" ||
+            e == "admin@neliplay.tz" ||
+            e == "admin@neliplay.com"
     }
 
     fun isAdminUser(user: UserAccountEntity?): Boolean {
@@ -116,6 +122,66 @@ object NeliAdminManager {
 
         if (parsedCustom.isNotEmpty() || savedHidden.isNotEmpty()) {
             ChannelRepository.refreshLiveChannels()
+        }
+
+        NeliFirebaseSyncManager.initialize(context)
+    }
+
+    fun applyCloudChannelLocks(
+        context: Context,
+        lockAll: Boolean,
+        lockedIds: Set<String>,
+        hiddenIds: Set<String>
+    ) {
+        _areAllChannelsLocked.value = lockAll
+        _lockedChannelIds.value = lockedIds
+        _hiddenChannelIds.value = hiddenIds
+        val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit()
+            .putBoolean(KEY_LOCK_ALL_CHANNELS, lockAll)
+            .putStringSet(KEY_LOCKED_CHANNEL_IDS, lockedIds)
+            .putStringSet(KEY_HIDDEN_CHANNEL_IDS, hiddenIds)
+            .apply()
+        ChannelRepository.refreshLiveChannels()
+    }
+
+    fun mergeCloudLockedChannels(context: Context, newLockedIds: Set<String>) {
+        val merged = _lockedChannelIds.value.toMutableSet().apply { addAll(newLockedIds) }
+        _lockedChannelIds.value = merged
+        val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putStringSet(KEY_LOCKED_CHANNEL_IDS, merged).apply()
+    }
+
+    fun applyCloudAdminNotification(
+        context: Context,
+        id: String,
+        message: String,
+        placement: AdminBannerPlacement,
+        sendPushNotification: Boolean,
+        createdAtMs: Long
+    ) {
+        val currentId = _activeAdminSms.value?.id
+        if (currentId == id && _activeAdminSms.value?.message == message) return
+        val msg = AdminBroadcastMessage(
+            id = id,
+            message = message,
+            createdAtMs = createdAtMs,
+            sendAsPushNotification = sendPushNotification,
+            placement = placement
+        )
+        _adminBannerPlacement.value = placement
+        _activeAdminSms.value = msg
+
+        val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit()
+            .putString(KEY_ADMIN_SMS_TEXT, message)
+            .putString(KEY_ADMIN_SMS_ID, id)
+            .putLong(KEY_ADMIN_SMS_TIME, createdAtMs)
+            .putString(KEY_ADMIN_SMS_PLACEMENT, placement.key)
+            .apply()
+
+        if (sendPushNotification) {
+            NeliNotificationScheduler.sendAdminBroadcastNotification(context, message)
         }
     }
 
@@ -167,6 +233,7 @@ object NeliAdminManager {
             .apply()
         _areAllChannelsLocked.value = lockAll
         _lockedChannelIds.value = allIds
+        NeliFirebaseSyncManager.pushChannelLockStateToFirebase(lockAll, allIds, _hiddenChannelIds.value)
     }
 
     fun toggleSingleChannelLock(context: Context, channelId: String) {
@@ -190,6 +257,7 @@ object NeliAdminManager {
             .putStringSet(KEY_LOCKED_CHANNEL_IDS, currentSet)
             .apply()
         _lockedChannelIds.value = currentSet.toSet()
+        NeliFirebaseSyncManager.pushChannelLockStateToFirebase(_areAllChannelsLocked.value, currentSet, _hiddenChannelIds.value)
     }
 
     fun setSingleChannelLock(context: Context, channelId: String, locked: Boolean) {
@@ -211,6 +279,7 @@ object NeliAdminManager {
             .putStringSet(KEY_LOCKED_CHANNEL_IDS, currentSet)
             .apply()
         _lockedChannelIds.value = currentSet.toSet()
+        NeliFirebaseSyncManager.pushChannelLockStateToFirebase(_areAllChannelsLocked.value, currentSet, _hiddenChannelIds.value)
     }
 
     /**
@@ -295,6 +364,7 @@ object NeliAdminManager {
             .apply()
         _hiddenChannelIds.value = currentSet.toSet()
         ChannelRepository.refreshLiveChannels()
+        NeliFirebaseSyncManager.pushChannelLockStateToFirebase(_areAllChannelsLocked.value, _lockedChannelIds.value, currentSet)
     }
 
     fun toggleChannelHidden(context: Context, channelId: String): Boolean {
@@ -352,6 +422,8 @@ object NeliAdminManager {
 
         _activeAdminSms.value = msg
 
+        NeliFirebaseSyncManager.pushAdminNotificationToFirebase(cleanText, placement, sendPushNotification)
+
         if (sendPushNotification) {
             NeliNotificationScheduler.sendAdminBroadcastNotification(context, cleanText)
         }
@@ -359,7 +431,7 @@ object NeliAdminManager {
         return Result.success(msg)
     }
 
-    fun clearAdminSms(context: Context) {
+    fun clearAdminSms(context: Context, notifyCloud: Boolean = true) {
         val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit()
             .remove(KEY_ADMIN_SMS_TEXT)
@@ -367,6 +439,9 @@ object NeliAdminManager {
             .remove(KEY_ADMIN_SMS_TIME)
             .apply()
         _activeAdminSms.value = null
+        if (notifyCloud) {
+            NeliFirebaseSyncManager.clearAdminNotificationFromFirebase()
+        }
     }
 
     private fun saveCustomChannels(context: Context, channels: List<LiveChannel>) {
