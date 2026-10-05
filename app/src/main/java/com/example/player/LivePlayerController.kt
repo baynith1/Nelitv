@@ -1293,34 +1293,26 @@ class LivePlayerController(
         _uiState.value = PlayerUiState.Loading
         registerPowerBroadcastReceiverIfNeeded()
 
-        // Prioritize standard AOSP platform codecs (c2.android.* / OMX.google.*) and exclude
-        // buggy goldfish/ranchu emulator codecs that fail CCodecResources system resource queries (error 6)
-        // or stall on seek flush.
+        // Use standard MediaCodecSelector.DEFAULT with decoder fallback so ExoPlayer uses
+        // optimal hardware decoders first without forcing software Codec2 components that fail
+        // system resource queries (error 6).
         val reliableCodecSelector = MediaCodecSelector { mimeType, requiresSecureDecoder, requiresTunnelingDecoder ->
-            val defaultInfos = MediaCodecSelector.DEFAULT.getDecoderInfos(
-                mimeType,
-                requiresSecureDecoder,
-                requiresTunnelingDecoder
-            )
-            val androidPlatformCodecs = defaultInfos.filter { info ->
-                info.name.startsWith("c2.android.", ignoreCase = true) ||
-                        info.name.startsWith("OMX.google.", ignoreCase = true) ||
-                        (info.softwareOnly && !info.vendor)
-            }
-            if (androidPlatformCodecs.isNotEmpty() && !requiresSecureDecoder && !requiresTunnelingDecoder) {
-                androidPlatformCodecs
-            } else {
-                defaultInfos.filterNot { info ->
-                    info.name.contains("goldfish", ignoreCase = true) ||
-                            info.name.contains("ranchu", ignoreCase = true) ||
-                            info.name.contains("cuttlefish", ignoreCase = true)
-                }.ifEmpty { defaultInfos }
+            try {
+                val defaultInfos = MediaCodecSelector.DEFAULT.getDecoderInfos(
+                    mimeType,
+                    requiresSecureDecoder,
+                    requiresTunnelingDecoder
+                )
+                if (defaultInfos.isNotEmpty()) defaultInfos else emptyList()
+            } catch (_: Throwable) {
+                emptyList()
             }
         }
 
         val renderersFactory = DefaultRenderersFactory(context)
             .setMediaCodecSelector(reliableCodecSelector)
             .setEnableDecoderFallback(true)
+            .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF)
 
         val initialBitrate = detectInitialBitrateEstimate()
         latestEstimatedBandwidthBps = initialBitrate

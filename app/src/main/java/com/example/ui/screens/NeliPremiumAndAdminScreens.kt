@@ -2183,7 +2183,7 @@ fun MiniAdminPanelScreen(
             items = adminAllChannels,
             key = { ch -> "admin_lock_row_${ch.id}" }
         ) { channel ->
-            val isAzamChannel = NeliAdminManager.isAzamChannel(channel.id) || channel.isAzamTvChannel
+            val isAzamChannel = NeliAdminManager.isAzamChannel(channel) || channel.isAzamTvChannel
             val isChannelLocked = NeliAdminManager.isChannelLockedByAdmin(channel.id)
             val isChannelHidden = hiddenChannelIds.contains(channel.id)
             Row(
@@ -2792,6 +2792,86 @@ fun NeliCastModalSheet(
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.ExtraBold
                                 )
+                            }
+                        }
+                    }
+                }
+
+                // Apple TV / AirPlay Direct IP Connect Option
+                var showManualIpInput by rememberSaveable { mutableStateOf(false) }
+                var manualIpText by rememberSaveable { mutableStateOf("") }
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(NeliSurface)
+                        .padding(10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showManualIpInput = !showManualIpInput },
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Tv,
+                                contentDescription = null,
+                                tint = NeliGenreCyan,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Text(
+                                text = "Unganisha moja kwa moja kwa IP (Apple TV / AirPlay)",
+                                color = Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Icon(
+                            imageVector = if (showManualIpInput) Icons.Default.Close else Icons.Default.AddCircle,
+                            contentDescription = null,
+                            tint = NeliTextSecondary
+                        )
+                    }
+
+                    if (showManualIpInput) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = manualIpText,
+                                onValueChange = { manualIpText = it },
+                                placeholder = { Text("mfano: 192.168.1.50", fontSize = 12.sp) },
+                                singleLine = true,
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.weight(1f).testTag("cast_manual_ip_input")
+                            )
+                            Button(
+                                onClick = {
+                                    val ip = manualIpText.trim()
+                                    if (ip.isNotBlank()) {
+                                        NeliCastManager.connectByManualIp(
+                                            ip = ip,
+                                            isAirPlay = true,
+                                            channel = selectedCastChannel,
+                                            currentUser = currentUser,
+                                            context = context
+                                        )
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.testTag("cast_manual_ip_connect_button")
+                            ) {
+                                Text("Connect", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                             }
                         }
                     }

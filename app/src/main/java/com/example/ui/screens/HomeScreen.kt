@@ -199,6 +199,10 @@ fun HomeScreen(
         neliViewModel.refreshConnectivityState()
         NeliSubscriptionManager.initialize(context)
         NeliAdminManager.initialize(context)
+        val user = currentUser
+        if (user == null || !user.isLoggedIn) {
+            neliViewModel.chooseGoogleAccount(context)
+        }
     }
 
     if (showCastDialog) {
@@ -587,24 +591,69 @@ private fun LiveTvHomeTab(
             .ifEmpty { allPrioritizedChannels.take(10) }
     }
 
-    val liveCategories = remember(allPrioritizedChannels, homepageCategoryShelves) {
-        val cats = LinkedHashSet<String>()
-        cats.add("All")
-        homepageCategoryShelves.forEach { (catName, _) ->
-            if (catName.isNotBlank()) cats.add(catName)
-        }
-        ChannelRepository.categories.forEach { if (it.isNotBlank()) cats.add(it) }
-        allPrioritizedChannels.forEach { ch ->
-            if (ch.category.isNotBlank()) cats.add(ch.category)
-        }
-        cats.toList()
-    }
+    val liveCategories = listOf(
+        "All Channels",
+        "Sports",
+        "Kids",
+        "Movies",
+        "Music",
+        "News",
+        "Other"
+    )
 
     val filteredChannels = remember(selectedCategory, allPrioritizedChannels) {
-        if (selectedCategory.equals("All", ignoreCase = true)) {
-            allPrioritizedChannels
-        } else {
-            ChannelRepository.getChannelsByCategory(selectedCategory)
+        when {
+            selectedCategory.equals("All", true) || selectedCategory.equals("All Channels", true) -> {
+                allPrioritizedChannels
+            }
+            selectedCategory.equals("Sports", true) -> {
+                allPrioritizedChannels.filter { ch ->
+                    ch.categories.any { it.equals("sports", true) || it.equals("sport", true) || it.equals("football", true) || it.equals("europe", true) } ||
+                        ch.name.contains("sport", ignoreCase = true) ||
+                        ch.name.contains("sk moments", ignoreCase = true)
+                }
+            }
+            selectedCategory.equals("Kids", true) -> {
+                allPrioritizedChannels.filter { ch ->
+                    ch.categories.any { it.equals("kids", true) || it.equals("kid", true) || it.contains("cartoon", true) || it.contains("animation", true) } ||
+                        ch.name.contains("tom and jerry", ignoreCase = true) ||
+                        ch.name.contains("pop kids", ignoreCase = true)
+                }
+            }
+            selectedCategory.equals("Movies", true) -> {
+                allPrioritizedChannels.filter { ch ->
+                    ch.categories.any { it.equals("movies", true) || it.equals("movie", true) || it.contains("cinema", true) } ||
+                        ch.name.contains("movie", ignoreCase = true) ||
+                        ch.name.contains("cinema", ignoreCase = true) ||
+                        ch.name.contains("sinema", ignoreCase = true)
+                }
+            }
+            selectedCategory.equals("Music", true) -> {
+                allPrioritizedChannels.filter { ch ->
+                    ch.categories.any { it.equals("music", true) } ||
+                        ch.name.contains("trace", ignoreCase = true) ||
+                        ch.name.contains("wasafi", ignoreCase = true)
+                }
+            }
+            selectedCategory.equals("News", true) -> {
+                allPrioritizedChannels.filter { ch ->
+                    ch.categories.any { it.equals("news", true) } ||
+                        ch.name.contains("news", ignoreCase = true) ||
+                        ch.name.contains("global", ignoreCase = true) ||
+                        ch.name.contains("habari", ignoreCase = true)
+                }
+            }
+            selectedCategory.equals("Other", true) -> {
+                allPrioritizedChannels.filter { ch ->
+                    ch.categories.any { it.equals("other", true) || it.equals("entertainment", true) } ||
+                        ch.categories.isEmpty()
+                }
+            }
+            else -> {
+                allPrioritizedChannels.filter { ch ->
+                    ch.categories.any { it.equals(selectedCategory, true) }
+                }
+            }
         }
     }
 
@@ -682,14 +731,15 @@ private fun LiveTvHomeTab(
                     .testTag("live_tv_category_chips")
             ) {
                 items(liveCategories) { category ->
-                    val isSelected = category.equals(selectedCategory, ignoreCase = true)
+                    val isSelected = category.equals(selectedCategory, ignoreCase = true) ||
+                        (category == "All Channels" && (selectedCategory.equals("All", true) || selectedCategory.equals("All Channels", true)))
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(8.dp))
                             .background(
                                 if (isSelected) NeliTextPrimary else NeliSurfaceVariant
                             )
-                            .clickable { onCategorySelected(category) }
+                            .clickable { onCategorySelected(if (category == "All Channels") "All" else category) }
                             .padding(horizontal = 14.dp, vertical = 7.dp)
                             .testTag("live_cat_chip_$category")
                     ) {
@@ -745,64 +795,7 @@ private fun LiveTvHomeTab(
             }
         }
 
-        // 3. Ordered Category Shelves before "All Channels":
-        // Starts with Azam TV (all Azam TV channels), then Sports, Entertainment, Kids, News, Movies,
-        // Music, Documentary, Africa, Tanzania, and any other categories until all categories finish.
-        if (selectedCategory.equals("All", ignoreCase = true) && homepageCategoryShelves.isNotEmpty()) {
-            itemsIndexed(
-                items = homepageCategoryShelves,
-                key = { _, pair -> "home_cat_shelf_${pair.first}" }
-            ) { catIndex, (categoryTitle, categoryChannels) ->
-                val sectionTag = when {
-                    categoryTitle.equals("Azam TV", ignoreCase = true) -> "homepage_curated_live_tv_section"
-                    categoryTitle.equals("Tanzania", ignoreCase = true) -> "homepage_tanzania_live_tv_section"
-                    else -> "homepage_category_section_${categoryTitle.lowercase().replace(" ", "_")}"
-                }
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 8.dp)
-                        .testTag(sectionTag)
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 4.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = categoryTitle,
-                            color = NeliTextPrimary,
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "${categoryChannels.size} channels",
-                            color = NeliTextSecondary,
-                            fontSize = 12.sp
-                        )
-                    }
-
-                    LazyRow(
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        items(
-                            items = categoryChannels,
-                            key = { ch -> "home_cat_${categoryTitle}_${ch.id}" }
-                        ) { channel ->
-                            HomepageLiveChannelCard(
-                                channel = channel,
-                                onClick = { onChannelSelected(channel) }
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        // 4. All Live Channels Vertical Feed (placed after all category shelves finish, with Muted Video Ads after every 6 channels)
+        // 3. All Live Channels Vertical Grid Feed (strictly vertical scroll without horizontal rows)
         item {
             Row(
                 modifier = Modifier

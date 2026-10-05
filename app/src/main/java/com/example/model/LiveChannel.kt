@@ -77,7 +77,8 @@ data class LiveChannel(
     val backupStreamUrl: String = "",
     val channelTag: String = "",
     val rating: String = "",
-    val scheduleEvents: List<ChannelScheduleEvent> = emptyList()
+    val scheduleEvents: List<ChannelScheduleEvent> = emptyList(),
+    val isLockedDefault: Boolean = false
 ) {
     val category: String
         get() = categories.firstOrNull()?.replaceFirstChar { it.uppercase() } ?: "Live TV"
@@ -139,6 +140,15 @@ data class LiveChannel(
 
     val isAzamPriority: Boolean
         get() = id.startsWith("azam_", ignoreCase = true) ||
+                id == "R17JUvbCEzu2eTbjnE74" ||
+                id == "f74ba826-f031-4e64-9ec1-f7ffa4e6ec0f" ||
+                id == "1c976127-e8a4-4bd6-8e73-5da0edce369b" ||
+                id == "244bcd50-b3bf-4d5e-8419-08cc7bad1a7c" ||
+                id == "c405ae74-c4c5-4842-9f26-130ce380b307" ||
+                id == "008ffe6e-a30f-4ed1-9ddb-4033dde18576" ||
+                id == "f56ca8c1-3d3f-4dd2-8d9d-b0b54b559f6e" ||
+                id == "tom_and_jerry_channel" ||
+                id == "pop_kids_channel" ||
                 streamUrl.contains("azamtvltd.co.tz", ignoreCase = true) ||
                 name.contains("Azam", ignoreCase = true) ||
                 name.contains("Sinema Zetu", ignoreCase = true) ||
@@ -148,7 +158,9 @@ data class LiveChannel(
                 name.contains("Wasafi", ignoreCase = true) ||
                 name.contains("Clouds", ignoreCase = true) ||
                 name.contains("ITV", ignoreCase = true) ||
-                name.contains("KIX", ignoreCase = true)
+                name.contains("KIX", ignoreCase = true) ||
+                name.contains("Tom and Jerry", ignoreCase = true) ||
+                name.contains("Pop Kids", ignoreCase = true)
 
     /**
      * True for all Azam TV channels that support the in-player Language Switcher
@@ -158,10 +170,7 @@ data class LiveChannel(
         get() = isAzamPriority
 
     /**
-     * True when the current channel / program is strictly in Kiswahili (e.g., Sinema Zetu, Azam Two,
-     * Azam Xtra, Clouds TV, ITV, Wasafi TV, ZBC, UTV, Crown TV, or any program marked `language == "sw"`).
-     * When true, even if the user attempts to switch to English (`"en"`), the audio language
-     * MUST remain Kiswahili (`"sw"`).
+     * True when the current channel / program is strictly in Kiswahili.
      */
     val isKiswahiliOnlyProgram: Boolean
         get() = language.equals("sw", ignoreCase = true) ||
@@ -189,15 +198,30 @@ data class LiveChannel(
 
     /**
      * Priority score used to sort Live TV channels:
-     * 3 = Primary initial channels (Azam TV bouquet)
-     * 2 = Other Tanzania Live TV channels (`country == "Tanzania"`)
-     * 1 = Featured international channels
-     * 0 = Other Live TV channels (lowest priority)
+     * 4 = Azam TV Channels (including Tom and Jerry, Pop Kids)
+     * 3 = Europe Football & Sports Channels
+     * 2 = New Azam TV / Movie Additions (Now Global, Zee Cinema, Movie Box, Trace Latina, MBC 2, etc.)
+     * 1 = Other Tanzania Live TV channels
+     * 0 = Other International Live TV channels
      */
     val priorityTier: Int
         get() = when {
-            isAzamPriority -> 3
-            isTanzaniaChannel -> 2
+            isAzamPriority -> 4
+            categories.any { it.equals("europe", ignoreCase = true) } ||
+                name.contains("sk moments", ignoreCase = true) ||
+                name.contains("sport tv", ignoreCase = true) -> 3
+            id.endsWith("_channel") ||
+                name.contains("Now Global", ignoreCase = true) ||
+                name.contains("Zee Cinema", ignoreCase = true) ||
+                name.contains("Movie Box", ignoreCase = true) ||
+                name.contains("Trace Latina", ignoreCase = true) ||
+                name.contains("MBC 2", ignoreCase = true) ||
+                name.contains("Movie Sphere", ignoreCase = true) ||
+                name.contains("Comedy", ignoreCase = true) ||
+                name.contains("Movie Korea", ignoreCase = true) ||
+                name.contains("Sony Movie", ignoreCase = true) ||
+                name.contains("Movie Room", ignoreCase = true) -> 2
+            isTanzaniaChannel -> 1
             featured -> 1
             else -> 0
         }

@@ -15,7 +15,10 @@ import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -84,9 +87,92 @@ object NeliFirebaseSyncManager {
         // 4. Listen for In-App Update configuration
         setupAppUpdateListener(appContext)
 
-        // 5. Initial REST sync fallback in case WebSocket takes time
+        // 5. Automatic background refresh service that fetches fresh tokens from Firebase every 30 minutes (24/7 stability)
+        setupPeriodicThirtyMinuteTokenRefreshService(appContext)
+
+        // 6. Initial REST sync fallback in case WebSocket takes time
         scope.launch {
             syncFromRestEndpoints(appContext)
+        }
+    }
+
+    private const val TOKEN_REFRESH_INTERVAL_MS = 30 * 60 * 1000L // 30 minutes
+
+    /**
+     * Automatic background refresh service that fetches fresh tokens from Firebase every 30 minutes,
+     * ensuring 24/7 stream stability.
+     */
+    private fun setupPeriodicThirtyMinuteTokenRefreshService(context: Context) {
+        scope.launch(Dispatchers.IO) {
+            while (isActive) {
+                delay(TOKEN_REFRESH_INTERVAL_MS)
+                try {
+                    fetchAndApplyFreshFirebaseToken()
+                } catch (e: Throwable) {
+                    Log.w(TAG, "Periodic 30-minute token refresh error: ${e.message}")
+                }
+            }
+        }
+    }
+
+    suspend fun fetchAndApplyFreshFirebaseToken(): Boolean {
+        return withContext(Dispatchers.IO) {
+            val tokenEndpoints = listOf(
+                "$RTDB_URL/config/azam_token.json",
+                "$RTDB_URL/azam_token.json",
+                "$RTDB_URL/cdn_token.json"
+            )
+            var tokenFetched: String? = null
+            var cdnHostFetched: String? = null
+
+            for (endpoint in tokenEndpoints) {
+                try {
+                    val resp = executeGet(endpoint)
+                    if (!resp.isNullOrBlank() && resp != "null") {
+                        if (resp.trim().startsWith("{")) {
+                            val obj = JSONObject(resp)
+                            val token = obj.optString("token").ifBlank { obj.optString("cdn_token") }
+                            if (token.isNotBlank()) {
+                                tokenFetched = token
+                                cdnHostFetched = obj.optString("cdnHost").ifBlank { null }
+                                break
+                            }
+                        } else if (!resp.contains("{") && resp.trim().length > 20) {
+                            tokenFetched = resp.replace("\"", "").trim()
+                            break
+                        }
+                    }
+                } catch (_: Throwable) {
+                }
+            }
+
+            if (tokenFetched.isNullOrBlank()) {
+                try {
+                    val resp = executeGet(ChannelRepository.DEFAULT_TOKEN_ENDPOINT_URL)
+                    if (!resp.isNullOrBlank() && resp != "null" && resp.trim().startsWith("{")) {
+                        val obj = JSONObject(resp)
+                        val token = obj.optString("token").ifBlank { obj.optString("cdn_token") }
+                        if (token.isNotBlank()) {
+                            tokenFetched = token
+                            cdnHostFetched = obj.optString("cdnHost").ifBlank { null }
+                        }
+                    }
+                } catch (_: Throwable) {
+                }
+            }
+
+            if (!tokenFetched.isNullOrBlank()) {
+                val host = cdnHostFetched ?: ChannelRepository.DEFAULT_AZAM_CDN_HOST
+                ChannelRepository.updateCdnAuthorizationToken(
+                    jsonStr = """{"token":"$tokenFetched","cdnHost":"$host"}""",
+                    isAuthoritativeTokenApi = true
+                )
+                TokenManager.syncStateFromRepository()
+                Log.d(TAG, "24/7 background service refreshed Azam token successfully from Firebase (30 min interval)")
+                true
+            } else {
+                false
+            }
         }
     }
 

@@ -7,6 +7,7 @@ import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.DefaultHttpDataSource
 import com.example.data.ChannelRepository
 import com.example.data.MediaContentRepository
+import com.example.model.LiveChannel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -18,6 +19,7 @@ import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 
 /**
@@ -214,6 +216,27 @@ object TokenManager {
             updateRegisteredFactories()
         }
         return updated
+    }
+
+    private val prewarmedManifestCache = ConcurrentHashMap<String, ByteArray>()
+
+    fun getPrewarmedManifestBytes(uriStr: String): ByteArray? {
+        val cleanUri = uriStr.substringBefore("?")
+        val cachedBytes: ByteArray? = prewarmedManifestCache[cleanUri] ?: prewarmedManifestCache[uriStr]
+        return cachedBytes
+    }
+
+    fun cachePrewarmedManifestBytes(uriStr: String, bytes: ByteArray) {
+        val cleanUri = uriStr.substringBefore("?")
+        prewarmedManifestCache[cleanUri] = bytes
+    }
+
+    fun ensureValidToken(): String {
+        return fetchLiveTokenBlocking(false)
+    }
+
+    fun prewarmAllChannelsInBackground(channels: List<LiveChannel>) {
+        // Pre-warming warm-up helper
     }
 
     /**

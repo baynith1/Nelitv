@@ -60,6 +60,29 @@ object NeliAdminManager {
     private val _areAllChannelsLocked = MutableStateFlow(false)
     val areAllChannelsLocked: StateFlow<Boolean> = _areAllChannelsLocked.asStateFlow()
 
+    private val _areAllAzamChannelsLocked = MutableStateFlow(false)
+    val areAllAzamChannelsLocked: StateFlow<Boolean> = _areAllAzamChannelsLocked.asStateFlow()
+
+    private val _isAdminSessionActive = MutableStateFlow(false)
+    val isAdminSessionActive: StateFlow<Boolean> = _isAdminSessionActive.asStateFlow()
+
+    fun setAdminSessionActive(context: Context? = null, active: Boolean) {
+        _isAdminSessionActive.value = active
+    }
+
+    fun isAzamChannel(channel: LiveChannel?): Boolean {
+        return channel?.isAzamPriority == true
+    }
+
+    fun getChannelMatchKeys(channelId: String): Set<String> {
+        val channel = ChannelRepository.liveChannelsFlow.value.firstOrNull { it.id == channelId }
+        val keys = mutableSetOf(channelId)
+        if (channel != null) {
+            keys.add(channel.name.lowercase().replace(" ", "_"))
+        }
+        return keys
+    }
+
     private val _lockedChannelIds = MutableStateFlow<Set<String>>(emptySet())
     val lockedChannelIds: StateFlow<Set<String>> = _lockedChannelIds.asStateFlow()
 
@@ -93,10 +116,29 @@ object NeliAdminManager {
         return user != null && user.isLoggedIn && isAdminEmail(user.email)
     }
 
+    val DEFAULT_LOCKED_CHANNEL_IDS = setOf(
+        "R17JUvbCEzu2eTbjnE74", // Azam Sports 1 HD
+        "f74ba826-f031-4e64-9ec1-f7ffa4e6ec0f", // Azam Sports 2 HD
+        "1c976127-e8a4-4bd6-8e73-5da0edce369b", // Azam Sports 3 HD
+        "008ffe6e-a30f-4ed1-9ddb-4033dde18576", // Azam Two
+        "f56ca8c1-3d3f-4dd2-8d9d-b0b54b559f6e", // Sinema Zetu
+        "sport_tv_1_europe", // Sport tv.1
+        "mbc_2_channel", // MBC 2
+        "sony_movie_action_channel", // Sony Movie Action (Sony Movie One)
+        "comedy_channel", // Comedy
+        "zee_cinema_channel", // Zee Cinema
+        "movie_box_channel", // Movie Box
+        "movie_room_channel" // Movie Room
+    )
+
     fun initialize(context: Context) {
         val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         _areAllChannelsLocked.value = prefs.getBoolean(KEY_LOCK_ALL_CHANNELS, false)
-        val savedLocked = prefs.getStringSet(KEY_LOCKED_CHANNEL_IDS, emptySet())?.toSet() ?: emptySet()
+        val savedLocked = if (prefs.contains(KEY_LOCKED_CHANNEL_IDS)) {
+            prefs.getStringSet(KEY_LOCKED_CHANNEL_IDS, emptySet())?.toSet() ?: emptySet()
+        } else {
+            DEFAULT_LOCKED_CHANNEL_IDS
+        }
         _lockedChannelIds.value = savedLocked
         val savedHidden = prefs.getStringSet(KEY_HIDDEN_CHANNEL_IDS, emptySet())?.toSet() ?: emptySet()
         _hiddenChannelIds.value = savedHidden
@@ -189,7 +231,10 @@ object NeliAdminManager {
      * Checks whether the Admin has marked this channel as locked for Free Users.
      */
     fun isChannelLockedByAdmin(channelId: String): Boolean {
-        return _areAllChannelsLocked.value || _lockedChannelIds.value.contains(channelId)
+        if (_areAllChannelsLocked.value) return true
+        if (_lockedChannelIds.value.contains(channelId)) return true
+        val ch = ChannelRepository.getChannelById(channelId)
+        return ch?.isLockedDefault == true
     }
 
     /**
@@ -234,6 +279,47 @@ object NeliAdminManager {
         _areAllChannelsLocked.value = lockAll
         _lockedChannelIds.value = allIds
         NeliFirebaseSyncManager.pushChannelLockStateToFirebase(lockAll, allIds, _hiddenChannelIds.value)
+    }
+
+    fun setLockAllAzamChannels(context: Context, lockAllAzam: Boolean) {
+        _areAllAzamChannelsLocked.value = lockAllAzam
+        val azamIds = ChannelRepository.liveChannelsFlow.value.filter { it.isAzamPriority }.map { it.id }.toSet()
+        val currentSet = _lockedChannelIds.value.toMutableSet()
+        if (lockAllAzam) {
+            currentSet.addAll(azamIds)
+        } else {
+            currentSet.removeAll(azamIds)
+        }
+        _lockedChannelIds.value = currentSet
+        val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putStringSet(KEY_LOCKED_CHANNEL_IDS, currentSet).apply()
+        NeliFirebaseSyncManager.pushChannelLockStateToFirebase(_areAllChannelsLocked.value, currentSet, _hiddenChannelIds.value)
+    }
+
+    fun applyCloudState(
+        context: Context,
+        lockAll: Boolean,
+        lockAllAzam: Boolean = false,
+        lockedIds: Set<String>,
+        hiddenIds: Set<String>,
+        customChannels: List<LiveChannel> = emptyList(),
+        smsId: String = "",
+        smsText: String = "",
+        smsCreatedAtMs: Long = 0L,
+        smsPlacementKey: String = AdminBannerPlacement.BELOW_SLIDER.key
+    ) {
+        applyCloudChannelLocks(context, lockAll, lockedIds, hiddenIds)
+        if (lockAllAzam) {
+            setLockAllAzamChannels(context, true)
+        }
+        if (customChannels.isNotEmpty()) {
+            _customAddedChannels.value = customChannels
+        }
+        if (smsText.isNotBlank()) {
+            val placement = AdminBannerPlacement.entries.find { it.key == smsPlacementKey }
+                ?: AdminBannerPlacement.BELOW_SLIDER
+            applyCloudAdminNotification(context, smsId, smsText, placement, false, smsCreatedAtMs)
+        }
     }
 
     fun toggleSingleChannelLock(context: Context, channelId: String) {
