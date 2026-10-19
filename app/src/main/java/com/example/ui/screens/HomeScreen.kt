@@ -77,6 +77,7 @@ import com.example.data.NeliSubscriptionManager
 import com.example.data.OfflineDownloadManager
 import com.example.model.LiveChannel
 import com.example.player.NeliCastManager
+import androidx.compose.foundation.layout.fillMaxHeight
 import com.example.ui.NeliViewModel
 import com.example.ui.components.BottomNavTab
 import com.example.ui.components.ChannelCard
@@ -92,7 +93,12 @@ import com.example.ui.theme.NeliSurface
 import com.example.ui.theme.NeliSurfaceVariant
 import com.example.ui.theme.NeliTextPrimary
 import com.example.ui.theme.NeliTextSecondary
+import com.example.ui.theme.NeliThemeManager
 import com.example.ui.theme.rememberNeliScreenProfile
+import com.example.ui.tv.NeliTvDetector
+import com.example.ui.tv.NeliTvSideNavigationRail
+import com.example.ui.tv.NeliTvTopBar
+import com.example.ui.tv.tvGeminiFocusable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -199,10 +205,6 @@ fun HomeScreen(
         neliViewModel.refreshConnectivityState()
         NeliSubscriptionManager.initialize(context)
         NeliAdminManager.initialize(context)
-        val user = currentUser
-        if (user == null || !user.isLoggedIn) {
-            neliViewModel.chooseGoogleAccount(context)
-        }
     }
 
     if (showCastDialog) {
@@ -302,54 +304,15 @@ fun HomeScreen(
         return
     }
 
-    // Deterministic non-overlapping layout:
-    // TopNavBar (Admin SMS + Logo + Search + Cast) -> Main Tab Content -> NeliBottomBar
-    Box(modifier = modifier.fillMaxSize()) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(NeliBackground)
-                .testTag("home_screen")
-        ) {
-        TopNavBar(
-            searchQuery = searchQuery,
-            onSearchQueryChange = { query ->
-                searchQuery = query
-                if (!isSearchOpen) {
-                    isSearchOpen = true
-                }
-            },
-            isSearchOpen = isSearchOpen,
-            onToggleSearch = {
-                if (isSearchOpen) {
-                    isSearchOpen = false
-                    searchQuery = ""
-                } else {
-                    isSearchOpen = true
-                }
-            },
-            activeTabLabel = selectedTab.label,
-            isOfflineMode = isOfflineMode,
-            onOfflineClick = {
-                isSearchOpen = false
-                neliViewModel.selectTab(BottomNavTab.DOWNLOAD)
-            },
-            onBrandClick = {
-                isSearchOpen = false
-                searchQuery = ""
-                neliViewModel.selectTab(BottomNavTab.HOME)
-            },
-            isCastActive = isCastActive,
-            onCastClick = {
-                showCastDialog = true
-            },
-            adminSmsMessage = adminSmsMessage
-        )
+    val isTvDevice = remember(context, NeliThemeManager.forceTvMode) {
+        NeliTvDetector.isTelevision(context)
+    }
 
+    val mainTabsContent: @Composable () -> Unit = {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(1f)
+                .fillMaxHeight()
         ) {
             if (isSearchOpen) {
                 SearchTabContent(
@@ -537,15 +500,114 @@ fun HomeScreen(
                 }
             }
         }
+    }
 
-        NeliBottomBar(
-            selectedTab = selectedTab,
-            onTabSelected = { tab ->
-                isSearchOpen = false
-                neliViewModel.selectTab(tab)
-            },
-            activeDownloadCount = downloadingIds.size
-        )
+    if (isTvDevice) {
+        // Smart TV Layout: Side Navigation Rail (Home, Discovery, Plans, Downloads, Account) + TV TopBar + Content (NO cast button, NO bottom menu)
+        Row(
+            modifier = modifier
+                .fillMaxSize()
+                .background(NeliBackground)
+                .testTag("home_screen_tv")
+        ) {
+            NeliTvSideNavigationRail(
+                selectedTab = selectedTab,
+                onTabSelected = { tab ->
+                    isSearchOpen = false
+                    neliViewModel.selectTab(tab)
+                },
+                activeDownloadCount = downloadingIds.size
+            )
+
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+            ) {
+                NeliTvTopBar(
+                    activeTabLabel = when (selectedTab) {
+                        BottomNavTab.HOME -> "Live TV & Sports"
+                        BottomNavTab.DISCOVERY -> "Discovery (Movies & Series)"
+                        BottomNavTab.PREMIUM -> "Plans & Subscriptions"
+                        BottomNavTab.DOWNLOAD -> "Downloads"
+                        BottomNavTab.ACCOUNT -> "Account & Settings"
+                    },
+                    searchQuery = searchQuery,
+                    onSearchQueryChange = { searchQuery = it },
+                    isSearchOpen = isSearchOpen,
+                    onToggleSearch = {
+                        isSearchOpen = !isSearchOpen
+                        if (!isSearchOpen) searchQuery = ""
+                    },
+                    adminSmsMessage = adminSmsMessage
+                )
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                ) {
+                    mainTabsContent()
+                }
+            }
+        }
+    } else {
+        // Mobile Layout: TopNavBar (No Cast button) + Main Content + NeliBottomBar
+        Box(modifier = modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(NeliBackground)
+                    .testTag("home_screen")
+            ) {
+                TopNavBar(
+                    searchQuery = searchQuery,
+                    onSearchQueryChange = { query ->
+                        searchQuery = query
+                        if (!isSearchOpen) {
+                            isSearchOpen = true
+                        }
+                    },
+                    isSearchOpen = isSearchOpen,
+                    onToggleSearch = {
+                        if (isSearchOpen) {
+                            isSearchOpen = false
+                            searchQuery = ""
+                        } else {
+                            isSearchOpen = true
+                        }
+                    },
+                    activeTabLabel = selectedTab.label,
+                    isOfflineMode = isOfflineMode,
+                    onOfflineClick = {
+                        isSearchOpen = false
+                        neliViewModel.selectTab(BottomNavTab.DOWNLOAD)
+                    },
+                    onBrandClick = {
+                        isSearchOpen = false
+                        searchQuery = ""
+                        neliViewModel.selectTab(BottomNavTab.HOME)
+                    },
+                    adminSmsMessage = adminSmsMessage
+                )
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                ) {
+                    mainTabsContent()
+                }
+
+                NeliBottomBar(
+                    selectedTab = selectedTab,
+                    onTabSelected = { tab ->
+                        isSearchOpen = false
+                        neliViewModel.selectTab(tab)
+                    },
+                    activeDownloadCount = downloadingIds.size
+                )
+            }
         }
     }
 }
@@ -735,6 +797,12 @@ private fun LiveTvHomeTab(
                         (category == "All Channels" && (selectedCategory.equals("All", true) || selectedCategory.equals("All Channels", true)))
                     Box(
                         modifier = Modifier
+                            .tvGeminiFocusable(
+                                shape = RoundedCornerShape(8.dp),
+                                focusScale = 1.12f,
+                                borderWidth = 2.dp,
+                                onClick = { onCategorySelected(if (category == "All Channels") "All" else category) }
+                            )
                             .clip(RoundedCornerShape(8.dp))
                             .background(
                                 if (isSelected) NeliTextPrimary else NeliSurfaceVariant

@@ -202,24 +202,6 @@ fun TopNavBar(
                         modifier = Modifier.size(22.dp)
                     )
                 }
-
-                IconButton(
-                    onClick = onCastClick,
-                    modifier = Modifier
-                        .testTag("cast_icon_button")
-                        .size(48.dp)
-                        .clip(CircleShape)
-                        .background(
-                            if (isCastActive) Color(0x2634D399) else Color.Transparent
-                        )
-                ) {
-                    Icon(
-                        imageVector = if (isCastActive) Icons.Default.CastConnected else Icons.Default.Cast,
-                        contentDescription = if (isCastActive) "Connected to Large TV" else "Cast to Large TV",
-                        tint = if (isCastActive) Color(0xFF34D399) else NeliTextPrimary,
-                        modifier = Modifier.size(22.dp)
-                    )
-                }
             }
         }
 

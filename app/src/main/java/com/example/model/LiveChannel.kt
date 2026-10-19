@@ -139,7 +139,9 @@ data class LiveChannel(
         get() = encryptionType.equals("clearkey", ignoreCase = true) && clearKeys.isNotEmpty()
 
     val isAzamPriority: Boolean
-        get() = id.startsWith("azam_", ignoreCase = true) ||
+        get() = categories.any { it.equals("azam tv", ignoreCase = true) || it.equals("azam", ignoreCase = true) } ||
+                id.startsWith("azam_", ignoreCase = true) ||
+                id == "baynith_sports_hd" ||
                 id == "R17JUvbCEzu2eTbjnE74" ||
                 id == "f74ba826-f031-4e64-9ec1-f7ffa4e6ec0f" ||
                 id == "1c976127-e8a4-4bd6-8e73-5da0edce369b" ||
@@ -150,14 +152,13 @@ data class LiveChannel(
                 id == "tom_and_jerry_channel" ||
                 id == "pop_kids_channel" ||
                 streamUrl.contains("azamtvltd.co.tz", ignoreCase = true) ||
+                name.contains("Baynith", ignoreCase = true) ||
                 name.contains("Azam", ignoreCase = true) ||
                 name.contains("Sinema Zetu", ignoreCase = true) ||
                 name.contains("UTV", ignoreCase = true) ||
                 name.contains("ZBC", ignoreCase = true) ||
                 name.contains("Crown", ignoreCase = true) ||
                 name.contains("Wasafi", ignoreCase = true) ||
-                name.contains("Clouds", ignoreCase = true) ||
-                name.contains("ITV", ignoreCase = true) ||
                 name.contains("KIX", ignoreCase = true) ||
                 name.contains("Tom and Jerry", ignoreCase = true) ||
                 name.contains("Pop Kids", ignoreCase = true)
@@ -178,14 +179,10 @@ data class LiveChannel(
                 isSwahiliNarratedMovie ||
                 name.contains("Sinema Zetu", ignoreCase = true) ||
                 name.contains("Azam Two", ignoreCase = true) ||
-                name.contains("Azam Xtra", ignoreCase = true) ||
-                name.contains("Azam Movies", ignoreCase = true) ||
                 name.contains("UTV", ignoreCase = true) ||
                 name.contains("ZBC", ignoreCase = true) ||
                 name.contains("Crown", ignoreCase = true) ||
                 name.contains("Wasafi", ignoreCase = true) ||
-                name.contains("Clouds", ignoreCase = true) ||
-                name.contains("ITV", ignoreCase = true) ||
                 description.contains("Kiswahili", ignoreCase = true) ||
                 description.contains("Bongo", ignoreCase = true) ||
                 description.contains("Tamthilia", ignoreCase = true)
@@ -197,32 +194,37 @@ data class LiveChannel(
                 language.equals("sw", ignoreCase = true)
 
     /**
-     * Priority score used to sort Live TV channels:
-     * 4 = Azam TV Channels (including Tom and Jerry, Pop Kids)
-     * 3 = Europe Football & Sports Channels
-     * 2 = New Azam TV / Movie Additions (Now Global, Zee Cinema, Movie Box, Trace Latina, MBC 2, etc.)
-     * 1 = Other Tanzania Live TV channels
-     * 0 = Other International Live TV channels
+     * Priority score used to sort Live TV channels strictly according to user brief:
+     * 1. Baynith Sports Hd (Free)
+     * 2. Sinema Zetu (Free)
+     * 3. Azam One (Free)
+     * 4. Azam Two
+     * 5. Azam Sports 1 HD
+     * 6. Azam Sports 2 HD
+     * 7. Azam Sports 3 HD
+     * 8. Azam Sports 4 HD (Free)
+     * 9. Azam Sports 5 HD (Free)
+     * Followed by all remaining Sports channels (Bein Sport, B Sport, Sky sports, ziggo, sk 5/3/6, sport tv 1, sk moments, etc.)
+     * Followed by other Azam TV / entertainment channels
+     * Followed by Movies, Tanzania, and International channels.
      */
     val priorityTier: Int
         get() = when {
-            isAzamPriority -> 4
-            categories.any { it.equals("europe", ignoreCase = true) } ||
-                name.contains("sk moments", ignoreCase = true) ||
-                name.contains("sport tv", ignoreCase = true) -> 3
-            id.endsWith("_channel") ||
-                name.contains("Now Global", ignoreCase = true) ||
-                name.contains("Zee Cinema", ignoreCase = true) ||
-                name.contains("Movie Box", ignoreCase = true) ||
-                name.contains("Trace Latina", ignoreCase = true) ||
-                name.contains("MBC 2", ignoreCase = true) ||
-                name.contains("Movie Sphere", ignoreCase = true) ||
-                name.contains("Comedy", ignoreCase = true) ||
-                name.contains("Movie Korea", ignoreCase = true) ||
-                name.contains("Sony Movie", ignoreCase = true) ||
-                name.contains("Movie Room", ignoreCase = true) -> 2
-            isTanzaniaChannel -> 1
-            featured -> 1
+            id == "baynith_sports_hd" || name.contains("Baynith Sports", ignoreCase = true) -> 1000
+            id == "f56ca8c1-3d3f-4dd2-8d9d-b0b54b559f6e" || name.equals("Sinema Zetu", ignoreCase = true) -> 950
+            id == "c405ae74-c4c5-4842-9f26-130ce380b307" || name.equals("Azam One", ignoreCase = true) -> 900
+            id == "008ffe6e-a30f-4ed1-9ddb-4033dde18576" || name.equals("Azam Two", ignoreCase = true) -> 850
+            id == "R17JUvbCEzu2eTbjnE74" || name.contains("Azam Sport 1", ignoreCase = true) || name.contains("Azam Sports 1", ignoreCase = true) -> 800
+            id == "f74ba826-f031-4e64-9ec1-f7ffa4e6ec0f" || name.contains("Azam Sport 2", ignoreCase = true) || name.contains("Azam Sports 2", ignoreCase = true) -> 750
+            id == "1c976127-e8a4-4bd6-8e73-5da0edce369b" || name.contains("Azam Sport 3", ignoreCase = true) || name.contains("Azam Sports 3", ignoreCase = true) -> 700
+            id == "244bcd50-b3bf-4d5e-8419-08cc7bad1a7c" || name.contains("Azam Sport 4", ignoreCase = true) || name.contains("Azam Sports 4", ignoreCase = true) -> 650
+            id == "azam_sport_5_hd" || name.contains("Azam Sport 5", ignoreCase = true) || name.contains("Azam Sports 5", ignoreCase = true) -> 600
+            id in listOf("bein_sport_live", "b_sport_live", "b_esports_live", "sky_sports_live", "ziggo_sport_4_live", "sk_5_hd_live", "sk_3_hd_live", "sk_6_hd_live") -> 550
+            categories.any { it.equals("sports", ignoreCase = true) || it.equals("sport", ignoreCase = true) || it.equals("europe", ignoreCase = true) } -> 500
+            isAzamPriority -> 400
+            categories.any { it.equals("movies", ignoreCase = true) || it.equals("movie", ignoreCase = true) } -> 300
+            isTanzaniaChannel -> 200
+            featured -> 100
             else -> 0
         }
 }

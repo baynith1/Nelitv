@@ -180,14 +180,14 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
     val currentUser: StateFlow<UserAccountEntity?> = authenticationRepository.currentUserFlow
         .stateIn(
             scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
+            started = SharingStarted.Eagerly,
             initialValue = null
         )
 
     val authSessionState: StateFlow<AuthSessionState> = authenticationRepository.authStateFlow
         .stateIn(
             scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
+            started = SharingStarted.Eagerly,
             initialValue = AuthSessionState.Unauthenticated
         )
 

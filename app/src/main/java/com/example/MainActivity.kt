@@ -325,7 +325,12 @@ fun NeliApp(
                 val act = context as? Activity
                 act?.let { a ->
                     try {
-                        a.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                        val isTv = com.example.ui.tv.NeliTvDetector.isTelevision(context)
+                        if (!isTv) {
+                            a.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                        } else {
+                            a.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                        }
                         a.window?.decorView?.let { decor ->
                             decor.scrollTo(0, 0)
                             decor.translationY = 0f

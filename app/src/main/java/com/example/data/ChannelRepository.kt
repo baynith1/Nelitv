@@ -173,108 +173,56 @@ object ChannelRepository {
     )
 
     val channels: List<LiveChannel> = listOf(
-        // 1. AZAM SPORT 1 HD (MPD + ClearKey + Embedded Path Token)
+        // 1. BAYNITH SPORTS HD (Free Channel • Placed first beside Azam One)
         LiveChannel(
-            id = "R17JUvbCEzu2eTbjnE74",
-            name = "Azam Sports 1 HD",
-            description = "mpira live",
-            streamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_SPORT_1_TOKEN/live/eds/AzamSport1/DASH/AzamSport1.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
-            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_SPORT_1_TOKEN/live/eds/AzamSport1/DASH/AzamSport1.mpd?cdntoken=$AZAM_SPORT_1_TOKEN",
-            streamFormat = "dash",
-            thumbnailUrl = "https://i.ibb.co/B29Xvb5P/azam-sport-1-01.png",
+            id = "baynith_sports_hd",
+            name = "Baynith sports Hd",
+            description = "Live Sports & Football 24/7 • Free Channel",
+            streamUrl = "https://a25.azplay49.me/hls/streama242312/index.m3u8?cst=837a514954f039b9f4a4bff4b9ac08ea",
+            backupStreamUrl = "https://a25.azplay49.me/hls/streama242312/index.m3u8?cst=837a514954f039b9f4a4bff4b9ac08ea",
+            streamFormat = "hls",
+            thumbnailUrl = "https://kommodo.ai/i/KfTyuV0YBLcu9zEsAYfl",
             categories = listOf("sport", "entertainment", "tanzania"),
-            language = "en",
-            encryptionType = "clearkey",
-            clearKeys = mapOf("c31df1600afc33799ecac543331803f2" to "dd2101530e222f545997d4c553787f85"),
+            language = "sw",
             country = "Tanzania",
-            featured = true
+            featured = true,
+            isLockedDefault = false
         ),
-        // 2. AZAM SPORT 2 HD (MPD + ClearKey + Embedded Path Token)
+        // 2. SINEMA ZETU (Free Channel • Bongo Movies 24/7)
         LiveChannel(
-            id = "f74ba826-f031-4e64-9ec1-f7ffa4e6ec0f",
-            name = "Azam Sports 2 HD",
-            description = "mpira live",
-            streamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_SPORT_2_TOKEN/live/eds/AzamSport2/DASH/AzamSport2.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
-            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_SPORT_2_TOKEN/live/eds/AzamSport2/DASH/AzamSport2.mpd?cdntoken=$AZAM_SPORT_2_TOKEN",
+            id = "f56ca8c1-3d3f-4dd2-8d9d-b0b54b559f6e",
+            name = "Sinema Zetu",
+            description = "Filamu za Kiswahili & Bongo Movies 24/7 • Free Channel",
+            streamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$SINEMA_ZETU_TOKEN/live/eds/SinemaZetu/DASH/SinemaZetu.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$SINEMA_ZETU_TOKEN/live/eds/SinemaZetu/DASH/SinemaZetu.mpd?cdntoken=$SINEMA_ZETU_TOKEN",
             streamFormat = "dash",
-            thumbnailUrl = "https://i.ibb.co/Y7Cj3Wtj/azam-sport-2-01.png",
-            categories = listOf("sport", "entertainment", "tanzania"),
-            language = "en",
+            thumbnailUrl = "https://i.ibb.co/twBGTs4s/1000221073.jpg",
+            categories = listOf("entertainment", "movies", "tanzania"),
+            language = "sw",
             encryptionType = "clearkey",
-            clearKeys = mapOf("739e7499125b31cc9948da8057b84cf9" to "1b7d44d798c351acc02f33ddfbb7682a"),
+            clearKeys = mapOf("d628ae37a8f0336b970f250d9699461e" to "1194c3d60bb494aabe9114ca46c2738e"),
             country = "Tanzania",
-            featured = true
+            featured = true,
+            isLockedDefault = false
         ),
-        // 3. AZAM SPORT 3 HD (MPD + ClearKey + Embedded Path Token)
-        LiveChannel(
-            id = "1c976127-e8a4-4bd6-8e73-5da0edce369b",
-            name = "Azam Sports 3 HD",
-            description = "mpiraa live",
-            streamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_SPORT_3_TOKEN/live/eds/AzamSport3/DASH/AzamSport3.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
-            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_SPORT_3_TOKEN/live/eds/AzamSport3/DASH/AzamSport3.mpd?cdntoken=$AZAM_SPORT_3_TOKEN",
-            streamFormat = "dash",
-            thumbnailUrl = "https://i.ibb.co/2YfLQ545/1000221070.png",
-            categories = listOf("sport", "entertainment", "tanzania"),
-            language = "en",
-            encryptionType = "clearkey",
-            clearKeys = mapOf("2f12d7b889de381a9fb5326ca3aa166d" to "51c2d733a54306fdf89acd4c9d4f6005"),
-            country = "Tanzania",
-            featured = true
-        ),
-        // 4. AZAM SPORT 4 HD (MPD + ClearKey + Embedded Path Token)
-        LiveChannel(
-            id = "244bcd50-b3bf-4d5e-8419-08cc7bad1a7c",
-            name = "Azam Sports 4 HD",
-            description = "Mpira Live",
-            streamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_SPORT_4_TOKEN/live/eds/AzamSport4/DASH/AzamSport4.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
-            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_SPORT_4_TOKEN/live/eds/AzamSport4/DASH/AzamSport4.mpd?cdntoken=$AZAM_SPORT_4_TOKEN",
-            streamFormat = "dash",
-            thumbnailUrl = "https://i.ibb.co/SwtFQNsh/1000221063.jpg",
-            categories = listOf("sport", "entertainment", "tanzania"),
-            language = "en",
-            encryptionType = "clearkey",
-            clearKeys = mapOf("fbcac74e355b3b5d9b6cbc56c7597dbf" to "5f980e872b378d88b46f656a806205c3"),
-            country = "Tanzania",
-            featured = true
-        ),
-        // 5. AZAM SPORT 5 HD (MPD + ClearKey + Embedded Path Token)
-        LiveChannel(
-            id = "azam_sport_5_hd",
-            name = "Azam Sports 5 HD",
-            description = "Mpira Live • Azam TV",
-            streamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_SPORT_5_TOKEN/live/eds/AzamSport5/DASH/AzamSport5.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
-            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_SPORT_5_TOKEN/live/eds/AzamSport5/DASH/AzamSport5.mpd?cdntoken=$AZAM_SPORT_5_TOKEN",
-            streamFormat = "dash",
-            thumbnailUrl = "https://i.ibb.co/SwtFQNsh/1000221063.jpg",
-            categories = listOf("sport", "entertainment", "tanzania"),
-            language = "en",
-            encryptionType = "clearkey",
-            clearKeys = mapOf(
-                "fbcac74e355b3b5d9b6cbc56c7597dbf" to "5f980e872b378d88b46f656a806205c3",
-                "c31df1600afc33799ecac543331803f2" to "dd2101530e222f545997d4c553787f85",
-                "739e7499125b31cc9948da8057b84cf9" to "1b7d44d798c351acc02f33ddfbb7682a",
-                "2f12d7b889de381a9fb5326ca3aa166d" to "51c2d733a54306fdf89acd4c9d4f6005"
-            ),
-            country = "Tanzania",
-            featured = true
-        ),
-        // 6. AZAM ONE (MPD + ClearKey + Embedded Path Token)
+        // 3. AZAM ONE (Free Channel • Burudani na Filamu za Afrika Mashariki)
         LiveChannel(
             id = "c405ae74-c4c5-4842-9f26-130ce380b307",
             name = "Azam One",
-            description = "Burudani na Filamu za Afrika Mashariki",
+            description = "Burudani na Filamu za Afrika Mashariki • Free Channel",
             streamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_ONE_TOKEN/live/eds/AzamOne/DASH/AzamOne.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
             backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_ONE_TOKEN/live/eds/AzamOne/DASH/AzamOne.mpd?cdntoken=$AZAM_ONE_TOKEN",
             streamFormat = "dash",
             thumbnailUrl = "https://i.ibb.co/8gtr1n42/1000221072.jpg",
             categories = listOf("entertainment", "movies", "tanzania"),
-            language = "en",
+            language = "sw",
             encryptionType = "clearkey",
             clearKeys = mapOf("b5cbe1bb5acf3c7f9995be428245cfcd" to "89f1188a11e5e000d4443eb27ca378e1"),
             country = "Tanzania",
-            featured = true
+            featured = true,
+            isLockedDefault = false
         ),
-        // 7. AZAM TWO (MPD + ClearKey + Embedded Path Token)
+        // 4. AZAM TWO (Locked until user pays)
         LiveChannel(
             id = "008ffe6e-a30f-4ed1-9ddb-4033dde18576",
             name = "Azam Two",
@@ -284,103 +232,222 @@ object ChannelRepository {
             streamFormat = "dash",
             thumbnailUrl = "https://i.ibb.co/Z6sdp2tg/1000221074.jpg",
             categories = listOf("entertainment", "tanzania"),
-            language = "en",
+            language = "sw",
             encryptionType = "clearkey",
             clearKeys = mapOf("18f515fd536b3e728e9844e77d9f0fa8" to "c96dfd9b65560f87a1a95b8aeda0432d"),
             country = "Tanzania",
-            featured = true
+            featured = true,
+            isLockedDefault = true
         ),
-        // 8. SINEMA ZETU (MPD + ClearKey + Embedded Path Token)
+        // 5. AZAM SPORTS 1 HD (Locked until user pays)
         LiveChannel(
-            id = "f56ca8c1-3d3f-4dd2-8d9d-b0b54b559f6e",
-            name = "Sinema Zetu",
-            description = "Filamu za Kiswahili & Bongo Movies 24/7",
-            streamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$SINEMA_ZETU_TOKEN/live/eds/SinemaZetu/DASH/SinemaZetu.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
-            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$SINEMA_ZETU_TOKEN/live/eds/SinemaZetu/DASH/SinemaZetu.mpd?cdntoken=$SINEMA_ZETU_TOKEN",
+            id = "R17JUvbCEzu2eTbjnE74",
+            name = "Azam Sports 1 HD",
+            description = "Mpira Live • Ligi Kuu Tanzania Bara",
+            streamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_SPORT_1_TOKEN/live/eds/AzamSport1/DASH/AzamSport1.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_SPORT_1_TOKEN/live/eds/AzamSport1/DASH/AzamSport1.mpd?cdntoken=$AZAM_SPORT_1_TOKEN",
             streamFormat = "dash",
-            thumbnailUrl = "https://i.ibb.co/twBGTs4s/1000221073.jpg",
-            categories = listOf("entertainment", "movies", "tanzania"),
+            thumbnailUrl = "https://i.ibb.co/B29Xvb5P/azam-sport-1-01.png",
+            categories = listOf("sport", "entertainment", "tanzania"),
+            language = "sw",
+            encryptionType = "clearkey",
+            clearKeys = mapOf("c31df1600afc33799ecac543331803f2" to "dd2101530e222f545997d4c553787f85"),
+            country = "Tanzania",
+            featured = true,
+            isLockedDefault = true
+        ),
+        // 6. AZAM SPORTS 2 HD (Locked until user pays)
+        LiveChannel(
+            id = "f74ba826-f031-4e64-9ec1-f7ffa4e6ec0f",
+            name = "Azam Sports 2 HD",
+            description = "Mpira Live • Ligi Kuu & Mashindano",
+            streamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_SPORT_2_TOKEN/live/eds/AzamSport2/DASH/AzamSport2.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_SPORT_2_TOKEN/live/eds/AzamSport2/DASH/AzamSport2.mpd?cdntoken=$AZAM_SPORT_2_TOKEN",
+            streamFormat = "dash",
+            thumbnailUrl = "https://i.ibb.co/Y7Cj3Wtj/azam-sport-2-01.png",
+            categories = listOf("sport", "entertainment", "tanzania"),
+            language = "sw",
+            encryptionType = "clearkey",
+            clearKeys = mapOf("739e7499125b31cc9948da8057b84cf9" to "1b7d44d798c351acc02f33ddfbb7682a"),
+            country = "Tanzania",
+            featured = true,
+            isLockedDefault = true
+        ),
+        // 7. AZAM SPORTS 3 HD (Locked until user pays)
+        LiveChannel(
+            id = "1c976127-e8a4-4bd6-8e73-5da0edce369b",
+            name = "Azam Sports 3 HD",
+            description = "Mpira Live & Michezo Mbalimbali",
+            streamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_SPORT_3_TOKEN/live/eds/AzamSport3/DASH/AzamSport3.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_SPORT_3_TOKEN/live/eds/AzamSport3/DASH/AzamSport3.mpd?cdntoken=$AZAM_SPORT_3_TOKEN",
+            streamFormat = "dash",
+            thumbnailUrl = "https://i.ibb.co/2YfLQ545/1000221070.png",
+            categories = listOf("sport", "entertainment", "tanzania"),
+            language = "sw",
+            encryptionType = "clearkey",
+            clearKeys = mapOf("2f12d7b889de381a9fb5326ca3aa166d" to "51c2d733a54306fdf89acd4c9d4f6005"),
+            country = "Tanzania",
+            featured = true,
+            isLockedDefault = true
+        ),
+        // 8. AZAM SPORTS 4 HD (Free Channel)
+        LiveChannel(
+            id = "244bcd50-b3bf-4d5e-8419-08cc7bad1a7c",
+            name = "Azam Sports 4 HD",
+            description = "Mpira Live • Free Channel",
+            streamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_SPORT_4_TOKEN/live/eds/AzamSport4/DASH/AzamSport4.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_SPORT_4_TOKEN/live/eds/AzamSport4/DASH/AzamSport4.mpd?cdntoken=$AZAM_SPORT_4_TOKEN",
+            streamFormat = "dash",
+            thumbnailUrl = "https://i.ibb.co/SwtFQNsh/1000221063.jpg",
+            categories = listOf("sport", "entertainment", "tanzania"),
+            language = "sw",
+            encryptionType = "clearkey",
+            clearKeys = mapOf("fbcac74e355b3b5d9b6cbc56c7597dbf" to "5f980e872b378d88b46f656a806205c3"),
+            country = "Tanzania",
+            featured = true,
+            isLockedDefault = false
+        ),
+        // 9. AZAM SPORTS 5 HD (Free Channel)
+        LiveChannel(
+            id = "azam_sport_5_hd",
+            name = "Azam Sports 5 HD",
+            description = "Mpira Live • Free Channel",
+            streamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_SPORT_5_TOKEN/live/eds/AzamSport5/DASH/AzamSport5.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_SPORT_5_TOKEN/live/eds/AzamSport5/DASH/AzamSport5.mpd?cdntoken=$AZAM_SPORT_5_TOKEN",
+            streamFormat = "dash",
+            thumbnailUrl = "https://i.ibb.co/SwtFQNsh/1000221063.jpg",
+            categories = listOf("sport", "entertainment", "tanzania"),
+            language = "sw",
+            encryptionType = "clearkey",
+            clearKeys = mapOf(
+                "fbcac74e355b3b5d9b6cbc56c7597dbf" to "5f980e872b378d88b46f656a806205c3",
+                "c31df1600afc33799ecac543331803f2" to "dd2101530e222f545997d4c553787f85",
+                "739e7499125b31cc9948da8057b84cf9" to "1b7d44d798c351acc02f33ddfbb7682a",
+                "2f12d7b889de381a9fb5326ca3aa166d" to "51c2d733a54306fdf89acd4c9d4f6005"
+            ),
+            country = "Tanzania",
+            featured = true,
+            isLockedDefault = false
+        ),
+        // 10. BEIN SPORT (Locked until user pays)
+        LiveChannel(
+            id = "bein_sport_live",
+            name = "Bein Sport",
+            description = "BeIN Sports Football & Champions League Live HD",
+            streamUrl = "http://193.47.62.41/hls/BABABAA.m3u8",
+            backupStreamUrl = "http://193.47.62.41/hls/BABABAA.m3u8",
+            streamFormat = "hls",
+            thumbnailUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSYv3V0QAsKFCFzyPGWigFAllYgF8HTfiqJLb6DQsEcqw&s=10",
+            categories = listOf("sport", "europe"),
             language = "en",
-            encryptionType = "clearkey",
-            clearKeys = mapOf("d628ae37a8f0336b970f250d9699461e" to "1194c3d60bb494aabe9114ca46c2738e"),
-            country = "Tanzania",
-            featured = true
+            country = "International",
+            featured = true,
+            isLockedDefault = true
         ),
-        // 9. AZAM XTRA HD (Added Azam TV Channel #1 - MPD + ClearKey + Embedded Path Token)
+        // 11. B SPORT (Locked until user pays)
         LiveChannel(
-            id = "azam_xtra_hd_14",
-            name = "Azam Xtra HD",
-            description = "Tamthilia, Reality & Vipindi Maalum vya Azam TV",
-            streamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_ONE_TOKEN/live/eds/AzamOne/DASH/AzamOne.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
-            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_TWO_TOKEN/live/eds/AzamTwo/DASH/AzamTwo.mpd?cdntoken=$AZAM_TWO_TOKEN",
-            streamFormat = "dash",
-            thumbnailUrl = "https://i.ibb.co/8gtr1n42/1000221072.jpg",
-            categories = listOf("entertainment", "movies", "tanzania"),
-            language = "sw",
-            encryptionType = "clearkey",
-            clearKeys = mapOf(
-                "b5cbe1bb5acf3c7f9995be428245cfcd" to "89f1188a11e5e000d4443eb27ca378e1",
-                "18f515fd536b3e728e9844e77d9f0fa8" to "c96dfd9b65560f87a1a95b8aeda0432d"
-            ),
-            country = "Tanzania",
-            featured = true
+            id = "b_sport_live",
+            name = "B Sport",
+            description = "B Sport Live Football & Highlights HD",
+            streamUrl = "http://193.47.62.41/hls/BABABAAA.m3u8",
+            backupStreamUrl = "http://193.47.62.41/hls/BABABAAA.m3u8",
+            streamFormat = "hls",
+            thumbnailUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQYPtr8ODbygdQebUarVmkvFAbZw4YqcZ12WHQNY1RlKg&s=10",
+            categories = listOf("sport", "europe"),
+            language = "en",
+            country = "International",
+            featured = true,
+            isLockedDefault = true
         ),
-        // 10. AZAM MOVIES HD (Added Azam TV Channel #2 - MPD + ClearKey + Embedded Path Token)
+        // 12. B ESPORTS (Locked until user pays)
         LiveChannel(
-            id = "azam_movies_hd_15",
-            name = "Azam Movies HD",
-            description = "Sinema Mpya & Action Cinema 24/7 • Azam TV",
-            streamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$SINEMA_ZETU_TOKEN/live/eds/SinemaZetu/DASH/SinemaZetu.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
-            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/live/eds/KIXMovies/DASH/KIXMovies.mpd?cdntoken=$AZAM_SECONDARY_CDN_TOKEN_ENCODED",
-            streamFormat = "dash",
-            thumbnailUrl = "https://i.ibb.co/twBGTs4s/1000221073.jpg",
-            categories = listOf("movies", "entertainment", "tanzania"),
-            language = "sw",
-            encryptionType = "clearkey",
-            clearKeys = mapOf(
-                "d628ae37a8f0336b970f250d9699461e" to "1194c3d60bb494aabe9114ca46c2738e",
-                "a7e155b282f33335ae8d553f169f443c" to "c3fdcfd5d509f1ed8550d76a525e34e5"
-            ),
-            country = "Tanzania",
-            featured = true
+            id = "b_esports_live",
+            name = "B Esports",
+            description = "B Esports Live Gaming Tournaments & Streams",
+            streamUrl = "http://193.47.62.50/hls/REEE.m3u8",
+            backupStreamUrl = "http://193.47.62.50/hls/REEE.m3u8",
+            streamFormat = "hls",
+            thumbnailUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSpzWZDACgrDrUuLD4dmaSqjj8m_FUOcQQFpv-IeCSgzg&s=10",
+            categories = listOf("sport", "europe"),
+            language = "en",
+            country = "International",
+            featured = true,
+            isLockedDefault = true
         ),
-        // 11. CLOUDS TV HD (Added Azam TV Channel #3 - MPD + ClearKey + CDN Token)
+        // 13. SKY SPORTS (Locked until user pays)
         LiveChannel(
-            id = "azam_clouds_tv_16",
-            name = "Clouds TV HD",
-            description = "The People's Station • Burudani & Muziki Live (Azam TV)",
-            streamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$UTV_TOKEN/live/eds/UTV/DASH/UTV.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
-            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/live/eds/WasafiTV/DASH/WasafiTV.mpd?cdntoken=$AZAM_SECONDARY_CDN_TOKEN_ENCODED",
-            streamFormat = "dash",
-            thumbnailUrl = "https://i.ibb.co/Z6sdp2tg/1000221074.jpg",
-            categories = listOf("music", "entertainment", "tanzania"),
-            language = "sw",
-            encryptionType = "clearkey",
-            clearKeys = mapOf(
-                "31b8fc6289fe3ca698588a59d845160c" to "f8c4e73f419cb80db3bdf4a974e31894",
-                "8714fe102679348e9c76cfd315dacaa0" to "a8b86ceda831061c13c7c4c67bd77f8e"
-            ),
-            country = "Tanzania",
-            featured = true
+            id = "sky_sports_live",
+            name = "Sky sports",
+            description = "Sky Sports Premier League & International Football HD",
+            streamUrl = "http://193.47.62.50/hls/HHHHRX.m3u8",
+            backupStreamUrl = "http://193.47.62.50/hls/HHHHRX.m3u8",
+            streamFormat = "hls",
+            thumbnailUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSHi2obhEkN9sPdFFwT3y3V08OSPlFKIt1ToooIBCO93A&s=10",
+            categories = listOf("sport", "europe"),
+            language = "en",
+            country = "UK",
+            featured = true,
+            isLockedDefault = true
         ),
-        // 12. ITV TANZANIA HD (Added Azam TV Channel #4 - MPD + ClearKey + Embedded Path Token)
+        // 14. ZIGGO SPORT 4 (Locked until user pays)
         LiveChannel(
-            id = "azam_itv_tz_17",
-            name = "ITV Tanzania HD",
-            description = "Super Brand • Habari, Tamthilia & Vipindi Live (Azam TV)",
-            streamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$UTV_TOKEN/live/eds/UTV/DASH/UTV.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
-            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/live/eds/ZBC/DASH/ZBC.mpd?cdntoken=$AZAM_SECONDARY_CDN_TOKEN_ENCODED",
-            streamFormat = "dash",
-            thumbnailUrl = "https://i.ibb.co/N2nCDLwD/1000221071.png",
-            categories = listOf("news", "entertainment", "tanzania"),
-            language = "sw",
-            encryptionType = "clearkey",
-            clearKeys = mapOf(
-                "31b8fc6289fe3ca698588a59d845160c" to "f8c4e73f419cb80db3bdf4a974e31894",
-                "e91fec140bc5316f919b4dc9c16287d7" to "79884fad0dbfcdc43d3e33c82a1f1cfa"
-            ),
-            country = "Tanzania",
-            featured = true
+            id = "ziggo_sport_4_live",
+            name = "ziggo sport 4",
+            description = "Ziggo Sport 4 Football, Racing & UEFA Matches HD",
+            streamUrl = "http://193.47.62.55/hls/NUUUQQ.m3u8",
+            backupStreamUrl = "http://193.47.62.55/hls/NUUUQQ.m3u8",
+            streamFormat = "hls",
+            thumbnailUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQ9RQedtjkxno4UB_zWIQfPUhf3YYNIhISN2w33lOnPPA&s",
+            categories = listOf("sport", "europe"),
+            language = "nl",
+            country = "Europe",
+            featured = true,
+            isLockedDefault = true
+        ),
+        // 15. SK 5 HD (Locked until user pays)
+        LiveChannel(
+            id = "sk_5_hd_live",
+            name = "sk 5 hd",
+            description = "Sport Klub 5 Football Live HD",
+            streamUrl = "http://193.47.62.44/hls/FFFFFF.m3u8",
+            backupStreamUrl = "http://193.47.62.44/hls/FFFFFF.m3u8",
+            streamFormat = "hls",
+            thumbnailUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTOyWcGSigA2P8pHYAQLfAvlU_aIWWcEidrnwm46ro3Tw&s=10",
+            categories = listOf("sport", "europe"),
+            language = "en",
+            country = "Europe",
+            featured = true,
+            isLockedDefault = true
+        ),
+        // 16. SK 3 HD (Locked until user pays)
+        LiveChannel(
+            id = "sk_3_hd_live",
+            name = "sk 3 hd",
+            description = "Sport Klub 3 Premier Sports Live HD",
+            streamUrl = "https://a59.azplay49.me/hls/streama268670/index.m3u8?cst=09fb6e99a74983e13d8fb3f7a6b89439",
+            backupStreamUrl = "https://a59.azplay49.me/hls/streama268670/index.m3u8?cst=09fb6e99a74983e13d8fb3f7a6b89439",
+            streamFormat = "hls",
+            thumbnailUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQFGk-MjWfRyP-pvylD3ACtcFG3UJCXm4K8ubf0wVzviA&s=10",
+            categories = listOf("sport", "europe"),
+            language = "en",
+            country = "Europe",
+            featured = true,
+            isLockedDefault = true
+        ),
+        // 17. SK 6 HD (Locked until user pays)
+        LiveChannel(
+            id = "sk_6_hd_live",
+            name = "sk 6 hd",
+            description = "Sport Klub 6 Live Football HD",
+            streamUrl = "https://a118.azplay49.me/hls/streama268673/index.m3u8?cst=91c9b273b784f153d9dae1112d0591c0",
+            backupStreamUrl = "https://a118.azplay49.me/hls/streama268673/index.m3u8?cst=91c9b273b784f153d9dae1112d0591c0",
+            streamFormat = "hls",
+            thumbnailUrl = "https://static.wikia.nocookie.net/logopedia/images/c/c9/SK_6.png/revision/latest/scale-to-width-down/1200?cb=20200415224810",
+            categories = listOf("sport", "europe"),
+            language = "en",
+            country = "Europe",
+            featured = true,
+            isLockedDefault = true
         ),
         // 13. UTV (MPD + ClearKey + Embedded Path Token)
         LiveChannel(
@@ -443,7 +510,8 @@ object ChannelRepository {
             language = "en",
             encryptionType = "clearkey",
             clearKeys = mapOf("a7e155b282f33335ae8d553f169f443c" to "c3fdcfd5d509f1ed8550d76a525e34e5"),
-            featured = true
+            featured = true,
+            isLockedDefault = true
         ),
         // 17. Crown Tv (DASH + ClearKey + Query Token)
         LiveChannel(
@@ -517,7 +585,8 @@ object ChannelRepository {
             categories = listOf("sport"),
             language = "en",
             encryptionType = "clearkey",
-            clearKeys = mapOf("f288380ca4cef9ad3f27a92a08e9bb8b" to "9f18d26291d9230833501f7f822f6875")
+            clearKeys = mapOf("f288380ca4cef9ad3f27a92a08e9bb8b" to "9f18d26291d9230833501f7f822f6875"),
+            isLockedDefault = true
         ),
         // 21. TNT SPORTS 2 HD (MPD + ClearKey)
         LiveChannel(
@@ -530,7 +599,8 @@ object ChannelRepository {
             categories = listOf("sport"),
             language = "en",
             encryptionType = "clearkey",
-            clearKeys = mapOf("f288380ca4cef9ad3f27a92a08e9bb8b" to "9f18d26291d9230833501f7f822f6875")
+            clearKeys = mapOf("f288380ca4cef9ad3f27a92a08e9bb8b" to "9f18d26291d9230833501f7f822f6875"),
+            isLockedDefault = true
         ),
         // 22. Cartoon network (M3U8 HLS)
         LiveChannel(
@@ -1017,7 +1087,7 @@ object ChannelRepository {
             language = "en",
             country = "International",
             featured = true,
-            isLockedDefault = false
+            isLockedDefault = true
         ),
         LiveChannel(
             id = "comedy_channel",
@@ -1045,7 +1115,7 @@ object ChannelRepository {
             language = "ko",
             country = "Korea",
             featured = true,
-            isLockedDefault = false
+            isLockedDefault = true
         ),
         LiveChannel(
             id = "sony_movie_action_channel",

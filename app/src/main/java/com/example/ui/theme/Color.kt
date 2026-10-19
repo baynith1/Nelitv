@@ -15,11 +15,16 @@ object NeliThemeManager {
     private const val PREFS_NAME = "nelitv_theme_prefs"
     private const val KEY_IS_LIGHT_MODE = "is_light_white_mode"
     private const val KEY_IS_PIP_ALLOWED = "is_pip_background_allowed"
+    private const val KEY_FORCE_TV_MODE = "key_force_tv_mode_pref"
 
     var isLightMode by mutableStateOf(false)
         private set
 
     var isPipModeAllowed by mutableStateOf(true)
+        private set
+
+    // null = Auto-detect hardware; true = Always TV Layout; false = Always Mobile Layout
+    var forceTvMode by mutableStateOf<Boolean?>(null)
         private set
 
     val currentThemeLabel: String
@@ -28,11 +33,21 @@ object NeliThemeManager {
     val currentPipStatusLabel: String
         get() = if (isPipModeAllowed) "Allowed • Plays in Background PiP when leaving app" else "Disallowed • Background PiP Off"
 
+    val tvModeStatusLabel: String
+        get() = when (forceTvMode) {
+            null -> "Automatic (Detect TV or Mobile)"
+            true -> "Smart TV Mode (Forced)"
+            false -> "Mobile Mode (Forced)"
+        }
+
     fun initialize(context: Context) {
         try {
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             isLightMode = prefs.getBoolean(KEY_IS_LIGHT_MODE, false)
             isPipModeAllowed = prefs.getBoolean(KEY_IS_PIP_ALLOWED, true)
+            if (prefs.contains(KEY_FORCE_TV_MODE)) {
+                forceTvMode = prefs.getBoolean(KEY_FORCE_TV_MODE, false)
+            }
         } catch (_: Exception) {
         }
     }
@@ -55,6 +70,20 @@ object NeliThemeManager {
                 .edit()
                 .putBoolean(KEY_IS_PIP_ALLOWED, allowed)
                 .apply()
+        } catch (_: Exception) {
+        }
+    }
+
+    fun setTvModeSetting(context: Context, mode: Boolean?) {
+        forceTvMode = mode
+        try {
+            val editor = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+            if (mode == null) {
+                editor.remove(KEY_FORCE_TV_MODE)
+            } else {
+                editor.putBoolean(KEY_FORCE_TV_MODE, mode)
+            }
+            editor.apply()
         } catch (_: Exception) {
         }
     }

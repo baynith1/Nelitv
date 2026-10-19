@@ -3041,7 +3041,7 @@ fun LockedChannelPremiumDialog(
                 )
 
                 Text(
-                    text = "Channel hii imefungwa na Admin kwa watumiaji wa bure. Jiunge na Premium sasa (Kwa Siku Mbili 1,000 TSh, Kwa Wiki 3,500 TSh, au Kwa Mwezi 15,000 TSh) kupitia HarakaPay ili kufungua channels zote papo hapo!",
+                    text = "Channel hii imefungwa na Admin kwa watumiaji wa bure. Jiunge na Premium sasa (Kwa Siku Mbili 1,000 TSh, Kwa Wiki 3,000 TSh, au Kwa Mwezi 10,000 TSh) kupitia HarakaPay ili kufungua channels zote papo hapo!",
                     color = NeliTextSecondary,
                     fontSize = 13.sp,
                     textAlign = TextAlign.Center

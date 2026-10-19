@@ -951,43 +951,45 @@ fun PlayerScreen(
                                 }
                             }
 
-                            // Normal Google Cast Button (Small & Responsive)
-                            Box(
-                                modifier = Modifier
-                                    .testTag("player_cast_button")
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .background(
-                                        if (isCastConnected) Color(0xFF065F46) else Color(0xCC122238)
-                                    )
-                                    .border(
-                                        1.dp,
-                                        if (isCastConnected) Color(0xFF34D399) else NeliGenreCyan.copy(alpha = 0.7f),
-                                        RoundedCornerShape(14.dp)
-                                    )
-                                    .clickable {
-                                        isEpisodeDrawerOpen = false
-                                        isSettingsDrawerOpen = false
-                                        isAzamLanguageMenuOpen = false
-                                        showCastDialog = true
-                                    }
-                                    .padding(horizontal = 8.dp, vertical = 5.dp)
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            // Normal Google Cast Button (Small & Responsive) - Hidden on Smart TV
+                            if (!com.example.ui.tv.NeliTvDetector.isTelevision(context)) {
+                                Box(
+                                    modifier = Modifier
+                                        .testTag("player_cast_button")
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .background(
+                                            if (isCastConnected) Color(0xFF065F46) else Color(0xCC122238)
+                                        )
+                                        .border(
+                                            1.dp,
+                                            if (isCastConnected) Color(0xFF34D399) else NeliGenreCyan.copy(alpha = 0.7f),
+                                            RoundedCornerShape(14.dp)
+                                        )
+                                        .clickable {
+                                            isEpisodeDrawerOpen = false
+                                            isSettingsDrawerOpen = false
+                                            isAzamLanguageMenuOpen = false
+                                            showCastDialog = true
+                                        }
+                                        .padding(horizontal = 8.dp, vertical = 5.dp)
                                 ) {
-                                    Icon(
-                                        imageVector = if (isCastConnected) Icons.Default.CastConnected else Icons.Default.Cast,
-                                        contentDescription = if (isCastConnected) "Connected to TV" else "Cast to TV",
-                                        tint = if (isCastConnected) Color(0xFF34D399) else NeliGenreCyan,
-                                        modifier = Modifier.size(13.dp)
-                                    )
-                                    Text(
-                                        text = if (isCastConnected) "Casting" else "Cast",
-                                        color = Color.White,
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.ExtraBold
-                                    )
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = if (isCastConnected) Icons.Default.CastConnected else Icons.Default.Cast,
+                                            contentDescription = if (isCastConnected) "Connected to TV" else "Cast to TV",
+                                            tint = if (isCastConnected) Color(0xFF34D399) else NeliGenreCyan,
+                                            modifier = Modifier.size(13.dp)
+                                        )
+                                        Text(
+                                            text = if (isCastConnected) "Casting" else "Cast",
+                                            color = Color.White,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.ExtraBold
+                                        )
+                                    }
                                 }
                             }
 
@@ -1972,32 +1974,34 @@ fun PlayerScreen(
                                 }
                             }
 
-                            // Normal Cast Chip
-                            Box(
-                                modifier = Modifier
-                                    .testTag("portrait_cast_chip")
-                                    .clip(RoundedCornerShape(16.dp))
-                                    .background(if (isCastConnected) Color(0xFF065F46) else NeliSurfaceVariant)
-                                    .border(1.dp, NeliBorder, RoundedCornerShape(16.dp))
-                                    .clickable { showCastDialog = true }
-                                    .padding(horizontal = 12.dp, vertical = 7.dp)
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                            // Normal Cast Chip - Hidden on Smart TV
+                            if (!com.example.ui.tv.NeliTvDetector.isTelevision(context)) {
+                                Box(
+                                    modifier = Modifier
+                                        .testTag("portrait_cast_chip")
+                                        .clip(RoundedCornerShape(16.dp))
+                                        .background(if (isCastConnected) Color(0xFF065F46) else NeliSurfaceVariant)
+                                        .border(1.dp, NeliBorder, RoundedCornerShape(16.dp))
+                                        .clickable { showCastDialog = true }
+                                        .padding(horizontal = 12.dp, vertical = 7.dp)
                                 ) {
-                                    Icon(
-                                        imageVector = if (isCastConnected) Icons.Default.CastConnected else Icons.Default.Cast,
-                                        contentDescription = null,
-                                        tint = if (isCastConnected) Color(0xFF34D399) else NeliGenreCyan,
-                                        modifier = Modifier.size(14.dp)
-                                    )
-                                    Text(
-                                        text = if (isCastConnected) "Casting to TV" else "Cast to TV",
-                                        color = NeliTextPrimary,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = if (isCastConnected) Icons.Default.CastConnected else Icons.Default.Cast,
+                                            contentDescription = null,
+                                            tint = if (isCastConnected) Color(0xFF34D399) else NeliGenreCyan,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        Text(
+                                            text = if (isCastConnected) "Casting to TV" else "Cast to TV",
+                                            color = NeliTextPrimary,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
                                 }
                             }
 

@@ -43,6 +43,7 @@ import com.example.ui.theme.NeliBorder
 import com.example.ui.theme.NeliMagenta
 import com.example.ui.theme.NeliSurfaceVariant
 import com.example.ui.theme.NeliTextSecondary
+import com.example.ui.tv.tvGeminiFocusable
 
 @Composable
 fun CategoryChipRow(
@@ -89,6 +90,12 @@ fun CategoryChip(
     Box(
         modifier = modifier
             .testTag("category_chip_$title")
+            .tvGeminiFocusable(
+                shape = RoundedCornerShape(22.dp),
+                focusScale = 1.10f,
+                borderWidth = 2.dp,
+                onClick = onClick
+            )
             .height(44.dp)
             .clip(RoundedCornerShape(22.dp))
             .background(bgColor)

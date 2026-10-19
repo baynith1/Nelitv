@@ -85,20 +85,39 @@ object TokenManager {
         val activeToken = tokenOverride?.trim()?.takeIf { it.isNotEmpty() } ?: currentToken
         val headers = linkedMapOf(
             "Accept" to "*/*",
-            "Connection" to "keep-alive"
+            "Connection" to "keep-alive",
+            "User-Agent" to USER_AGENT
         )
-        val isAzamOrTokenStream = streamUrl == null ||
-            streamUrl.contains("azamtvltd.co.tz", ignoreCase = true) ||
-            streamUrl.contains("/live/eds/", ignoreCase = true) ||
-            streamUrl.contains("cdntoken=", ignoreCase = true) ||
-            streamUrl.contains("streamzone.fun", ignoreCase = true)
-
-        if (activeToken.isNotEmpty() && isAzamOrTokenStream) {
-            headers["Authorization"] = "Bearer $activeToken"
-            headers["X-CDN-Token"] = activeToken
-            headers["cdntoken"] = activeToken
-            headers["Origin"] = "https://streamzone.fun"
-            headers["Referer"] = "https://streamzone.fun/"
+        val url = streamUrl.orEmpty()
+        when {
+            url.contains("193.47.62.") -> {
+                // FawaNews IP Sports streams (Bein Sport, B Sport, B Esports, Sky sports, ziggo sport 4, sk 5)
+                headers["Referer"] = "http://www.fawanews.sc/"
+                headers["Origin"] = "http://www.fawanews.sc"
+            }
+            url.contains("obstreamx.click", ignoreCase = true) -> {
+                // Sk moments & Europe football streams
+                headers["Referer"] = "https://getembed.live/"
+                headers["Origin"] = "https://getembed.live"
+            }
+            url.contains("azplay", ignoreCase = true) -> {
+                // Azplay live sports streams (Sport tv.1, Baynith Sports Hd, sk 3, sk 6)
+                headers["Referer"] = "https://getembed.live/"
+                headers["Origin"] = "https://getembed.live"
+            }
+            url.isBlank() ||
+            url.contains("azamtvltd.co.tz", ignoreCase = true) ||
+            url.contains("/live/eds/", ignoreCase = true) ||
+            url.contains("cdntoken=", ignoreCase = true) ||
+            url.contains("streamzone.fun", ignoreCase = true) -> {
+                if (activeToken.isNotEmpty()) {
+                    headers["Authorization"] = "Bearer $activeToken"
+                    headers["X-CDN-Token"] = activeToken
+                    headers["cdntoken"] = activeToken
+                    headers["Origin"] = "https://streamzone.fun"
+                    headers["Referer"] = "https://streamzone.fun/"
+                }
+            }
         }
         return headers
     }

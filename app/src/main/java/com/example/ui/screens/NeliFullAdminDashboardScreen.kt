@@ -1044,14 +1044,14 @@ private fun HarakaPayIncomeAnalyticsCard(snapshot: NeliRealtimeAdminSnapshot) {
                     modifier = Modifier.weight(1f)
                 )
                 PackageIncomeMiniBox(
-                    title = "Kwa Wiki (3,500)",
+                    title = "Kwa Wiki (3,000)",
                     subscribers = "${snapshot.weeklyPlanSubscribers} Wateja",
                     revenue = snapshot.formatTzs(snapshot.weeklyPlanRevenueTzs),
                     color = Color(0xFFA855F7),
                     modifier = Modifier.weight(1f)
                 )
                 PackageIncomeMiniBox(
-                    title = "Kwa Mwezi (15,000)",
+                    title = "Kwa Mwezi (10,000)",
                     subscribers = "${snapshot.monthlyPlanSubscribers} Wateja",
                     revenue = snapshot.formatTzs(snapshot.monthlyPlanRevenueTzs),
                     color = Color(0xFFF59E0B),

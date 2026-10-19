@@ -67,22 +67,22 @@ enum class SubscriptionPlanType(
         badgeText = "MAARUFU KWA SIKU 2"
     ),
     WEEKLY(
-        id = "WEEKLY_3500",
+        id = "WEEKLY_3000",
         titleSwahili = "Kwa Wiki",
-        subtitleSwahili = "Fungua channel zote za VIP kwa siku 7 kamili (saa 168)",
-        amountTzs = 3500,
-        priceFormatted = "3,500 TSh",
+        subtitleSwahili = "Fungua channel zote za VIP kwa wiki 1 nzima (siku 7 kamili)",
+        amountTzs = 3000,
+        priceFormatted = "3,000 TSh",
         daysCount = 7,
         durationMillis = 7L * 24L * 60L * 60L * 1000L,
         durationLabel = "Wiki 1 (Siku 7)",
         badgeText = "OFA BORA YA WIKI"
     ),
     MONTHLY(
-        id = "MONTHLY_15000",
+        id = "MONTHLY_10000",
         titleSwahili = "Kwa Mwezi",
-        subtitleSwahili = "Fungua channel zote za VIP kwa siku 30 kamili (saa 720)",
-        amountTzs = 15000,
-        priceFormatted = "15,000 TSh",
+        subtitleSwahili = "Fungua channel zote za VIP kwa mwezi mzima (siku 30/31)",
+        amountTzs = 10000,
+        priceFormatted = "10,000 TSh",
         daysCount = 30,
         durationMillis = 30L * 24L * 60L * 60L * 1000L,
         durationLabel = "Mwezi 1 (Siku 30)",
@@ -93,6 +93,24 @@ enum class SubscriptionPlanType(
         const val ONE_HOUR_MILLIS: Long = 60L * 60L * 1000L
         const val ONE_DAY_MILLIS: Long = 24L * ONE_HOUR_MILLIS
         val TWO_DAYS: SubscriptionPlanType get() = DAILY
+
+        fun fromId(id: String): SubscriptionPlanType {
+            return when (id.uppercase()) {
+                "TWO_DAYS_1000", "DAILY" -> DAILY
+                "WEEKLY_3000", "WEEKLY_3500", "WEEKLY" -> WEEKLY
+                "MONTHLY_10000", "MONTHLY_15000", "MONTHLY" -> MONTHLY
+                else -> DAILY
+            }
+        }
+
+        fun fromAmount(amountTzs: Int): SubscriptionPlanType {
+            return when (amountTzs) {
+                1000 -> DAILY
+                3000, 3500 -> WEEKLY
+                10000, 15000 -> MONTHLY
+                else -> if (amountTzs >= 10000) MONTHLY else if (amountTzs >= 3000) WEEKLY else DAILY
+            }
+        }
     }
 }
 

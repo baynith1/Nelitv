@@ -48,6 +48,7 @@ import coil.request.ImageRequest
 import com.example.data.ChannelRepository
 import com.example.data.NeliAdminManager
 import com.example.data.NeliSubscriptionManager
+import com.example.ui.tv.tvGeminiFocusable
 import com.example.model.LiveChannel
 import com.example.ui.theme.NeliBorder
 import com.example.ui.theme.NeliMagenta
@@ -104,6 +105,12 @@ fun ChannelCard(
         modifier = modifier
             .testTag("channel_card_${channel.id}")
             .fillMaxWidth()
+            .tvGeminiFocusable(
+                shape = RoundedCornerShape(12.dp),
+                focusScale = 1.08f,
+                borderWidth = 2.5.dp,
+                onClick = onClick
+            )
             .clip(RoundedCornerShape(12.dp))
             .clickable(onClick = onClick)
             .border(0.5.dp, NeliBorder, RoundedCornerShape(12.dp)),

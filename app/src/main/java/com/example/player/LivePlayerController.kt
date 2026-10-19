@@ -487,8 +487,8 @@ class LivePlayerController(
     private val sharedBaseHttpDataSourceFactory: DefaultHttpDataSource.Factory by lazy {
         val factory = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(5_000)
-            .setReadTimeoutMs(7_000)
+            .setConnectTimeoutMs(15_000)
+            .setReadTimeoutMs(25_000)
             .setUserAgent(TokenManager.USER_AGENT)
         TokenManager.injectHeadersIntoFactory(factory, channel.streamUrl)
     }
@@ -1079,26 +1079,12 @@ class LivePlayerController(
     }
 
     /**
-     * Seeds the initial bandwidth estimate for [DefaultBandwidthMeter] so that [AdaptiveTrackSelection]
-     * prioritizes high-quality HD streams (1080p/720p) on normal Wi-Fi and Mobile Data connections,
-     * while respecting constrained or low-bando links.
+     * Seeds the initial bandwidth estimate with a fast, lightweight estimate (350 kbps)
+     * so Live TV and video streams start playing immediately without long buffering delays ("low auto quality").
+     * As playback continues smoothly, Media3 AdaptiveTrackSelection automatically steps up to 720p/1080p.
      */
     private fun detectInitialBitrateEstimate(): Long {
-        return try {
-            val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
-            val caps = cm?.activeNetwork?.let { cm.getNetworkCapabilities(it) }
-            val downKbps = caps?.linkDownstreamBandwidthKbps ?: 4_500
-            val isLowBando = isLowBandoNetworkDetected()
-            when {
-                isLowBando -> 250_000L
-                downKbps in 1..600 -> 520_000L
-                downKbps in 601..1_400 -> 1_100_000L
-                downKbps in 1_401..2_800 -> 2_400_000L
-                else -> 3_800_000L
-            }
-        } catch (_: Exception) {
-            3_800_000L
-        }
+        return 350_000L
     }
 
     /**
@@ -1864,8 +1850,13 @@ class LivePlayerController(
         }
         val encodedManifestQuery = manifestUri.encodedQuery
 
-        val baseHttpDataSourceFactory = TokenManager.injectHeadersIntoFactory(
-            sharedBaseHttpDataSourceFactory,
+        val baseHttpDataSourceFactory = DefaultHttpDataSource.Factory()
+            .setAllowCrossProtocolRedirects(true)
+            .setConnectTimeoutMs(15_000)
+            .setReadTimeoutMs(25_000)
+            .setUserAgent(TokenManager.USER_AGENT)
+        TokenManager.injectHeadersIntoFactory(
+            baseHttpDataSourceFactory,
             effectiveStreamUrl
         )
 
