@@ -105,6 +105,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.media3.common.C
+import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
@@ -460,10 +461,13 @@ fun PlayerScreen(
         }
     }
 
-    DisposableEffect(playerController, orientationMode) {
+    val isTvDevice = com.example.ui.tv.NeliTvDetector.isTelevision(context)
+    DisposableEffect(playerController, orientationMode, isTvDevice) {
         val window = activity?.window
         window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        activity?.requestedOrientation = orientationMode.activityOrientationConstant
+        if (!isTvDevice) {
+            activity?.requestedOrientation = orientationMode.activityOrientationConstant
+        }
 
         val insetsController = window?.let { WindowCompat.getInsetsController(it, view) }
         insetsController?.systemBarsBehavior =
@@ -487,7 +491,9 @@ fun PlayerScreen(
                 decor.translationY = 0f
             }
             insetsController?.show(WindowInsetsCompat.Type.systemBars())
-            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            if (!isTvDevice) {
+                activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            }
         }
     }
 
@@ -517,7 +523,7 @@ fun PlayerScreen(
                         isBackgroundLoading = false,
                         isPictureInPicture = inPip
                     )
-                    if (!inPip) {
+                    if (!inPip && !isTvDevice) {
                         activity?.requestedOrientation = orientationMode.activityOrientationConstant
                     }
                     if (wasPausedByLifecycle) {
@@ -647,27 +653,40 @@ fun PlayerScreen(
                 modifier = Modifier.fillMaxSize()
             )
 
-            // Always-On Live Stream Freeze / Stall Auto-Fix Watchdog & Real-Time Premium Package Expiry Check
-            LaunchedEffect(activeChannel.id, activeChannel.isLiveBroadcast) {
-                if (activeChannel.isLiveBroadcast) {
-                    if (!activeExoPlayer.isPlaying) {
-                        activeExoPlayer.playWhenReady = true
+            // Always-On Live Stream Freeze / Stall Auto-Fix Watchdog & Auto-Play on Smart TV / Mobile
+            LaunchedEffect(activeChannel.id) {
+                if (!activeExoPlayer.isPlaying) {
+                    activeExoPlayer.playWhenReady = true
+                    activeExoPlayer.play()
+                }
+                var watchdogIteration = 0
+                while (true) {
+                    delay(900L)
+                    watchdogIteration++
+                    // If stuck in loading or buffering for more than 3.6 seconds, force-resume playback
+                    if (watchdogIteration % 4 == 0 && !activeExoPlayer.isPlaying) {
+                        if (!activeExoPlayer.playWhenReady) {
+                            activeExoPlayer.playWhenReady = true
+                        }
+                        if (activeExoPlayer.playbackState == Player.STATE_IDLE) {
+                            activeExoPlayer.prepare()
+                        }
                         activeExoPlayer.play()
                     }
-                    while (true) {
-                        delay(900L)
+
+                    if (activeChannel.isLiveBroadcast) {
                         playerController.checkAndAutoFixLiveStreamStall()
-                        com.example.data.NeliSubscriptionManager.expireSubscriptionIfNeeded(context)
-                        val isNowLocked = com.example.data.NeliAdminManager.isChannelLockedForUser(
-                            channelId = activeChannel.id,
-                            currentUser = null,
-                            context = context
-                        )
-                        if (isNowLocked) {
-                            playerController.pause()
-                            handleExit()
-                            break
-                        }
+                    }
+                    com.example.data.NeliSubscriptionManager.expireSubscriptionIfNeeded(context)
+                    val isNowLocked = com.example.data.NeliAdminManager.isChannelLockedForUser(
+                        channelId = activeChannel.id,
+                        currentUser = null,
+                        context = context
+                    )
+                    if (isNowLocked) {
+                        playerController.pause()
+                        handleExit()
+                        break
                     }
                 }
             }

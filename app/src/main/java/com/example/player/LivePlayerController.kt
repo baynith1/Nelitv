@@ -662,6 +662,12 @@ class LivePlayerController(
     }
 
     private fun isPhoneCallActiveOrRinging(forceRefresh: Boolean = false): Boolean {
+        // Smart TVs, Leanback devices, Android TV boxes and TV emulators NEVER make phone calls
+        if (com.example.ui.tv.NeliTvDetector.isHardwareTelevision(context) ||
+            com.example.ui.tv.NeliTvDetector.isTelevision(context)
+        ) {
+            return false
+        }
         val now = android.os.SystemClock.elapsedRealtime()
         if (!forceRefresh && now - lastSystemStatusPollTimeMs < 2500L) {
             return cachedPhoneCallActive
@@ -671,9 +677,10 @@ class LivePlayerController(
         } catch (_: Exception) {
             AudioManager.MODE_NORMAL
         }
+        // Only genuine cellular ringtone or active in-call modes count as phone calls.
+        // MODE_IN_COMMUNICATION is used by audio drivers/headsets and should not block video playback.
         cachedPhoneCallActive = mode == AudioManager.MODE_RINGTONE ||
                 mode == AudioManager.MODE_IN_CALL ||
-                mode == AudioManager.MODE_IN_COMMUNICATION ||
                 mode == AudioManager.MODE_CALL_SCREENING
         return cachedPhoneCallActive
     }
@@ -1289,9 +1296,17 @@ class LivePlayerController(
                     requiresSecureDecoder,
                     requiresTunnelingDecoder
                 )
-                if (defaultInfos.isNotEmpty()) defaultInfos else emptyList()
+                if (defaultInfos.isNotEmpty()) {
+                    defaultInfos
+                } else {
+                    MediaCodecSelector.DEFAULT.getDecoderInfos(mimeType, false, false)
+                }
             } catch (_: Throwable) {
-                emptyList()
+                try {
+                    MediaCodecSelector.DEFAULT.getDecoderInfos(mimeType, false, false)
+                } catch (_: Throwable) {
+                    emptyList()
+                }
             }
         }
 

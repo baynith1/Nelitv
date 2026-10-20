@@ -141,7 +141,6 @@ data class LiveChannel(
     val isAzamPriority: Boolean
         get() = categories.any { it.equals("azam tv", ignoreCase = true) || it.equals("azam", ignoreCase = true) } ||
                 id.startsWith("azam_", ignoreCase = true) ||
-                id == "baynith_sports_hd" ||
                 id == "R17JUvbCEzu2eTbjnE74" ||
                 id == "f74ba826-f031-4e64-9ec1-f7ffa4e6ec0f" ||
                 id == "1c976127-e8a4-4bd6-8e73-5da0edce369b" ||
@@ -152,7 +151,6 @@ data class LiveChannel(
                 id == "tom_and_jerry_channel" ||
                 id == "pop_kids_channel" ||
                 streamUrl.contains("azamtvltd.co.tz", ignoreCase = true) ||
-                name.contains("Baynith", ignoreCase = true) ||
                 name.contains("Azam", ignoreCase = true) ||
                 name.contains("Sinema Zetu", ignoreCase = true) ||
                 name.contains("UTV", ignoreCase = true) ||
@@ -195,36 +193,65 @@ data class LiveChannel(
 
     /**
      * Priority score used to sort Live TV channels strictly according to user brief:
-     * 1. Baynith Sports Hd (Free)
-     * 2. Sinema Zetu (Free)
-     * 3. Azam One (Free)
-     * 4. Azam Two
-     * 5. Azam Sports 1 HD
-     * 6. Azam Sports 2 HD
-     * 7. Azam Sports 3 HD
-     * 8. Azam Sports 4 HD (Free)
-     * 9. Azam Sports 5 HD (Free)
-     * Followed by all remaining Sports channels (Bein Sport, B Sport, Sky sports, ziggo, sk 5/3/6, sport tv 1, sk moments, etc.)
-     * Followed by other Azam TV / entertainment channels
-     * Followed by Movies, Tanzania, and International channels.
+     * 1. Azam One (Free)
+     * 2. Azam Two
+     * 3. Sinema Zetu (Free)
+     * 4. Tom and Jerry (Free • Juu Juu)
+     * 5. Azam Sports 3 HD (Free)
+     * 6. Azam Sports 4 HD (Free)
+     * 7. UTV (Free)
+     * 8. Azam Sports 1 HD
+     * 9. Azam Sports 2 HD
+     * 10. All remaining Azam TV channels (Highest priority over non-Azam channels)
+     * Followed by other Free channels: ZBC, Movie Korea, Now Global, Trace Latina, Movie Sphere, Pop Kids, Firebase
+     * Followed by all remaining Sports channels & other bouquets
      */
     val priorityTier: Int
         get() = when {
-            id == "baynith_sports_hd" || name.contains("Baynith Sports", ignoreCase = true) -> 1000
-            id == "f56ca8c1-3d3f-4dd2-8d9d-b0b54b559f6e" || name.equals("Sinema Zetu", ignoreCase = true) -> 950
-            id == "c405ae74-c4c5-4842-9f26-130ce380b307" || name.equals("Azam One", ignoreCase = true) -> 900
-            id == "008ffe6e-a30f-4ed1-9ddb-4033dde18576" || name.equals("Azam Two", ignoreCase = true) -> 850
-            id == "R17JUvbCEzu2eTbjnE74" || name.contains("Azam Sport 1", ignoreCase = true) || name.contains("Azam Sports 1", ignoreCase = true) -> 800
-            id == "f74ba826-f031-4e64-9ec1-f7ffa4e6ec0f" || name.contains("Azam Sport 2", ignoreCase = true) || name.contains("Azam Sports 2", ignoreCase = true) -> 750
-            id == "1c976127-e8a4-4bd6-8e73-5da0edce369b" || name.contains("Azam Sport 3", ignoreCase = true) || name.contains("Azam Sports 3", ignoreCase = true) -> 700
-            id == "244bcd50-b3bf-4d5e-8419-08cc7bad1a7c" || name.contains("Azam Sport 4", ignoreCase = true) || name.contains("Azam Sports 4", ignoreCase = true) -> 650
-            id == "azam_sport_5_hd" || name.contains("Azam Sport 5", ignoreCase = true) || name.contains("Azam Sports 5", ignoreCase = true) -> 600
-            id in listOf("bein_sport_live", "b_sport_live", "b_esports_live", "sky_sports_live", "ziggo_sport_4_live", "sk_5_hd_live", "sk_3_hd_live", "sk_6_hd_live") -> 550
-            categories.any { it.equals("sports", ignoreCase = true) || it.equals("sport", ignoreCase = true) || it.equals("europe", ignoreCase = true) } -> 500
-            isAzamPriority -> 400
-            categories.any { it.equals("movies", ignoreCase = true) || it.equals("movie", ignoreCase = true) } -> 300
-            isTanzaniaChannel -> 200
-            featured -> 100
+            // Excluded channels
+            id == "baynith_sports_hd" || name.contains("baynith", ignoreCase = true) ||
+            id == "azam_sport_5_hd" || name.contains("azam sport 5", ignoreCase = true) || name.contains("azm sport 5", ignoreCase = true) ||
+            id.contains("azam_xtra") || id.contains("azam_movies") || id.contains("azam_clouds") || id.contains("azam_itv") ||
+            name.contains("itv tanzania", ignoreCase = true) || name.contains("azam xtra", ignoreCase = true) ||
+            name.contains("clouds tv", ignoreCase = true) || name.contains("azam movie", ignoreCase = true) -> -1
+
+            // 1. Azam One (Free)
+            id == "c405ae74-c4c5-4842-9f26-130ce380b307" || name.equals("Azam One", ignoreCase = true) -> 2000
+            // 2. Azam Two
+            id == "008ffe6e-a30f-4ed1-9ddb-4033dde18576" || name.equals("Azam Two", ignoreCase = true) -> 1950
+            // 3. Sinema Zetu (Free)
+            id == "f56ca8c1-3d3f-4dd2-8d9d-b0b54b559f6e" || name.equals("Sinema Zetu", ignoreCase = true) -> 1900
+            // 4. Tom and Jerry (Free • Juu Juu)
+            id == "tom_and_jerry_channel" || name.contains("Tom and Jerry", ignoreCase = true) || name.contains("Toma and Jerry", ignoreCase = true) -> 1850
+            // 5. Azam Sports 3 HD (Free)
+            id == "1c976127-e8a4-4bd6-8e73-5da0edce369b" || name.contains("Azam Sport 3", ignoreCase = true) || name.contains("Azam Sports 3", ignoreCase = true) -> 1800
+            // 6. Azam Sports 4 HD (Free)
+            id == "244bcd50-b3bf-4d5e-8419-08cc7bad1a7c" || name.contains("Azam Sport 4", ignoreCase = true) || name.contains("Azam Sports 4", ignoreCase = true) -> 1750
+            // 7. UTV (Free)
+            id == "d7b415f7-d024-4c7f-a570-653367e8dc5c" || name.equals("UTV", ignoreCase = true) -> 1700
+            // 8. Azam Sports 1 HD
+            id == "R17JUvbCEzu2eTbjnE74" || name.contains("Azam Sport 1", ignoreCase = true) || name.contains("Azam Sports 1", ignoreCase = true) -> 1650
+            // 9. Azam Sports 2 HD
+            id == "f74ba826-f031-4e64-9ec1-f7ffa4e6ec0f" || name.contains("Azam Sport 2", ignoreCase = true) || name.contains("Azam Sports 2", ignoreCase = true) -> 1600
+            // 10. Kipaumbele kwa channel zote za Azam TV
+            isAzamPriority || categories.any { it.equals("azam tv", ignoreCase = true) || it.equals("azam", ignoreCase = true) } ||
+                name.contains("Azam", ignoreCase = true) || streamUrl.contains("azamtvltd.co.tz", ignoreCase = true) -> 1500
+
+            // Free channels according to user brief
+            id == "zbc_1_live" || name.equals("ZBC", ignoreCase = true) || name.equals("ZBC2", ignoreCase = true) || id.contains("zbc") -> 1450
+            id == "movie_korea_channel" || name.contains("Movie Korea", ignoreCase = true) -> 1400
+            id == "now_global_channel" || name.contains("Now Global", ignoreCase = true) -> 1350
+            id == "trace_latina_channel" || name.contains("Trace Latina", ignoreCase = true) -> 1300
+            id == "movie_sphere_channel" || name.contains("Movie Sphere", ignoreCase = true) -> 1250
+            id == "pop_kids_channel" || name.contains("Pop Kids", ignoreCase = true) -> 1200
+            id.startsWith("fb_") || id.startsWith("firebase_") || categories.contains("firebase") -> 1100
+
+            // Other sports & entertainment
+            id in listOf("bein_sport_live", "b_sport_live", "b_esports_live", "sky_sports_live", "ziggo_sport_4_live", "sk_5_hd_live", "sk_3_hd_live", "sk_6_hd_live", "sport_tv_1_europe") -> 1000
+            categories.any { it.equals("sports", ignoreCase = true) || it.equals("sport", ignoreCase = true) || it.equals("europe", ignoreCase = true) } -> 950
+            categories.any { it.equals("movies", ignoreCase = true) || it.equals("movie", ignoreCase = true) } -> 900
+            isTanzaniaChannel -> 850
+            featured -> 500
             else -> 0
         }
 }

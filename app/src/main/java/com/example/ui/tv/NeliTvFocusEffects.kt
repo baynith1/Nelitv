@@ -37,11 +37,29 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.zIndex
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.compositionLocalOf
+
+@Immutable
+data class NeliTvConfiguration(
+    val isTelevision: Boolean = false,
+    val isHardwareTv: Boolean = false,
+    val uiScaleMultiplier: Float = 1.0f,
+    val buttonScaleMultiplier: Float = 1.18f,
+    val buttonMinHeight: Dp = 48.dp,
+    val cardPaddingMultiplier: Float = 1.0f,
+    val defaultGrowScale: Float = 1.08f,
+    val safeOverscanPadding: Dp = 0.dp
+)
+
+val LocalTvConfiguration = compositionLocalOf { NeliTvConfiguration() }
 
 object NeliTvDetector {
     /**
      * Accurately detects whether the running environment is hardware Android Smart TV / TV Box / Leanback / Fire TV.
+     * Strictly verifies android.hardware.type.television and related TV system features.
      */
     fun isHardwareTelevision(context: Context): Boolean {
         val uiModeManager = context.getSystemService(Context.UI_MODE_SERVICE) as? UiModeManager
@@ -53,10 +71,10 @@ object NeliTvDetector {
             return true
         }
         val pm = context.packageManager
-        if (pm.hasSystemFeature(PackageManager.FEATURE_LEANBACK) ||
-            pm.hasSystemFeature("android.software.leanback") ||
+        if (pm.hasSystemFeature("android.hardware.type.television") ||
             pm.hasSystemFeature(PackageManager.FEATURE_TELEVISION) ||
-            pm.hasSystemFeature("android.hardware.type.television") ||
+            pm.hasSystemFeature(PackageManager.FEATURE_LEANBACK) ||
+            pm.hasSystemFeature("android.software.leanback") ||
             pm.hasSystemFeature("amazon.hardware.fire_tv")
         ) {
             return true
@@ -75,61 +93,90 @@ object NeliTvDetector {
     fun isTelevision(context: Context): Boolean {
         return com.example.ui.theme.NeliThemeManager.forceTvMode ?: isHardwareTelevision(context)
     }
+
+    /**
+     * Resolves the complete TV layout configuration for UI scaling and remote ergonomics.
+     */
+    fun resolveConfiguration(context: Context): NeliTvConfiguration {
+        val isHardware = isHardwareTelevision(context)
+        val isTv = isTelevision(context)
+        return NeliTvConfiguration(
+            isTelevision = isTv,
+            isHardwareTv = isHardware,
+            uiScaleMultiplier = if (isTv) 1.20f else 1.0f,
+            buttonScaleMultiplier = if (isTv) 1.25f else 1.0f,
+            buttonMinHeight = if (isTv) 56.dp else 48.dp,
+            cardPaddingMultiplier = if (isTv) 1.25f else 1.0f,
+            defaultGrowScale = if (isTv) 1.10f else 1.06f,
+            safeOverscanPadding = if (isTv) 20.dp else 0.dp
+        )
+    }
 }
 
 /**
  * Animated Gemini Halo Gradient palette for Smart TV Remote focus boundaries:
- * Cyan -> Purple -> Magenta -> Electric Blue -> Cyan.
+ * Matches 3D Neon Logo: Orange -> Magenta -> Purple -> Blue -> Cyan -> Orange wrap.
  */
 val GeminiFocusGradientColors = listOf(
-    Color(0xFF00E5FF), // Gemini Electric Cyan
-    Color(0xFF7C4DFF), // Deep Violet
-    Color(0xFFE040FB), // Magenta Glow
-    Color(0xFF2979FF), // Electric Blue
-    Color(0xFF00E5FF)  // Wrap Cyan
+    Color(0xFFFF8500), // Neon Amber/Orange
+    Color(0xFFFF007A), // Vivid Neon Magenta
+    Color(0xFF8B00FF), // Electric Violet/Purple
+    Color(0xFF0055FF), // Royal Blue
+    Color(0xFF00E5FF), // Neon Cyan
+    Color(0xFFFF8500)  // Wrap
 )
 
 /**
- * High-performance Compose modifier that adds:
- * 1. TV Remote Focusability & D-Pad Enter/Center click trigger.
- * 2. Animated scale expansion (Growing effect to 1.08x).
- * 3. Animated breathing "Gemini effect" glowing boundary border.
- * 4. Elevated z-index so focused cards pop above their row/grid neighbors.
+ * Universal growing effect modifier for Smart TV D-Pad focus & touch interaction:
+ * 1. Scales up dynamically when focused (e.g., 1.08x) or pressed (1.04x).
+ * 2. Elevated zIndex so the item hovers above neighboring cards/elements.
+ * 3. Animated breathing Neon Halo boundary on focus.
+ * 4. Triggers [onClick] on TV remote D-Pad Center/Enter key.
  */
 @Composable
-fun Modifier.tvGeminiFocusable(
+fun Modifier.growingInteractiveEffect(
     shape: Shape = RoundedCornerShape(14.dp),
     focusScale: Float = 1.08f,
-    borderWidth: Dp = 2.5.dp,
+    pressScale: Float = 1.04f,
+    borderWidth: Dp = 2.dp,
+    showHaloGlow: Boolean = true,
+    interactionSource: MutableInteractionSource = remember { MutableInteractionSource() },
     onClick: (() -> Unit)? = null
 ): Modifier {
     var isFocused by remember { mutableStateOf(false) }
+    val isPressed by interactionSource.collectIsPressedAsState()
+
+    val targetScale = when {
+        isFocused -> focusScale
+        isPressed -> pressScale
+        else -> 1.0f
+    }
 
     val animatedScale by animateFloatAsState(
-        targetValue = if (isFocused) focusScale else 1.0f,
+        targetValue = targetScale,
         animationSpec = spring(dampingRatio = 0.72f, stiffness = 420f),
-        label = "tv_scale_anim"
+        label = "neli_growing_scale"
     )
 
-    val infiniteTransition = rememberInfiniteTransition(label = "gemini_halo_pulse")
-    val haloPulseAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.70f,
+    val infiniteTransition = rememberInfiniteTransition(label = "halo_transition")
+    val haloAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.65f,
         targetValue = 1.0f,
         animationSpec = infiniteRepeatable(
-            animation = tween(1200, easing = FastOutSlowInEasing),
+            animation = tween(1100, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
         ),
-        label = "gemini_alpha_pulse"
+        label = "halo_pulse"
     )
 
-    val geminiBrush = remember(haloPulseAlpha) {
+    val geminiBrush = remember(haloAlpha) {
         Brush.sweepGradient(
-            colors = GeminiFocusGradientColors.map { it.copy(alpha = haloPulseAlpha) }
+            colors = GeminiFocusGradientColors.map { it.copy(alpha = haloAlpha) }
         )
     }
 
     return this
-        .zIndex(if (isFocused) 10f else 1f)
+        .zIndex(if (isFocused || isPressed) 15f else 1f)
         .graphicsLayer {
             scaleX = animatedScale
             scaleY = animatedScale
@@ -137,9 +184,9 @@ fun Modifier.tvGeminiFocusable(
         .onFocusChanged { state ->
             isFocused = state.isFocused || state.hasFocus
         }
-        .focusable()
+        .focusable(interactionSource = interactionSource)
         .then(
-            if (isFocused) {
+            if (isFocused && showHaloGlow) {
                 Modifier
                     .shadow(
                         elevation = 16.dp,
@@ -152,6 +199,12 @@ fun Modifier.tvGeminiFocusable(
                         brush = geminiBrush,
                         shape = shape
                     )
+            } else if (isPressed) {
+                Modifier.border(
+                    width = 1.5.dp,
+                    color = Color(0xFFFF007A).copy(alpha = 0.8f),
+                    shape = shape
+                )
             } else {
                 Modifier
             }
@@ -167,3 +220,76 @@ fun Modifier.tvGeminiFocusable(
             }
         }
 }
+
+/**
+ * Convenient card grow effect with smooth 1.07x expansion & neon halo on focus/hover.
+ */
+@Composable
+fun Modifier.tvCardGrow(
+    shape: Shape = RoundedCornerShape(16.dp),
+    focusScale: Float = 1.07f,
+    onClick: (() -> Unit)? = null
+): Modifier = growingInteractiveEffect(
+    shape = shape,
+    focusScale = focusScale,
+    pressScale = 1.03f,
+    borderWidth = 2.dp,
+    showHaloGlow = true,
+    onClick = onClick
+)
+
+/**
+ * Convenient button grow effect with 1.09x expansion for remote-friendly TV buttons.
+ */
+@Composable
+fun Modifier.tvButtonGrow(
+    shape: Shape = RoundedCornerShape(12.dp),
+    focusScale: Float = 1.09f,
+    onClick: (() -> Unit)? = null
+): Modifier = growingInteractiveEffect(
+    shape = shape,
+    focusScale = focusScale,
+    pressScale = 1.04f,
+    borderWidth = 2.dp,
+    showHaloGlow = true,
+    onClick = onClick
+)
+
+/**
+ * Convenient tile/menu item grow effect with 1.05x expansion for settings & list items.
+ */
+@Composable
+fun Modifier.tvTileGrow(
+    shape: Shape = RoundedCornerShape(14.dp),
+    focusScale: Float = 1.05f,
+    onClick: (() -> Unit)? = null
+): Modifier = growingInteractiveEffect(
+    shape = shape,
+    focusScale = focusScale,
+    pressScale = 1.02f,
+    borderWidth = 1.5.dp,
+    showHaloGlow = true,
+    onClick = onClick
+)
+
+/**
+ * High-performance Compose modifier that adds:
+ * 1. TV Remote Focusability & D-Pad Enter/Center click trigger.
+ * 2. Animated scale expansion (Growing effect to 1.08x).
+ * 3. Animated breathing "Gemini effect" glowing boundary border.
+ * 4. Elevated z-index so focused cards pop above their row/grid neighbors.
+ */
+@Composable
+fun Modifier.tvGeminiFocusable(
+    shape: Shape = RoundedCornerShape(14.dp),
+    focusScale: Float = 1.08f,
+    borderWidth: Dp = 2.5.dp,
+    onClick: (() -> Unit)? = null
+): Modifier = growingInteractiveEffect(
+    shape = shape,
+    focusScale = focusScale,
+    pressScale = 1.04f,
+    borderWidth = borderWidth,
+    showHaloGlow = true,
+    onClick = onClick
+)

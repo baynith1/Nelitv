@@ -113,8 +113,9 @@ fun NeliTvSideNavigationRail(
                         painter = painterResource(id = R.drawable.img_nelitv_app_logo_1790873809763),
                         contentDescription = "NeliTV Logo",
                         modifier = Modifier
-                            .size(36.dp)
-                            .clip(CircleShape)
+                            .size(38.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .border(1.dp, Color(0x66FF007A), RoundedCornerShape(8.dp))
                     )
                     Column {
                         Row(verticalAlignment = Alignment.CenterVertically) {

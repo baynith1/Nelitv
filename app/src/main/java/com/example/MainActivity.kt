@@ -67,12 +67,32 @@ class MainActivity : ComponentActivity() {
     private var pendingLaunchChannelId by mutableStateOf<String?>(null)
     private var pendingLaunchMovieId by mutableStateOf<String?>(null)
     private var pendingLaunchTab by mutableStateOf<String?>(null)
+    private var isHardwareTv by mutableStateOf(false)
+    private var isTvEnvironment by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         NativeLogSuppressor.suppressNonFatalNativeLogs()
         super.onCreate(savedInstanceState)
         NeliThemeManager.initialize(this)
         enableEdgeToEdge()
+
+        // Check for android.hardware.type.television to dynamically adjust the UI layout & remote scaling
+        val pm = packageManager
+        isHardwareTv = pm.hasSystemFeature("android.hardware.type.television") ||
+            pm.hasSystemFeature(PackageManager.FEATURE_TELEVISION) ||
+            pm.hasSystemFeature(PackageManager.FEATURE_LEANBACK) ||
+            pm.hasSystemFeature("android.software.leanback") ||
+            (getSystemService(android.content.Context.UI_MODE_SERVICE) as? android.app.UiModeManager)?.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
+        isTvEnvironment = isHardwareTv || NeliThemeManager.forceTvMode == true
+
+        if (isTvEnvironment) {
+            try {
+                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            } catch (_: Exception) {
+            }
+        }
+
         try {
             val isLight = NeliThemeManager.isLightMode
             WindowCompat.getInsetsController(window, window.decorView).apply {
@@ -93,6 +113,21 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val isLightMode = NeliThemeManager.isLightMode
+            val forceTv = NeliThemeManager.forceTvMode
+            val tvConfig = remember(isHardwareTv, forceTv) {
+                com.example.ui.tv.NeliTvDetector.resolveConfiguration(this@MainActivity)
+            }
+
+            LaunchedEffect(tvConfig.isTelevision) {
+                if (tvConfig.isTelevision) {
+                    try {
+                        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                    } catch (_: Exception) {
+                    }
+                }
+            }
+
             LaunchedEffect(isLightMode) {
                 try {
                     WindowCompat.getInsetsController(window, window.decorView).apply {
@@ -102,25 +137,30 @@ class MainActivity : ComponentActivity() {
                 } catch (_: Exception) {
                 }
             }
-            NeliTVTheme {
-                NeliApp(
-                    isSystemInPipMode = isSystemInPipMode,
-                    pendingChannelId = pendingLaunchChannelId,
-                    pendingMovieId = pendingLaunchMovieId,
-                    pendingTab = pendingLaunchTab,
-                    onConsumeDeepLink = {
-                        pendingLaunchChannelId = null
-                        pendingLaunchMovieId = null
-                        pendingLaunchTab = null
-                    },
-                    onActivePlaybackChanged = { isActive ->
-                        hasActivePlaybackForPip = isActive
-                        updateSystemPipParams(isActive)
-                    },
-                    onRequestSystemPipOutsideApp = {
-                        enterSystemPipIfSupported()
-                    }
-                )
+
+            androidx.compose.runtime.CompositionLocalProvider(
+                com.example.ui.tv.LocalTvConfiguration provides tvConfig
+            ) {
+                NeliTVTheme {
+                    NeliApp(
+                        isSystemInPipMode = isSystemInPipMode,
+                        pendingChannelId = pendingLaunchChannelId,
+                        pendingMovieId = pendingLaunchMovieId,
+                        pendingTab = pendingLaunchTab,
+                        onConsumeDeepLink = {
+                            pendingLaunchChannelId = null
+                            pendingLaunchMovieId = null
+                            pendingLaunchTab = null
+                        },
+                        onActivePlaybackChanged = { isActive ->
+                            hasActivePlaybackForPip = isActive
+                            updateSystemPipParams(isActive)
+                        },
+                        onRequestSystemPipOutsideApp = {
+                            enterSystemPipIfSupported()
+                        }
+                    )
+                }
             }
         }
     }

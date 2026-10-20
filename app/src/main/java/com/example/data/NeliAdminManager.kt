@@ -117,10 +117,9 @@ object NeliAdminManager {
     }
 
     val DEFAULT_LOCKED_CHANNEL_IDS = setOf(
-        "R17JUvbCEzu2eTbjnE74", // Azam Sports 1 HD
-        "f74ba826-f031-4e64-9ec1-f7ffa4e6ec0f", // Azam Sports 2 HD
-        "1c976127-e8a4-4bd6-8e73-5da0edce369b", // Azam Sports 3 HD
-        "008ffe6e-a30f-4ed1-9ddb-4033dde18576", // Azam Two
+        "R17JUvbCEzu2eTbjnE74", // Azam Sports 1 HD (Zakulipia)
+        "f74ba826-f031-4e64-9ec1-f7ffa4e6ec0f", // Azam Sports 2 HD (Zakulipia)
+        "008ffe6e-a30f-4ed1-9ddb-4033dde18576", // Azam Two (Zakulipia)
         "bein_sport_live", // Bein Sport
         "b_sport_live", // B Sport
         "b_esports_live", // B Esports
@@ -138,9 +137,7 @@ object NeliAdminManager {
         "comedy_channel", // Comedy
         "zee_cinema_channel", // Zee Cinema
         "movie_box_channel", // Movie Box
-        "movie_room_channel", // Movie Room
-        "movie_sphere_channel", // Movie Sphere
-        "movie_korea_channel" // Movie Korea
+        "movie_room_channel" // Movie Room
     )
 
     fun initialize(context: Context) {
@@ -241,26 +238,37 @@ object NeliAdminManager {
         val name = channel.name.trim().lowercase()
         val id = channel.id.trim()
 
-        // 1. Baynith sports Hd, Sinema Zetu, and Azam One are explicitly Free channels
-        if (name.contains("baynith") || id == "baynith_sports_hd") return true
-        if (name.contains("sinema zetu") || id == "f56ca8c1-3d3f-4dd2-8d9d-b0b54b559f6e") return true
+        // 1. Azam One na Sinema Zetu ni bure
         if (name.contains("azam one") || id == "c405ae74-c4c5-4842-9f26-130ce380b307") return true
-        // 2. Azam Sport 4 na Azam Sport 5 ziweke bure
+        if (name.contains("sinema zetu") || id == "f56ca8c1-3d3f-4dd2-8d9d-b0b54b559f6e") return true
+
+        // 2. Azam Sport 3 and 4 ni bure kwa upande wa Azam TV
+        if (name.contains("azam sport 3") || name.contains("azam sports 3") || id == "1c976127-e8a4-4bd6-8e73-5da0edce369b") return true
         if (name.contains("azam sport 4") || name.contains("azam sports 4") || id == "244bcd50-b3bf-4d5e-8419-08cc7bad1a7c") return true
-        if (name.contains("azam sport 5") || name.contains("azam sports 5") || id == "azam_sport_5_hd") return true
-        // 3. wwe, UTV, wasafi na clown/crown Tv ni free
-        if (name.contains("wwe") || id == "0d7274cb-6a3e-464d-8b8d-bc3c6d433cc2") return true
+
+        // 3. UTV ni bure na ZBC ni bure
         if (name.contains("utv") || id == "d7b415f7-d024-4c7f-a570-653367e8dc5c") return true
-        if (name.contains("wasafi") || id == "wasafi_tv_live_stream_tz" || id == "80e54146-1d9b-4c91-8f71-de0ea4866833") return true
-        if (name.contains("crown") || name.contains("clown") || id == "bba104f4-f5ac-41c9-aa36-7af71aaa1993") return true
-        // 4. Channel za Firebase kama Tom and Jerry na pop kids ni bure
-        if (name.contains("tom and jerry") || id == "tom_and_jerry_channel") return true
-        if (name.contains("pop kids") || id == "pop_kids_channel" || id == "tv_1788953482934_twaqe") return true
-        // Za Europe: Sk moments ni bure
-        if (name.contains("sk moments") || id == "sk_moments_europe") return true
-        // Channels mpya za Azam: News & Music zilizobaki ni bure
+        if (name.contains("zbc") || id.contains("zbc")) return true
+
+        // 4. Movie Korea, Now Global, Trace Latina, Movie Sphere ni bure
+        if (name.contains("movie korea") || id == "movie_korea_channel") return true
         if (name.contains("now global") || id == "now_global_channel") return true
         if (name.contains("trace latina") || id == "trace_latina_channel") return true
+        if (name.contains("movie sphere") || id == "movie_sphere_channel") return true
+
+        // 5. Channel ya Tom and Jerry ni bure
+        if (name.contains("tom and jerry") || name.contains("toma and jerry") || id == "tom_and_jerry_channel") return true
+
+        // 6. Za Firebase ziache nazo ni bure (Pop kids, na nyingine zote za Firebase)
+        if (id.startsWith("fb_") || id.startsWith("firebase_") || channel.categories.contains("firebase") ||
+            name.contains("pop kids") || id == "pop_kids_channel" || id == "tv_1788953482934_twaqe"
+        ) return true
+
+        // WWE, Wasafi na Crown Tv
+        if (name.contains("wwe") || id == "0d7274cb-6a3e-464d-8b8d-bc3c6d433cc2") return true
+        if (name.contains("wasafi") || id == "wasafi_tv_live_stream_tz" || id == "80e54146-1d9b-4c91-8f71-de0ea4866833") return true
+        if (name.contains("crown") || name.contains("clown") || id == "bba104f4-f5ac-41c9-aa36-7af71aaa1993") return true
+        if (name.contains("sk moments") || id == "sk_moments_europe") return true
 
         return false
     }
@@ -271,16 +279,16 @@ object NeliAdminManager {
         val name = channel.name.trim().lowercase()
         val id = channel.id.trim()
 
-        // Azam two zifunge
+        // Azam TV zilizobaki ni zakulipia zote:
+        // Azam Two ni zakulipia
         if (name.contains("azam two") || id == "008ffe6e-a30f-4ed1-9ddb-4033dde18576") return true
+        // Azam Sport 1 na 2 ni zakulipia
+        if (id == "R17JUvbCEzu2eTbjnE74" || id == "f74ba826-f031-4e64-9ec1-f7ffa4e6ec0f") return true
+        if ((name.contains("azam sport") || name.contains("azam sports")) &&
+            (name.contains("1") || name.contains("2"))) return true
         if (name.contains("kix") || id == "4f36f2d1-ff7f-467b-b4f2-6f303263f28b") return true
 
-        // Channel za Azam Sport 1 to 3 zifunge
-        if (id == "R17JUvbCEzu2eTbjnE74" || id == "f74ba826-f031-4e64-9ec1-f7ffa4e6ec0f" || id == "1c976127-e8a4-4bd6-8e73-5da0edce369b") return true
-        if ((name.contains("azam sport") || name.contains("azam sports")) &&
-            (name.contains("1") || name.contains("2") || name.contains("3"))) return true
-
-        // New Sports channels locked until subscription:
+        // Sports channels locked until subscription:
         if (name.contains("bein sport") || id == "bein_sport_live") return true
         if (name.contains("b sport") || id == "b_sport_live") return true
         if (name.contains("b esports") || name.contains("b esport") || id == "b_esports_live") return true
@@ -295,16 +303,13 @@ object NeliAdminManager {
         if (name.contains("tnt sport") || name.contains("tnt sports") ||
             id == "ee2ba70e-c28b-40ce-8ba1-0c20f133d04c" || id == "ba2b232c-a79d-4130-b5d8-4883fbce7a1d") return true
 
-        // Zilock pia hizi channels za Movie na burudani
-        // MBC 2, Sony Movie one, Comedy, Zee cinema, Movie Box, Movie Room, Movie Sphere, Movie Korea
+        // Movie channels zilizobaki
         if (name.contains("mbc 2") || name.contains("mbc2") || id == "mbc_2_channel") return true
         if (name.contains("sony movie") || id == "sony_movie_action_channel") return true
         if (name.contains("comedy") || id == "comedy_channel") return true
         if (name.contains("zee cinema") || id == "zee_cinema_channel") return true
         if (name.contains("movie box") || id == "movie_box_channel") return true
         if (name.contains("movie room") || id == "movie_room_channel") return true
-        if (name.contains("movie sphere") || id == "movie_sphere_channel") return true
-        if (name.contains("movie korea") || id == "movie_korea_channel") return true
 
         return channel.isLockedDefault
     }
@@ -532,6 +537,7 @@ object NeliAdminManager {
      * Note: Channels can NEVER be deleted (even newly added channels); they can only be hidden or unhidden.
      */
     fun isChannelHidden(channelId: String): Boolean {
+        if (ChannelRepository.isExcludedChannel("", channelId)) return true
         return _hiddenChannelIds.value.contains(channelId)
     }
 

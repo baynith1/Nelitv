@@ -117,14 +117,45 @@ object ChannelRepository {
     }
 
     /**
+     * Checks if a channel is requested to be excluded completely from the app:
+     * - ITV Tanzania HD
+     * - Azam Xtra HD
+     * - Clouds TV HD
+     * - Azam Movie HD
+     * - Baynith Sport HD / Baynith Sports HD
+     * - Azam Sport 5 HD / Azm Sport 5
+     */
+    fun isExcludedChannel(name: String, id: String = ""): Boolean {
+        val lower = name.trim().lowercase()
+        val idLower = id.trim().lowercase()
+        return lower.contains("itv tanzania") ||
+               lower.contains("azam xtra") ||
+               lower.contains("clouds tv") ||
+               lower.contains("azam movie") ||
+               lower.contains("baynith sport") ||
+               lower.contains("baynith sports") ||
+               lower.contains("azam sport 5") ||
+               lower.contains("azam sports 5") ||
+               lower.contains("azm sport 5") ||
+               idLower.contains("azam_xtra") ||
+               idLower.contains("azam_movies") ||
+               idLower.contains("azam_clouds") ||
+               idLower.contains("azam_itv") ||
+               idLower.contains("baynith_sports") ||
+               idLower.contains("azam_sport_5") ||
+               idLower == "baynith_sports_hd" ||
+               idLower == "azam_sport_5_hd"
+    }
+
+    /**
      * Refreshes the Live TV channel feed in-place without restarting the app:
      * re-applies the latest Azam CDN host/token to all stream URLs and re-sorts
-     * strictly by priority (Azam TV -> Tanzania -> International).
+     * strictly by priority (Azam One -> Azam Two -> Sinema Zetu -> Tom & Jerry -> Azam Sports).
      */
     fun refreshLiveChannels(): List<LiveChannel> {
         val adminChannels = NeliAdminManager.customAddedChannels.value
         val current = (adminChannels + channels + _liveChannelsFlow.value).distinctBy { it.id }
-            .filter { !NeliAdminManager.isChannelHidden(it.id) }
+            .filter { !NeliAdminManager.isChannelHidden(it.id) && !isExcludedChannel(it.name, it.id) }
         val refreshed = mergeWithBackupChannels(
             getPrioritizedAllChannels(current).map { ch ->
                 ch.copy(
@@ -132,8 +163,8 @@ object ChannelRepository {
                     backupStreamUrl = if (ch.backupStreamUrl.isNotBlank()) normalizeDashStreamUrl(ch.backupStreamUrl) else ""
                 )
             },
-            cachedBackupApiChannels.filter { !NeliAdminManager.isChannelHidden(it.id) }
-        ).filter { !NeliAdminManager.isChannelHidden(it.id) }
+            cachedBackupApiChannels.filter { !NeliAdminManager.isChannelHidden(it.id) && !isExcludedChannel(it.name, it.id) }
+        ).filter { !NeliAdminManager.isChannelHidden(it.id) && !isExcludedChannel(it.name, it.id) }
         _liveChannelsFlow.value = refreshed
         lastRefreshedEpochMs = System.currentTimeMillis()
         return refreshed
@@ -173,39 +204,7 @@ object ChannelRepository {
     )
 
     val channels: List<LiveChannel> = listOf(
-        // 1. BAYNITH SPORTS HD (Free Channel • Placed first beside Azam One)
-        LiveChannel(
-            id = "baynith_sports_hd",
-            name = "Baynith sports Hd",
-            description = "Live Sports & Football 24/7 • Free Channel",
-            streamUrl = "https://a25.azplay49.me/hls/streama242312/index.m3u8?cst=837a514954f039b9f4a4bff4b9ac08ea",
-            backupStreamUrl = "https://a25.azplay49.me/hls/streama242312/index.m3u8?cst=837a514954f039b9f4a4bff4b9ac08ea",
-            streamFormat = "hls",
-            thumbnailUrl = "https://kommodo.ai/i/KfTyuV0YBLcu9zEsAYfl",
-            categories = listOf("sport", "entertainment", "tanzania"),
-            language = "sw",
-            country = "Tanzania",
-            featured = true,
-            isLockedDefault = false
-        ),
-        // 2. SINEMA ZETU (Free Channel • Bongo Movies 24/7)
-        LiveChannel(
-            id = "f56ca8c1-3d3f-4dd2-8d9d-b0b54b559f6e",
-            name = "Sinema Zetu",
-            description = "Filamu za Kiswahili & Bongo Movies 24/7 • Free Channel",
-            streamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$SINEMA_ZETU_TOKEN/live/eds/SinemaZetu/DASH/SinemaZetu.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
-            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$SINEMA_ZETU_TOKEN/live/eds/SinemaZetu/DASH/SinemaZetu.mpd?cdntoken=$SINEMA_ZETU_TOKEN",
-            streamFormat = "dash",
-            thumbnailUrl = "https://i.ibb.co/twBGTs4s/1000221073.jpg",
-            categories = listOf("entertainment", "movies", "tanzania"),
-            language = "sw",
-            encryptionType = "clearkey",
-            clearKeys = mapOf("d628ae37a8f0336b970f250d9699461e" to "1194c3d60bb494aabe9114ca46c2738e"),
-            country = "Tanzania",
-            featured = true,
-            isLockedDefault = false
-        ),
-        // 3. AZAM ONE (Free Channel • Burudani na Filamu za Afrika Mashariki)
+        // 1. AZAM ONE (Free Channel • Burudani na Filamu za Afrika Mashariki)
         LiveChannel(
             id = "c405ae74-c4c5-4842-9f26-130ce380b307",
             name = "Azam One",
@@ -222,7 +221,7 @@ object ChannelRepository {
             featured = true,
             isLockedDefault = false
         ),
-        // 4. AZAM TWO (Locked until user pays)
+        // 2. AZAM TWO (Zakulipia)
         LiveChannel(
             id = "008ffe6e-a30f-4ed1-9ddb-4033dde18576",
             name = "Azam Two",
@@ -238,6 +237,38 @@ object ChannelRepository {
             country = "Tanzania",
             featured = true,
             isLockedDefault = true
+        ),
+        // 3. SINEMA ZETU (Free Channel • Bongo Movies 24/7)
+        LiveChannel(
+            id = "f56ca8c1-3d3f-4dd2-8d9d-b0b54b559f6e",
+            name = "Sinema Zetu",
+            description = "Filamu za Kiswahili & Bongo Movies 24/7 • Free Channel",
+            streamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$SINEMA_ZETU_TOKEN/live/eds/SinemaZetu/DASH/SinemaZetu.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$SINEMA_ZETU_TOKEN/live/eds/SinemaZetu/DASH/SinemaZetu.mpd?cdntoken=$SINEMA_ZETU_TOKEN",
+            streamFormat = "dash",
+            thumbnailUrl = "https://i.ibb.co/twBGTs4s/1000221073.jpg",
+            categories = listOf("entertainment", "movies", "tanzania"),
+            language = "sw",
+            encryptionType = "clearkey",
+            clearKeys = mapOf("d628ae37a8f0336b970f250d9699461e" to "1194c3d60bb494aabe9114ca46c2738e"),
+            country = "Tanzania",
+            featured = true,
+            isLockedDefault = false
+        ),
+        // 4. TOM AND JERRY (Free Channel • Juu Juu 24/7 Non-stop Kids Cartoons)
+        LiveChannel(
+            id = "tom_and_jerry_channel",
+            name = "Tom and Jerry",
+            description = "Tom and Jerry 24/7 Non-stop Kids Cartoons • Free Channel",
+            streamUrl = "https://raw.githubusercontent.com/baynith1/Nelitv/main/streams/tom_and_jerry.m3u8",
+            backupStreamUrl = "https://raw.githubusercontent.com/baynith1/Nelitv/main/streams/tom_and_jerry.m3u8",
+            streamFormat = "hls",
+            thumbnailUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcR6sF2F_w8mY_yP_hG4Q9qf29uL9v_E5aE9-w&s=10",
+            categories = listOf("kids", "azam tv"),
+            language = "en",
+            country = "Tanzania",
+            featured = true,
+            isLockedDefault = false
         ),
         // 5. AZAM SPORTS 1 HD (Locked until user pays)
         LiveChannel(
@@ -273,11 +304,11 @@ object ChannelRepository {
             featured = true,
             isLockedDefault = true
         ),
-        // 7. AZAM SPORTS 3 HD (Locked until user pays)
+        // 7. AZAM SPORTS 3 HD (Free Channel • Mpira Live)
         LiveChannel(
             id = "1c976127-e8a4-4bd6-8e73-5da0edce369b",
             name = "Azam Sports 3 HD",
-            description = "Mpira Live & Michezo Mbalimbali",
+            description = "Mpira Live & Michezo Mbalimbali • Free Channel",
             streamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_SPORT_3_TOKEN/live/eds/AzamSport3/DASH/AzamSport3.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
             backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_SPORT_3_TOKEN/live/eds/AzamSport3/DASH/AzamSport3.mpd?cdntoken=$AZAM_SPORT_3_TOKEN",
             streamFormat = "dash",
@@ -288,7 +319,7 @@ object ChannelRepository {
             clearKeys = mapOf("2f12d7b889de381a9fb5326ca3aa166d" to "51c2d733a54306fdf89acd4c9d4f6005"),
             country = "Tanzania",
             featured = true,
-            isLockedDefault = true
+            isLockedDefault = false
         ),
         // 8. AZAM SPORTS 4 HD (Free Channel)
         LiveChannel(
@@ -303,28 +334,6 @@ object ChannelRepository {
             language = "sw",
             encryptionType = "clearkey",
             clearKeys = mapOf("fbcac74e355b3b5d9b6cbc56c7597dbf" to "5f980e872b378d88b46f656a806205c3"),
-            country = "Tanzania",
-            featured = true,
-            isLockedDefault = false
-        ),
-        // 9. AZAM SPORTS 5 HD (Free Channel)
-        LiveChannel(
-            id = "azam_sport_5_hd",
-            name = "Azam Sports 5 HD",
-            description = "Mpira Live • Free Channel",
-            streamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_SPORT_5_TOKEN/live/eds/AzamSport5/DASH/AzamSport5.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
-            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_SPORT_5_TOKEN/live/eds/AzamSport5/DASH/AzamSport5.mpd?cdntoken=$AZAM_SPORT_5_TOKEN",
-            streamFormat = "dash",
-            thumbnailUrl = "https://i.ibb.co/SwtFQNsh/1000221063.jpg",
-            categories = listOf("sport", "entertainment", "tanzania"),
-            language = "sw",
-            encryptionType = "clearkey",
-            clearKeys = mapOf(
-                "fbcac74e355b3b5d9b6cbc56c7597dbf" to "5f980e872b378d88b46f656a806205c3",
-                "c31df1600afc33799ecac543331803f2" to "dd2101530e222f545997d4c553787f85",
-                "739e7499125b31cc9948da8057b84cf9" to "1b7d44d798c351acc02f33ddfbb7682a",
-                "2f12d7b889de381a9fb5326ca3aa166d" to "51c2d733a54306fdf89acd4c9d4f6005"
-            ),
             country = "Tanzania",
             featured = true,
             isLockedDefault = false
@@ -1087,7 +1096,7 @@ object ChannelRepository {
             language = "en",
             country = "International",
             featured = true,
-            isLockedDefault = true
+            isLockedDefault = false
         ),
         LiveChannel(
             id = "comedy_channel",
@@ -1115,7 +1124,7 @@ object ChannelRepository {
             language = "ko",
             country = "Korea",
             featured = true,
-            isLockedDefault = true
+            isLockedDefault = false
         ),
         LiveChannel(
             id = "sony_movie_action_channel",
@@ -1180,21 +1189,24 @@ object ChannelRepository {
     val liveChannelsFlow: StateFlow<List<LiveChannel>> = _liveChannelsFlow.asStateFlow()
 
     private val homepageChannelIds = listOf(
-        "R17JUvbCEzu2eTbjnE74",                 // Azam Sports 1 HD
-        "f74ba826-f031-4e64-9ec1-f7ffa4e6ec0f", // Azam Sports 2 HD
-        "1c976127-e8a4-4bd6-8e73-5da0edce369b", // Azam Sports 3 HD
-        "244bcd50-b3bf-4d5e-8419-08cc7bad1a7c", // Azam Sports 4 HD
-        "azam_sport_5_hd",                      // Azam Sports 5 HD
-        "c405ae74-c4c5-4842-9f26-130ce380b307", // Azam One
-        "008ffe6e-a30f-4ed1-9ddb-4033dde18576", // Azam Two
-        "f56ca8c1-3d3f-4dd2-8d9d-b0b54b559f6e", // Sinema Zetu
-        "azam_xtra_hd_14",                      // Azam Xtra HD
-        "azam_movies_hd_15",                    // Azam Movies HD
-        "azam_clouds_tv_16",                    // Clouds TV HD (Azam TV)
-        "azam_itv_tz_17",                       // ITV Tanzania HD (Azam TV)
-        "d7b415f7-d024-4c7f-a570-653367e8dc5c", // UTV
-        "4f36f2d1-ff7f-467b-b4f2-6f303263f28b", // KIX
-        "0d7274cb-6a3e-464d-8b8d-bc3c6d433cc2"  // WWE
+        "c405ae74-c4c5-4842-9f26-130ce380b307", // Azam One (Free)
+        "008ffe6e-a30f-4ed1-9ddb-4033dde18576", // Azam Two (Zakulipia)
+        "f56ca8c1-3d3f-4dd2-8d9d-b0b54b559f6e", // Sinema Zetu (Free)
+        "tom_and_jerry_channel",                 // Tom and Jerry (Free • Juu Juu)
+        "1c976127-e8a4-4bd6-8e73-5da0edce369b", // Azam Sports 3 HD (Free)
+        "244bcd50-b3bf-4d5e-8419-08cc7bad1a7c", // Azam Sports 4 HD (Free)
+        "d7b415f7-d024-4c7f-a570-653367e8dc5c", // UTV (Free)
+        "R17JUvbCEzu2eTbjnE74",                 // Azam Sports 1 HD (Zakulipia)
+        "f74ba826-f031-4e64-9ec1-f7ffa4e6ec0f", // Azam Sports 2 HD (Zakulipia)
+        "4f36f2d1-ff7f-467b-b4f2-6f303263f28b", // KIX (Azam TV Bouquet)
+        "0d7274cb-6a3e-464d-8b8d-bc3c6d433cc2", // WWE (Azam TV Bouquet)
+        "101e9c3f-de90-47fb-a69c-342be8a0bb80", // ZBC (Free)
+        "b502217f-a9d0-4aef-99e6-8a784adedc65", // ZBC2 (Free)
+        "movie_korea_channel",                   // Movie Korea (Free)
+        "now_global_channel",                   // Now Global (Free)
+        "trace_latina_channel",                 // Trace Latina (Free)
+        "movie_sphere_channel",                 // Movie Sphere (Free)
+        "pop_kids_channel"                      // Pop Kids (Free)
     )
 
     /**
@@ -1298,8 +1310,8 @@ object ChannelRepository {
     fun getPrioritizedAllChannels(source: List<LiveChannel> = _liveChannelsFlow.value): List<LiveChannel> {
         val combinedSource = (NeliAdminManager.customAddedChannels.value + source.ifEmpty { channels }).distinctBy { it.id }
         val active = combinedSource
-            .filter { it.enabled && it.published && !NeliAdminManager.isChannelHidden(it.id) }
-            .ifEmpty { channels.filter { !NeliAdminManager.isChannelHidden(it.id) } }
+            .filter { it.enabled && it.published && !NeliAdminManager.isChannelHidden(it.id) && !isExcludedChannel(it.name, it.id) }
+            .ifEmpty { channels.filter { !NeliAdminManager.isChannelHidden(it.id) && !isExcludedChannel(it.name, it.id) } }
         return active
             .map { ch ->
                 val resolvedLogo = resolveGuaranteedChannelLogoUrl(ch)

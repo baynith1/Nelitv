@@ -121,39 +121,60 @@ val NeliCardPurple: Color
 val NeliCardPurpleLight: Color
     get() = if (NeliThemeManager.isLightMode) Color(0xFFEDE9FE) else Color(0xFF21283C)
 
-// Cinema Crimson / Rose Accent
-val NeliMagenta = Color(0xFFF41B54)
-val NeliMagentaDark = Color(0xFFC81040)
-val NeliMagentaLight = Color(0xFFFF547E)
-val NeliMagentaGlow = Color(0x55F41B54)
+// 3D Neon Logo Signature Colors (Neon Amber -> Magenta -> Electric Purple -> Royal Blue -> Neon Cyan)
+val NeliNeonOrange = Color(0xFFFF8500)
+val NeliNeonMagenta = Color(0xFFFF007A)
+val NeliNeonPurple = Color(0xFF8B00FF)
+val NeliNeonBlue = Color(0xFF0055FF)
+val NeliNeonCyan = Color(0xFF00E5FF)
+
+val NeliLogoGradientColors = listOf(
+    NeliNeonOrange,
+    NeliNeonMagenta,
+    NeliNeonPurple,
+    NeliNeonBlue,
+    NeliNeonCyan
+)
+
+val NeliLogoGradientBrush: Brush
+    get() = Brush.horizontalGradient(NeliLogoGradientColors)
+
+val NeliLogoSweepBrush: Brush
+    get() = Brush.sweepGradient(NeliLogoGradientColors + NeliNeonOrange)
+
+// Cinema Crimson / Rose Accent updated to Vivid Neon Magenta
+val NeliMagenta = Color(0xFFFF007A)
+val NeliMagentaDark = Color(0xFFC7005F)
+val NeliMagentaLight = Color(0xFFFF409E)
+val NeliMagentaGlow = Color(0x66FF007A)
 
 // Pill Badge Accents
 val NeliGenreCyan: Color
-    get() = if (NeliThemeManager.isLightMode) Color(0xFF0284C7) else Color(0xFF00D2FF)
+    get() = if (NeliThemeManager.isLightMode) Color(0xFF0077B6) else Color(0xFF00E5FF)
 
-val NeliDurationViolet = Color(0xFF6366F1)
-val NeliRatingPink = Color(0xFFF41B54)
+val NeliDurationViolet = Color(0xFF8B00FF)
+val NeliRatingPink = Color(0xFFFF007A)
 
 // Aliases used across components
-val NeliCyan = Color(0xFFF41B54)
-val NeliCyanDark = Color(0xFF9F1239)
-val NeliLiveRed = Color(0xFFE11D48)
-val NeliLiveRedGlow = Color(0x66E11D48)
+val NeliCyan = Color(0xFF00E5FF)
+val NeliCyanDark = Color(0xFF0055FF)
+val NeliLiveRed = Color(0xFFFF0055)
+val NeliLiveRedGlow = Color(0x66FF0055)
 
 val NeliTextPrimary: Color
     get() = if (NeliThemeManager.isLightMode) Color(0xFF0F172A) else Color(0xFFF8FAFC)
 
 val NeliTextSecondary: Color
-    get() = if (NeliThemeManager.isLightMode) Color(0xFF475569) else Color(0xFF94A3B8)
+    get() = if (NeliThemeManager.isLightMode) Color(0xFF475569) else Color(0xFFB4C2DC)
 
 val NeliTextMuted: Color
-    get() = if (NeliThemeManager.isLightMode) Color(0xFF64748B) else Color(0xFF64748B)
+    get() = if (NeliThemeManager.isLightMode) Color(0xFF64748B) else Color(0xFF7E8B9F)
 
-val NeliAccentGreen = Color(0xFF10B981)
-val NeliAccentPurple = Color(0xFF6366F1)
+val NeliAccentGreen = Color(0xFF00E676)
+val NeliAccentPurple = Color(0xFF8B00FF)
 
 val NeliBorder: Color
-    get() = if (NeliThemeManager.isLightMode) Color(0xFFCBD5E1) else Color(0xFF252D40)
+    get() = if (NeliThemeManager.isLightMode) Color(0xFFCBD5E1) else Color(0xFF281E40)
 
 val NeliMainBackgroundBrush: Brush
     get() = if (NeliThemeManager.isLightMode) {
@@ -167,9 +188,9 @@ val NeliMainBackgroundBrush: Brush
     } else {
         Brush.verticalGradient(
             colors = listOf(
-                Color(0xFF0D1018),
-                Color(0xFF090A0F),
-                Color(0xFF050609)
+                Color(0xFF0E0919),
+                Color(0xFF07040D),
+                Color(0xFF040208)
             )
         )
     }
@@ -185,8 +206,8 @@ val NeliCardGradientBrush: Brush
     } else {
         Brush.horizontalGradient(
             colors = listOf(
-                Color(0xFF151926),
-                Color(0xFF1E2436)
+                Color(0xFF161026),
+                Color(0xFF1E1634)
             )
         )
     }
