@@ -336,6 +336,46 @@ class AuthenticationRepository(
     }
 
     /**
+     * Authenticates or registers a user account via phone number.
+     * Maps phone numbers to a consistent local identity and syncs with Supabase.
+     */
+    suspend fun signInOrRegisterWithPhoneNumber(
+        phoneNumber: String,
+        realName: String = "",
+        password: String = ""
+    ): Result<UserAccountEntity> = withContext(Dispatchers.IO) {
+        val cleanPhone = phoneNumber.filter { it.isDigit() }
+        if (cleanPhone.length < 9) {
+            return@withContext Result.failure(IllegalArgumentException("Tafadhali ingiza namba kamili ya simu (mfano 0712345678)"))
+        }
+        val email = "$cleanPhone@nelitv.phone"
+        val resolvedName = realName.trim().ifBlank { "User $cleanPhone" }
+        val effectivePassword = password.trim().ifBlank { "neli_$cleanPhone" }
+
+        val existing = dao.getAccountByEmail(email)
+        val user = if (existing != null) {
+            existing.copy(
+                realName = if (realName.isNotBlank()) realName.trim() else existing.realName,
+                isLoggedIn = true,
+                lastLoginAt = System.currentTimeMillis()
+            )
+        } else {
+            UserAccountEntity(
+                uid = "phone_${cleanPhone}_${System.currentTimeMillis()}",
+                realName = resolvedName,
+                email = email,
+                passwordHash = effectivePassword,
+                isLoggedIn = true,
+                createdAt = System.currentTimeMillis(),
+                lastLoginAt = System.currentTimeMillis()
+            )
+        }
+        dao.logoutAllUsers()
+        dao.upsertUserAccount(user)
+        Result.success(user)
+    }
+
+    /**
      * Sends a password reset email to [email] via Firebase Auth or Firebase IdentityToolkit REST API.
      */
     suspend fun sendPasswordResetEmail(email: String): Result<Unit> = withContext(Dispatchers.IO) {

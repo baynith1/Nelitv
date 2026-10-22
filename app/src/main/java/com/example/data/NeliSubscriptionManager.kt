@@ -875,6 +875,17 @@ object NeliSubscriptionManager {
             saveAccountSubscriptionToPrefs(context, newState.linkedUserEmail, newState)
         }
         NeliFirebaseSyncManager.saveUserSubscriptionToFirebase(newState)
+        NeliSupabaseSyncManager.syncSubscriptionAndPayment(
+            phoneNumber = phone,
+            planId = plan.id,
+            amountTzs = plan.amountTzs,
+            orderId = verifiedOrderId,
+            activatedAtMs = effectiveActivatedAt,
+            expiresAtMs = newExpiresAt,
+            userEmail = newState.linkedUserEmail,
+            userId = newState.linkedUserUid,
+            providerReference = "HPAY-$verifiedOrderId"
+        )
         NeliRealtimeAnalyticsManager.recordHarakaPayTransaction(
             context = context,
             orderId = verifiedOrderId,
@@ -898,6 +909,71 @@ object NeliSubscriptionManager {
                 } else {
                     saveRealSubscriptionDataByDeviceIp(dao, newState)
                 }
+            } catch (_: Throwable) {
+            }
+        }
+        return newState
+    }
+
+    /**
+     * Activates or restores an active subscription fetched from Supabase (by phone number lookup or "Nishalipa" check).
+     */
+    fun activateVerifiedSubscriptionFromSupabase(
+        context: Context,
+        record: NeliSupabaseSyncManager.SupabaseSubscriptionRecord
+    ): PremiumSubscriptionState {
+        val detectedIp = resolveDeviceIpAddress(context)
+        val deviceId = resolveDeviceIdentityId(context)
+        val current = _subscriptionState.value
+        val plan = SubscriptionPlanType.fromId(record.planId)
+
+        val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit()
+            .putBoolean(KEY_IS_VERIFIED, true)
+            .putString(KEY_PLAN_ID, record.planId)
+            .putString(KEY_PLAN_TITLE, plan.titleSwahili)
+            .putInt(KEY_AMOUNT_TZS, record.amountPaid.toInt())
+            .putString(KEY_PHONE, record.phoneNumber)
+            .putString(KEY_ORDER_ID, "SUPABASE-${record.phoneNumber}")
+            .putString(KEY_DEVICE_IP, detectedIp)
+            .putString(KEY_DEVICE_ID, deviceId)
+            .putLong(KEY_ACTIVATED_AT, record.activatedAtMs)
+            .putLong(KEY_EXPIRES_AT, record.expiresAtMs)
+            .putBoolean(KEY_REQUIRES_POST_PAYMENT_AUTH, false)
+            .remove(KEY_PENDING_ORDER_ID)
+            .remove(KEY_PENDING_PLAN_ID)
+            .remove(KEY_PENDING_PHONE)
+            .remove(KEY_PENDING_AMOUNT)
+            .apply()
+
+        val newState = PremiumSubscriptionState(
+            isVerified = true,
+            planId = record.planId,
+            planTitle = plan.titleSwahili,
+            amountTzs = record.amountPaid.toInt(),
+            phoneNumber = record.phoneNumber,
+            orderId = "SUPABASE-${record.phoneNumber}",
+            deviceIpAddress = detectedIp,
+            deviceId = deviceId,
+            activatedAtMs = record.activatedAtMs,
+            expiresAtMs = record.expiresAtMs,
+            linkedUserUid = current.linkedUserUid.ifBlank { record.userId },
+            linkedUserEmail = current.linkedUserEmail.ifBlank { record.userEmail },
+            linkedUserName = current.linkedUserName,
+            requiresPostPaymentAuth = false,
+            pendingOrderId = "",
+            pendingPlanId = "",
+            pendingPhone = "",
+            pendingAmountTzs = 0
+        )
+        _subscriptionState.value = newState
+        if (newState.linkedUserEmail.isNotBlank()) {
+            saveAccountSubscriptionToPrefs(context, newState.linkedUserEmail, newState)
+        }
+        ioScope.launch {
+            try {
+                val dao = NeliDatabase.getInstance(context).mediaDao()
+                saveRealSubscriptionDataByDeviceIp(dao, newState)
             } catch (_: Throwable) {
             }
         }

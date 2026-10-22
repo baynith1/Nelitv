@@ -60,7 +60,7 @@ data class TvNavItem(
 val TvNavItems = listOf(
     TvNavItem(BottomNavTab.HOME, "Home", Icons.Default.Home, "tv_nav_home"),
     TvNavItem(BottomNavTab.DISCOVERY, "Discovery", Icons.Default.Explore, "tv_nav_discovery"),
-    TvNavItem(BottomNavTab.PREMIUM, "Plans", Icons.Default.WorkspacePremium, "tv_nav_plans"),
+    TvNavItem(BottomNavTab.PREMIUM, "Premium", Icons.Default.WorkspacePremium, "tv_nav_premium"),
     TvNavItem(BottomNavTab.DOWNLOAD, "Downloads", Icons.Default.Download, "tv_nav_downloads"),
     TvNavItem(BottomNavTab.ACCOUNT, "Account", Icons.Default.Person, "tv_nav_account")
 )

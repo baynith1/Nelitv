@@ -15,6 +15,8 @@ import com.example.data.ChannelRepository
 import com.example.data.GoogleAutoSignInResult
 import com.example.data.MediaContentRepository
 import com.example.data.NeliAppUpdateManager
+import com.example.data.NeliSubscriptionManager
+import com.example.data.NeliSupabaseSyncManager
 import com.example.data.OfflineDownloadManager
 import com.example.data.UserManager
 import com.example.data.local.DownloadedItemEntity
@@ -732,6 +734,40 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }.onFailure { err ->
                 _authError.value = err.message ?: "Invalid email or password."
+            }
+        }
+    }
+
+    fun signInWithPhone(phoneNumber: String, realName: String = "", password: String = "") {
+        viewModelScope.launch {
+            _isAuthLoading.value = true
+            _authError.value = null
+            _googleFallbackMessage.value = null
+            val result = authenticationRepository.signInOrRegisterWithPhoneNumber(
+                phoneNumber = phoneNumber,
+                realName = realName,
+                password = password
+            )
+            _isAuthLoading.value = false
+            result.onSuccess { user ->
+                val cleanPhone = phoneNumber.filter { it.isDigit() }
+                NeliSubscriptionManager.switchActiveAccount(
+                    context = appContext,
+                    uid = user.uid,
+                    email = user.email,
+                    realName = user.realName
+                )
+                // Automatically restore active VIP subscription from Supabase for this phone number
+                viewModelScope.launch(Dispatchers.IO) {
+                    val subResult = NeliSupabaseSyncManager.querySubscriptionByPhone(cleanPhone)
+                    subResult.onSuccess { record ->
+                        if (record != null && record.isActive) {
+                            NeliSubscriptionManager.activateVerifiedSubscriptionFromSupabase(appContext, record)
+                        }
+                    }
+                }
+            }.onFailure { err ->
+                _authError.value = err.message ?: "Haikuweza kuingia kwa namba ya simu."
             }
         }
     }

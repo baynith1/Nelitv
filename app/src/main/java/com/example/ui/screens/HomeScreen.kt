@@ -460,6 +460,9 @@ fun HomeScreen(
                             onSignIn = { email, password ->
                                 neliViewModel.signInUser(email, password)
                             },
+                            onSignInWithPhone = { phone, name, password ->
+                                neliViewModel.signInWithPhone(phone, name, password)
+                            },
                             onSignOut = {
                                 neliViewModel.signOutUser()
                             },

@@ -37,6 +37,7 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
@@ -52,7 +53,9 @@ data class NeliTvConfiguration(
     val cardPaddingMultiplier: Float = 1.0f,
     val defaultGrowScale: Float = 1.08f,
     val safeOverscanPadding: Dp = 0.dp
-)
+) {
+    val isTvDevice: Boolean get() = isTelevision || isHardwareTv
+}
 
 val LocalTvConfiguration = compositionLocalOf { NeliTvConfiguration() }
 

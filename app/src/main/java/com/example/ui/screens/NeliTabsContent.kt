@@ -55,6 +55,7 @@ import androidx.compose.material.icons.filled.NetworkCell
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
@@ -123,6 +124,10 @@ import com.example.data.local.UserAccountEntity
 import com.example.data.local.WatchlistItemEntity
 import com.example.model.EpisodeItem
 import com.example.model.LiveChannel
+import com.example.ui.tv.tvCardGrow
+import com.example.ui.tv.tvButtonGrow
+import com.example.ui.tv.tvTileGrow
+import com.example.ui.tv.LocalTvConfiguration
 import com.example.model.MediaContent
 import com.example.ui.components.CategoryChipRow
 import com.example.ui.components.ChannelCard
@@ -1467,6 +1472,15 @@ fun DownloadTabContent(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .tvCardGrow(
+                            shape = RoundedCornerShape(16.dp),
+                            onClick = {
+                                when {
+                                    isCompleted -> onPlayDownloaded(item)
+                                    isPausedError -> onRetryDownload(item)
+                                }
+                            }
+                        )
                         .clip(RoundedCornerShape(16.dp))
                         .background(NeliSurface)
                         .border(
@@ -1625,6 +1639,7 @@ fun DownloadTabContent(
                                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                                     shape = RoundedCornerShape(10.dp),
                                     modifier = Modifier
+                                        .tvButtonGrow(shape = RoundedCornerShape(10.dp))
                                         .height(38.dp)
                                         .testTag("play_offline_btn_${item.id}")
                                 ) {
@@ -1649,6 +1664,7 @@ fun DownloadTabContent(
                                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                                     shape = RoundedCornerShape(10.dp),
                                     modifier = Modifier
+                                        .tvButtonGrow(shape = RoundedCornerShape(10.dp))
                                         .height(36.dp)
                                         .testTag("pause_download_btn_${item.id}")
                                 ) {
@@ -1674,6 +1690,7 @@ fun DownloadTabContent(
                                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
                                     shape = RoundedCornerShape(10.dp),
                                     modifier = Modifier
+                                        .tvButtonGrow(shape = RoundedCornerShape(10.dp))
                                         .height(36.dp)
                                         .testTag("resume_download_btn_${item.id}")
                                 ) {
@@ -1852,6 +1869,12 @@ fun DownloadTabContent(
     }
 }
 
+enum class AccountAuthMethodType {
+    PHONE,
+    GOOGLE,
+    EMAIL
+}
+
 @Composable
 fun AccountTabContent(
     currentUser: UserAccountEntity?,
@@ -1869,6 +1892,7 @@ fun AccountTabContent(
     onDismissGoogleSignInSheet: () -> Unit = {},
     onSignUp: (realName: String, email: String, password: String) -> Unit,
     onSignIn: (email: String, password: String) -> Unit,
+    onSignInWithPhone: (phoneNumber: String, realName: String, password: String) -> Unit = { _, _, _ -> },
     onSignOut: () -> Unit,
     onClearAuthError: () -> Unit,
     onUpdateNetworkPreferences: (networkMode: String, allowMobileData: Boolean) -> Unit,
@@ -1876,6 +1900,13 @@ fun AccountTabContent(
     modifier: Modifier = Modifier
 ) {
     var activeInfoPage by rememberSaveable { mutableStateOf<AccountInfoPageType?>(null) }
+    var selectedAuthMethod by rememberSaveable { mutableStateOf(AccountAuthMethodType.PHONE) }
+    var phoneAuthIsRegister by rememberSaveable { mutableStateOf(false) }
+    var phoneAuthNumber by rememberSaveable { mutableStateOf("") }
+    var phoneAuthName by rememberSaveable { mutableStateOf("") }
+    var phoneAuthPassword by rememberSaveable { mutableStateOf("") }
+    var isPhonePasswordVisible by rememberSaveable { mutableStateOf(false) }
+
     var isRegisterMode by rememberSaveable { mutableStateOf(true) }
     var realName by rememberSaveable { mutableStateOf("") }
     var email by rememberSaveable { mutableStateOf("") }
@@ -2236,6 +2267,7 @@ fun AccountTabContent(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .tvCardGrow(shape = RoundedCornerShape(22.dp))
                         .clip(RoundedCornerShape(22.dp))
                         .background(
                             Brush.linearGradient(
@@ -2416,6 +2448,7 @@ fun AccountTabContent(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .tvCardGrow(shape = RoundedCornerShape(22.dp))
                         .clip(RoundedCornerShape(22.dp))
                         .background(NeliSurface)
                         .border(1.dp, Color(0x44A855F7), RoundedCornerShape(22.dp))
@@ -2456,129 +2489,7 @@ fun AccountTabContent(
                         }
                     }
 
-                    // One-Tap Google Account Sign-In Button
-                    Button(
-                        onClick = onSignInWithGoogle,
-                        enabled = !isAuthLoading,
-                        colors = ButtonDefaults.buttonColors(containerColor = NeliCardPurple),
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(50.dp)
-                            .border(1.dp, NeliGenreCyan.copy(alpha = 0.7f), RoundedCornerShape(14.dp))
-                            .testTag("google_sign_in_button")
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(24.dp)
-                                .clip(CircleShape)
-                                .background(Color.White),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "G",
-                                color = NeliMagenta,
-                                fontWeight = FontWeight.Black,
-                                fontSize = 14.sp
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text(
-                            text = "Continue with Google",
-                            color = NeliTextPrimary,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp
-                        )
-                    }
-
-                    // Choose among multiple Google Accounts Button
-                    OutlinedButton(
-                        onClick = onChooseGoogleAccount,
-                        enabled = !isAuthLoading,
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(48.dp)
-                            .testTag("choose_google_account_picker_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Person,
-                            contentDescription = null,
-                            tint = NeliGenreCyan,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Chagua Akaunti ya Google (Select Account)",
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp
-                        )
-                    }
-
-                    // Fallback notice when Google Sign-In fails or is unavailable: "Use email instead" / Register
-                    if (!googleFallbackMessage.isNullOrBlank()) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(Color(0x33F59E0B))
-                                .border(1.dp, Color(0xFFF59E0B), RoundedCornerShape(12.dp))
-                                .padding(12.dp)
-                                .testTag("google_fallback_email_notice"),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Text(
-                                text = googleFallbackMessage,
-                                color = Color(0xFFFDE68A),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                OutlinedButton(
-                                    onClick = {
-                                        isRegisterMode = false
-                                        onClearAuthError()
-                                    },
-                                    shape = RoundedCornerShape(10.dp),
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .testTag("use_email_instead_button")
-                                ) {
-                                    Text(
-                                        text = "Use Email Instead",
-                                        color = NeliTextPrimary,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                                Button(
-                                    onClick = {
-                                        isRegisterMode = true
-                                        onClearAuthError()
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta),
-                                    shape = RoundedCornerShape(10.dp),
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .testTag("fallback_register_button")
-                                ) {
-                                    Text(
-                                        text = "Register Account",
-                                        color = Color.White,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    // Mode Switcher Tabs (Sign Up / Sign In)
+                    // Method Selector: Google, Phone, Email
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -2586,46 +2497,103 @@ fun AccountTabContent(
                             .background(NeliSurfaceVariant)
                             .padding(4.dp)
                     ) {
+                        // Phone (Namba ya Simu)
                         Box(
                             modifier = Modifier
-                                .weight(1f)
+                                .weight(1.1f)
                                 .clip(RoundedCornerShape(10.dp))
-                                .background(if (isRegisterMode) NeliMagenta else Color.Transparent)
+                                .background(if (selectedAuthMethod == AccountAuthMethodType.PHONE) NeliMagenta else Color.Transparent)
                                 .clickable {
-                                    isRegisterMode = true
+                                    selectedAuthMethod = AccountAuthMethodType.PHONE
                                     onClearAuthError()
                                 }
                                 .padding(vertical = 10.dp)
-                                .testTag("mode_signup_tab"),
+                                .testTag("auth_method_phone_tab"),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text(
-                                text = "Sign Up",
-                                color = if (isRegisterMode) Color.White else NeliTextPrimary,
-                                fontWeight = FontWeight.ExtraBold,
-                                fontSize = 13.sp
-                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.PhoneAndroid,
+                                    contentDescription = null,
+                                    tint = if (selectedAuthMethod == AccountAuthMethodType.PHONE) Color.White else NeliTextPrimary,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                                Text(
+                                    text = "Simu",
+                                    color = if (selectedAuthMethod == AccountAuthMethodType.PHONE) Color.White else NeliTextPrimary,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 12.sp
+                                )
+                            }
                         }
 
+                        // Google
                         Box(
                             modifier = Modifier
                                 .weight(1f)
                                 .clip(RoundedCornerShape(10.dp))
-                                .background(if (!isRegisterMode) NeliMagenta else Color.Transparent)
+                                .background(if (selectedAuthMethod == AccountAuthMethodType.GOOGLE) NeliMagenta else Color.Transparent)
                                 .clickable {
-                                    isRegisterMode = false
+                                    selectedAuthMethod = AccountAuthMethodType.GOOGLE
                                     onClearAuthError()
                                 }
                                 .padding(vertical = 10.dp)
-                                .testTag("mode_signin_tab"),
+                                .testTag("auth_method_google_tab"),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text(
-                                text = "Sign In",
-                                color = if (!isRegisterMode) Color.White else NeliTextPrimary,
-                                fontWeight = FontWeight.ExtraBold,
-                                fontSize = 13.sp
-                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(
+                                    text = "G",
+                                    color = if (selectedAuthMethod == AccountAuthMethodType.GOOGLE) Color.White else Color(0xFF00E5FF),
+                                    fontWeight = FontWeight.Black,
+                                    fontSize = 14.sp
+                                )
+                                Text(
+                                    text = "Google",
+                                    color = if (selectedAuthMethod == AccountAuthMethodType.GOOGLE) Color.White else NeliTextPrimary,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 12.sp
+                                )
+                            }
+                        }
+
+                        // Email
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(if (selectedAuthMethod == AccountAuthMethodType.EMAIL) NeliMagenta else Color.Transparent)
+                                .clickable {
+                                    selectedAuthMethod = AccountAuthMethodType.EMAIL
+                                    onClearAuthError()
+                                }
+                                .padding(vertical = 10.dp)
+                                .testTag("auth_method_email_tab"),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Email,
+                                    contentDescription = null,
+                                    tint = if (selectedAuthMethod == AccountAuthMethodType.EMAIL) Color.White else NeliTextPrimary,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                                Text(
+                                    text = "Email",
+                                    color = if (selectedAuthMethod == AccountAuthMethodType.EMAIL) Color.White else NeliTextPrimary,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 12.sp
+                                )
+                            }
                         }
                     }
 
@@ -2647,143 +2615,516 @@ fun AccountTabContent(
                         }
                     }
 
-                    if (isRegisterMode) {
-                        OutlinedTextField(
-                            value = realName,
-                            onValueChange = {
-                                realName = it
-                                onClearAuthError()
-                            },
-                            label = { Text("Full Name (Real Name)") },
-                            placeholder = { Text("Enter your full name") },
-                            leadingIcon = {
+                    when (selectedAuthMethod) {
+                        AccountAuthMethodType.PHONE -> {
+                            // Phone Mode Switcher (Ingia / Jisajili)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(NeliSurfaceVariant)
+                                    .padding(3.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(9.dp))
+                                        .background(if (!phoneAuthIsRegister) NeliMagenta else Color.Transparent)
+                                        .clickable {
+                                            phoneAuthIsRegister = false
+                                            onClearAuthError()
+                                        }
+                                        .padding(vertical = 8.dp)
+                                        .testTag("phone_mode_signin_tab"),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "Ingia (Sign In)",
+                                        color = if (!phoneAuthIsRegister) Color.White else NeliTextPrimary,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp
+                                    )
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(9.dp))
+                                        .background(if (phoneAuthIsRegister) NeliMagenta else Color.Transparent)
+                                        .clickable {
+                                            phoneAuthIsRegister = true
+                                            onClearAuthError()
+                                        }
+                                        .padding(vertical = 8.dp)
+                                        .testTag("phone_mode_signup_tab"),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "Jisajili (Sign Up)",
+                                        color = if (phoneAuthIsRegister) Color.White else NeliTextPrimary,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp
+                                    )
+                                }
+                            }
+
+                            if (phoneAuthIsRegister) {
+                                OutlinedTextField(
+                                    value = phoneAuthName,
+                                    onValueChange = {
+                                        phoneAuthName = it
+                                        onClearAuthError()
+                                    },
+                                    label = { Text("Jina Kamili (Full Name)") },
+                                    placeholder = { Text("Mfano: Juma Rashid") },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Default.Person,
+                                            contentDescription = null,
+                                            tint = Color(0xFF00E5FF)
+                                        )
+                                    },
+                                    singleLine = true,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("phone_auth_name_input"),
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = Color(0xFF00E5FF),
+                                        unfocusedBorderColor = Color(0x4400E5FF),
+                                        focusedTextColor = NeliTextPrimary,
+                                        unfocusedTextColor = NeliTextPrimary
+                                    ),
+                                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
+                                )
+                            }
+
+                            OutlinedTextField(
+                                value = phoneAuthNumber,
+                                onValueChange = {
+                                    phoneAuthNumber = it
+                                    onClearAuthError()
+                                },
+                                label = { Text("Namba ya Simu (Phone Number)") },
+                                placeholder = { Text("07XXXXXXXX au 06XXXXXXXX") },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Default.PhoneAndroid,
+                                        contentDescription = null,
+                                        tint = Color(0xFF00E5FF)
+                                    )
+                                },
+                                singleLine = true,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("phone_auth_number_input"),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = Color(0xFF00E5FF),
+                                    unfocusedBorderColor = Color(0x4400E5FF),
+                                    focusedTextColor = NeliTextPrimary,
+                                    unfocusedTextColor = NeliTextPrimary
+                                ),
+                                keyboardOptions = KeyboardOptions(
+                                    keyboardType = KeyboardType.Phone,
+                                    imeAction = ImeAction.Next
+                                )
+                            )
+
+                            OutlinedTextField(
+                                value = phoneAuthPassword,
+                                onValueChange = {
+                                    phoneAuthPassword = it
+                                    onClearAuthError()
+                                },
+                                label = { Text("Neno la siri / PIN (Password)") },
+                                placeholder = { Text("Weka neno la siri au PIN") },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Default.Lock,
+                                        contentDescription = null,
+                                        tint = Color(0xFF00E5FF)
+                                    )
+                                },
+                                trailingIcon = {
+                                    IconButton(onClick = { isPhonePasswordVisible = !isPhonePasswordVisible }) {
+                                        Icon(
+                                            imageVector = if (isPhonePasswordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                            contentDescription = null,
+                                            tint = NeliTextSecondary
+                                        )
+                                    }
+                                },
+                                visualTransformation = if (isPhonePasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                                singleLine = true,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("phone_auth_password_input"),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = Color(0xFF00E5FF),
+                                    unfocusedBorderColor = Color(0x4400E5FF),
+                                    focusedTextColor = NeliTextPrimary,
+                                    unfocusedTextColor = NeliTextPrimary
+                                ),
+                                keyboardOptions = KeyboardOptions(
+                                    keyboardType = KeyboardType.Password,
+                                    imeAction = ImeAction.Done
+                                )
+                            )
+
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(Color(0x1A00E5FF))
+                                    .border(1.dp, Color(0x4400E5FF), RoundedCornerShape(10.dp))
+                                    .padding(10.dp)
+                            ) {
+                                Text(
+                                    text = "💡 Malipo Supabase: Ukiingia kwa namba uliyolipia, data zako na VIP zitafunguka moja kwa moja hata ukiwa kwenye kifaa kingine au app nyingine!",
+                                    color = Color(0xFF00E5FF),
+                                    fontSize = 11.sp,
+                                    lineHeight = 15.sp
+                                )
+                            }
+
+                            Button(
+                                onClick = {
+                                    onSignInWithPhone(phoneAuthNumber, phoneAuthName, phoneAuthPassword)
+                                },
+                                enabled = !isAuthLoading,
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF)),
+                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .tvButtonGrow(shape = RoundedCornerShape(14.dp))
+                                    .height(52.dp)
+                                    .testTag("phone_auth_submit_button")
+                            ) {
+                                if (isAuthLoading) {
+                                    CircularProgressIndicator(
+                                        color = Color.Black,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                } else {
+                                    Text(
+                                        text = if (phoneAuthIsRegister) "Jisajili kwa Namba ya Simu" else "Ingia kwa Namba ya Simu",
+                                        color = Color.Black,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        fontSize = 15.sp
+                                    )
+                                }
+                            }
+                        }
+
+                        AccountAuthMethodType.GOOGLE -> {
+                            Button(
+                                onClick = onSignInWithGoogle,
+                                enabled = !isAuthLoading,
+                                colors = ButtonDefaults.buttonColors(containerColor = NeliCardPurple),
+                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(50.dp)
+                                    .border(1.dp, NeliGenreCyan.copy(alpha = 0.7f), RoundedCornerShape(14.dp))
+                                    .testTag("google_sign_in_button")
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(24.dp)
+                                        .clip(CircleShape)
+                                        .background(Color.White),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "G",
+                                        color = NeliMagenta,
+                                        fontWeight = FontWeight.Black,
+                                        fontSize = 14.sp
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text(
+                                    text = "Continue with Google",
+                                    color = NeliTextPrimary,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp
+                                )
+                            }
+
+                            OutlinedButton(
+                                onClick = onChooseGoogleAccount,
+                                enabled = !isAuthLoading,
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(48.dp)
+                                    .testTag("choose_google_account_picker_button")
+                            ) {
                                 Icon(
                                     imageVector = Icons.Default.Person,
                                     contentDescription = null,
-                                    tint = NeliMagenta
+                                    tint = NeliGenreCyan,
+                                    modifier = Modifier.size(20.dp)
                                 )
-                            },
-                            singleLine = true,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("auth_real_name_input"),
-                            shape = RoundedCornerShape(12.dp),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = NeliMagenta,
-                                unfocusedBorderColor = Color(0x44A855F7),
-                                focusedTextColor = NeliTextPrimary,
-                                unfocusedTextColor = NeliTextPrimary
-                            ),
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
-                        )
-                    }
-
-                    OutlinedTextField(
-                        value = email,
-                        onValueChange = {
-                            email = it
-                            onClearAuthError()
-                        },
-                        label = { Text("Email Address") },
-                        placeholder = { Text("you@example.com") },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Default.Email,
-                                contentDescription = null,
-                                tint = NeliMagenta
-                            )
-                        },
-                        singleLine = true,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("auth_email_input"),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = NeliMagenta,
-                            unfocusedBorderColor = Color(0x44A855F7),
-                            focusedTextColor = NeliTextPrimary,
-                            unfocusedTextColor = NeliTextPrimary
-                        ),
-                        keyboardOptions = KeyboardOptions(
-                            keyboardType = KeyboardType.Email,
-                            imeAction = ImeAction.Next
-                        )
-                    )
-
-                    OutlinedTextField(
-                        value = password,
-                        onValueChange = {
-                            password = it
-                            onClearAuthError()
-                        },
-                        label = { Text("Password") },
-                        placeholder = { Text("At least 6 characters") },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Default.Lock,
-                                contentDescription = null,
-                                tint = NeliMagenta
-                            )
-                        },
-                        trailingIcon = {
-                            IconButton(onClick = { isPasswordVisible = !isPasswordVisible }) {
-                                Icon(
-                                    imageVector = if (isPasswordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                    contentDescription = if (isPasswordVisible) "Hide password" else "Show password",
-                                    tint = NeliTextSecondary
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Chagua Akaunti ya Google (Select Account)",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp
                                 )
                             }
-                        },
-                        visualTransformation = if (isPasswordVisible) {
-                            VisualTransformation.None
-                        } else {
-                            PasswordVisualTransformation()
-                        },
-                        singleLine = true,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("auth_password_input"),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = NeliMagenta,
-                            unfocusedBorderColor = Color(0x44A855F7),
-                            focusedTextColor = NeliTextPrimary,
-                            unfocusedTextColor = NeliTextPrimary
-                        ),
-                        keyboardOptions = KeyboardOptions(
-                            keyboardType = KeyboardType.Password,
-                            imeAction = ImeAction.Done
-                        )
-                    )
 
-                    Button(
-                        onClick = {
+                            if (!googleFallbackMessage.isNullOrBlank()) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(Color(0x33F59E0B))
+                                        .border(1.dp, Color(0xFFF59E0B), RoundedCornerShape(12.dp))
+                                        .padding(12.dp)
+                                        .testTag("google_fallback_email_notice"),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text(
+                                        text = googleFallbackMessage,
+                                        color = Color(0xFFFDE68A),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        OutlinedButton(
+                                            onClick = {
+                                                selectedAuthMethod = AccountAuthMethodType.PHONE
+                                                onClearAuthError()
+                                            },
+                                            shape = RoundedCornerShape(10.dp),
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Text(
+                                                text = "Tumia Namba ya Simu",
+                                                color = NeliTextPrimary,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                        Button(
+                                            onClick = {
+                                                selectedAuthMethod = AccountAuthMethodType.EMAIL
+                                                onClearAuthError()
+                                            },
+                                            colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta),
+                                            shape = RoundedCornerShape(10.dp),
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Text(
+                                                text = "Tumia Email",
+                                                color = Color.White,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        AccountAuthMethodType.EMAIL -> {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(NeliSurfaceVariant)
+                                    .padding(4.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(if (isRegisterMode) NeliMagenta else Color.Transparent)
+                                        .clickable {
+                                            isRegisterMode = true
+                                            onClearAuthError()
+                                        }
+                                        .padding(vertical = 10.dp)
+                                        .testTag("mode_signup_tab"),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "Sign Up",
+                                        color = if (isRegisterMode) Color.White else NeliTextPrimary,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        fontSize = 13.sp
+                                    )
+                                }
+
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(if (!isRegisterMode) NeliMagenta else Color.Transparent)
+                                        .clickable {
+                                            isRegisterMode = false
+                                            onClearAuthError()
+                                        }
+                                        .padding(vertical = 10.dp)
+                                        .testTag("mode_signin_tab"),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "Sign In",
+                                        color = if (!isRegisterMode) Color.White else NeliTextPrimary,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        fontSize = 13.sp
+                                    )
+                                }
+                            }
+
                             if (isRegisterMode) {
-                                onSignUp(realName, email, password)
-                            } else {
-                                onSignIn(email, password)
+                                OutlinedTextField(
+                                    value = realName,
+                                    onValueChange = {
+                                        realName = it
+                                        onClearAuthError()
+                                    },
+                                    label = { Text("Full Name (Real Name)") },
+                                    placeholder = { Text("Enter your full name") },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Default.Person,
+                                            contentDescription = null,
+                                            tint = NeliMagenta
+                                        )
+                                    },
+                                    singleLine = true,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("auth_real_name_input"),
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = NeliMagenta,
+                                        unfocusedBorderColor = Color(0x44A855F7),
+                                        focusedTextColor = NeliTextPrimary,
+                                        unfocusedTextColor = NeliTextPrimary
+                                    ),
+                                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
+                                )
                             }
-                        },
-                        enabled = !isAuthLoading,
-                        colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta),
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(50.dp)
-                            .testTag("auth_submit_button")
-                    ) {
-                        if (isAuthLoading) {
-                            CircularProgressIndicator(
-                                color = Color.White,
-                                modifier = Modifier.size(22.dp)
+
+                            OutlinedTextField(
+                                value = email,
+                                onValueChange = {
+                                    email = it
+                                    onClearAuthError()
+                                },
+                                label = { Text("Email Address") },
+                                placeholder = { Text("yourname@gmail.com") },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Default.Email,
+                                        contentDescription = null,
+                                        tint = NeliMagenta
+                                    )
+                                },
+                                singleLine = true,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("auth_email_input"),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = NeliMagenta,
+                                    unfocusedBorderColor = Color(0x44A855F7),
+                                    focusedTextColor = NeliTextPrimary,
+                                    unfocusedTextColor = NeliTextPrimary
+                                ),
+                                keyboardOptions = KeyboardOptions(
+                                    keyboardType = KeyboardType.Email,
+                                    imeAction = ImeAction.Next
+                                )
                             )
-                        } else {
-                            Text(
-                                text = if (isRegisterMode) "Register & Sign In Automatically" else "Sign In",
-                                color = Color.White,
-                                fontWeight = FontWeight.ExtraBold,
-                                fontSize = 15.sp
+
+                            OutlinedTextField(
+                                value = password,
+                                onValueChange = {
+                                    password = it
+                                    onClearAuthError()
+                                },
+                                label = { Text("Password") },
+                                placeholder = { Text("At least 6 characters") },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Default.Lock,
+                                        contentDescription = null,
+                                        tint = NeliMagenta
+                                    )
+                                },
+                                trailingIcon = {
+                                    IconButton(onClick = { isPasswordVisible = !isPasswordVisible }) {
+                                        Icon(
+                                            imageVector = if (isPasswordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                            contentDescription = if (isPasswordVisible) "Hide password" else "Show password",
+                                            tint = NeliTextSecondary
+                                        )
+                                    }
+                                },
+                                visualTransformation = if (isPasswordVisible) {
+                                    VisualTransformation.None
+                                } else {
+                                    PasswordVisualTransformation()
+                                },
+                                singleLine = true,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("auth_password_input"),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = NeliMagenta,
+                                    unfocusedBorderColor = Color(0x44A855F7),
+                                    focusedTextColor = NeliTextPrimary,
+                                    unfocusedTextColor = NeliTextPrimary
+                                ),
+                                keyboardOptions = KeyboardOptions(
+                                    keyboardType = KeyboardType.Password,
+                                    imeAction = ImeAction.Done
+                                )
                             )
+
+                            Button(
+                                onClick = {
+                                    if (isRegisterMode) {
+                                        onSignUp(realName, email, password)
+                                    } else {
+                                        onSignIn(email, password)
+                                    }
+                                },
+                                enabled = !isAuthLoading,
+                                colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta),
+                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .tvButtonGrow(shape = RoundedCornerShape(14.dp))
+                                    .height(52.dp)
+                                    .testTag("auth_submit_button")
+                            ) {
+                                if (isAuthLoading) {
+                                    CircularProgressIndicator(
+                                        color = Color.White,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                } else {
+                                    Text(
+                                        text = if (isRegisterMode) "Register & Sign In Automatically" else "Sign In",
+                                        color = Color.White,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        fontSize = 15.sp
+                                    )
+                                }
+                            }
                         }
                     }
                 }

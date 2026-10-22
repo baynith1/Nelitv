@@ -98,6 +98,10 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.foundation.Image
 import androidx.compose.ui.layout.ContentScale
+import com.example.ui.tv.tvCardGrow
+import com.example.ui.tv.tvButtonGrow
+import com.example.ui.tv.LocalTvConfiguration
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.ui.res.painterResource
 import com.example.R
 import com.example.data.AdminBannerPlacement
@@ -105,6 +109,7 @@ import com.example.data.HarakaPayBalanceResponse
 import com.example.data.HarakaPayRepository
 import com.example.data.NeliAdminManager
 import com.example.data.NeliSubscriptionManager
+import com.example.data.NeliSupabaseSyncManager
 import com.example.data.PaymentService
 import com.example.data.SubscriptionPlanType
 import com.example.data.local.UserAccountEntity
@@ -270,6 +275,12 @@ fun PremiumTabContent(
     var isVerifyingStatus by remember { mutableStateOf(false) }
     var statusFeedbackMessage by remember { mutableStateOf<String?>(null) }
     var isErrorFeedback by remember { mutableStateOf(false) }
+
+    var showNishalipaDialog by remember { mutableStateOf(false) }
+    var nishalipaPhoneInput by remember { mutableStateOf("") }
+    var isCheckingNishalipa by remember { mutableStateOf(false) }
+    var nishalipaResultMessage by remember { mutableStateOf<String?>(null) }
+    var nishalipaIsSuccess by remember { mutableStateOf(false) }
 
     LaunchedEffect(currentUser?.email, currentUser?.uid) {
         checkoutStep = PremiumCheckoutStep.CHOOSE_PLAN
@@ -606,6 +617,10 @@ fun PremiumTabContent(
                             Card(
                                 modifier = Modifier
                                     .fillMaxWidth()
+                                    .tvCardGrow(
+                                        shape = RoundedCornerShape(16.dp),
+                                        onClick = { selectedPlanId = plan.id }
+                                    )
                                     .clip(RoundedCornerShape(16.dp))
                                     .clickable { selectedPlanId = plan.id }
                                     .border(
@@ -696,7 +711,8 @@ fun PremiumTabContent(
                             },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(52.dp)
+                                .tvButtonGrow(shape = RoundedCornerShape(14.dp))
+                                .height(54.dp)
                                 .testTag("premium_next_button"),
                             shape = RoundedCornerShape(14.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta)
@@ -710,6 +726,46 @@ fun PremiumTabContent(
                                 color = Color.White,
                                 fontSize = if (screenProfile.isSmallPhone) 13.sp else 15.sp,
                                 fontWeight = FontWeight.ExtraBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        OutlinedButton(
+                            onClick = {
+                                nishalipaResultMessage = null
+                                nishalipaIsSuccess = false
+                                if (currentUser?.email?.contains("@nelitv.phone") == true) {
+                                    nishalipaPhoneInput = currentUser.email.substringBefore("@")
+                                }
+                                showNishalipaDialog = true
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .tvButtonGrow(shape = RoundedCornerShape(14.dp))
+                                .height(52.dp)
+                                .testTag("premium_nishalipa_button"),
+                            shape = RoundedCornerShape(14.dp),
+                            border = BorderStroke(1.2.dp, Color(0xFF00E5FF)),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = Color(0xFF00E5FF),
+                                containerColor = Color(0x1400E5FF)
+                            )
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CheckCircle,
+                                contentDescription = "Nishalipa",
+                                tint = Color(0xFF00E5FF),
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Nishalipa (Angalia Malipo Supabase)",
+                                color = Color(0xFF00E5FF),
+                                fontSize = if (screenProfile.isSmallPhone) 12.sp else 14.sp,
+                                fontWeight = FontWeight.Bold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -860,7 +916,8 @@ fun PremiumTabContent(
                                 enabled = !isSubmittingPayment,
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(52.dp)
+                                    .tvButtonGrow(shape = RoundedCornerShape(14.dp))
+                                    .height(54.dp)
                                     .testTag("premium_pay_button"),
                                 shape = RoundedCornerShape(14.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta)
@@ -991,7 +1048,8 @@ fun PremiumTabContent(
                                 enabled = !isVerifyingStatus,
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(52.dp)
+                                    .tvButtonGrow(shape = RoundedCornerShape(14.dp))
+                                    .height(54.dp)
                                     .testTag("premium_ready_verify_button"),
                                 shape = RoundedCornerShape(14.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981))
@@ -1133,6 +1191,228 @@ fun PremiumTabContent(
                                 onSignUpUser = onSignUpUser,
                                 onNavigateToAccountTab = onNavigateToLoginOrSignUp
                             )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (showNishalipaDialog) {
+        Dialog(
+            onDismissRequest = {
+                if (!isCheckingNishalipa) {
+                    showNishalipaDialog = false
+                    nishalipaResultMessage = null
+                }
+            },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth(0.92f)
+                    .widthIn(max = 520.dp)
+                    .clip(RoundedCornerShape(20.dp))
+                    .border(1.2.dp, Color(0xFF00E5FF), RoundedCornerShape(20.dp)),
+                color = Color(0xFF0F1424),
+                shape = RoundedCornerShape(20.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0x2600E5FF)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = "Nishalipa",
+                                    tint = Color(0xFF00E5FF),
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                            Column {
+                                Text(
+                                    text = "Nishalipa (Hakiki Malipo)",
+                                    color = Color.White,
+                                    fontSize = 17.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                                Text(
+                                    text = "Supabase Cloud Database Sync",
+                                    color = Color(0xFF00E5FF),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+                        IconButton(
+                            onClick = {
+                                if (!isCheckingNishalipa) {
+                                    showNishalipaDialog = false
+                                    nishalipaResultMessage = null
+                                }
+                            }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Close",
+                                tint = NeliTextSecondary
+                            )
+                        }
+                    }
+
+                    Text(
+                        text = "Ikiwa ulishafanya malipo kwenye simu hii, kwenye app nyingine, au kwenye website (Nelitv.online), andika namba yako ya simu hapa chini. Mfumo utaangalia kumbukumbu zako kwenye Supabase na kuwasha VIP papo hapo.",
+                        color = NeliTextSecondary,
+                        fontSize = 12.sp,
+                        lineHeight = 17.sp
+                    )
+
+                    OutlinedTextField(
+                        value = nishalipaPhoneInput,
+                        onValueChange = {
+                            nishalipaPhoneInput = it
+                            nishalipaResultMessage = null
+                        },
+                        label = { Text("Namba ya simu uliyolipia") },
+                        placeholder = { Text("07XXXXXXXX au 06XXXXXXXX") },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.PhoneAndroid,
+                                contentDescription = null,
+                                tint = Color(0xFF00E5FF)
+                            )
+                        },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("nishalipa_phone_input"),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Color(0xFF00E5FF),
+                            unfocusedBorderColor = Color(0x4400E5FF),
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White
+                        )
+                    )
+
+                    if (!nishalipaResultMessage.isNullOrBlank()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(if (nishalipaIsSuccess) Color(0x2610B981) else Color(0x26EF4444))
+                                .border(
+                                    1.dp,
+                                    if (nishalipaIsSuccess) Color(0xFF10B981) else Color(0xFFEF4444),
+                                    RoundedCornerShape(12.dp)
+                                )
+                                .padding(12.dp)
+                        ) {
+                            Text(
+                                text = nishalipaResultMessage.orEmpty(),
+                                color = if (nishalipaIsSuccess) Color(0xFFA7F3D0) else Color(0xFFFCA5A5),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                showNishalipaDialog = false
+                                nishalipaResultMessage = null
+                            },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp),
+                            enabled = !isCheckingNishalipa
+                        ) {
+                            Text("Funga", color = NeliTextSecondary)
+                        }
+
+                        Button(
+                            onClick = {
+                                val cleanPhone = nishalipaPhoneInput.trim()
+                                if (cleanPhone.length < 9) {
+                                    nishalipaResultMessage = "Tafadhali ingiza namba kamili ya simu (mfano 0712345678)"
+                                    nishalipaIsSuccess = false
+                                    return@Button
+                                }
+                                isCheckingNishalipa = true
+                                nishalipaResultMessage = null
+                                coroutineScope.launch {
+                                    val queryResult = NeliSupabaseSyncManager.querySubscriptionByPhone(cleanPhone)
+                                    isCheckingNishalipa = false
+                                    queryResult.onSuccess { record ->
+                                        if (record != null && record.isActive) {
+                                            NeliSubscriptionManager.activateVerifiedSubscriptionFromSupabase(context, record)
+                                            nishalipaIsSuccess = true
+                                            val fmtDate = java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", java.util.Locale.US).format(java.util.Date(record.expiresAtMs))
+                                            nishalipaResultMessage = "Hongera! Malipo yako ya TSh ${record.amountPaid.toInt()} yamethibitishwa kwenye Supabase. VIP yako inafanya kazi mpaka $fmtDate!"
+                                        } else if (record != null) {
+                                            nishalipaIsSuccess = false
+                                            nishalipaResultMessage = "Malipo yalipatikana kwenye Supabase lakini kifurushi chako kiliisha tarehe ${java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.US).format(java.util.Date(record.expiresAtMs))}. Tafadhali lipia kifurushi kipya."
+                                        } else {
+                                            nishalipaIsSuccess = false
+                                            nishalipaResultMessage = "Hakuna malipo yaliyopatikana kwenye Supabase kwa namba $cleanPhone. Tafadhali hakikisha umeandika namba sahihi uliyolipia."
+                                        }
+                                    }.onFailure { err ->
+                                        nishalipaIsSuccess = false
+                                        nishalipaResultMessage = "Hitilafu ya mtandao: ${err.message ?: "Haikuweza kuunganisha na Supabase"}"
+                                    }
+                                }
+                            },
+                            modifier = Modifier
+                                .weight(1.4f)
+                                .height(48.dp)
+                                .testTag("nishalipa_confirm_check_button"),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF)),
+                            enabled = !isCheckingNishalipa
+                        ) {
+                            if (isCheckingNishalipa) {
+                                CircularProgressIndicator(
+                                    color = Color.Black,
+                                    strokeWidth = 2.dp,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Inaangalia...", color = Color.Black, fontWeight = FontWeight.Bold)
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = null,
+                                    tint = Color.Black,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = if (nishalipaIsSuccess) "Imethibitishwa ✓" else "Hakiki Malipo",
+                                    color = Color.Black,
+                                    fontWeight = FontWeight.Black
+                                )
+                            }
                         }
                     }
                 }
