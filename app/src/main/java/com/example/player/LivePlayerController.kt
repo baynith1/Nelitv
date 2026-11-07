@@ -344,8 +344,8 @@ class LivePlayerController(
          * or stalls for >= 2,000 ms so the user never needs to manually click the bottom
          * "LIVE STREAM • CONTINUOUS REAL-TIME PLAYBACK" button.
          */
-        const val LIVE_STREAM_STALL_AUTO_FIX_THRESHOLD_MS = 2_000L
-        const val LIVE_STREAM_AUTO_FIX_COOLDOWN_MS = 1_500L
+        const val LIVE_STREAM_STALL_AUTO_FIX_THRESHOLD_MS = 15_000L
+        const val LIVE_STREAM_AUTO_FIX_COOLDOWN_MS = 8_000L
 
         /**
          * Computes the target [BatteryPowerProfile] based on real-time device battery level,
@@ -756,8 +756,6 @@ class LivePlayerController(
                     ) {
                         consecutiveRebufferCount = (consecutiveRebufferCount - 1).coerceAtLeast(0)
                         healthyPlaybackSinceRealtimeMs = now
-                        evaluateAndApplyAdaptiveTrackSelection(forceBufferingState = false)
-                    } else {
                         evaluateAndApplyAdaptiveTrackSelection(forceBufferingState = false)
                     }
                 }
@@ -1370,6 +1368,7 @@ class LivePlayerController(
                                 initialBatteryProfile == BatteryPowerProfile.BACKGROUND_LOADING_SAVER
                     )
                     .setRendererDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
+                    .setRendererDisabled(C.TRACK_TYPE_AUDIO, false)
                     .setExceedVideoConstraintsIfNecessary(true)
                     .setExceedRendererCapabilitiesIfNecessary(true)
                     .setAllowVideoMixedMimeTypeAdaptiveness(true)
@@ -1379,19 +1378,15 @@ class LivePlayerController(
         }
         trackSelector = selector
 
-        val minBufMs = if (lowBandoActive) 2_000 else minOf(3_500, initialBatteryProfile.minBufferMs)
-        val maxBufMs = if (lowBandoActive) minOf(16_000, initialBatteryProfile.maxBufferMs) else minOf(24_000, initialBatteryProfile.maxBufferMs)
-        val backBufMs = minOf(6_000, initialBatteryProfile.backBufferMs)
-
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                /* minBufferMs = */ minBufMs,
-                /* maxBufferMs = */ maxBufMs,
-                /* bufferForPlaybackMs = */ 150,
-                /* bufferForPlaybackAfterRebufferMs = */ 300
+                /* minBufferMs = */ 15_000,
+                /* maxBufferMs = */ 45_000,
+                /* bufferForPlaybackMs = */ 2_500,
+                /* bufferForPlaybackAfterRebufferMs = */ 4_000
             )
             .setBackBuffer(
-                /* backBufferDurationMs = */ backBufMs,
+                /* backBufferDurationMs = */ 10_000,
                 /* retainBackBufferFromKeyframe = */ true
             )
             .setPrioritizeTimeOverSizeThresholds(true)
@@ -1406,8 +1401,8 @@ class LivePlayerController(
             .setTrackSelector(selector)
             .setBandwidthMeter(meter)
             .setLoadControl(loadControl)
-            .setAudioAttributes(mediaAudioAttributes, /* handleAudioFocus = */ true)
-            .setHandleAudioBecomingNoisy(true)
+            .setAudioAttributes(mediaAudioAttributes, /* handleAudioFocus = */ false)
+            .setHandleAudioBecomingNoisy(false)
             .setWakeMode(
                 if (initialBatteryProfile.isCpuSavingActive || disableOffscreenVideoTrack) {
                     C.WAKE_MODE_NONE
@@ -1418,10 +1413,12 @@ class LivePlayerController(
             .setSeekParameters(SeekParameters.CLOSEST_SYNC)
             .build()
             .apply {
+                volume = 1.0f
                 playWhenReady = !isPhoneCallActiveOrRinging()
                 addListener(playerListener)
             }
 
+        _playbackInfo.value = _playbackInfo.value.copy(isMuted = false, volume = 1.0f)
         exoPlayer = player
         loadChannelStream(player, preserveVodPosition = false)
         updatePlaybackInfo()
@@ -1704,8 +1701,8 @@ class LivePlayerController(
             kotlin.math.abs(pos - lastLiveObservedPositionMs)
         }
 
-        // If playback position is advancing normally while playing in STATE_READY, stream is healthy
-        if (playing && state == Player.STATE_READY && positionDeltaMs >= 60L) {
+        // If playback is active in STATE_READY, stream is healthy - NEVER trigger auto-fix or reload!
+        if (playing && state == Player.STATE_READY) {
             lastLiveObservedPositionMs = pos
             lastLivePositionProgressRealtimeMs = elapsedRealtimeMs
             consecutiveLiveStallAutoFixes = 0
@@ -1716,12 +1713,8 @@ class LivePlayerController(
         val stallReason = when {
             state == Player.STATE_IDLE || state == Player.STATE_ENDED ->
                 "live_state_idle_or_ended"
-            state == Player.STATE_READY && !playing ->
-                "live_ready_not_playing"
             state == Player.STATE_BUFFERING && stalledDurationMs >= LIVE_STREAM_STALL_AUTO_FIX_THRESHOLD_MS ->
                 "live_buffering_stall_${stalledDurationMs}ms"
-            state == Player.STATE_READY && playing && positionDeltaMs < 60L && stalledDurationMs >= LIVE_STREAM_STALL_AUTO_FIX_THRESHOLD_MS ->
-                "live_position_frozen_${stalledDurationMs}ms"
             else -> null
         } ?: return false
 
@@ -1804,7 +1797,7 @@ class LivePlayerController(
         try {
             val isLocalOffline = isPlayingLocalOfflineStream(channel)
             val mediaSource = createMediaSource(channel)
-            player.repeatMode = if (channel.isLiveBroadcast) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+            player.repeatMode = Player.REPEAT_MODE_OFF
             val startPositionMs = when {
                 channel.isLiveBroadcast -> C.TIME_UNSET
                 preserveVodPosition && lastKnownVodPositionMs > 0L -> lastKnownVodPositionMs
@@ -1911,11 +1904,9 @@ class LivePlayerController(
         val extractorsFactory = sharedExtractorsFactory
 
         val liveConfiguration = MediaItem.LiveConfiguration.Builder()
-            .setTargetOffsetMs(4_500L)
-            .setMinOffsetMs(2_000L)
-            .setMaxOffsetMs(16_000L)
-            .setMinPlaybackSpeed(0.97f)
-            .setMaxPlaybackSpeed(1.03f)
+            .setTargetOffsetMs(10_000L)
+            .setMinOffsetMs(5_000L)
+            .setMaxOffsetMs(30_000L)
             .build()
 
         val isLocalHlsPlaylist = isLocalOfflineFile &&
@@ -2084,6 +2075,8 @@ class LivePlayerController(
      *    (`channel.isKiswahiliOnlyProgram == true` or the active stream tracks only contain Swahili audio),
      *    the active language MUST NOT change — it stays `"sw"` (Kiswahili) and notifies the user.
      */
+    private var languageNoticeDismissRunnable: Runnable? = null
+
     fun switchAzamAudioLanguage(targetLanguageCode: String): String {
         val normalizedTarget = if (targetLanguageCode.lowercase().startsWith("en")) "en" else "sw"
 
@@ -2103,6 +2096,13 @@ class LivePlayerController(
                 allLangs.isNotEmpty() && allLangs.none { it.startsWith("en") }
             }
         } ?: false
+
+        languageNoticeDismissRunnable?.let { mainHandler.removeCallbacks(it) }
+        val dismissRunnable = Runnable {
+            clearLanguageSwitchNotice()
+        }
+        languageNoticeDismissRunnable = dismissRunnable
+        mainHandler.postDelayed(dismissRunnable, 2000L)
 
         if (normalizedTarget == "en" && (channel.isKiswahiliOnlyProgram || hasLoadedTracksButNoEnglish)) {
             // Do NOT change the language when the program is in Kiswahili!
@@ -2129,7 +2129,13 @@ class LivePlayerController(
         return normalizedTarget
     }
 
+    fun selectAudioTrackLanguage(targetLanguageCode: String): String {
+        return switchAzamAudioLanguage(targetLanguageCode)
+    }
+
     fun clearLanguageSwitchNotice() {
+        languageNoticeDismissRunnable?.let { mainHandler.removeCallbacks(it) }
+        languageNoticeDismissRunnable = null
         _playbackInfo.value = _playbackInfo.value.copy(languageSwitchNotice = null)
     }
 

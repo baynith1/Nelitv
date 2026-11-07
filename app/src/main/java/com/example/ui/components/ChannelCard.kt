@@ -106,58 +106,38 @@ fun ChannelCard(
             .testTag("channel_card_${channel.id}")
             .fillMaxWidth()
             .tvGeminiFocusable(
-                shape = RoundedCornerShape(12.dp),
+                shape = RoundedCornerShape(18.dp),
                 focusScale = 1.08f,
                 borderWidth = 2.5.dp,
                 onClick = onClick
             )
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(18.dp))
             .clickable(onClick = onClick)
-            .border(0.5.dp, NeliBorder, RoundedCornerShape(12.dp)),
-        shape = RoundedCornerShape(12.dp),
+            .border(1.dp, Color(0x33263560), RoundedCornerShape(18.dp)),
+        shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(
-            containerColor = NeliSurface
+            containerColor = Color(0xFF101734)
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
-            // 16:9 YouTube-style Live Thumbnail Stage with high-visibility logo container
+            // Live Thumbnail Stage with high-visibility logo container
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(16f / 9f)
-                    .background(ChannelStageGradient),
+                    .aspectRatio(16f / 10f)
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(Color(0xFF18224A), Color(0xFF0F1632))
+                        )
+                    ),
                 contentAlignment = Alignment.Center
             ) {
-                if (!isLogoLoaded) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Tv,
-                            contentDescription = null,
-                            tint = NeliMagenta.copy(alpha = 0.65f),
-                            modifier = Modifier.size(24.dp)
-                        )
-                        Text(
-                            text = channel.name.take(12).uppercase(),
-                            color = Color.White.copy(alpha = 0.75f),
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            maxLines = 1
-                        )
-                    }
-                }
-
-                // Luminous inner frame so both dark and light transparent PNG channel logos pop clearly
+                // Center channel logo directly on the dark-indigo stage so all logos appear crisp and clear
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(horizontal = 14.dp, vertical = 8.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(Color.White.copy(alpha = 0.08f))
-                        .padding(6.dp)
+                        .padding(horizontal = 14.dp, vertical = 10.dp)
                         .testTag("channel_logo_stage_${channel.id}"),
                     contentAlignment = Alignment.Center
                 ) {
@@ -171,7 +151,9 @@ fun ChannelCard(
                                 activeLogoUrl = fallbackLogoUrl
                             }
                         },
-                        modifier = Modifier.fillMaxSize()
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(4.dp)
                     )
                 }
 
@@ -183,7 +165,7 @@ fun ChannelCard(
                             .padding(8.dp)
                             .clip(RoundedCornerShape(6.dp))
                             .background(
-                                if (isLockedForCurrentUser) Color(0xDD991B1B) else Color(0xDD065F46)
+                                if (isLockedForCurrentUser) Color(0xDD991B1B) else Color(0xFF00C853)
                             )
                             .padding(horizontal = 6.dp, vertical = 3.dp)
                             .testTag("channel_locked_badge_${channel.id}"),
@@ -193,7 +175,7 @@ fun ChannelCard(
                         Icon(
                             imageVector = if (isLockedForCurrentUser) Icons.Default.Lock else Icons.Default.WorkspacePremium,
                             contentDescription = if (isLockedForCurrentUser) "Locked Channel" else "Unlocked by Premium",
-                            tint = Color(0xFFFDE047),
+                            tint = Color.White,
                             modifier = Modifier.size(11.dp)
                         )
                         Text(
@@ -205,7 +187,7 @@ fun ChannelCard(
                     }
                 }
 
-                // YouTube-style LIVE badge at bottom-right
+                // LIVE badge at bottom-right
                 LiveIndicatorBadge(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
@@ -213,27 +195,27 @@ fun ChannelCard(
                 )
             }
 
-            // YouTube-style Channel Avatar + Title & Category Row
+            // Channel Avatar + Title & Category Row
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 10.dp, vertical = 9.dp),
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(9.dp)
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Box(
                     modifier = Modifier
-                        .size(32.dp)
+                        .size(34.dp)
                         .clip(CircleShape)
-                        .background(Color(0xFF1E263C))
-                        .border(0.5.dp, NeliBorder, CircleShape)
+                        .background(Color(0xFF161E38))
+                        .border(1.dp, Color(0x33FFFFFF), CircleShape)
                         .testTag("channel_avatar_logo_${channel.id}"),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = channelInitials,
                         color = Color.White,
-                        fontSize = 10.sp,
+                        fontSize = 11.sp,
                         fontWeight = FontWeight.ExtraBold
                     )
                 }
@@ -241,16 +223,16 @@ fun ChannelCard(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = channel.name,
-                        color = NeliTextPrimary,
-                        fontSize = 13.sp,
+                        color = Color.White,
+                        fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = "${channel.category} • Live",
-                        color = NeliTextSecondary,
+                        text = "${channel.category.replaceFirstChar { it.uppercase() }} • Live",
+                        color = Color(0xFF8E9BAE),
                         fontSize = 11.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis

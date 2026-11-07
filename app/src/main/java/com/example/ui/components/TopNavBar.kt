@@ -46,9 +46,9 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Laptop
 import androidx.compose.material.icons.filled.OpenInBrowser
-import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Tv
+import androidx.compose.material.icons.filled.WorkspacePremium
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -110,6 +110,7 @@ fun TopNavBar(
     onScanToCastCamClick: () -> Unit = {},
     isCastActive: Boolean = false,
     onCastClick: () -> Unit = {},
+    onPremiumClick: () -> Unit = {},
     adminSmsMessage: String = "",
     modifier: Modifier = Modifier
 ) {
@@ -117,7 +118,7 @@ fun TopNavBar(
     val focusManager = LocalFocusManager.current
     val focusRequester = remember { FocusRequester() }
     val isLightMode = NeliThemeManager.isLightMode
-    val headerBgColor = if (isLightMode) Color(0xFFFFFFFF) else Color(0xFF0B0D14)
+    val headerBgColor = if (isLightMode) Color(0xFFFFFFFF) else Color.Transparent
     val isTvDevice = LocalTvConfiguration.current.isTvDevice
     var showWatchOnPcDialog by remember { mutableStateOf(false) }
 
@@ -162,7 +163,7 @@ fun TopNavBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            // Left: Brand Logo
+            // Left: Brand Logo (Neliplay from Reference Image)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -173,28 +174,28 @@ fun TopNavBar(
                     .testTag("header_brand_logo")
             ) {
                 Image(
-                    painter = painterResource(id = R.drawable.img_nelitv_app_logo_1790873809763),
+                    painter = painterResource(id = R.drawable.neli_logo),
                     contentDescription = "Neliplay Logo",
-                    contentScale = ContentScale.Crop,
+                    contentScale = ContentScale.Fit,
                     modifier = Modifier
-                        .size(34.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .border(1.dp, Color(0x5500E5FF), RoundedCornerShape(8.dp))
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .border(1.5.dp, Color(0x7700E5FF), RoundedCornerShape(10.dp))
                 )
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = "Neli",
-                        color = NeliTextPrimary,
-                        fontSize = 19.sp,
-                        fontWeight = FontWeight.Black,
+                        color = Color.White,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.ExtraBold,
                         letterSpacing = (-0.4).sp
                     )
                     Text(
                         text = "play",
                         color = Color(0xFFFF2E7E),
-                        fontSize = 19.sp,
-                        fontWeight = FontWeight.Black,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.ExtraBold,
                         letterSpacing = (-0.4).sp
                     )
                 }
@@ -203,33 +204,33 @@ fun TopNavBar(
             // Right: Watch on PC (only on mobile, not TV) -> Search Button
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 if (!isTvDevice) {
                     Surface(
                         onClick = { showWatchOnPcDialog = true },
-                        shape = RoundedCornerShape(10.dp),
-                        color = Color(0x1F00E5FF),
-                        border = BorderStroke(1.dp, Color(0x8800E5FF)),
+                        shape = RoundedCornerShape(20.dp),
+                        color = Color(0x330055FF),
+                        border = BorderStroke(1.5.dp, Color(0xFF00E5FF)),
                         modifier = Modifier
-                            .height(34.dp)
+                            .height(36.dp)
                             .testTag("watch_on_pc_header_button")
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp),
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Laptop,
                                 contentDescription = "Watch on PC",
                                 tint = Color(0xFF00E5FF),
-                                modifier = Modifier.size(15.dp)
+                                modifier = Modifier.size(16.dp)
                             )
                             Text(
                                 text = "Watch on PC",
-                                color = Color(0xFF00E5FF),
-                                fontSize = 11.sp,
+                                color = Color.White,
+                                fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold
                             )
                         }
@@ -252,6 +253,38 @@ fun TopNavBar(
                         tint = if (isSearchOpen) NeliMagenta else NeliTextPrimary,
                         modifier = Modifier.size(22.dp)
                     )
+                }
+
+                // Mobile Only: Gold Crown Premium Button immediately after Search (matching user design)
+                if (!isTvDevice) {
+                    Surface(
+                        onClick = onPremiumClick,
+                        shape = RoundedCornerShape(20.dp),
+                        color = Color(0x33F59E0B),
+                        border = BorderStroke(1.5.dp, Color(0xFFFFD700)),
+                        modifier = Modifier
+                            .height(36.dp)
+                            .testTag("header_premium_button")
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.WorkspacePremium,
+                                contentDescription = "Premium",
+                                tint = Color(0xFFFFD700),
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                text = "Premium",
+                                color = Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -444,66 +477,6 @@ fun TopNavBar(
                             Text(
                                 text = "Fungua Nelitv.online",
                                 color = Color.Black,
-                                fontWeight = FontWeight.Black,
-                                fontSize = 13.sp
-                            )
-                        }
-                    }
-
-                    // Option 2: Dedicated Windows PC App (.exe)
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(Color(0xFF1C1335))
-                            .border(1.dp, NeliMagenta.copy(alpha = 0.6f), RoundedCornerShape(14.dp))
-                            .padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Download,
-                                contentDescription = null,
-                                tint = NeliMagenta,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Text(
-                                text = "2. Nelitv PC App (.exe Software)",
-                                color = Color.White,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                        Text(
-                            text = "Pakua software rasmi ya Nelitv kwa ajili ya Windows PC na laptop (.exe setup file) ili kutazama bila kufungua browser.",
-                            color = NeliTextSecondary,
-                            fontSize = 12.sp
-                        )
-                        Button(
-                            onClick = {
-                                val exeIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://nelitv.online/download/Nelitv-Setup.exe"))
-                                context.startActivity(exeIntent)
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta),
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(42.dp)
-                                .testTag("download_pc_exe_button")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Download,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "Download PC App (.exe)",
-                                color = Color.White,
                                 fontWeight = FontWeight.Black,
                                 fontSize = 13.sp
                             )

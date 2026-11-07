@@ -101,6 +101,15 @@ object NeliAppUpdateManager {
     private val _isMandatoryUpdateRequired = MutableStateFlow(false)
     val isMandatoryUpdateRequired: StateFlow<Boolean> = _isMandatoryUpdateRequired.asStateFlow()
 
+    private val _inAppDownloadProgress = MutableStateFlow<Float?>(null)
+    val inAppDownloadProgress: StateFlow<Float?> = _inAppDownloadProgress.asStateFlow()
+
+    private val _isInAppDownloadComplete = MutableStateFlow(false)
+    val isInAppDownloadComplete: StateFlow<Boolean> = _isInAppDownloadComplete.asStateFlow()
+
+    @Volatile
+    var downloadedApkFile: File? = null
+
     @Volatile
     private var dismissedPopupTagInSession: String? = null
 
@@ -810,6 +819,116 @@ object NeliAppUpdateManager {
             apkUrl = _releaseInfo.value.apkDownloadUrl
         )
         return true
+    }
+
+    /**
+     * Downloads the APK in-app with progress percentage callback so user sees the progress bar
+     * filling inside the dialog before tapping "Sakinisha Sasisho" (Update).
+     */
+    fun downloadApkWithProgress(
+        context: Context,
+        apkUrl: String = _releaseInfo.value.apkDownloadUrl,
+        versionTag: String = _releaseInfo.value.versionTag
+    ) {
+        if (_inAppDownloadProgress.value != null && _inAppDownloadProgress.value!! < 1.0f) {
+            return
+        }
+        _inAppDownloadProgress.value = 0.01f
+        _isInAppDownloadComplete.value = false
+        _apkDownloadStatusMessage.value = "Inapakua toleo jipya la Nelitv..."
+
+        Thread {
+            try {
+                val cleanUrl = apkUrl.ifBlank { DEFAULT_APK_DOWNLOAD_URL }
+                val request = Request.Builder().url(cleanUrl).build()
+                val response = httpClient.newCall(request).execute()
+                if (!response.isSuccessful) {
+                    _inAppDownloadProgress.value = null
+                    _apkDownloadStatusMessage.value = "Kushindwa kupakua, tafadhali jaribu tena."
+                    return@Thread
+                }
+                val body = response.body
+                val totalLength = body?.contentLength() ?: 28_000_000L
+                val destination = File(context.cacheDir, "Nelitv-update.apk")
+                if (destination.exists()) destination.delete()
+
+                body?.byteStream()?.use { input ->
+                    destination.outputStream().use { output ->
+                        val buffer = ByteArray(8192)
+                        var bytesRead: Int
+                        var downloaded = 0L
+                        var lastProgressUpdate = 0L
+
+                        while (input.read(buffer).also { bytesRead = it } != -1) {
+                            output.write(buffer, 0, bytesRead)
+                            downloaded += bytesRead
+                            val now = System.currentTimeMillis()
+                            if (now - lastProgressUpdate >= 100L || downloaded >= totalLength) {
+                                lastProgressUpdate = now
+                                val progress = if (totalLength > 0) (downloaded.toFloat() / totalLength.toFloat()).coerceIn(0f, 1f) else 0.5f
+                                _inAppDownloadProgress.value = progress
+                            }
+                        }
+                    }
+                }
+
+                downloadedApkFile = destination
+                _inAppDownloadProgress.value = 1.0f
+                _isInAppDownloadComplete.value = true
+                _apkDownloadStatusMessage.value = "Upakuaji umekamilika! Binya 'Sakinisha Sasisho' kuendelea."
+            } catch (e: Exception) {
+                _inAppDownloadProgress.value = null
+                _apkDownloadStatusMessage.value = "Hitilafu wakati wa kupakua: ${e.message}"
+            }
+        }.start()
+    }
+
+    /**
+     * Launches the in-app package installer once the APK download progress reaches 100%.
+     */
+    fun installDownloadedApkNow(context: Context) {
+        val file = downloadedApkFile ?: File(context.cacheDir, "Nelitv-update.apk")
+        if (!file.exists() || file.length() <= 0L) {
+            downloadAndInstallApk(context)
+            return
+        }
+        val cleanTag = _releaseInfo.value.versionTag.trim().ifBlank { CURRENT_APP_VERSION_TAG }
+        val conflictAnalysis = inspectApkPackageConflict(
+            context = context,
+            apkFile = file,
+            targetVersionTag = cleanTag
+        )
+        if (conflictAnalysis.wouldCausePackageConflict) {
+            applyConflictFreeInAppUpdate(
+                context = context,
+                versionTag = cleanTag,
+                apkUrl = _releaseInfo.value.apkDownloadUrl,
+                savedFileName = file.name
+            )
+            _showHomepageUpdatePopup.value = false
+        } else {
+            markReleaseAsInstalled(
+                context = context,
+                versionTag = cleanTag,
+                publishedAt = _releaseInfo.value.publishedAt,
+                apkUrl = _releaseInfo.value.apkDownloadUrl
+            )
+            val apkUri = try {
+                FileProvider.getUriForFile(
+                    context,
+                    "${context.packageName}.fileprovider",
+                    file
+                )
+            } catch (_: Exception) {
+                Uri.fromFile(file)
+            }
+            val installIntent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(apkUri, "application/vnd.android.package-archive")
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(installIntent)
+        }
     }
 
     /**

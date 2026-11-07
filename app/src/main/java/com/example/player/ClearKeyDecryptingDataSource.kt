@@ -68,28 +68,17 @@ class ClearKeyDecryptingDataSource(
 
         passthroughMode = false
 
-        // If this is a DASH .mpd manifest and we have a freshly pre-warmed manifest in memory, serve it immediately!
-        val cachedMpdBytes = if (isMpd) TokenManager.getPrewarmedManifestBytes(uriString) else null
-        val rawBytes = if (cachedMpdBytes != null && cachedMpdBytes.isNotEmpty()) {
-            currentUri = effectiveDataSpec.uri
-            cachedMpdBytes
-        } else {
-            // Fetch full resource from upstream so we can parse/decrypt complete MP4 boxes or MPD XML
-            val fullFetchSpec = effectiveDataSpec.buildUpon()
-                .setPosition(0)
-                .setLength(C.LENGTH_UNSET.toLong())
-                .build()
+        // Always fetch fresh MPD live manifest and media segments from upstream so live timeline advances without looping
+        val fullFetchSpec = effectiveDataSpec.buildUpon()
+            .setPosition(0)
+            .setLength(C.LENGTH_UNSET.toLong())
+            .build()
 
-            val (openedSpec, _) = openUpstreamWithTokenFailover(dataSpec, fullFetchSpec)
-            currentUri = upstream.uri ?: openedSpec.uri
+        val (openedSpec, _) = openUpstreamWithTokenFailover(dataSpec, fullFetchSpec)
+        currentUri = upstream.uri ?: openedSpec.uri
 
-            val fetched = readAllUpstreamBytes()
-            upstream.close()
-            if (isMpd && fetched.isNotEmpty()) {
-                TokenManager.cachePrewarmedManifestBytes(uriString, fetched)
-            }
-            fetched
-        }
+        val rawBytes = readAllUpstreamBytes()
+        upstream.close()
 
         val processedBytes = if (isMpd) {
             val xml = String(rawBytes, Charsets.UTF_8)

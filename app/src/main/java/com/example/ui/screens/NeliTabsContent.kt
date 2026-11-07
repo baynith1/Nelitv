@@ -817,6 +817,16 @@ fun DiscoveryTabContent(
             }
         }
 
+        // Start.io Banner Ad between Movies and Series content sections
+        item(key = "discovery_banner_between_movies_and_series") {
+            com.example.ads.StartIoBannerAd(
+                adTag = "discovery_movies_series",
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 6.dp)
+            )
+        }
+
         // 4. SERIES SECTION
         if ((selectedFilter.equals("All", true) || selectedFilter.equals("Series", true)) && seriesList.isNotEmpty()) {
             item {
@@ -860,6 +870,16 @@ fun DiscoveryTabContent(
                     }
                 }
             }
+        }
+
+        // Start.io Banner Ad between Series and Adults
+        item(key = "discovery_banner_between_series_and_adults") {
+            com.example.ads.StartIoBannerAd(
+                adTag = "discovery_series_adults",
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 6.dp)
+            )
         }
 
         // 5. ADULTS (18+) SECTION ORGANIZED BY GENRES & CATEGORIES WITH GUARANTEED POSTER & THUMBNAIL IMAGES
@@ -3403,146 +3423,6 @@ fun AccountTabContent(
                                 fontWeight = FontWeight.ExtraBold
                             )
                         }
-                    }
-                }
-            }
-        }
-
-        // Smart TV Experience & PC Installation Card
-        item {
-            val context = LocalContext.current
-            val isTvDevice = com.example.ui.tv.NeliTvDetector.isTelevision(context)
-            val isHardwareTv = com.example.ui.tv.NeliTvDetector.isHardwareTelevision(context)
-            val currentMode = NeliThemeManager.forceTvMode
-
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(NeliSurface)
-                    .border(1.dp, Color(0xFF00E5FF).copy(alpha = 0.4f), RoundedCornerShape(20.dp))
-                    .padding(16.dp)
-                    .testTag("account_smart_tv_experience_card"),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(40.dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFF132F3D)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Tv,
-                            contentDescription = null,
-                            tint = Color(0xFF00E5FF),
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
-
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Smart TV & PC Support",
-                            color = NeliTextPrimary,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = if (isTvDevice) "Smart TV Layout Active • Side Panel & D-Pad Remote Ready" else "Automatic adaptation for Smart TVs & TV Boxes",
-                            color = if (isTvDevice) Color(0xFF00E5FF) else NeliTextSecondary,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(if (isTvDevice) Color(0xFF065F46) else Color(0xFF1E293B))
-                            .border(1.dp, if (isTvDevice) Color(0xFF34D399) else Color(0xFF475569), RoundedCornerShape(8.dp))
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
-                    ) {
-                        Text(
-                            text = if (isTvDevice) "TV MODE" else "MOBILE",
-                            color = if (isTvDevice) Color(0xFF34D399) else NeliTextSecondary,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-
-                Text(
-                    text = "• Smart TV: Automatically transforms on Android TV / Fire TV with side panel (Home, Discovery, Plans, Downloads, Account) and D-Pad remote focus with Gemini glowing border.\n• Remote Control: Moving with remote grows focused channels and buttons.\n• PC / Windows: Run this APK on Windows 11 via Windows Subsystem for Android (WSA), BlueStacks, or LDPlayer as an installable PC app.",
-                    color = NeliTextSecondary,
-                    fontSize = 12.sp,
-                    lineHeight = 17.sp
-                )
-
-                // Layout Switcher: Auto / Force TV / Force Mobile
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(if (currentMode == null) NeliMagenta else NeliSurfaceVariant)
-                            .border(1.dp, if (currentMode == null) NeliMagenta else Color(0x44A855F7), RoundedCornerShape(12.dp))
-                            .clickable { NeliThemeManager.setTvModeSetting(context, null) }
-                            .padding(vertical = 10.dp)
-                            .testTag("tv_mode_auto_button"),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "Auto (${if (isHardwareTv) "TV" else "Phone"})",
-                            color = if (currentMode == null) Color.White else NeliTextPrimary,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(if (currentMode == true) NeliMagenta else NeliSurfaceVariant)
-                            .border(1.dp, if (currentMode == true) NeliMagenta else Color(0x44A855F7), RoundedCornerShape(12.dp))
-                            .clickable { NeliThemeManager.setTvModeSetting(context, true) }
-                            .padding(vertical = 10.dp)
-                            .testTag("tv_mode_force_tv_button"),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "Force TV Mode",
-                            color = if (currentMode == true) Color.White else NeliTextPrimary,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(if (currentMode == false) NeliMagenta else NeliSurfaceVariant)
-                            .border(1.dp, if (currentMode == false) NeliMagenta else Color(0x44A855F7), RoundedCornerShape(12.dp))
-                            .clickable { NeliThemeManager.setTvModeSetting(context, false) }
-                            .padding(vertical = 10.dp)
-                            .testTag("tv_mode_force_mobile_button"),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "Force Mobile",
-                            color = if (currentMode == false) Color.White else NeliTextPrimary,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold
-                        )
                     }
                 }
             }

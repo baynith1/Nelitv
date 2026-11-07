@@ -28,7 +28,7 @@ object NeliThemeManager {
         private set
 
     val currentThemeLabel: String
-        get() = if (isLightMode) "White (Light Mode)" else "Black (Dark Mode)"
+        get() = if (isLightMode) "White Pink Cream (Light)" else "Black Cinema (Dark)"
 
     val currentPipStatusLabel: String
         get() = if (isPipModeAllowed) "Allowed • Plays in Background PiP when leaving app" else "Disallowed • Background PiP Off"
@@ -93,46 +93,51 @@ object NeliThemeManager {
     }
 }
 
-// Reactive Black (Dark) <-> White (Light) Palette
-val NeliBackground: Color
-    get() = if (NeliThemeManager.isLightMode) Color(0xFFF8FAFC) else Color(0xFF090A0F)
-
-val NeliBackgroundDeep: Color
-    get() = if (NeliThemeManager.isLightMode) Color(0xFFF1F5F9) else Color(0xFF050609)
-
-val NeliBackgroundMid: Color
-    get() = if (NeliThemeManager.isLightMode) Color(0xFFFFFFFF) else Color(0xFF0F121C)
-
-val NeliBackgroundLight: Color
-    get() = if (NeliThemeManager.isLightMode) Color(0xFFE2E8F0) else Color(0xFF171B29)
-
-val NeliSurface: Color
-    get() = if (NeliThemeManager.isLightMode) Color(0xFFFFFFFF) else Color(0xFF121520)
-
-val NeliSurfaceVariant: Color
-    get() = if (NeliThemeManager.isLightMode) Color(0xFFEFF4FA) else Color(0xFF1A1F2E)
-
-val NeliSurfaceHighlight: Color
-    get() = if (NeliThemeManager.isLightMode) Color(0xFFE2E8F0) else Color(0xFF242B3D)
-
-val NeliCardPurple: Color
-    get() = if (NeliThemeManager.isLightMode) Color(0xFFF3E8FF) else Color(0xFF171C2B)
-
-val NeliCardPurpleLight: Color
-    get() = if (NeliThemeManager.isLightMode) Color(0xFFEDE9FE) else Color(0xFF21283C)
-
-// 3D Neon Logo Signature Colors (Neon Amber -> Magenta -> Electric Purple -> Royal Blue -> Neon Cyan)
-val NeliNeonOrange = Color(0xFFFF8500)
-val NeliNeonMagenta = Color(0xFFFF007A)
+// Logo Signature Colors (Pink mix Orange and Pale Blue)
+val NeliPink = Color(0xFFFF2E7E)
+val NeliWarmOrange = Color(0xFFFF7A00)
+val NeliPaleBlue = Color(0xFF70C4FF)
 val NeliNeonPurple = Color(0xFF8B00FF)
-val NeliNeonBlue = Color(0xFF0055FF)
 val NeliNeonCyan = Color(0xFF00E5FF)
 
+// Reactive White with Pink Cream Style <-> Dark Cinema Palette
+val NeliBackground: Color
+    get() = if (NeliThemeManager.isLightMode) Color(0xFFFFF7F6) else Color(0xFF070913)
+
+val NeliBackgroundDeep: Color
+    get() = if (NeliThemeManager.isLightMode) Color(0xFFFFF0EE) else Color(0xFF04050A)
+
+val NeliBackgroundMid: Color
+    get() = if (NeliThemeManager.isLightMode) Color(0xFFFFFDFC) else Color(0xFF0C1020)
+
+val NeliBackgroundLight: Color
+    get() = if (NeliThemeManager.isLightMode) Color(0xFFFDEAE7) else Color(0xFF141A33)
+
+val NeliSurface: Color
+    get() = if (NeliThemeManager.isLightMode) Color(0xFFFFFFFF) else Color(0xFF0E1326)
+
+val NeliSurfaceVariant: Color
+    get() = if (NeliThemeManager.isLightMode) Color(0xFFFFF2F0) else Color(0xFF141B36)
+
+val NeliSurfaceHighlight: Color
+    get() = if (NeliThemeManager.isLightMode) Color(0xFFFFE8E4) else Color(0xFF1D264A)
+
+val NeliCardPurple: Color
+    get() = if (NeliThemeManager.isLightMode) Color(0xFFFFF5F4) else Color(0xFF0F1428)
+
+val NeliCardPurpleLight: Color
+    get() = if (NeliThemeManager.isLightMode) Color(0xFFFFF0EE) else Color(0xFF151C38)
+
+// 3D Neon Logo Signature Colors (Pink -> Orange -> Violet -> Pale Blue -> Neon Cyan)
+val NeliNeonOrange = Color(0xFFFF7A00)
+val NeliNeonMagenta = Color(0xFFFF2E7E)
+val NeliNeonBlue = Color(0xFF0055FF)
+
 val NeliLogoGradientColors = listOf(
-    NeliNeonOrange,
-    NeliNeonMagenta,
+    NeliPink,
+    NeliWarmOrange,
     NeliNeonPurple,
-    NeliNeonBlue,
+    NeliPaleBlue,
     NeliNeonCyan
 )
 
@@ -140,7 +145,7 @@ val NeliLogoGradientBrush: Brush
     get() = Brush.horizontalGradient(NeliLogoGradientColors)
 
 val NeliLogoSweepBrush: Brush
-    get() = Brush.sweepGradient(NeliLogoGradientColors + NeliNeonOrange)
+    get() = Brush.sweepGradient(NeliLogoGradientColors + NeliPink)
 
 // Cinema Crimson / Rose Accent updated to Vivid Neon Magenta
 val NeliMagenta = Color(0xFFFF007A)
@@ -162,36 +167,40 @@ val NeliLiveRed = Color(0xFFFF0055)
 val NeliLiveRedGlow = Color(0x66FF0055)
 
 val NeliTextPrimary: Color
-    get() = if (NeliThemeManager.isLightMode) Color(0xFF0F172A) else Color(0xFFF8FAFC)
+    get() = if (NeliThemeManager.isLightMode) Color(0xFF201526) else Color(0xFFF8FAFC)
 
 val NeliTextSecondary: Color
-    get() = if (NeliThemeManager.isLightMode) Color(0xFF475569) else Color(0xFFB4C2DC)
+    get() = if (NeliThemeManager.isLightMode) Color(0xFF6B5875) else Color(0xFFB4C2DC)
 
 val NeliTextMuted: Color
-    get() = if (NeliThemeManager.isLightMode) Color(0xFF64748B) else Color(0xFF7E8B9F)
+    get() = if (NeliThemeManager.isLightMode) Color(0xFF9885A3) else Color(0xFF7E8B9F)
 
 val NeliAccentGreen = Color(0xFF00E676)
 val NeliAccentPurple = Color(0xFF8B00FF)
 
 val NeliBorder: Color
-    get() = if (NeliThemeManager.isLightMode) Color(0xFFCBD5E1) else Color(0xFF281E40)
+    get() = if (NeliThemeManager.isLightMode) Color(0xFFFFDED9) else Color(0xFF281E40)
 
 val NeliMainBackgroundBrush: Brush
     get() = if (NeliThemeManager.isLightMode) {
         Brush.verticalGradient(
             colors = listOf(
-                Color(0xFFFFFFFF),
-                Color(0xFFF8FAFC),
-                Color(0xFFF1F5F9)
+                Color(0xFFFFFDFD),
+                Color(0xFFFFF4F2),
+                Color(0xFFFFF0EE)
             )
         )
     } else {
-        Brush.verticalGradient(
+        Brush.linearGradient(
             colors = listOf(
-                Color(0xFF0E0919),
-                Color(0xFF07040D),
-                Color(0xFF040208)
-            )
+                Color(0xFF150928),
+                Color(0xFF090E26),
+                Color(0xFF070B1D),
+                Color(0xFF160A1F),
+                Color(0xFF050712)
+            ),
+            start = androidx.compose.ui.geometry.Offset(0f, 0f),
+            end = androidx.compose.ui.geometry.Offset(1000f, 2200f)
         )
     }
 
@@ -200,7 +209,7 @@ val NeliCardGradientBrush: Brush
         Brush.horizontalGradient(
             colors = listOf(
                 Color(0xFFFFFFFF),
-                Color(0xFFF1F5F9)
+                Color(0xFFFFF2F0)
             )
         )
     } else {

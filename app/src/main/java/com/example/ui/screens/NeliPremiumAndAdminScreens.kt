@@ -610,126 +610,419 @@ fun PremiumTabContent(
                 PremiumCheckoutStep.CHOOSE_PLAN -> {
                     Column(
                         modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
-                        SubscriptionPlanType.entries.forEach { plan ->
-                            val isSelected = plan.id == selectedPlan.id
-                            Card(
+                        // Hero Header per user mockup (NeliTv Premium - Your Entertainment, Your Way)
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(18.dp))
+                                .background(
+                                    Brush.verticalGradient(
+                                        listOf(Color(0xFF281138), Color(0xFF100C1F))
+                                    )
+                                )
+                                .border(1.dp, Color(0x55F59E0B), RoundedCornerShape(18.dp))
+                                .padding(16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(46.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        Brush.radialGradient(
+                                            listOf(Color(0xFFFFD700), Color(0xFFFF8C00))
+                                        )
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.WorkspacePremium,
+                                    contentDescription = "Crown",
+                                    tint = Color.Black,
+                                    modifier = Modifier.size(28.dp)
+                                )
+                            }
+                            Text(
+                                text = "NeliTv Premium",
+                                color = Color.White,
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.Black
+                            )
+                            Text(
+                                text = "Your Entertainment, Your Way • Choose How You Watch",
+                                color = Color(0xFFFBBF24),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+
+                        // OPTION 1: WATCH WITH ADS (Free Default)
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("premium_watch_with_ads_card"),
+                            shape = RoundedCornerShape(18.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
+                            border = BorderStroke(1.dp, Color(0x4434D399))
+                        ) {
+                            Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .tvCardGrow(
-                                        shape = RoundedCornerShape(16.dp),
-                                        onClick = { selectedPlanId = plan.id }
-                                    )
-                                    .clip(RoundedCornerShape(16.dp))
-                                    .clickable { selectedPlanId = plan.id }
-                                    .border(
-                                        width = if (isSelected) 2.dp else 1.dp,
-                                        color = if (isSelected) NeliMagenta else NeliBorder,
-                                        shape = RoundedCornerShape(16.dp)
-                                    )
-                                    .testTag("premium_plan_${plan.id}"),
-                                shape = RoundedCornerShape(16.dp),
-                                colors = CardDefaults.cardColors(
-                                    containerColor = if (isSelected) Color(0xFF1F122B) else NeliSurface
-                                )
+                                    .padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
                                 Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(if (screenProfile.isSmallPhone) 12.dp else 16.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Column(
-                                        modifier = Modifier.weight(1f),
-                                        verticalArrangement = Arrangement.spacedBy(3.dp)
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(6.dp))
+                                                .background(Color(0xFF10B981))
+                                                .padding(horizontal = 8.dp, vertical = 3.dp)
                                         ) {
                                             Text(
-                                                text = plan.titleSwahili,
-                                                color = NeliTextPrimary,
-                                                fontSize = if (screenProfile.isSmallPhone) 15.sp else 17.sp,
-                                                fontWeight = FontWeight.Black,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
+                                                text = "FREE",
+                                                color = Color.Black,
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Black
                                             )
-                                            Box(
-                                                modifier = Modifier
-                                                    .clip(RoundedCornerShape(6.dp))
-                                                    .background(NeliSurfaceVariant)
-                                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                                            ) {
-                                                Text(
-                                                    text = plan.badgeText,
-                                                    color = NeliGenreCyan,
-                                                    fontSize = 9.sp,
-                                                    fontWeight = FontWeight.Bold
-                                                )
-                                            }
                                         }
                                         Text(
-                                            text = plan.subtitleSwahili,
-                                            color = NeliTextSecondary,
-                                            fontSize = if (screenProfile.isSmallPhone) 11.sp else 12.sp,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
+                                            text = "WATCH WITH ADS",
+                                            color = Color.White,
+                                            fontSize = 16.sp,
+                                            fontWeight = FontWeight.Black
                                         )
                                     }
 
-                                    Column(horizontalAlignment = Alignment.End) {
-                                        Text(
-                                            text = plan.priceFormatted,
-                                            color = if (isSelected) NeliMagenta else Color(0xFFFBBF24),
-                                            fontSize = if (screenProfile.isSmallPhone) 15.sp else 18.sp,
-                                            fontWeight = FontWeight.Black
+                                    if (!isPremiumActive) {
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(Color(0x3310B981))
+                                                .border(1.dp, Color(0xFF34D399), RoundedCornerShape(8.dp))
+                                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                                        ) {
+                                            Text(
+                                                text = "Active (Default) ✓",
+                                                color = Color(0xFF34D399),
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    }
+                                }
+
+                                Text(
+                                    text = "Standard access for every user. Enjoy all channels and video content for free with lightweight, non-intrusive ad breaks.",
+                                    color = NeliTextSecondary,
+                                    fontSize = 12.sp,
+                                    lineHeight = 17.sp
+                                )
+
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text(
+                                        text = "• All channels & Azam live streams 100% free",
+                                        color = Color.White,
+                                        fontSize = 12.sp
+                                    )
+                                    Text(
+                                        text = "• Ads in standard banner & 15-minute playback breaks",
+                                        color = Color.White,
+                                        fontSize = 12.sp
+                                    )
+                                    Text(
+                                        text = "• Instant streaming (never blocks if an ad fails)",
+                                        color = Color.White,
+                                        fontSize = 12.sp
+                                    )
+                                }
+
+                                if (!isPremiumActive) {
+                                    OutlinedButton(
+                                        onClick = onBack,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(44.dp),
+                                        shape = RoundedCornerShape(12.dp),
+                                        border = BorderStroke(1.dp, Color(0xFF34D399)),
+                                        colors = ButtonDefaults.outlinedButtonColors(
+                                            contentColor = Color(0xFF34D399)
                                         )
+                                    ) {
                                         Text(
-                                            text = if (isSelected) "Imechaguliwa ✓" else "Gusa kuchagua",
-                                            color = if (isSelected) Color(0xFF34D399) else NeliTextSecondary,
-                                            fontSize = if (screenProfile.isSmallPhone) 10.sp else 11.sp,
-                                            fontWeight = FontWeight.SemiBold
+                                            text = "Watch Free Live TV Now",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 13.sp
                                         )
                                     }
                                 }
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(4.dp))
+                        // OPTION 2: PAY FOR PREMIUM (VIP 100% Ad-Free)
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("premium_pay_for_premium_card"),
+                            shape = RoundedCornerShape(18.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFF1B0F28)),
+                            border = BorderStroke(1.5.dp, Color(0xFFFF2A85))
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(6.dp))
+                                                .background(
+                                                    Brush.horizontalGradient(
+                                                        listOf(Color(0xFFFF2A85), Color(0xFFFF7A00))
+                                                    )
+                                                )
+                                                .padding(horizontal = 8.dp, vertical = 3.dp)
+                                        ) {
+                                            Text(
+                                                text = "VIP AD-FREE",
+                                                color = Color.White,
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Black
+                                            )
+                                        }
+                                        Text(
+                                            text = "PAY FOR PREMIUM",
+                                            color = Color.White,
+                                            fontSize = 16.sp,
+                                            fontWeight = FontWeight.Black
+                                        )
+                                    }
 
-                        Button(
+                                    if (isPremiumActive) {
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(Color(0x33F59E0B))
+                                                .border(1.dp, Color(0xFFF59E0B), RoundedCornerShape(8.dp))
+                                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                                        ) {
+                                            Text(
+                                                text = "Active VIP ✓",
+                                                color = Color(0xFFFBBF24),
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    }
+                                }
+
+                                Text(
+                                    text = "100% Ad-Free uninterrupted streaming. No banners, no interstitial delays, zero ad breaks during live sports or movies.",
+                                    color = NeliTextSecondary,
+                                    fontSize = 12.sp,
+                                    lineHeight = 17.sp
+                                )
+
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text(
+                                        text = "• Completely ad-free experience on all devices",
+                                        color = Color(0xFFFBBF24),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Text(
+                                        text = "• Instant channel loading & VIP priority servers",
+                                        color = Color.White,
+                                        fontSize = 12.sp
+                                    )
+                                    Text(
+                                        text = "• Multi-device sync across phone, tablet & PC",
+                                        color = Color.White,
+                                        fontSize = 12.sp
+                                    )
+                                }
+
+                                Text(
+                                    text = "CHAGUA KIFURUSHI CHAKO:",
+                                    color = Color(0xFF00E5FF),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+
+                                // The 3 Official Plans (2 Days TSh 1,000 | 7 Days TSh 3,000 | 30 Days TSh 10,000)
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    SubscriptionPlanType.entries.forEach { plan ->
+                                        val isSelected = plan.id == selectedPlan.id
+                                        Card(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .tvCardGrow(
+                                                    shape = RoundedCornerShape(14.dp),
+                                                    onClick = { selectedPlanId = plan.id }
+                                                )
+                                                .clip(RoundedCornerShape(14.dp))
+                                                .clickable { selectedPlanId = plan.id }
+                                                .border(
+                                                    width = if (isSelected) 2.dp else 1.dp,
+                                                    color = if (isSelected) Color(0xFFFF2A85) else Color(0x333B4874),
+                                                    shape = RoundedCornerShape(14.dp)
+                                                )
+                                                .testTag("premium_plan_${plan.id}"),
+                                            shape = RoundedCornerShape(14.dp),
+                                            colors = CardDefaults.cardColors(
+                                                containerColor = if (isSelected) Color(0xFF2C133E) else Color(0xFF131023)
+                                            )
+                                        ) {
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Row(
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                    ) {
+                                                        Text(
+                                                            text = plan.titleSwahili,
+                                                            color = Color.White,
+                                                            fontSize = 15.sp,
+                                                            fontWeight = FontWeight.Black
+                                                        )
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .clip(RoundedCornerShape(4.dp))
+                                                                .background(Color(0xFF241538))
+                                                                .padding(horizontal = 5.dp, vertical = 2.dp)
+                                                        ) {
+                                                            Text(
+                                                                text = plan.badgeText,
+                                                                color = Color(0xFF00E5FF),
+                                                                fontSize = 9.sp,
+                                                                fontWeight = FontWeight.Bold
+                                                            )
+                                                        }
+                                                    }
+                                                    Text(
+                                                        text = plan.subtitleSwahili,
+                                                        color = NeliTextSecondary,
+                                                        fontSize = 11.sp
+                                                    )
+                                                }
+
+                                                Column(horizontalAlignment = Alignment.End) {
+                                                    Text(
+                                                        text = plan.priceFormatted,
+                                                        color = if (isSelected) Color(0xFFFF2A85) else Color(0xFFFBBF24),
+                                                        fontSize = 16.sp,
+                                                        fontWeight = FontWeight.Black
+                                                    )
+                                                    Text(
+                                                        text = if (isSelected) "Imechaguliwa ✓" else "Gusa kuchagua",
+                                                        color = if (isSelected) Color(0xFF34D399) else NeliTextSecondary,
+                                                        fontSize = 10.sp,
+                                                        fontWeight = FontWeight.SemiBold
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(2.dp))
+
+                                Button(
+                                    onClick = {
+                                        PaymentService.prewarmHarakaPayConnection()
+                                        NeliSubscriptionManager.refreshDeviceIp(context)
+                                        phoneInput = ""
+                                        statusFeedbackMessage = null
+                                        checkoutStep = PremiumCheckoutStep.ENTER_PHONE
+                                    },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .tvButtonGrow(shape = RoundedCornerShape(14.dp))
+                                        .height(52.dp)
+                                        .testTag("premium_next_button"),
+                                    shape = RoundedCornerShape(14.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF2A85))
+                                ) {
+                                    Text(
+                                        text = if (isPremiumActive) {
+                                            "Ongeza Muda (+${selectedPlan.durationLabel} • ${selectedPlan.priceFormatted})"
+                                        } else {
+                                            "Lipa Sasa (${selectedPlan.titleSwahili} • ${selectedPlan.priceFormatted})"
+                                        },
+                                        color = Color.White,
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Black
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(2.dp))
+
+                        OutlinedButton(
                             onClick = {
-                                PaymentService.prewarmHarakaPayConnection()
-                                NeliSubscriptionManager.refreshDeviceIp(context)
-                                // Always clear phoneInput so the user must write their payment phone number for every payment
-                                phoneInput = ""
-                                statusFeedbackMessage = null
-                                checkoutStep = PremiumCheckoutStep.ENTER_PHONE
+                                nishalipaResultMessage = null
+                                nishalipaIsSuccess = false
+                                if (currentUser?.email?.contains("@nelitv.phone") == true) {
+                                    nishalipaPhoneInput = currentUser.email.substringBefore("@")
+                                }
+                                showNishalipaDialog = true
                             },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .tvButtonGrow(shape = RoundedCornerShape(14.dp))
-                                .height(54.dp)
-                                .testTag("premium_next_button"),
+                                .height(50.dp)
+                                .testTag("premium_nishalipa_button"),
                             shape = RoundedCornerShape(14.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta)
+                            border = BorderStroke(1.2.dp, Color(0xFF00E5FF)),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = Color(0xFF00E5FF),
+                                containerColor = Color(0x1400E5FF)
+                            )
                         ) {
+                            Icon(
+                                imageVector = Icons.Default.CheckCircle,
+                                contentDescription = "Nishalipa",
+                                tint = Color(0xFF00E5FF),
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = if (isPremiumActive) {
-                                    "Ongeza Muda (+${selectedPlan.durationLabel} • ${selectedPlan.priceFormatted})"
-                                } else {
-                                    "Endelea (${selectedPlan.titleSwahili} • ${selectedPlan.priceFormatted})"
-                                },
-                                color = Color.White,
-                                fontSize = if (screenProfile.isSmallPhone) 13.sp else 15.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                text = "Nishalipa Tayari (Thibitisha Muamala)",
+                                color = Color(0xFF00E5FF),
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold
                             )
                         }
+                    }
+                }
 
                         Spacer(modifier = Modifier.height(8.dp))
 

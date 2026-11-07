@@ -110,7 +110,7 @@ fun NeliTvSideNavigationRail(
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Image(
-                        painter = painterResource(id = R.drawable.img_nelitv_app_logo_1790873809763),
+                        painter = painterResource(id = R.drawable.neli_logo),
                         contentDescription = "NeliTV Logo",
                         modifier = Modifier
                             .size(38.dp)

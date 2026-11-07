@@ -1,9 +1,16 @@
 package com.example.ui.screens
 
+import android.app.Activity
+import com.example.ads.NeliAdManager
+import com.example.ads.StartIoBannerAd
+import com.example.ads.StartIoNativeCardAd
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.res.painterResource
+import com.example.R
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -14,9 +21,12 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.blur
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -86,6 +96,7 @@ import com.example.ui.components.NeliBottomBar
 import com.example.ui.components.NeliHomepageAutoUpdatePopupDialog
 import com.example.ui.components.TopNavBar
 import com.example.ui.theme.NeliBackground
+import com.example.ui.theme.NeliMainBackgroundBrush
 import com.example.ui.theme.NeliGenreCyan
 import com.example.ui.theme.NeliLiveRed
 import com.example.ui.theme.NeliMagenta
@@ -192,7 +203,14 @@ fun HomeScreen(
                     context = context
                 )
             }
-            onChannelSelected(ch)
+            val activity = context as? Activity
+            if (activity != null) {
+                NeliAdManager.showChannelOpeningAd(activity, ch.name) {
+                    onChannelSelected(ch)
+                }
+            } else {
+                onChannelSelected(ch)
+            }
         }
     }
 
@@ -556,11 +574,24 @@ fun HomeScreen(
         }
     } else {
         // Mobile Layout: TopNavBar (No Cast button) + Main Content + NeliBottomBar
-        Box(modifier = modifier.fillMaxSize()) {
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .background(if (NeliThemeManager.isLightMode) Color(0xFFFFF7F6) else Color(0xFF070A1A))
+        ) {
+            // Authentic Neon Ribbon Wallpaper from User's custom design (Orange, Pink & Blue silk waves on midnight)
+            if (!NeliThemeManager.isLightMode) {
+                Image(
+                    painter = painterResource(id = R.drawable.neli_bg_wallpaper),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(NeliBackground)
                     .testTag("home_screen")
             ) {
                 TopNavBar(
@@ -590,6 +621,11 @@ fun HomeScreen(
                         isSearchOpen = false
                         searchQuery = ""
                         neliViewModel.selectTab(BottomNavTab.HOME)
+                    },
+                    onPremiumClick = {
+                        isSearchOpen = false
+                        searchQuery = ""
+                        neliViewModel.selectTab(BottomNavTab.PREMIUM)
                     },
                     adminSmsMessage = adminSmsMessage
                 )
@@ -801,24 +837,35 @@ private fun LiveTvHomeTab(
                     Box(
                         modifier = Modifier
                             .tvGeminiFocusable(
-                                shape = RoundedCornerShape(8.dp),
+                                shape = RoundedCornerShape(20.dp),
                                 focusScale = 1.12f,
                                 borderWidth = 2.dp,
                                 onClick = { onCategorySelected(if (category == "All Channels") "All" else category) }
                             )
-                            .clip(RoundedCornerShape(8.dp))
+                            .clip(RoundedCornerShape(20.dp))
                             .background(
-                                if (isSelected) NeliTextPrimary else NeliSurfaceVariant
+                                if (isSelected) {
+                                    Brush.horizontalGradient(
+                                        listOf(Color(0xFFFF1B6B), Color(0xFFFF5E00))
+                                    )
+                                } else {
+                                    androidx.compose.ui.graphics.SolidColor(Color(0xFF0F152E))
+                                }
+                            )
+                            .border(
+                                width = 1.dp,
+                                color = if (isSelected) Color(0xFFFF2E7E) else Color(0x332B3B66),
+                                shape = RoundedCornerShape(20.dp)
                             )
                             .clickable { onCategorySelected(if (category == "All Channels") "All" else category) }
-                            .padding(horizontal = 14.dp, vertical = 7.dp)
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
                             .testTag("live_cat_chip_$category")
                     ) {
                         Text(
                             text = category,
-                            color = if (isSelected) NeliBackground else NeliTextPrimary,
+                            color = Color.White,
                             fontSize = 13.sp,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                            fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium
                         )
                     }
                 }
@@ -855,6 +902,16 @@ private fun LiveTvHomeTab(
                     )
                 }
             }
+
+            // Start.io Banner Ad below hero slider (matching user mockup)
+            item(key = "home_startio_banner_below_hero") {
+                StartIoBannerAd(
+                    adTag = "home_below_hero",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                )
+            }
         } else if (adminSmsMessage.isNotBlank()) {
             item(key = "admin_sms_home_filtered") {
                 AdminTopSmsNotificationBanner(
@@ -875,38 +932,56 @@ private fun LiveTvHomeTab(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = if (selectedCategory.equals("All", true)) {
-                        "All Channels"
-                    } else {
-                        selectedCategory
-                    },
-                    color = NeliTextPrimary,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .width(5.dp)
+                            .height(20.dp)
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(
+                                Brush.verticalGradient(
+                                    listOf(Color(0xFFFF2A55), Color(0xFFFF7A00), Color(0xFF00E5FF))
+                                )
+                            )
+                    )
+                    Text(
+                        text = if (selectedCategory.equals("All", true)) {
+                            "All Channels"
+                        } else {
+                            selectedCategory
+                        },
+                        color = Color.White,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                }
+
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
                         text = if (isRefreshing) "Refreshing..." else "${filteredChannels.size} live",
-                        color = NeliTextSecondary,
-                        fontSize = 12.sp
+                        color = Color(0xFF8E9BAE),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium
                     )
                     IconButton(
                         onClick = onRefresh,
                         modifier = Modifier
-                            .size(32.dp)
+                            .size(34.dp)
                             .clip(CircleShape)
-                            .background(NeliSurfaceVariant)
+                            .background(Color(0xFF0077FF))
                             .testTag("refresh_live_tv_button")
                     ) {
                         Icon(
                             imageVector = Icons.Default.Refresh,
                             contentDescription = "Refresh Live TV",
-                            tint = NeliTextPrimary,
-                            modifier = Modifier.size(16.dp)
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
                         )
                     }
                 }
@@ -924,7 +999,7 @@ private fun LiveTvHomeTab(
                     .fillMaxWidth()
                     .testTag("all_channels_vertical_block_$blockIndex")
             ) {
-                for (rowItems in rowsInBlock) {
+                rowsInBlock.forEachIndexed { rowIndex, rowItems ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -943,6 +1018,27 @@ private fun LiveTvHomeTab(
                         repeat(emptySlots) {
                             Spacer(modifier = Modifier.weight(1f))
                         }
+                    }
+
+                    // Banner ad placement after every 2 channel cards
+                    if (columnsPerRow == 2 || (rowIndex + 1) % 2 == 0) {
+                        StartIoBannerAd(
+                            adTag = "home_channel_row_${blockIndex}_$rowIndex",
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+
+                // Native sponsored channel card inserted after every 2 channel blocks
+                if (blockIndex % 2 == 0) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 6.dp)
+                    ) {
+                        StartIoNativeCardAd()
                     }
                 }
             }
@@ -1022,15 +1118,22 @@ private fun LiveTvHeroBanner(
                             .background(
                                 Brush.linearGradient(
                                     colors = listOf(
-                                        Color(0xFF14091E),
-                                        Color(0xFF0E172C),
-                                        Color(0xFF090A0F)
+                                        Color(0xFF160A26),
+                                        Color(0xFF0C132E),
+                                        Color(0xFF060914)
                                     )
                                 )
                             )
                             .border(
-                                width = 1.dp,
-                                color = Color(0xFF2D364F),
+                                width = 1.5.dp,
+                                brush = Brush.horizontalGradient(
+                                    listOf(
+                                        Color(0xFFFF007A),
+                                        Color(0xFF9400D3),
+                                        Color(0xFF0055FF),
+                                        Color(0xFF00E5FF)
+                                    )
+                                ),
                                 shape = RoundedCornerShape(22.dp)
                             )
                             .clickable { onPlayChannel(channel) }
@@ -1046,9 +1149,13 @@ private fun LiveTvHeroBanner(
                                 modifier = Modifier
                                     .size(if (isTablet) 132.dp else 102.dp)
                                     .clip(RoundedCornerShape(18.dp))
-                                    .background(Color(0xFF141B2D))
-                                    .border(1.dp, Color(0xFF28324B), RoundedCornerShape(18.dp))
-                                    .padding(8.dp),
+                                    .background(
+                                        Brush.verticalGradient(
+                                            listOf(Color(0xFF19254F), Color(0xFF0F1738))
+                                        )
+                                    )
+                                    .border(1.dp, Color(0x33283E70), RoundedCornerShape(18.dp))
+                                    .padding(10.dp),
                                 contentAlignment = Alignment.Center
                             ) {
                                 if (!isHeroLogoLoaded) {
@@ -1059,27 +1166,18 @@ private fun LiveTvHeroBanner(
                                         modifier = Modifier.size(36.dp)
                                     )
                                 }
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .background(Color.White.copy(alpha = 0.08f))
-                                        .padding(6.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    AsyncImage(
-                                        model = heroLogoRequest,
-                                        contentDescription = channel.name,
-                                        contentScale = ContentScale.Fit,
-                                        onSuccess = { isHeroLogoLoaded = true },
-                                        onError = {
-                                            if (activeHeroLogo != fallbackHeroLogo && fallbackHeroLogo.isNotBlank()) {
-                                                activeHeroLogo = fallbackHeroLogo
-                                            }
-                                        },
-                                        modifier = Modifier.fillMaxSize()
-                                    )
-                                }
+                                AsyncImage(
+                                    model = heroLogoRequest,
+                                    contentDescription = channel.name,
+                                    contentScale = ContentScale.Fit,
+                                    onSuccess = { isHeroLogoLoaded = true },
+                                    onError = {
+                                        if (activeHeroLogo != fallbackHeroLogo && fallbackHeroLogo.isNotBlank()) {
+                                            activeHeroLogo = fallbackHeroLogo
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxSize()
+                                )
                             }
 
                             Column(
@@ -1094,12 +1192,12 @@ private fun LiveTvHeroBanner(
                                     Box(
                                         modifier = Modifier
                                             .clip(RoundedCornerShape(6.dp))
-                                            .background(NeliSurfaceVariant)
+                                            .background(Color(0xFF0055FF))
                                             .padding(horizontal = 8.dp, vertical = 3.dp)
                                     ) {
                                         Text(
                                             text = channel.category.uppercase(),
-                                            color = NeliGenreCyan,
+                                            color = Color.White,
                                             fontSize = 9.sp,
                                             fontWeight = FontWeight.ExtraBold
                                         )
@@ -1117,7 +1215,7 @@ private fun LiveTvHeroBanner(
 
                                 Text(
                                     text = channel.description.ifBlank { "Watch ${channel.name} Live 24/7 in HD on Nelitv." },
-                                    color = NeliTextSecondary,
+                                    color = Color(0xFFB4C2DC),
                                     fontSize = 12.sp,
                                     maxLines = 2,
                                     overflow = TextOverflow.Ellipsis
@@ -1127,10 +1225,17 @@ private fun LiveTvHeroBanner(
 
                                 Row(
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .background(NeliLiveRed)
+                                        .clip(RoundedCornerShape(20.dp))
+                                        .background(
+                                            Brush.horizontalGradient(
+                                                listOf(
+                                                    Color(0xFFFF007A),
+                                                    Color(0xFFFF5E00)
+                                                )
+                                            )
+                                        )
                                         .clickable { onPlayChannel(channel) }
-                                        .padding(horizontal = 16.dp, vertical = 9.dp),
+                                        .padding(horizontal = 18.dp, vertical = 9.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
@@ -1223,7 +1328,7 @@ private fun LiveTvHeroBanner(
                             .height(6.dp)
                             .width(if (isSelected) 22.dp else 6.dp)
                             .clip(CircleShape)
-                            .background(if (isSelected) NeliLiveRed else NeliSurfaceVariant)
+                            .background(if (isSelected) Color(0xFFFF007A) else Color(0xFF232D50))
                             .clickable {
                                 coroutineScope.launch {
                                     pagerState.animateScrollToPage(i)

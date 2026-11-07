@@ -52,12 +52,20 @@ object NeliNotificationScheduler {
     const val ACTION_DAILY_NOTIFICATION = "com.example.notifications.ACTION_DAILY_NOTIFICATION"
     const val EXTRA_SLOT_ID = "extra_slot_id"
 
-    const val SLOT_MORNING_MOVIE_SERIES = 101           // Saa 1:00 Asubuhi (07:00 EAT) -> TMDB Movie / Series Poster
-    const val SLOT_MIDDAY_AZAM_LIVE = 102               // Saa 7:00 Mchana (13:00 EAT) -> Azam TV & Partner Channels
-    const val SLOT_AFTERNOON_AZAM_LIVE = 103            // Saa 10:00 Jioni (16:00 EAT) -> Azam Sports 1 + ZBC2 International Matches
-    const val SLOT_EVENING_AZAM_TWO_SINEMA = 104        // Saa 1:30 Usiku (19:30 EAT) -> Azam Two & Sinema Zetu
-    const val NOTIFICATION_ID_ZBC2_INTERNATIONAL = 105  // Saa 10:00 Jioni (16:00 EAT) -> ZBC2 International Match Alert
-    const val NOTIFICATION_ID_ADMIN_SMS = 109           // Admin Broadcast SMS Notification
+    const val SLOT_MORNING_NEWS = 101                   // Saa 12:30 Asubuhi (06:30 EAT) -> News (TBC 1, BBC, CNN, UTV)
+    const val SLOT_MORNING_MOVIE = 102                  // Saa 4:00 Asubuhi (10:00 EAT) -> Movie #1
+    const val SLOT_MIDDAY_MOVIE = 103                   // Saa 7:00 Mchana (13:00 EAT) -> Movie #2
+    const val SLOT_AFTERNOON_SPORTS = 104               // Saa 10:00 Jioni (16:00 EAT) -> Azam Sports 1 & 3 HD
+    const val SLOT_NIGHT_MOVIE_AZAM_TWO = 105           // Saa 2:00 Usiku (20:00 EAT) -> Movie #3 & Azam Two
+    const val SLOT_LATE_NIGHT_SINEMA_ZETU = 106         // Saa 4:00 Usiku (22:00 EAT) -> Sinema Zetu & Azam Two
+
+    // Backward-compatible slot aliases
+    const val SLOT_MORNING_MOVIE_SERIES = SLOT_MORNING_MOVIE
+    const val SLOT_MIDDAY_AZAM_LIVE = SLOT_MIDDAY_MOVIE
+    const val SLOT_AFTERNOON_AZAM_LIVE = SLOT_AFTERNOON_SPORTS
+    const val SLOT_EVENING_AZAM_TWO_SINEMA = SLOT_NIGHT_MOVIE_AZAM_TWO
+    const val NOTIFICATION_ID_ZBC2_INTERNATIONAL = 107
+    const val NOTIFICATION_ID_ADMIN_SMS = 109
 
     val EAT_TIME_ZONE: TimeZone = TimeZone.getTimeZone("Africa/Dar_es_Salaam")
     private val notificationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -169,28 +177,40 @@ object NeliNotificationScheduler {
 
     val dailySlots: List<DailySlotSpec> = listOf(
         DailySlotSpec(
-            slotId = SLOT_MORNING_MOVIE_SERIES,
-            hour24Eat = 7,
-            minuteEat = 0,
-            swahiliLabel = "Saa 1:00 Asubuhi (EAT) • New Movies & Series (TMDB Poster)"
+            slotId = SLOT_MORNING_NEWS,
+            hour24Eat = 6,
+            minuteEat = 30,
+            swahiliLabel = "Saa 12:30 Asubuhi (EAT) • Habari: TBC 1, BBC, CNN, UTV"
         ),
         DailySlotSpec(
-            slotId = SLOT_MIDDAY_AZAM_LIVE,
+            slotId = SLOT_MORNING_MOVIE,
+            hour24Eat = 10,
+            minuteEat = 0,
+            swahiliLabel = "Saa 4:00 Asubuhi (EAT) • Movie #1 ya Siku"
+        ),
+        DailySlotSpec(
+            slotId = SLOT_MIDDAY_MOVIE,
             hour24Eat = 13,
             minuteEat = 0,
-            swahiliLabel = "Saa 7:00 Mchana (EAT) • Azam Sports 1, Crown TV & Wasafi TV"
+            swahiliLabel = "Saa 7:00 Mchana (EAT) • Movie #2 ya Mchana"
         ),
         DailySlotSpec(
-            slotId = SLOT_AFTERNOON_AZAM_LIVE,
+            slotId = SLOT_AFTERNOON_SPORTS,
             hour24Eat = 16,
             minuteEat = 0,
-            swahiliLabel = "Saa 10:00 Jioni (EAT) • Azam Sports 1 & ZBC2 International Matches"
+            swahiliLabel = "Saa 10:00 Jioni (EAT) • Azam Sports 1 & 3 HD Live"
         ),
         DailySlotSpec(
-            slotId = SLOT_EVENING_AZAM_TWO_SINEMA,
-            hour24Eat = 19,
-            minuteEat = 30,
-            swahiliLabel = "Saa 1:30 Usiku (EAT) • Azam Two & Sinema Zetu"
+            slotId = SLOT_NIGHT_MOVIE_AZAM_TWO,
+            hour24Eat = 20,
+            minuteEat = 0,
+            swahiliLabel = "Saa 2:00 Usiku (EAT) • Movie #3 & Azam Two Tamthilia"
+        ),
+        DailySlotSpec(
+            slotId = SLOT_LATE_NIGHT_SINEMA_ZETU,
+            hour24Eat = 22,
+            minuteEat = 0,
+            swahiliLabel = "Saa 4:00 Usiku (EAT) • Sinema Zetu & Azam Two Usiku"
         )
     )
 
@@ -308,96 +328,107 @@ object NeliNotificationScheduler {
         val dayOfYear = Calendar.getInstance(EAT_TIME_ZONE).get(Calendar.DAY_OF_YEAR)
 
         when (slotId) {
-            SLOT_MORNING_MOVIE_SERIES -> {
-                // Saa 1:00 Asubuhi (07:00 EAT): Movie & Series Notification with real TMDB Poster synced in the app
-                val nonAdultCatalog = MediaContentRepository.mediaCatalog.value
-                    .filter { it.published && !it.isAdultContent && it.posterUrl.isNotBlank() }
-                    .ifEmpty {
-                        MediaContentRepository.mediaCatalog.value.filter { it.published && !it.isAdultContent }
-                    }
-                val featuredPick = if (nonAdultCatalog.isNotEmpty()) {
-                    nonAdultCatalog[dayOfYear % nonAdultCatalog.size]
-                } else null
-
-                val title = if (featuredPick != null) {
-                    "🎬 Filamu & Series Mpya: ${featuredPick.title}"
-                } else {
-                    "🎬 Habari za Asubuhi! Movie & Series Mpya Kwenye Neli TV"
-                }
-                val body = if (featuredPick != null) {
-                    "Tazama au pakua ${featuredPick.title} (${featuredPick.genre} • ${featuredPick.releaseYear}) sasa kwenye Neli TV!"
-                } else {
-                    "Fungua Neli TV kutazama na kupakua Movie na Series mpya zilizotafsiriwa kwa Kiswahili!"
-                }
-                val tmdbPosterUrl = featuredPick?.posterUrl?.ifBlank { featuredPick.backdropUrl }.orEmpty()
-                val tmdbBackdropUrl = featuredPick?.backdropUrl?.ifBlank { tmdbPosterUrl }.orEmpty()
-
+            SLOT_MORNING_NEWS -> {
+                // 1. Saa 12:30 Asubuhi (06:30 EAT): News on TBC 1, BBC, CNN, UTV & Now Global
                 postRichMediaNotification(
                     context = appContext,
-                    notificationId = SLOT_MORNING_MOVIE_SERIES,
+                    notificationId = SLOT_MORNING_NEWS,
+                    title = "📺 Habari za Asubuhi: TBC 1, BBC & UTV Live!",
+                    message = "Fuatilia matukio ya kitaifa na kimataifa moja kwa moja kupitia TBC 1, BBC News na UTV hewani sasa!",
+                    badgeLabel = "HABARI ZA ASUBUHI • 24/7 LIVE",
+                    subtitleLabel = "TBC 1 • BBC • CNN • UTV • NOW GLOBAL",
+                    primaryImageUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSso9jJvEyNK7Co1mEWcXrrAgdA09c7aPjbgrIQY5VyEQ&s",
+                    backdropImageUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSso9jJvEyNK7Co1mEWcXrrAgdA09c7aPjbgrIQY5VyEQ&s",
+                    primaryColorHex = 0xFF0A1B2A.toInt(),
+                    secondaryColorHex = 0xFF0284C7.toInt(),
+                    accentColorHex = 0xFF38BDF8.toInt(),
+                    isChannelLogo = true,
+                    launchMediaId = null,
+                    launchChannelId = "tbc_1_live"
+                )
+            }
+
+            SLOT_MORNING_MOVIE -> {
+                // 2. Saa 4:00 Asubuhi (10:00 EAT): Movie #1 ya Siku (Non-repeating)
+                val nonAdultCatalog = MediaContentRepository.mediaCatalog.value
+                    .filter { it.published && !it.isAdultContent && it.posterUrl.isNotBlank() }
+                    .ifEmpty { MediaContentRepository.mediaCatalog.value.filter { it.published && !it.isAdultContent } }
+                val movie1 = if (nonAdultCatalog.isNotEmpty()) {
+                    nonAdultCatalog[(dayOfYear * 3) % nonAdultCatalog.size]
+                } else null
+
+                val title = if (movie1 != null) "🎬 Movie ya Asubuhi: ${movie1.title}" else "🎬 NeliTv: Movie Mpya ya Asubuhi"
+                val body = if (movie1 != null) {
+                    "Tazama ${movie1.title} (${movie1.releaseYear}) sasa bure ndani ya NeliTv!"
+                } else {
+                    "Fungua NeliTv kutazama movie mpya za leo zilizotafsiriwa!"
+                }
+                val poster = movie1?.posterUrl?.ifBlank { movie1.backdropUrl }.orEmpty()
+                postRichMediaNotification(
+                    context = appContext,
+                    notificationId = SLOT_MORNING_MOVIE,
                     title = title,
                     message = body,
-                    badgeLabel = if (featuredPick?.isSeries == true) "TMDB SERIES • SWAHILI" else "TMDB MOVIE • SWAHILI",
-                    subtitleLabel = featuredPick?.let { "${it.genre} • ★ ${it.rating} • ${it.releaseYear}" } ?: "Neli TV Cinema",
-                    primaryImageUrl = tmdbPosterUrl,
-                    backdropImageUrl = tmdbBackdropUrl,
-                    primaryColorHex = 0xFF0D111A.toInt(),
-                    secondaryColorHex = 0xFF1E1B4B.toInt(),
-                    accentColorHex = 0xFFF41B54.toInt(),
+                    badgeLabel = "MOVIE #1 YA LEO • SWAHILI",
+                    subtitleLabel = movie1?.let { "${it.genre} • ★ ${it.rating}" } ?: "Cinema",
+                    primaryImageUrl = poster,
+                    backdropImageUrl = movie1?.backdropUrl.orEmpty(),
+                    primaryColorHex = 0xFF140D26.toInt(),
+                    secondaryColorHex = 0xFF7C3AED.toInt(),
+                    accentColorHex = 0xFFFF007A.toInt(),
                     isChannelLogo = false,
-                    launchMediaId = featuredPick?.id,
+                    launchMediaId = movie1?.id,
                     launchChannelId = null
                 )
             }
 
-            SLOT_MIDDAY_AZAM_LIVE -> {
-                // Saa 7:00 Mchana (13:00 EAT): Rotates across the 6 channel logos (Azam Sports 1, Crown TV, Wasafi TV, Azam Two, Sinema Zetu, ZBC2)
-                val middaySpecs = listOf(
-                    liveChannelLogoSpecs[0], // 1. Azam Sports 1 HD
-                    liveChannelLogoSpecs[3], // 4. Crown TV
-                    liveChannelLogoSpecs[4], // 5. Wasafi TV
-                    liveChannelLogoSpecs[2], // 3. Azam Two
-                    liveChannelLogoSpecs[1], // 2. Sinema Zetu
-                    liveChannelLogoSpecs[5]  // 6. ZBC2
-                )
-                val spec = middaySpecs[dayOfYear % middaySpecs.size]
-                val channelObj = ChannelRepository.getChannelById(spec.channelId)
-                val logoUrl = channelObj?.thumbnailUrl?.ifBlank { spec.logoUrl } ?: spec.logoUrl
+            SLOT_MIDDAY_MOVIE -> {
+                // 3. Saa 7:00 Mchana (13:00 EAT): Movie #2 ya Mchana (Non-repeating)
+                val nonAdultCatalog = MediaContentRepository.mediaCatalog.value
+                    .filter { it.published && !it.isAdultContent && it.posterUrl.isNotBlank() }
+                    .ifEmpty { MediaContentRepository.mediaCatalog.value.filter { it.published && !it.isAdultContent } }
+                val movie2 = if (nonAdultCatalog.isNotEmpty()) {
+                    nonAdultCatalog[(dayOfYear * 3 + 1) % nonAdultCatalog.size]
+                } else null
 
+                val title = if (movie2 != null) "🍿 Movie ya Mchana: ${movie2.title}" else "🍿 NeliTv: Burudika na Movie Mchana Huu"
+                val body = if (movie2 != null) {
+                    "Mchana mwema! Pata burudani ya ${movie2.title} (${movie2.genre} • ★ ${movie2.rating})!"
+                } else {
+                    "Tazama filamu bora za leo kwenye NeliTv bila bando kubwa!"
+                }
+                val poster = movie2?.posterUrl?.ifBlank { movie2.backdropUrl }.orEmpty()
                 postRichMediaNotification(
                     context = appContext,
-                    notificationId = SLOT_MIDDAY_AZAM_LIVE,
-                    title = "📺 Saa 7 Mchana Live: ${spec.channelName}",
-                    message = "Tazama matangazo mbashara ya ${spec.channelName} (Mpira, Muziki na Burudani HD) kupitia Neli TV hata kwa bando dogo!",
-                    badgeLabel = spec.badgeText,
-                    subtitleLabel = "LIVE STREAM • LOW BANDO SAVER",
-                    primaryImageUrl = logoUrl,
-                    backdropImageUrl = logoUrl,
-                    primaryColorHex = spec.primaryColorHex,
-                    secondaryColorHex = spec.secondaryColorHex,
-                    accentColorHex = spec.accentColorHex,
-                    isChannelLogo = true,
-                    launchMediaId = null,
-                    launchChannelId = spec.channelId
+                    notificationId = SLOT_MIDDAY_MOVIE,
+                    title = title,
+                    message = body,
+                    badgeLabel = "MOVIE #2 YA LEO • BURUDANI",
+                    subtitleLabel = movie2?.let { "${it.genre} • ${it.releaseYear}" } ?: "NeliTv Movies",
+                    primaryImageUrl = poster,
+                    backdropImageUrl = movie2?.backdropUrl.orEmpty(),
+                    primaryColorHex = 0xFF1F0D1E.toInt(),
+                    secondaryColorHex = 0xFFDB2777.toInt(),
+                    accentColorHex = 0xFFFF7A00.toInt(),
+                    isChannelLogo = false,
+                    launchMediaId = movie2?.id,
+                    launchChannelId = null
                 )
             }
 
-            SLOT_AFTERNOON_AZAM_LIVE -> {
-                // Saa 10:00 Jioni (16:00 EAT):
-                // 1) Azam Sports 1 HD (Image #1) Live Football notification
-                val azamSport1Spec = liveChannelLogoSpecs[0] // Image 1: Azam Sports 1 HD
-                val azamSport1Logo = ChannelRepository.getChannelById(azamSport1Spec.channelId)
-                    ?.thumbnailUrl?.ifBlank { azamSport1Spec.logoUrl } ?: azamSport1Spec.logoUrl
-
+            SLOT_AFTERNOON_SPORTS -> {
+                // 4. Saa 10:00 Jioni (16:00 EAT): Azam Sports 1 & 3 HD Live Matches + ZBC2
+                val azamSport1Spec = liveChannelLogoSpecs[0]
+                val logo = ChannelRepository.getChannelById(azamSport1Spec.channelId)?.thumbnailUrl ?: azamSport1Spec.logoUrl
                 postRichMediaNotification(
                     context = appContext,
-                    notificationId = SLOT_AFTERNOON_AZAM_LIVE,
-                    title = "⚽ Saa 10 Jioni Live: ${azamSport1Spec.channelName}",
-                    message = "Mechi ya leo imeanza! Tazama soka mbashara kwenye ${azamSport1Spec.channelName} kupitia Neli TV bila kukwama.",
-                    badgeLabel = azamSport1Spec.badgeText,
-                    subtitleLabel = "SAA 10:00 JIONI • SOKA MBASHARA",
-                    primaryImageUrl = azamSport1Logo,
-                    backdropImageUrl = azamSport1Logo,
+                    notificationId = SLOT_AFTERNOON_SPORTS,
+                    title = "⚽ Azam Sports 1 & 3 HD Live Now!",
+                    message = "Soka mbashara limeanza saa 10 jioni hii! Tazama mechi za ligi na kombe live bila kukwama.",
+                    badgeLabel = "AZAM SPORTS LIVE • SAA 10 JIONI",
+                    subtitleLabel = "LIGI KUU & MECHI LIVE",
+                    primaryImageUrl = logo,
+                    backdropImageUrl = logo,
                     primaryColorHex = azamSport1Spec.primaryColorHex,
                     secondaryColorHex = azamSport1Spec.secondaryColorHex,
                     accentColorHex = azamSport1Spec.accentColorHex,
@@ -405,53 +436,58 @@ object NeliNotificationScheduler {
                     launchMediaId = null,
                     launchChannelId = azamSport1Spec.channelId
                 )
+            }
 
-                // 2) ZBC2 (Image #6) Daily Saa 10:00 Jioni International Matches Notification
-                val zbc2Spec = liveChannelLogoSpecs[5] // Image 6: ZBC2
-                val zbc2Logo = ChannelRepository.getChannelById(zbc2Spec.channelId)
-                    ?.thumbnailUrl?.ifBlank { zbc2Spec.logoUrl } ?: zbc2Spec.logoUrl
+            SLOT_NIGHT_MOVIE_AZAM_TWO -> {
+                // 5. Saa 2:00 Usiku (20:00 EAT): Movie #3 ya Usiku (Non-repeating) + Azam Two Tamthilia
+                val nonAdultCatalog = MediaContentRepository.mediaCatalog.value
+                    .filter { it.published && !it.isAdultContent && it.posterUrl.isNotBlank() }
+                    .ifEmpty { MediaContentRepository.mediaCatalog.value.filter { it.published && !it.isAdultContent } }
+                val movie3 = if (nonAdultCatalog.isNotEmpty()) {
+                    nonAdultCatalog[(dayOfYear * 3 + 2) % nonAdultCatalog.size]
+                } else null
 
+                val title = if (movie3 != null) "📺 Azam Two & Movie ya Usiku: ${movie3.title}" else "📺 Azam Two Tamthilia Live Usiku"
+                val body = "Tamthilia za Azam Two ziko hewani, pamoja na filamu ya ${movie3?.title ?: "usiku"}. Bonyeza kutazama live!"
+                val azamTwoSpec = liveChannelLogoSpecs[2]
+                val logo = ChannelRepository.getChannelById(azamTwoSpec.channelId)?.thumbnailUrl ?: azamTwoSpec.logoUrl
                 postRichMediaNotification(
                     context = appContext,
-                    notificationId = NOTIFICATION_ID_ZBC2_INTERNATIONAL,
-                    title = "🌍 Saa 10 Jioni • ZBC2: Mechi za International Live!",
-                    message = "ZBC2 wanaonesha mechi za kimataifa (International Matches) sasa hivi saa 10 jioni! Bonyeza kutazama live kwenye Neli TV.",
-                    badgeLabel = zbc2Spec.badgeText,
-                    subtitleLabel = "SAA 10:00 JIONI • INTERNATIONAL FOOTBALL",
-                    primaryImageUrl = zbc2Logo,
-                    backdropImageUrl = zbc2Logo,
-                    primaryColorHex = zbc2Spec.primaryColorHex,
-                    secondaryColorHex = zbc2Spec.secondaryColorHex,
-                    accentColorHex = zbc2Spec.accentColorHex,
+                    notificationId = SLOT_NIGHT_MOVIE_AZAM_TWO,
+                    title = title,
+                    message = body,
+                    badgeLabel = "AZAM TWO & MOVIE #3 • USIKU",
+                    subtitleLabel = "TAMTHILIA & FILAMU",
+                    primaryImageUrl = logo,
+                    backdropImageUrl = movie3?.backdropUrl.orEmpty(),
+                    primaryColorHex = azamTwoSpec.primaryColorHex,
+                    secondaryColorHex = azamTwoSpec.secondaryColorHex,
+                    accentColorHex = azamTwoSpec.accentColorHex,
                     isChannelLogo = true,
-                    launchMediaId = null,
-                    launchChannelId = zbc2Spec.channelId
+                    launchMediaId = movie3?.id,
+                    launchChannelId = azamTwoSpec.channelId
                 )
             }
 
-            SLOT_EVENING_AZAM_TWO_SINEMA -> {
-                // Saa 1:30 Usiku (19:30 EAT): Azam Two (Image #3) & Sinema Zetu (Image #2)
-                val sinemaZetuSpec = liveChannelLogoSpecs[1] // Image 2: Sinema Zetu
-                val azamTwoSpec = liveChannelLogoSpecs[2]    // Image 3: Azam Two
-                val activeSpec = if (dayOfYear % 2 == 0) azamTwoSpec else sinemaZetuSpec
-                val channelObj = ChannelRepository.getChannelById(activeSpec.channelId)
-                val logoUrl = channelObj?.thumbnailUrl?.ifBlank { activeSpec.logoUrl } ?: activeSpec.logoUrl
-
+            SLOT_LATE_NIGHT_SINEMA_ZETU -> {
+                // 6. Saa 4:00 Usiku (22:00 EAT): Sinema Zetu & Azam Two Late Night Cinema
+                val sinemaZetuSpec = liveChannelLogoSpecs[1]
+                val logo = ChannelRepository.getChannelById(sinemaZetuSpec.channelId)?.thumbnailUrl ?: sinemaZetuSpec.logoUrl
                 postRichMediaNotification(
                     context = appContext,
-                    notificationId = SLOT_EVENING_AZAM_TWO_SINEMA,
-                    title = "🍿 Saa 1:30 Usiku: ${activeSpec.channelName} (Azam Two & Sinema Zetu)",
-                    message = "Muda wa Tamthilia kali za Kiswahili na Bongo Movies kwenye Azam Two na Sinema Zetu. Bonyeza kutazama live sasa!",
-                    badgeLabel = activeSpec.badgeText,
-                    subtitleLabel = "SAA 1:30 USIKU • TAMTHILIA & FILAMU",
-                    primaryImageUrl = logoUrl,
-                    backdropImageUrl = logoUrl,
-                    primaryColorHex = activeSpec.primaryColorHex,
-                    secondaryColorHex = activeSpec.secondaryColorHex,
-                    accentColorHex = activeSpec.accentColorHex,
+                    notificationId = SLOT_LATE_NIGHT_SINEMA_ZETU,
+                    title = "🎭 Sinema Zetu & Azam Two Live!",
+                    message = "Filamu kali za Bongo na vipindi bora vya usiku viko hewani sasa kwenye Sinema Zetu!",
+                    badgeLabel = "SINEMA ZETU • USIKU 24/7",
+                    subtitleLabel = "BONGO MOVIES & BURUDANI",
+                    primaryImageUrl = logo,
+                    backdropImageUrl = logo,
+                    primaryColorHex = sinemaZetuSpec.primaryColorHex,
+                    secondaryColorHex = sinemaZetuSpec.secondaryColorHex,
+                    accentColorHex = sinemaZetuSpec.accentColorHex,
                     isChannelLogo = true,
                     launchMediaId = null,
-                    launchChannelId = activeSpec.channelId
+                    launchChannelId = sinemaZetuSpec.channelId
                 )
             }
         }
@@ -614,12 +650,24 @@ object NeliNotificationScheduler {
                         .setBigContentTitle(title)
                         .setSummaryText(message)
                 )
-                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .addAction(android.R.drawable.ic_media_play, "Watch ▶", pendingIntent)
                 .setAutoCancel(true)
                 .setContentIntent(pendingIntent)
                 .build()
 
             nm.notify(notificationId, initialNotification)
+
+            // Trigger floating banner across apps if permitted
+            NeliFloatingOverlayService.showFloatingBannerIfPermitted(
+                context = context,
+                channelId = launchChannelId ?: "R17JUvbCEzu2eTbjnE74",
+                channelName = "Azam TV",
+                title = title.ifBlank { "Azam TV Live Now!" },
+                subtitle = message.ifBlank { "Sports, Movies & More" },
+                mediaId = launchMediaId
+            )
 
             // 2. Asynchronously fetch the real TMDB poster or Channel Logo image from URL (or TMDB API) and upgrade the notification
             if (primaryImageUrl.startsWith("http", ignoreCase = true) || !launchMediaId.isNullOrBlank()) {
@@ -677,7 +725,9 @@ object NeliNotificationScheduler {
                                     .setSummaryText(message)
                             )
                             .setOnlyAlertOnce(true)
-                            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                            .setPriority(NotificationCompat.PRIORITY_HIGH)
+                            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                            .addAction(android.R.drawable.ic_media_play, "Watch ▶", pendingIntent)
                             .setAutoCancel(true)
                             .setContentIntent(pendingIntent)
                             .build()

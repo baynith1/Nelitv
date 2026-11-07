@@ -1285,6 +1285,8 @@ fun NeliHomepageAutoUpdatePopupDialog() {
     val autoUpdateEnabled by NeliAppUpdateManager.autoUpdateEnabled.collectAsState()
     val statusBannerMessage by NeliAppUpdateManager.apkDownloadStatusMessage.collectAsState()
     val isMandatory by NeliAppUpdateManager.isMandatoryUpdateRequired.collectAsState()
+    val inAppProgress by NeliAppUpdateManager.inAppDownloadProgress.collectAsState()
+    val isDownloadComplete by NeliAppUpdateManager.isInAppDownloadComplete.collectAsState()
 
     if (!releaseInfo.isNewUpdateAvailable) return
 
@@ -1328,7 +1330,7 @@ fun NeliHomepageAutoUpdatePopupDialog() {
                 }
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "App Update Required",
+                        text = "New Updates Available",
                         color = Color.White,
                         fontSize = 17.sp,
                         fontWeight = FontWeight.Black
@@ -1359,7 +1361,7 @@ fun NeliHomepageAutoUpdatePopupDialog() {
                     fontWeight = FontWeight.ExtraBold
                 )
                 Text(
-                    text = "Tafadhali sasisha App yetu ili kuendelea kuitumia. Sasisho hili ni la lazima kwa ajili ya Live TV na usalama wa data zako.",
+                    text = "Tafadhali pakua sasisho jipya moja kwa moja ndani ya app ili kufurahia Live TV bila hitilafu.",
                     color = NeliTextSecondary,
                     fontSize = 11.sp,
                     lineHeight = 16.sp
@@ -1403,6 +1405,46 @@ fun NeliHomepageAutoUpdatePopupDialog() {
                 )
             }
 
+            // In-App Download Progress Bar
+            if (inAppProgress != null) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xFF171B2D))
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = if (isDownloadComplete) "Upakuaji Umekamilika" else "Inapakua Ndani ya App...",
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "${((inAppProgress ?: 0f) * 100).toInt()}%",
+                            color = if (isDownloadComplete) Color(0xFF10B981) else NeliGenreCyan,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Black
+                        )
+                    }
+                    androidx.compose.material3.LinearProgressIndicator(
+                        progress = { (inAppProgress ?: 0f).coerceIn(0f, 1f) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(8.dp)
+                            .clip(RoundedCornerShape(4.dp)),
+                        color = if (isDownloadComplete) Color(0xFF10B981) else NeliMagenta,
+                        trackColor = Color(0xFF282E47)
+                    )
+                }
+            }
+
             if (!statusBannerMessage.isNullOrBlank()) {
                 Text(
                     text = statusBannerMessage!!,
@@ -1412,36 +1454,90 @@ fun NeliHomepageAutoUpdatePopupDialog() {
                 )
             }
 
-            // Full-width Mandatory Update Now Button
-            Button(
-                onClick = {
-                    NeliAppUpdateManager.downloadAndInstallApk(
-                        context = context,
-                        apkUrl = releaseInfo.apkDownloadUrl,
-                        versionTag = releaseInfo.versionTag,
-                        isAutoUpdate = false
+            // Dynamic Download / Update Button
+            if (isDownloadComplete) {
+                Button(
+                    onClick = {
+                        NeliAppUpdateManager.installDownloadedApkNow(context)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp)
+                        .testTag("mandatory_install_update_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CheckCircle,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp)
                     )
-                },
-                colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta),
-                shape = RoundedCornerShape(14.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp)
-                    .testTag("mandatory_update_now_button")
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Download,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(20.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "SASISHA SASA (UPDATE NOW)",
-                    color = Color.White,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Black
-                )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "UPDATE (SAKINISHA SASISHO)",
+                        color = Color.White,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Black
+                    )
+                }
+            } else if (inAppProgress != null && inAppProgress!! < 1.0f) {
+                Button(
+                    onClick = { },
+                    enabled = false,
+                    colors = ButtonDefaults.buttonColors(
+                        disabledContainerColor = NeliMagenta.copy(alpha = 0.5f),
+                        disabledContentColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp)
+                        .testTag("downloading_progress_button")
+                ) {
+                    CircularProgressIndicator(
+                        color = Color.White,
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "INAPAKUA SASISHO... ${((inAppProgress ?: 0f) * 100).toInt()}%",
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            } else {
+                Button(
+                    onClick = {
+                        NeliAppUpdateManager.downloadApkWithProgress(
+                            context = context,
+                            apkUrl = releaseInfo.apkDownloadUrl,
+                            versionTag = releaseInfo.versionTag
+                        )
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta),
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp)
+                        .testTag("mandatory_download_update_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Download,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "DOWNLOAD UPDATE",
+                        color = Color.White,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Black
+                    )
+                }
             }
         }
     }

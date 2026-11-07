@@ -19,8 +19,10 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Download
@@ -41,21 +43,16 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.text.style.TextOverflow
-import com.example.ui.theme.rememberNeliScreenProfile
-import com.example.ui.theme.NeliBackground
-import com.example.ui.theme.NeliBorder
-import com.example.ui.theme.NeliGenreCyan
-import com.example.ui.theme.NeliMagenta
-import com.example.ui.theme.NeliTextPrimary
-import com.example.ui.theme.NeliTextSecondary
 import com.example.ui.theme.NeliThemeManager
+import com.example.ui.theme.rememberNeliScreenProfile
 
 enum class BottomNavTab(
     val label: String,
@@ -71,7 +68,10 @@ enum class BottomNavTab(
 }
 
 /**
- * Clean YouTube-style Bottom Navigation Bar with safe system navigation bar clearance.
+ * Floating Neon Dock Bottom Navigation Bar styled to match the official Neliplay UI reference:
+ * - Rounded top translucent dark-indigo glass dock with glowing border
+ * - Glowing neon magenta pill indicator under active tab
+ * - Clean system navigation bar insets clearance
  */
 @Composable
 fun NeliBottomBar(
@@ -82,43 +82,49 @@ fun NeliBottomBar(
 ) {
     val isLightMode = NeliThemeManager.isLightMode
     val screenProfile = rememberNeliScreenProfile()
-    val barBgColor = if (isLightMode) Color(0xFFFFFFFF) else Color(0xFF0F0F0F)
     val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-    val safeBottomPadding = if (navBarBottom < 8.dp) 8.dp else navBarBottom
+    val safeBottomPadding = if (navBarBottom < 6.dp) 6.dp else navBarBottom
+
+    val dockBgColor = if (isLightMode) Color(0xF2FFFFFF) else Color(0xF00A0F26)
+    val dockBorderColor = if (isLightMode) Color(0x33FFB3C6) else Color(0x33263560)
 
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .background(barBgColor)
             .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal))
             .padding(bottom = safeBottomPadding)
             .testTag("neli_bottom_bar"),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(0.5.dp)
-                .background(NeliBorder)
-        )
         Surface(
-            color = barBgColor,
+            color = dockBgColor,
+            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
             modifier = Modifier
                 .fillMaxWidth()
                 .widthIn(max = 720.dp)
+                .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+                .border(
+                    width = 1.dp,
+                    color = dockBorderColor,
+                    shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+                )
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 2.dp, vertical = 6.dp),
+                    .padding(horizontal = 4.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.SpaceAround,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 BottomNavTab.entries.forEach { tab ->
                     val isSelected = tab == selectedTab
-                    val tintColor by animateColorAsState(
-                        targetValue = if (isSelected) NeliTextPrimary else NeliTextSecondary,
-                        label = "nav_tint"
+                    val iconColor by animateColorAsState(
+                        targetValue = if (isSelected) Color.White else Color(0xFF8E9BAE),
+                        label = "icon_color"
+                    )
+                    val textColor by animateColorAsState(
+                        targetValue = if (isSelected) Color.White else Color(0xFF8E9BAE),
+                        label = "text_color"
                     )
 
                     Column(
@@ -134,13 +140,11 @@ fun NeliBottomBar(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center
                     ) {
-                        Box(
-                            contentAlignment = Alignment.Center
-                        ) {
+                        Box(contentAlignment = Alignment.Center) {
                             Icon(
                                 imageVector = if (isSelected) tab.selectedIcon else tab.unselectedIcon,
                                 contentDescription = tab.label,
-                                tint = tintColor,
+                                tint = iconColor,
                                 modifier = Modifier.size(screenProfile.bottomBarIconSize)
                             )
                             if (tab == BottomNavTab.DOWNLOAD && activeDownloadCount > 0) {
@@ -148,20 +152,40 @@ fun NeliBottomBar(
                                     modifier = Modifier
                                         .align(Alignment.TopEnd)
                                         .size(7.dp)
-                                        .clip(RoundedCornerShape(4.dp))
-                                        .background(Color(0xFFFF0033))
+                                        .clip(CircleShape)
+                                        .background(Color(0xFFFF0055))
                                 )
                             }
                         }
+
                         Spacer(modifier = Modifier.height(2.dp))
+
                         Text(
                             text = tab.label,
-                            color = tintColor,
+                            color = textColor,
                             fontSize = screenProfile.bottomBarFontSize,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                            fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
+
+                        // Glowing neon magenta pill indicator under active tab (matching reference image)
+                        if (isSelected) {
+                            Spacer(modifier = Modifier.height(3.dp))
+                            Box(
+                                modifier = Modifier
+                                    .width(22.dp)
+                                    .height(2.5.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        Brush.horizontalGradient(
+                                            listOf(Color(0xFFFF007A), Color(0xFFFF5E00))
+                                        )
+                                    )
+                            )
+                        } else {
+                            Spacer(modifier = Modifier.height(5.5.dp))
+                        }
                     }
                 }
             }

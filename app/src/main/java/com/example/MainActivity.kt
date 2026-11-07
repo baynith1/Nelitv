@@ -26,9 +26,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import android.view.WindowManager
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.Dispatchers
@@ -94,11 +96,23 @@ class MainActivity : ComponentActivity() {
         }
 
         try {
-            val isLight = NeliThemeManager.isLightMode
-            WindowCompat.getInsetsController(window, window.decorView).apply {
-                isAppearanceLightStatusBars = isLight
-                isAppearanceLightNavigationBars = isLight
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                setShowWhenLocked(true)
+                setTurnScreenOn(true)
+            } else {
+                @Suppress("DEPRECATION")
+                window.addFlags(
+                    WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                    WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+                )
             }
+        } catch (_: Exception) {
+        }
+
+        try {
+            val controller = WindowCompat.getInsetsController(window, window.decorView)
+            controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller.hide(WindowInsetsCompat.Type.systemBars())
         } catch (_: Exception) {
         }
         extractDeepLinkFromIntent(intent)
@@ -117,6 +131,8 @@ class MainActivity : ComponentActivity() {
             val tvConfig = remember(isHardwareTv, forceTv) {
                 com.example.ui.tv.NeliTvDetector.resolveConfiguration(this@MainActivity)
             }
+
+            var showSplash by remember { mutableStateOf(true) }
 
             LaunchedEffect(tvConfig.isTelevision) {
                 if (tvConfig.isTelevision) {
@@ -142,24 +158,30 @@ class MainActivity : ComponentActivity() {
                 com.example.ui.tv.LocalTvConfiguration provides tvConfig
             ) {
                 NeliTVTheme {
-                    NeliApp(
-                        isSystemInPipMode = isSystemInPipMode,
-                        pendingChannelId = pendingLaunchChannelId,
-                        pendingMovieId = pendingLaunchMovieId,
-                        pendingTab = pendingLaunchTab,
-                        onConsumeDeepLink = {
-                            pendingLaunchChannelId = null
-                            pendingLaunchMovieId = null
-                            pendingLaunchTab = null
-                        },
-                        onActivePlaybackChanged = { isActive ->
-                            hasActivePlaybackForPip = isActive
-                            updateSystemPipParams(isActive)
-                        },
-                        onRequestSystemPipOutsideApp = {
-                            enterSystemPipIfSupported()
-                        }
-                    )
+                    if (showSplash) {
+                        com.example.ui.screens.NeliAnimatedSplashScreen(
+                            onSplashFinished = { showSplash = false }
+                        )
+                    } else {
+                        NeliApp(
+                            isSystemInPipMode = isSystemInPipMode,
+                            pendingChannelId = pendingLaunchChannelId,
+                            pendingMovieId = pendingLaunchMovieId,
+                            pendingTab = pendingLaunchTab,
+                            onConsumeDeepLink = {
+                                pendingLaunchChannelId = null
+                                pendingLaunchMovieId = null
+                                pendingLaunchTab = null
+                            },
+                            onActivePlaybackChanged = { isActive ->
+                                hasActivePlaybackForPip = isActive
+                                updateSystemPipParams(isActive)
+                            },
+                            onRequestSystemPipOutsideApp = {
+                                enterSystemPipIfSupported()
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -177,6 +199,12 @@ class MainActivity : ComponentActivity() {
         super.onStop()
         if (!isChangingConfigurations && !isInPictureInPictureMode) {
             wasInBackground = true
+        }
+        if (wasInPipMode && !isInPictureInPictureMode) {
+            wasInPipMode = false
+            hasActivePlaybackForPip = false
+            NeliPlaybackReleaseHook.onReleaseActivePlayback?.invoke()
+            finishAndRemoveTask()
         }
     }
 
@@ -243,13 +271,32 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private var wasInPipMode = false
+
     override fun onPictureInPictureModeChanged(
         isInPictureInPictureMode: Boolean,
         newConfig: Configuration
     ) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
         isSystemInPipMode = isInPictureInPictureMode
+        if (isInPictureInPictureMode) {
+            wasInPipMode = true
+        } else {
+            // When exiting PiP: if the activity is NOT resumed, user closed PiP with the (X) button
+            if (wasInPipMode && lifecycle.currentState < androidx.lifecycle.Lifecycle.State.RESUMED) {
+                wasInPipMode = false
+                hasActivePlaybackForPip = false
+                NeliPlaybackReleaseHook.onReleaseActivePlayback?.invoke()
+                finishAndRemoveTask()
+            }
+            wasInPipMode = false
+        }
     }
+
+}
+
+object NeliPlaybackReleaseHook {
+    var onReleaseActivePlayback: (() -> Unit)? = null
 }
 
 @Composable
@@ -306,6 +353,13 @@ fun NeliApp(
         sharedPlayerController?.release()
         sharedPlayerController = null
         activeChannel = null
+    }
+
+    DisposableEffect(closeAndReleasePlayback) {
+        NeliPlaybackReleaseHook.onReleaseActivePlayback = closeAndReleasePlayback
+        onDispose {
+            NeliPlaybackReleaseHook.onReleaseActivePlayback = null
+        }
     }
 
     // Handle deep links from Home Screen Widget or Daily Notification taps

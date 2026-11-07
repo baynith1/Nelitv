@@ -292,9 +292,17 @@ object PlayerGestureHelper {
             val am = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return fallbackVolume
             val max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
             val cur = am.getStreamVolume(AudioManager.STREAM_MUSIC).coerceIn(0, max)
-            (cur.toFloat() / max.toFloat()).coerceIn(0f, 1f)
+            val fraction = cur.toFloat() / max.toFloat()
+            if (fraction <= 0.05f) {
+                // If device stream is muted or at 0, unmute to 80% so sound plays clearly
+                val target = (max * 0.80f).roundToInt().coerceIn(1, max)
+                am.setStreamVolume(AudioManager.STREAM_MUSIC, target, 0)
+                0.80f
+            } else {
+                fraction.coerceIn(0f, 1f)
+            }
         } catch (_: Exception) {
-            fallbackVolume.coerceIn(0f, 1f)
+            fallbackVolume.coerceIn(0.5f, 1f)
         }
     }
 

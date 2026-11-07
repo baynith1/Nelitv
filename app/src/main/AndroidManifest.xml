@@ -15,9 +15,16 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="com.google.android.gms.permission.AD_ID" />
 
     <application
         android:name=".NeliApplication"
@@ -31,6 +38,14 @@
         android:usesCleartextTraffic="true"
         android:networkSecurityConfig="@xml/network_security_config"
         android:theme="@style/Theme.MyApplication">
+
+        <!-- Start.io Official Ad Network SDK Configuration -->
+        <meta-data
+            android:name="com.startapp.sdk.APPLICATION_ID"
+            android:value="209957114" />
+        <meta-data
+            android:name="com.startapp.sdk.RETURN_ADS_ENABLED"
+            android:value="false" />
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -55,6 +70,11 @@
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+
+        <service
+            android:name=".notifications.NeliFloatingOverlayService"
+            android:enabled="true"
+            android:exported="false" />
 
         <receiver
             android:name=".notifications.DailyNotificationReceiver"

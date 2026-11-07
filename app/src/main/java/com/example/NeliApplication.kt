@@ -27,6 +27,7 @@ class NeliApplication : Application(), ImageLoaderFactory {
         com.example.data.NeliSubscriptionManager.initialize(this)
         com.example.data.NeliAdminManager.initialize(this)
         com.example.data.NeliAppUpdateManager.initialize(this)
+        com.example.ads.NeliAdManager.initialize(this)
     }
 
     override fun newImageLoader(): ImageLoader {

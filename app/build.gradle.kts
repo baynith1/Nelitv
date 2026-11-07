@@ -16,8 +16,8 @@ android {
     applicationId = "com.nelitv.app"
     minSdk = 24
     targetSdk = 36
-    versionCode = 203
-    versionName = "1.0.3"
+    versionCode = 205
+    versionName = "2.5"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -110,6 +110,7 @@ dependencies {
   implementation(libs.androidx.media3.exoplayer.hls)
   implementation(libs.androidx.media3.ui)
   implementation(libs.androidx.media3.common)
+  implementation("com.startapp:inapp-sdk:5.4.0")
   implementation("net.java.dev.jna:jna:5.14.0@aar")
   testImplementation(libs.jna)
   // implementation(libs.converter.moshi)

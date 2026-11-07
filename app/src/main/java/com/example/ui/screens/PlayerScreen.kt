@@ -75,6 +75,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -182,6 +183,31 @@ fun PlayerScreen(
 
     LaunchedEffect(activeChannel.id, activeChannel.name) {
         com.example.data.NeliRealtimeAnalyticsManager.updateCurrentDeviceWatching(context, activeChannel)
+        com.example.ads.NeliAdManager.onChannelPlaybackStarted(activeChannel.id)
+    }
+
+    // Scheduled 15-Minute Playback Ad Break for non-premium mobile users
+    LaunchedEffect(activeChannel.id, uiState) {
+        if (uiState is PlayerUiState.Playing && activity != null) {
+            while (true) {
+                delay(30_000L)
+                com.example.ads.NeliAdManager.checkAndTrigger15MinAdBreak(
+                    activity = activity,
+                    onBeforeAd = {
+                        if (!activeChannel.isLiveBroadcast) {
+                            playerController.pause()
+                        }
+                    },
+                    onAfterAd = {
+                        if (!activeChannel.isLiveBroadcast) {
+                            playerController.play()
+                        } else {
+                            playerController.syncToLiveEdge()
+                        }
+                    }
+                )
+            }
+        }
     }
 
     DisposableEffect(Unit) {
@@ -235,6 +261,15 @@ fun PlayerScreen(
                 nextEpisode.toPlayableChannel(seriesTitlePrefix)
             } else null
         }
+    }
+
+    // Dedicated Embedded Player for Baynith Sport 1 & 2 (Clean WebView with Back button only)
+    if (activeChannel.isEmbedded) {
+        EmbeddedChannelWebViewPlayer(
+            channel = activeChannel,
+            onBack = onBack
+        )
+        return
     }
 
     val isOfflineSavedPlayback = remember(activeChannel.id, activeChannel.streamUrl) {
@@ -458,6 +493,14 @@ fun PlayerScreen(
         if (showSwahiliSkipBadge) {
             delay(5500)
             showSwahiliSkipBadge = false
+        }
+    }
+
+    // Auto-dismiss Azam TV language switch notification badge after 2 seconds
+    LaunchedEffect(playbackInfo.languageSwitchNotice) {
+        if (!playbackInfo.languageSwitchNotice.isNullOrBlank()) {
+            delay(2000L)
+            playerController.clearLanguageSwitchNotice()
         }
     }
 
@@ -861,18 +904,39 @@ fun PlayerScreen(
                                 )
                             }
 
-                            Column(modifier = Modifier.widthIn(max = if (isPortraitYoutubeMode) 150.dp else 240.dp)) {
-                                Text(
-                                    text = activeChannel.name,
-                                    color = Color.White,
-                                    fontSize = if (isPortraitYoutubeMode) 13.sp else 15.sp,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
+                            Column(modifier = Modifier.widthIn(max = if (isPortraitYoutubeMode) 160.dp else 260.dp)) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                ) {
+                                    Text(
+                                        text = activeChannel.name,
+                                        color = Color.White,
+                                        fontSize = if (isPortraitYoutubeMode) 13.sp else 15.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f, fill = false)
+                                    )
+                                    if (isSeriesVod) {
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(4.dp))
+                                                .background(NeliMagenta)
+                                                .padding(horizontal = 5.dp, vertical = 2.dp)
+                                        ) {
+                                            Text(
+                                                text = "VOD",
+                                                color = Color.White,
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Black
+                                            )
+                                        }
+                                    }
+                                }
                                 Text(
                                     text = if (isSeriesVod) {
-                                        "SERIES • ${playbackInfo.connectionLabel.uppercase()}"
+                                        "SERIES VOD • ${playbackInfo.connectionLabel.uppercase()}"
                                     } else if (isOfflineSavedPlayback) {
                                         "OFFLINE • ${activeChannel.category}"
                                     } else {
@@ -970,71 +1034,27 @@ fun PlayerScreen(
                                 }
                             }
 
-                            // Normal Google Cast Button (Small & Responsive) - Hidden on Smart TV
-                            if (!com.example.ui.tv.NeliTvDetector.isTelevision(context)) {
-                                Box(
-                                    modifier = Modifier
-                                        .testTag("player_cast_button")
-                                        .clip(RoundedCornerShape(14.dp))
-                                        .background(
-                                            if (isCastConnected) Color(0xFF065F46) else Color(0xCC122238)
-                                        )
-                                        .border(
-                                            1.dp,
-                                            if (isCastConnected) Color(0xFF34D399) else NeliGenreCyan.copy(alpha = 0.7f),
-                                            RoundedCornerShape(14.dp)
-                                        )
-                                        .clickable {
-                                            isEpisodeDrawerOpen = false
-                                            isSettingsDrawerOpen = false
-                                            isAzamLanguageMenuOpen = false
-                                            showCastDialog = true
-                                        }
-                                        .padding(horizontal = 8.dp, vertical = 5.dp)
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = if (isCastConnected) Icons.Default.CastConnected else Icons.Default.Cast,
-                                            contentDescription = if (isCastConnected) "Connected to TV" else "Cast to TV",
-                                            tint = if (isCastConnected) Color(0xFF34D399) else NeliGenreCyan,
-                                            modifier = Modifier.size(13.dp)
-                                        )
-                                        Text(
-                                            text = if (isCastConnected) "Casting" else "Cast",
-                                            color = Color.White,
-                                            fontSize = 10.sp,
-                                            fontWeight = FontWeight.ExtraBold
-                                        )
-                                    }
-                                }
-                            }
 
-                            // Azam TV Language Switcher Button (Small & Responsive)
+                            // Azam TV Language Switcher Button: Instant 1-Tap Toggle between Kiswahili and English
                             if (activeChannel.isAzamTvChannel) {
-                                val activeLangLabel = if (playbackInfo.activeAudioLanguage == "en") {
-                                    "ENG"
-                                } else {
-                                    "KISW"
-                                }
+                                val isEng = playbackInfo.activeAudioLanguage == "en"
+                                val activeLangLabel = if (isEng) "ENG" else "KISW"
                                 Box(
                                     modifier = Modifier
                                         .testTag("player_azam_language_button")
                                         .clip(RoundedCornerShape(14.dp))
                                         .background(
-                                            if (isAzamLanguageMenuOpen) NeliMagenta else Color(0xCC122238)
+                                            if (isEng) NeliMagenta else Color(0xCC122238)
                                         )
                                         .border(
                                             1.dp,
-                                            NeliGenreCyan,
+                                            if (isEng) NeliMagenta else NeliGenreCyan,
                                             RoundedCornerShape(14.dp)
                                         )
                                         .clickable {
-                                            isEpisodeDrawerOpen = false
-                                            isSettingsDrawerOpen = false
-                                            isAzamLanguageMenuOpen = !isAzamLanguageMenuOpen
+                                            // Instant 1-tap language toggle directly without popup modal
+                                            val nextLang = if (isEng) "sw" else "en"
+                                            playerController.selectAudioTrackLanguage(nextLang)
                                         }
                                         .padding(horizontal = 8.dp, vertical = 5.dp)
                                 ) {
@@ -1044,8 +1064,8 @@ fun PlayerScreen(
                                     ) {
                                         Icon(
                                             imageVector = Icons.Default.Language,
-                                            contentDescription = "Badilisha Lugha (Azam TV)",
-                                            tint = NeliGenreCyan,
+                                            contentDescription = "Badilisha Lugha",
+                                            tint = if (isEng) Color.White else NeliGenreCyan,
                                             modifier = Modifier.size(13.dp)
                                         )
                                         Text(
@@ -1055,44 +1075,6 @@ fun PlayerScreen(
                                             fontWeight = FontWeight.ExtraBold
                                         )
                                     }
-                                }
-                            }
-
-                            // Small Responsive Video Player Settings Button
-                            Box(
-                                modifier = Modifier
-                                    .testTag("player_settings_button")
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .background(
-                                        if (isSettingsDrawerOpen) NeliMagenta else Color(0xAA2B1055)
-                                    )
-                                    .border(
-                                        1.dp,
-                                        if (orientationMode.isLandscapeLocked) NeliGenreCyan else Color(0x66FFFFFF),
-                                        RoundedCornerShape(14.dp)
-                                    )
-                                    .clickable {
-                                        isEpisodeDrawerOpen = false
-                                        isSettingsDrawerOpen = !isSettingsDrawerOpen
-                                    }
-                                    .padding(horizontal = 8.dp, vertical = 5.dp)
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Settings,
-                                        contentDescription = "Video Player Settings",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(13.dp)
-                                    )
-                                    Text(
-                                        text = "Settings",
-                                        color = Color.White,
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.ExtraBold
-                                    )
                                 }
                             }
                         }
@@ -1569,50 +1551,6 @@ fun PlayerScreen(
                                     )
                                 }
 
-                                // Screen Orientation Lock / Portrait YouTube Toggle Button
-                                Box(
-                                    modifier = Modifier
-                                        .testTag("orientation_lock_toggle_button")
-                                        .height(34.dp)
-                                        .clip(RoundedCornerShape(17.dp))
-                                        .background(
-                                            if (orientationMode.isLandscapeLocked) Color(0xCC1B0A3A) else Color(0x882B1055)
-                                        )
-                                        .border(
-                                            1.dp,
-                                            if (orientationMode.isLandscapeLocked) NeliGenreCyan else Color(0x55FFFFFF),
-                                            RoundedCornerShape(17.dp)
-                                        )
-                                        .clickable {
-                                            val nextMode = if (orientationMode == PlayerOrientationMode.PORTRAIT) {
-                                                PlayerOrientationMode.LOCKED_LANDSCAPE
-                                            } else {
-                                                PlayerOrientationMode.PORTRAIT
-                                            }
-                                            updateOrientationMode(nextMode)
-                                        }
-                                        .padding(horizontal = 10.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = resolveOrientationModeIcon(orientationMode),
-                                            contentDescription = "Screen Orientation Lock",
-                                            tint = if (orientationMode.isLandscapeLocked) NeliGenreCyan else Color.White,
-                                            modifier = Modifier.size(14.dp)
-                                        )
-                                        Text(
-                                            text = if (isPortraitYoutubeMode) "Full Screen" else "Portrait",
-                                            color = if (orientationMode.isLandscapeLocked) NeliGenreCyan else Color.White,
-                                            fontSize = 10.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
-                                }
-
                                 // Small Responsive Aspect Ratio Fit / Full Toggle
                                 Box(
                                     modifier = Modifier
@@ -1678,127 +1616,33 @@ fun PlayerScreen(
                     .padding(top = 18.dp)
             )
 
-            // Azam TV Language Switcher Floating Card & Notice
-            if (activeChannel.isAzamTvChannel && (isAzamLanguageMenuOpen || !playbackInfo.languageSwitchNotice.isNullOrBlank())) {
-                Column(
+            // Azam TV Language Switcher Floating Toast Badge (Auto-dismissing)
+            if (activeChannel.isAzamTvChannel && !playbackInfo.languageSwitchNotice.isNullOrBlank()) {
+                Box(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(top = 54.dp, end = 14.dp)
-                        .widthIn(max = 310.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(Color(0xEE101626))
-                        .border(1.dp, NeliGenreCyan.copy(alpha = 0.7f), RoundedCornerShape(14.dp))
-                        .padding(12.dp)
-                        .testTag("player_azam_language_panel"),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xDD101626))
+                        .border(1.dp, NeliGenreCyan.copy(alpha = 0.8f), RoundedCornerShape(12.dp))
+                        .padding(horizontal = 12.dp, vertical = 7.dp)
+                        .testTag("player_language_switch_notice")
                 ) {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Language,
-                                contentDescription = null,
-                                tint = NeliGenreCyan,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Text(
-                                text = "Lugha ya Azam TV (Kiswahili / ENG)",
-                                color = Color.White,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.ExtraBold
-                            )
-                        }
-                        IconButton(
-                            onClick = {
-                                isAzamLanguageMenuOpen = false
-                                playerController.clearLanguageSwitchNotice()
-                            },
-                            modifier = Modifier.size(22.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "Funga",
-                                tint = NeliTextSecondary,
-                                modifier = Modifier.size(14.dp)
-                            )
-                        }
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        val isSwActive = playbackInfo.activeAudioLanguage != "en"
-                        val isEnActive = playbackInfo.activeAudioLanguage == "en"
-
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(if (isSwActive) NeliMagenta else Color(0xFF1E293B))
-                                .border(
-                                    1.dp,
-                                    if (isSwActive) Color(0xFF34D399) else Color(0x44FFFFFF),
-                                    RoundedCornerShape(10.dp)
-                                )
-                                .clickable {
-                                    playerController.switchAzamAudioLanguage("sw")
-                                }
-                                .padding(vertical = 8.dp, horizontal = 6.dp)
-                                .testTag("player_lang_option_sw"),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = if (isSwActive) "Kiswahili ✓" else "Kiswahili",
-                                color = Color.White,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.ExtraBold
-                            )
-                        }
-
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(if (isEnActive) NeliMagenta else Color(0xFF1E293B))
-                                .border(
-                                    1.dp,
-                                    if (isEnActive) Color(0xFF34D399) else Color(0x44FFFFFF),
-                                    RoundedCornerShape(10.dp)
-                                )
-                                .clickable {
-                                    playerController.switchAzamAudioLanguage("en")
-                                }
-                                .padding(vertical = 8.dp, horizontal = 6.dp)
-                                .testTag("player_lang_option_en"),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = if (isEnActive) "English ✓" else "English",
-                                color = Color.White,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.ExtraBold
-                            )
-                        }
-                    }
-
-                    if (!playbackInfo.languageSwitchNotice.isNullOrBlank()) {
+                        Icon(
+                            imageVector = Icons.Default.Language,
+                            contentDescription = null,
+                            tint = NeliGenreCyan,
+                            modifier = Modifier.size(14.dp)
+                        )
                         Text(
                             text = playbackInfo.languageSwitchNotice!!,
-                            color = if (activeChannel.isKiswahiliOnlyProgram && playbackInfo.preferredAudioLanguage == "en") {
-                                Color(0xFFFBBF24)
-                            } else {
-                                Color(0xFF34D399)
-                            },
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.testTag("player_language_switch_notice")
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
                         )
                     }
                 }
@@ -1993,36 +1837,6 @@ fun PlayerScreen(
                                 }
                             }
 
-                            // Normal Cast Chip - Hidden on Smart TV
-                            if (!com.example.ui.tv.NeliTvDetector.isTelevision(context)) {
-                                Box(
-                                    modifier = Modifier
-                                        .testTag("portrait_cast_chip")
-                                        .clip(RoundedCornerShape(16.dp))
-                                        .background(if (isCastConnected) Color(0xFF065F46) else NeliSurfaceVariant)
-                                        .border(1.dp, NeliBorder, RoundedCornerShape(16.dp))
-                                        .clickable { showCastDialog = true }
-                                        .padding(horizontal = 12.dp, vertical = 7.dp)
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(5.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = if (isCastConnected) Icons.Default.CastConnected else Icons.Default.Cast,
-                                            contentDescription = null,
-                                            tint = if (isCastConnected) Color(0xFF34D399) else NeliGenreCyan,
-                                            modifier = Modifier.size(14.dp)
-                                        )
-                                        Text(
-                                            text = if (isCastConnected) "Casting to TV" else "Cast to TV",
-                                            color = NeliTextPrimary,
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
-                                }
-                            }
 
                             // Auto Quality Chip
                             Box(
@@ -2554,3 +2368,218 @@ private fun formatDurationMs(ms: Long): String {
         String.format(Locale.US, "%02d:%02d", minutes, seconds)
     }
 }
+
+/**
+ * Crash-safe Dedicated Embedded Player for Baynith Sport 1 & 2.
+ * Handles [WebViewClient.onRenderProcessGone] returning true so Chromium renderer crashes (code -1)
+ * never terminate the host application, and safely cleans up WebView resources upon disposal.
+ */
+@Composable
+fun EmbeddedChannelWebViewPlayer(
+    channel: LiveChannel,
+    onBack: () -> Unit
+) {
+    BackHandler { onBack() }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val activity = remember(context) {
+        var currentContext: android.content.Context? = context
+        while (currentContext is android.content.ContextWrapper) {
+            if (currentContext is Activity) return@remember currentContext
+            currentContext = currentContext.baseContext
+        }
+        null
+    }
+
+    var webViewRef by remember { mutableStateOf<android.webkit.WebView?>(null) }
+    var isRendererCrashed by remember(channel.id) { mutableStateOf(false) }
+    var reloadToken by remember { mutableIntStateOf(0) }
+
+    DisposableEffect(channel.id, reloadToken) {
+        val originalOrientation = activity?.requestedOrientation
+        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        onDispose {
+            try {
+                if (originalOrientation != null) {
+                    activity.requestedOrientation = originalOrientation
+                }
+                webViewRef?.let { wv ->
+                    wv.stopLoading()
+                    wv.loadUrl("about:blank")
+                    wv.clearHistory()
+                    wv.removeAllViews()
+                    wv.destroy()
+                }
+                webViewRef = null
+            } catch (_: Throwable) {
+            }
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+            .testTag("embedded_player_container")
+    ) {
+        if (!isRendererCrashed) {
+            key(reloadToken) {
+                AndroidView(
+                    factory = { ctx ->
+                        android.webkit.WebView(ctx).apply {
+                            layoutParams = ViewGroup.LayoutParams(
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.MATCH_PARENT
+                            )
+                            settings.apply {
+                                javaScriptEnabled = true
+                                domStorageEnabled = true
+                                databaseEnabled = true
+                                mediaPlaybackRequiresUserGesture = false
+                                loadWithOverviewMode = true
+                                useWideViewPort = true
+                                builtInZoomControls = false
+                                displayZoomControls = false
+                                allowContentAccess = false
+                                allowFileAccess = false
+                                mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                                cacheMode = android.webkit.WebSettings.LOAD_DEFAULT
+                            }
+                            webViewClient = object : android.webkit.WebViewClient() {
+                                override fun onRenderProcessGone(
+                                    view: android.webkit.WebView?,
+                                    detail: android.webkit.RenderProcessGoneDetail?
+                                ): Boolean {
+                                    // CRITICAL FIX: Return true so Chromium aw_browser_terminator does NOT kill the app!
+                                    try {
+                                        view?.let { wv ->
+                                            (wv.parent as? ViewGroup)?.removeView(wv)
+                                            wv.destroy()
+                                        }
+                                    } catch (_: Throwable) {
+                                    }
+                                    webViewRef = null
+                                    isRendererCrashed = true
+                                    return true
+                                }
+
+                                override fun shouldOverrideUrlLoading(
+                                    view: android.webkit.WebView?,
+                                    request: android.webkit.WebResourceRequest?
+                                ): Boolean {
+                                    return false
+                                }
+                            }
+                            webChromeClient = object : android.webkit.WebChromeClient() {
+                                override fun onPermissionRequest(request: android.webkit.PermissionRequest?) {
+                                    try {
+                                        request?.grant(request.resources)
+                                    } catch (_: Throwable) {
+                                        super.onPermissionRequest(request)
+                                    }
+                                }
+                            }
+                            setBackgroundColor(android.graphics.Color.BLACK)
+                            webViewRef = this
+
+                            val rawHtml = channel.embeddedHtml.trim()
+                            val directUrl = channel.streamUrl.trim()
+                            val iframeHtml = if (rawHtml.isNotBlank()) {
+                                rawHtml
+                            } else {
+                                """<iframe src="$directUrl" width="100%" height="100%" style="border:0;" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe>"""
+                            }
+                            val htmlContent = """
+                                <!DOCTYPE html>
+                                <html lang="en">
+                                <head>
+                                    <meta charset="UTF-8">
+                                    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+                                    <style>
+                                        html, body {
+                                            margin: 0;
+                                            padding: 0;
+                                            width: 100%;
+                                            height: 100%;
+                                            background-color: #000000;
+                                            overflow: hidden;
+                                            display: flex;
+                                            align-items: center;
+                                            justify-content: center;
+                                        }
+                                        iframe {
+                                            width: 100vw;
+                                            height: 100vh;
+                                            border: none;
+                                            outline: none;
+                                        }
+                                    </style>
+                                </head>
+                                <body>
+                                    $iframeHtml
+                                </body>
+                                </html>
+                            """.trimIndent()
+                            loadDataWithBaseURL("https://baynith-tv.base44.app", htmlContent, "text/html", "UTF-8", null)
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+        } else {
+            // Friendly error recovery UI if Chromium renderer was killed by OS low memory
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(24.dp),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Refresh,
+                    contentDescription = null,
+                    tint = NeliMagenta,
+                    modifier = Modifier.size(48.dp)
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = "Player imeanza upya (Renderer Reset)",
+                    color = Color.White,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Button(
+                    onClick = {
+                        isRendererCrashed = false
+                        reloadToken++
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("Washa Player Tena", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+
+        // Sleek floating Back button ONLY
+        IconButton(
+            onClick = onBack,
+            modifier = Modifier
+                .statusBarsPadding()
+                .padding(16.dp)
+                .size(46.dp)
+                .background(Color.Black.copy(alpha = 0.65f), CircleShape)
+                .border(1.dp, Color.White.copy(alpha = 0.2f), CircleShape)
+                .align(Alignment.TopStart)
+                .testTag("embedded_player_back_button")
+        ) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                contentDescription = "Rudi nyuma",
+                tint = Color.White,
+                modifier = Modifier.size(24.dp)
+            )
+        }
+    }
+}
+

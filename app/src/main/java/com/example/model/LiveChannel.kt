@@ -78,8 +78,12 @@ data class LiveChannel(
     val channelTag: String = "",
     val rating: String = "",
     val scheduleEvents: List<ChannelScheduleEvent> = emptyList(),
-    val isLockedDefault: Boolean = false
+    val isLockedDefault: Boolean = false,
+    val embeddedHtml: String = ""
 ) {
+    val isEmbedded: Boolean
+        get() = embeddedHtml.isNotBlank() || streamFormat.equals("embedded", ignoreCase = true)
+
     val category: String
         get() = categories.firstOrNull()?.replaceFirstChar { it.uppercase() } ?: "Live TV"
 
@@ -208,50 +212,73 @@ data class LiveChannel(
      */
     val priorityTier: Int
         get() = when {
-            // Excluded channels
-            id == "baynith_sports_hd" || name.contains("baynith", ignoreCase = true) ||
-            id == "azam_sport_5_hd" || name.contains("azam sport 5", ignoreCase = true) || name.contains("azm sport 5", ignoreCase = true) ||
-            id.contains("azam_xtra") || id.contains("azam_movies") || id.contains("azam_clouds") || id.contains("azam_itv") ||
-            name.contains("itv tanzania", ignoreCase = true) || name.contains("azam xtra", ignoreCase = true) ||
-            name.contains("clouds tv", ignoreCase = true) || name.contains("azam movie", ignoreCase = true) -> -1
+            // Excluded channels (User prompt 1, 6, 9)
+            id == "baynith_sports_hd" ||
+                (id != "baynith_sport_1" && id != "baynith_sport_2" && name.equals("baynith sports hd", ignoreCase = true)) ||
+                id == "azam_sport_5_hd" || name.contains("azam sport 5", ignoreCase = true) || name.contains("azm sport 5", ignoreCase = true) ||
+                id.contains("azam_xtra") || id.contains("azam_movies") || id.contains("azam_clouds") || id.contains("azam_itv") ||
+                name.contains("itv tanzania", ignoreCase = true) || name.contains("azam xtra", ignoreCase = true) ||
+                name.contains("clouds tv", ignoreCase = true) || name.contains("azam movie", ignoreCase = true) ||
+                id == "80212719-1b5c-45b3-9e52-b59e533705f1" || name.contains("Cartoon Network", ignoreCase = true) ||
+                id.startsWith("fb_") || id.startsWith("firebase_") || categories.contains("firebase") -> -1
 
-            // 1. Azam One (Free)
-            id == "c405ae74-c4c5-4842-9f26-130ce380b307" || name.equals("Azam One", ignoreCase = true) -> 2000
-            // 2. Azam Two
-            id == "008ffe6e-a30f-4ed1-9ddb-4033dde18576" || name.equals("Azam Two", ignoreCase = true) -> 1950
-            // 3. Sinema Zetu (Free)
-            id == "f56ca8c1-3d3f-4dd2-8d9d-b0b54b559f6e" || name.equals("Sinema Zetu", ignoreCase = true) -> 1900
-            // 4. Tom and Jerry (Free • Juu Juu)
-            id == "tom_and_jerry_channel" || name.contains("Tom and Jerry", ignoreCase = true) || name.contains("Toma and Jerry", ignoreCase = true) -> 1850
-            // 5. Azam Sports 3 HD (Free)
-            id == "1c976127-e8a4-4bd6-8e73-5da0edce369b" || name.contains("Azam Sport 3", ignoreCase = true) || name.contains("Azam Sports 3", ignoreCase = true) -> 1800
-            // 6. Azam Sports 4 HD (Free)
-            id == "244bcd50-b3bf-4d5e-8419-08cc7bad1a7c" || name.contains("Azam Sport 4", ignoreCase = true) || name.contains("Azam Sports 4", ignoreCase = true) -> 1750
-            // 7. UTV (Free)
-            id == "d7b415f7-d024-4c7f-a570-653367e8dc5c" || name.equals("UTV", ignoreCase = true) -> 1700
-            // 8. Azam Sports 1 HD
-            id == "R17JUvbCEzu2eTbjnE74" || name.contains("Azam Sport 1", ignoreCase = true) || name.contains("Azam Sports 1", ignoreCase = true) -> 1650
-            // 9. Azam Sports 2 HD
-            id == "f74ba826-f031-4e64-9ec1-f7ffa4e6ec0f" || name.contains("Azam Sport 2", ignoreCase = true) || name.contains("Azam Sports 2", ignoreCase = true) -> 1600
-            // 10. Kipaumbele kwa channel zote za Azam TV
+            // 1. Azam 1 followed by Azam 2 and Sinema Zetu
+            id == "c405ae74-c4c5-4842-9f26-130ce380b307" || name.equals("Azam One", ignoreCase = true) || name.equals("Azam 1", ignoreCase = true) -> 3000
+            id == "008ffe6e-a30f-4ed1-9ddb-4033dde18576" || name.equals("Azam Two", ignoreCase = true) || name.equals("Azam 2", ignoreCase = true) -> 2950
+            id == "f56ca8c1-3d3f-4dd2-8d9d-b0b54b559f6e" || name.equals("Sinema Zetu", ignoreCase = true) -> 2900
+
+            // Down after Azam One, Azam Two and Sinema Zetu: Baynith Sport 1 & Baynith Sport 2
+            id == "baynith_sport_1" || name.equals("Baynith Sport 1", ignoreCase = true) || name.equals("Baynith Sports 1", ignoreCase = true) -> 2850
+            id == "baynith_sport_2" || name.equals("Baynith Sport 2", ignoreCase = true) || name.equals("Baynith Sports 2", ignoreCase = true) -> 2800
+
+            // 2. Azam sports channel From Azam sport 1 to 4
+            id == "R17JUvbCEzu2eTbjnE74" || name.contains("Azam Sport 1", ignoreCase = true) || name.contains("Azam Sports 1", ignoreCase = true) -> 2750
+            id == "f74ba826-f031-4e64-9ec1-f7ffa4e6ec0f" || name.contains("Azam Sport 2", ignoreCase = true) || name.contains("Azam Sports 2", ignoreCase = true) -> 2700
+            id == "1c976127-e8a4-4bd6-8e73-5da0edce369b" || name.contains("Azam Sport 3", ignoreCase = true) || name.contains("Azam Sports 3", ignoreCase = true) -> 2650
+            id == "244bcd50-b3bf-4d5e-8419-08cc7bad1a7c" || name.contains("Azam Sport 4", ignoreCase = true) || name.contains("Azam Sports 4", ignoreCase = true) -> 2600
+
+            // 3. Kids channels only 3: Tom and Jerry, TinyPop kids, and Pop network (POP Animation)
+            id == "tom_and_jerry_channel" || name.contains("Tom and Jerry", ignoreCase = true) -> 2550
+            id == "tinypop_kids_channel" || name.contains("TinyPop", ignoreCase = true) -> 2500
+            id == "tv_1788953482934_twaqe" || id == "pop_kids_channel" || name.contains("POP Animation", ignoreCase = true) || name.contains("Pop Kids", ignoreCase = true) || name.contains("Pop network", ignoreCase = true) -> 2450
+
+            // 4. Followed By UTV, kix, mbc 2, Zbc and zbc 2
+            id == "d7b415f7-d024-4c7f-a570-653367e8dc5c" || name.equals("UTV", ignoreCase = true) -> 2350
+            id == "4f36f2d1-ff7f-467b-b4f2-6f303263f28b" || name.equals("KIX", ignoreCase = true) || name.contains("Kix", ignoreCase = true) -> 2300
+            id == "mbc_2_channel" || name.equals("MBC 2", ignoreCase = true) || name.contains("MBC 2", ignoreCase = true) -> 2250
+            id == "101e9c3f-de90-47fb-a69c-342be8a0bb80" || name.equals("ZBC", ignoreCase = true) || (name.contains("ZBC", ignoreCase = true) && !name.contains("2")) -> 2200
+            id == "b502217f-a9d0-4aef-99e6-8a784adedc65" || name.equals("ZBC2", ignoreCase = true) || name.equals("ZBC 2", ignoreCase = true) -> 2150
+
+            // Under ZBC 2: TBC 1, TBC 2 and Tanzania Safari Channel
+            id == "tbc_1_live" || name.contains("TBC 1", ignoreCase = true) -> 2100
+            id == "tbc_2_live" || name.contains("TBC 2", ignoreCase = true) -> 2050
+            id == "tanzania_safari_channel_live" || name.contains("Tanzania Safari", ignoreCase = true) || name.contains("Safari Channel", ignoreCase = true) -> 2000
+
+            // 5. Followed by Wasafi and clown tv with trace Latina and now global
+            id == "f989cbb6-46a9-4b68-b765-b1a37c0fa31e" || name.contains("Wasafi", ignoreCase = true) -> 1950
+            id == "dc8114f0-ec7b-40fa-8640-5e36a6cfd767" || name.contains("Crown Tv", ignoreCase = true) || name.contains("Clown", ignoreCase = true) -> 1900
+            id == "trace_latina_channel" || name.contains("Trace Latina", ignoreCase = true) -> 1850
+            id == "now_global_channel" || name.contains("Now Global", ignoreCase = true) -> 1800
+
+            // 6. Followed by Movie box, movie sphere, zee cinema, comedy, movie korea, movie room and sony movie one
+            id == "movie_box_channel" || name.contains("Movie Box", ignoreCase = true) -> 1750
+            id == "movie_sphere_channel" || name.contains("Movie Sphere", ignoreCase = true) -> 1700
+            id == "zee_cinema_channel" || name.contains("Zee Cinema", ignoreCase = true) -> 1650
+            id == "comedy_channel" || name.contains("Comedy", ignoreCase = true) -> 1600
+            id == "movie_korea_channel" || name.contains("Movie Korea", ignoreCase = true) -> 1550
+            id == "movie_room_channel" || name.contains("Movie Room", ignoreCase = true) -> 1500
+            id == "sony_movie_action_channel" || name.contains("Sony Movie", ignoreCase = true) -> 1450
+
+            // 7. WWE, TNT sports 1 and 2 HD
+            id == "0d7274cb-6a3e-464d-8b8d-bc3c6d433cc2" || name.contains("WWE", ignoreCase = true) -> 1400
+            id == "ee2ba70e-c28b-40ce-8ba1-0c20f133d04c" || name.contains("TNT SPORTS 1", ignoreCase = true) -> 1350
+            id == "ba2b232c-a79d-4130-b5d8-4883fbce7a1d" || name.contains("TNT SPORTS 2", ignoreCase = true) -> 1300
+
+            // Remaining Azam TV channels
             isAzamPriority || categories.any { it.equals("azam tv", ignoreCase = true) || it.equals("azam", ignoreCase = true) } ||
-                name.contains("Azam", ignoreCase = true) || streamUrl.contains("azamtvltd.co.tz", ignoreCase = true) -> 1500
+                streamUrl.contains("azamtvltd.co.tz", ignoreCase = true) -> 900
 
-            // Free channels according to user brief
-            id == "zbc_1_live" || name.equals("ZBC", ignoreCase = true) || name.equals("ZBC2", ignoreCase = true) || id.contains("zbc") -> 1450
-            id == "movie_korea_channel" || name.contains("Movie Korea", ignoreCase = true) -> 1400
-            id == "now_global_channel" || name.contains("Now Global", ignoreCase = true) -> 1350
-            id == "trace_latina_channel" || name.contains("Trace Latina", ignoreCase = true) -> 1300
-            id == "movie_sphere_channel" || name.contains("Movie Sphere", ignoreCase = true) -> 1250
-            id == "pop_kids_channel" || name.contains("Pop Kids", ignoreCase = true) -> 1200
-            id.startsWith("fb_") || id.startsWith("firebase_") || categories.contains("firebase") -> 1100
-
-            // Other sports & entertainment
-            id in listOf("bein_sport_live", "b_sport_live", "b_esports_live", "sky_sports_live", "ziggo_sport_4_live", "sk_5_hd_live", "sk_3_hd_live", "sk_6_hd_live", "sport_tv_1_europe") -> 1000
-            categories.any { it.equals("sports", ignoreCase = true) || it.equals("sport", ignoreCase = true) || it.equals("europe", ignoreCase = true) } -> 950
-            categories.any { it.equals("movies", ignoreCase = true) || it.equals("movie", ignoreCase = true) } -> 900
-            isTanzaniaChannel -> 850
-            featured -> 500
-            else -> 0
+            // Remove all channels added apart from this of azam tv and user-requested channels
+            else -> -1
         }
 }

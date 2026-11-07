@@ -128,21 +128,30 @@ object ChannelRepository {
     fun isExcludedChannel(name: String, id: String = ""): Boolean {
         val lower = name.trim().lowercase()
         val idLower = id.trim().lowercase()
+        // Baynith Sport 1 and Baynith Sport 2 are user-requested embedded channels
+        if (idLower == "baynith_sport_1" || idLower == "baynith_sport_2" ||
+            lower == "baynith sport 1" || lower == "baynith sport 2" ||
+            lower == "baynith sports 1" || lower == "baynith sports 2"
+        ) {
+            return false
+        }
         return lower.contains("itv tanzania") ||
                lower.contains("azam xtra") ||
                lower.contains("clouds tv") ||
                lower.contains("azam movie") ||
-               lower.contains("baynith sport") ||
-               lower.contains("baynith sports") ||
+               lower == "baynith sports hd" ||
+               lower == "baynith sport hd" ||
                lower.contains("azam sport 5") ||
                lower.contains("azam sports 5") ||
                lower.contains("azm sport 5") ||
+               lower.contains("cartoon network") ||
+               idLower == "80212719-1b5c-45b3-9e52-b59e533705f1" ||
+               idLower.startsWith("fb_") ||
+               idLower.startsWith("firebase_") ||
                idLower.contains("azam_xtra") ||
                idLower.contains("azam_movies") ||
                idLower.contains("azam_clouds") ||
                idLower.contains("azam_itv") ||
-               idLower.contains("baynith_sports") ||
-               idLower.contains("azam_sport_5") ||
                idLower == "baynith_sports_hd" ||
                idLower == "azam_sport_5_hd"
     }
@@ -155,7 +164,7 @@ object ChannelRepository {
     fun refreshLiveChannels(): List<LiveChannel> {
         val adminChannels = NeliAdminManager.customAddedChannels.value
         val current = (adminChannels + channels + _liveChannelsFlow.value).distinctBy { it.id }
-            .filter { !NeliAdminManager.isChannelHidden(it.id) && !isExcludedChannel(it.name, it.id) }
+            .filter { !NeliAdminManager.isChannelHidden(it.id) && !isExcludedChannel(it.name, it.id) && it.priorityTier >= 0 }
         val refreshed = mergeWithBackupChannels(
             getPrioritizedAllChannels(current).map { ch ->
                 ch.copy(
@@ -163,8 +172,8 @@ object ChannelRepository {
                     backupStreamUrl = if (ch.backupStreamUrl.isNotBlank()) normalizeDashStreamUrl(ch.backupStreamUrl) else ""
                 )
             },
-            cachedBackupApiChannels.filter { !NeliAdminManager.isChannelHidden(it.id) && !isExcludedChannel(it.name, it.id) }
-        ).filter { !NeliAdminManager.isChannelHidden(it.id) && !isExcludedChannel(it.name, it.id) }
+            cachedBackupApiChannels.filter { !NeliAdminManager.isChannelHidden(it.id) && !isExcludedChannel(it.name, it.id) && it.priorityTier >= 0 }
+        ).filter { !NeliAdminManager.isChannelHidden(it.id) && !isExcludedChannel(it.name, it.id) && it.priorityTier >= 0 }
         _liveChannelsFlow.value = refreshed
         lastRefreshedEpochMs = System.currentTimeMillis()
         return refreshed
@@ -254,6 +263,36 @@ object ChannelRepository {
             country = "Tanzania",
             featured = true,
             isLockedDefault = false
+        ),
+        // BAYNITH SPORT 1 (Embedded Code Player)
+        LiveChannel(
+            id = "baynith_sport_1",
+            name = "Baynith Sport 1",
+            description = "Baynith Sport 1 Live • Special Dedicated Player",
+            streamUrl = "https://baynith-tv.base44.app/embed/sport-1",
+            backupStreamUrl = "https://baynith-tv.base44.app/embed/sport-1",
+            streamFormat = "embedded",
+            thumbnailUrl = "https://media.base44.com/images/public/6a5b94f18b73c016937f1de4/f4e57c3c8_generated_image.png",
+            categories = listOf("sports", "entertainment"),
+            language = "sw",
+            encryptionType = "none",
+            featured = true,
+            embeddedHtml = """<iframe src="https://baynith-tv.base44.app/embed/sport-1" width="100%" height="100%" style="aspect-ratio:16/9;border:0;" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen loading="lazy"></iframe>"""
+        ),
+        // BAYNITH SPORT 2 (Embedded Code Player)
+        LiveChannel(
+            id = "baynith_sport_2",
+            name = "Baynith Sport 2",
+            description = "Baynith Sport 2 Live • Special Dedicated Player",
+            streamUrl = "https://baynith-tv.base44.app/embed/sport-2",
+            backupStreamUrl = "https://baynith-tv.base44.app/embed/sport-2",
+            streamFormat = "embedded",
+            thumbnailUrl = "https://media.base44.com/images/public/6a5b94f18b73c016937f1de4/6fb8e2604_generated_image.png",
+            categories = listOf("sports", "entertainment"),
+            language = "sw",
+            encryptionType = "none",
+            featured = true,
+            embeddedHtml = """<iframe src="https://baynith-tv.base44.app/embed/sport-2" width="100%" height="100%" style="aspect-ratio:16/9;border:0;" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen loading="lazy"></iframe>"""
         ),
         // 4. TOM AND JERRY (Free Channel • Juu Juu 24/7 Non-stop Kids Cartoons)
         LiveChannel(
@@ -505,6 +544,66 @@ object ChannelRepository {
             clearKeys = mapOf("e91fec140bc5316f919b4dc9c16287d7" to "79884fad0dbfcdc43d3e33c82a1f1cfa"),
             country = "Tanzania",
             featured = true
+        ),
+        // TBC 1 (Tanzania Live TV)
+        LiveChannel(
+            id = "tbc_1_live",
+            name = "TBC 1",
+            description = "Tanzania Broadcasting Corporation 1 • Live",
+            streamUrl = "https://stream-134630.castr.net/5fe35eae8c53540cab83659a/live_ddc0d180b65611f19d437d6aba41cdae/index.fmp4.m3u8",
+            backupStreamUrl = "https://stream-134630.castr.net/5fe35eae8c53540cab83659a/live_ddc0d180b65611f19d437d6aba41cdae/index.fmp4.m3u8",
+            streamFormat = "hls",
+            thumbnailUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSso9jJvEyNK7Co1mEWcXrrAgdA09c7aPjbgrIQY5VyEQ&s",
+            categories = listOf("tanzania", "news", "entertainment"),
+            language = "sw",
+            country = "Tanzania",
+            featured = true,
+            isLockedDefault = false
+        ),
+        // TBC 2 (Vijana na Michezo)
+        LiveChannel(
+            id = "tbc_2_live",
+            name = "TBC 2",
+            description = "TBC 2 Live Vijana na Michezo",
+            streamUrl = "https://stream-134630.castr.net/5fe35eae8c53540cab83659a/live_44ed95e05b6d11f18d5d85805abbdd6f/tracks-v1/index.fmp4.m3u8",
+            backupStreamUrl = "https://stream-134630.castr.net/5fe35eae8c53540cab83659a/live_44ed95e05b6d11f18d5d85805abbdd6f/tracks-v1/index.fmp4.m3u8",
+            streamFormat = "hls",
+            thumbnailUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRyV0Gv7ug0KHjYX-ClvuH2_1o6_VUDm0tCpBVY_GsMS6ibELZHIKoherU&s=10",
+            categories = listOf("tanzania", "news", "sports"),
+            language = "sw",
+            country = "Tanzania",
+            featured = true,
+            isLockedDefault = false
+        ),
+        // TANZANIA SAFARI CHANNEL
+        LiveChannel(
+            id = "tanzania_safari_channel_live",
+            name = "Tanzania Safari Channel",
+            description = "Tanzania Safari Channel • Utalii na Maliasili za Tanzania",
+            streamUrl = "https://stream-134630.castr.net/5fe35eae8c53540cab83659a/live_12bb7dc0590211f1951119e8afeb4224/tracks-a1/index.fmp4.m3u8",
+            backupStreamUrl = "https://stream-134630.castr.net/5fe35eae8c53540cab83659a/live_12bb7dc0590211f1951119e8afeb4224/tracks-a1/index.fmp4.m3u8",
+            streamFormat = "hls",
+            thumbnailUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQHsiVkshN5UFUd1Jz7ea1aJ_0JiFQOohUCXH_nDiyuMW5xJ8-GY5JlHsg&s=10",
+            categories = listOf("tanzania", "documentary"),
+            language = "sw",
+            country = "Tanzania",
+            featured = true,
+            isLockedDefault = false
+        ),
+        // TinyPop Kids (Top 4 Kids Channel)
+        LiveChannel(
+            id = "tinypop_kids_channel",
+            name = "TinyPop Kids",
+            description = "TinyPop Kids Non-stop Fun & Learning",
+            streamUrl = "https://rakuten-tinypop-1-gb.samsung.wurl.tv/playlist.m3u8",
+            backupStreamUrl = "https://rakuten-tinypop-1-gb.samsung.wurl.tv/playlist.m3u8",
+            streamFormat = "hls",
+            thumbnailUrl = "android.resource://com.example/drawable/tinypop_kids_logo",
+            categories = listOf("kids"),
+            language = "en",
+            encryptionType = "none",
+            featured = true,
+            isLockedDefault = false
         ),
         // 16. KIX (DASH + ClearKey + Query Token)
         LiveChannel(
@@ -1162,7 +1261,7 @@ object ChannelRepository {
             streamUrl = "https://raw.githubusercontent.com/baynith1/Nelitv/main/streams/tom_and_jerry.m3u8",
             backupStreamUrl = "https://raw.githubusercontent.com/baynith1/Nelitv/main/streams/tom_and_jerry.m3u8",
             streamFormat = "hls",
-            thumbnailUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcR6sF2F_w8mY_yP_hG4Q9qf29uL9v_E5aE9-w&s=10",
+            thumbnailUrl = "android.resource://com.example/drawable/tom_and_jerry_logo",
             categories = listOf("kids", "azam tv"),
             language = "en",
             country = "Tanzania",
@@ -1176,7 +1275,7 @@ object ChannelRepository {
             streamUrl = "https://raw.githubusercontent.com/baynith1/Nelitv/main/streams/pop_kids.m3u8",
             backupStreamUrl = "https://raw.githubusercontent.com/baynith1/Nelitv/main/streams/pop_kids.m3u8",
             streamFormat = "hls",
-            thumbnailUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcT6f8mK_x_d_dG4Q9qf29uL9v_E5aE9-w&s=10",
+            thumbnailUrl = "android.resource://com.example/drawable/pop_kids_logo",
             categories = listOf("kids", "azam tv"),
             language = "en",
             country = "Tanzania",
@@ -1310,8 +1409,8 @@ object ChannelRepository {
     fun getPrioritizedAllChannels(source: List<LiveChannel> = _liveChannelsFlow.value): List<LiveChannel> {
         val combinedSource = (NeliAdminManager.customAddedChannels.value + source.ifEmpty { channels }).distinctBy { it.id }
         val active = combinedSource
-            .filter { it.enabled && it.published && !NeliAdminManager.isChannelHidden(it.id) && !isExcludedChannel(it.name, it.id) }
-            .ifEmpty { channels.filter { !NeliAdminManager.isChannelHidden(it.id) && !isExcludedChannel(it.name, it.id) } }
+            .filter { it.enabled && it.published && !NeliAdminManager.isChannelHidden(it.id) && !isExcludedChannel(it.name, it.id) && it.priorityTier >= 0 }
+            .ifEmpty { channels.filter { !NeliAdminManager.isChannelHidden(it.id) && !isExcludedChannel(it.name, it.id) && it.priorityTier >= 0 } }
         return active
             .map { ch ->
                 val resolvedLogo = resolveGuaranteedChannelLogoUrl(ch)
@@ -1455,7 +1554,21 @@ object ChannelRepository {
      * Guarantees every channel has a valid, non-blank logo URL in both category rows and All Channels.
      */
     fun resolveGuaranteedChannelLogoUrl(channel: LiveChannel): String {
+        val lowerName = channel.name.lowercase()
+        val lowerId = channel.id.lowercase()
+        if (lowerId.contains("pop_kids") || lowerName.contains("pop kids") || lowerName.contains("pop network")) {
+            return "android.resource://com.example/drawable/pop_kids_logo"
+        }
+        if (lowerId.contains("tinypop") || lowerName.contains("tinypop") || lowerName.contains("tiny pop")) {
+            return "android.resource://com.example/drawable/tinypop_kids_logo"
+        }
+        if (lowerId.contains("tom_and_jerry") || lowerName.contains("tom and jerry") || lowerName.contains("tom & jerry")) {
+            return "android.resource://com.example/drawable/tom_and_jerry_logo"
+        }
         val raw = channel.thumbnailUrl.trim()
+        if (raw.startsWith("android.resource://", ignoreCase = true)) {
+            return raw
+        }
         if (raw.startsWith("//")) {
             return "https:$raw"
         }
@@ -1472,6 +1585,17 @@ object ChannelRepository {
      * Reliable fallback logo URL if a channel has no logo or if its remote logo URL fails to load.
      */
     fun resolveFallbackChannelLogoUrl(channel: LiveChannel): String {
+        val lowerName = channel.name.lowercase()
+        val lowerId = channel.id.lowercase()
+        if (lowerId.contains("pop_kids") || lowerName.contains("pop kids") || lowerName.contains("pop network")) {
+            return "android.resource://com.example/drawable/pop_kids_logo"
+        }
+        if (lowerId.contains("tinypop") || lowerName.contains("tinypop") || lowerName.contains("tiny pop")) {
+            return "android.resource://com.example/drawable/tinypop_kids_logo"
+        }
+        if (lowerId.contains("tom_and_jerry") || lowerName.contains("tom and jerry") || lowerName.contains("tom & jerry")) {
+            return "android.resource://com.example/drawable/tom_and_jerry_logo"
+        }
         val localMatch = channels.find {
             it.id.equals(channel.id, ignoreCase = true) ||
                 it.name.equals(channel.name.trim(), ignoreCase = true) ||
@@ -1484,7 +1608,6 @@ object ChannelRepository {
         ) {
             return localMatch.thumbnailUrl
         }
-        val lowerName = channel.name.lowercase()
         val lowerCats = channel.categories.joinToString(" ").lowercase()
         return when {
             lowerName.contains("azam sport 1") || lowerName.contains("azam sports 1") ->
@@ -1512,7 +1635,7 @@ object ChannelRepository {
             lowerName.contains("kix") ->
                 "https://i.ibb.co/ch6qGQT3/KIX-logo-svg.png"
             lowerCats.contains("kid") || lowerName.contains("cartoon") || lowerName.contains("baby") ->
-                "https://i.ibb.co/8gV4tq4g/1000221079.png"
+                "android.resource://com.example/drawable/pop_kids_logo"
             else -> "https://i.ibb.co/8gtr1n42/1000221072.jpg"
         }
     }
@@ -2606,7 +2729,10 @@ object ChannelRepository {
                     channel.channelTag.contains(trimmed, ignoreCase = true) ||
                     channel.country.contains(trimmed, ignoreCase = true)
 
-            matchesCategory && matchesName && channel.enabled && channel.published && !NeliAdminManager.isChannelHidden(channel.id)
+            matchesCategory && matchesName && channel.enabled && channel.published &&
+                !NeliAdminManager.isChannelHidden(channel.id) &&
+                !isExcludedChannel(channel.name, channel.id) &&
+                channel.priorityTier >= 0
         }
 
         // Prioritize Azam TV channels first (3), then Tanzania channels (2), then featured (1), then other channels (0)
