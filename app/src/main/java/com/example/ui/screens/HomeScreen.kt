@@ -1,6 +1,14 @@
 package com.example.ui.screens
 
 import android.app.Activity
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.geometry.Offset
 import com.example.ads.NeliAdManager
 import com.example.ads.StartIoBannerAd
 import com.example.ads.StartIoNativeCardAd
@@ -184,33 +192,22 @@ fun HomeScreen(
     }
 
     val handleChannelSelection: (LiveChannel) -> Unit = { ch ->
-        val isLockedForUser = ch.isLiveBroadcast && NeliAdminManager.isChannelLockedForUser(
-            channelId = ch.id,
-            currentUser = currentUser,
-            isPremiumActive = isPremiumActive,
-            context = context
-        )
-        if (isLockedForUser) {
-            lockedChannelToPrompt = ch
-            pendingUnlockedChannelAfterPayment = ch
-        } else {
-            lockedChannelToPrompt = null
-            pendingUnlockedChannelAfterPayment = null
-            if (isCastActive) {
-                NeliCastManager.updateCastingChannel(
-                    channel = ch,
-                    currentUser = currentUser,
-                    context = context
-                )
-            }
-            val activity = context as? Activity
-            if (activity != null) {
-                NeliAdManager.showChannelOpeningAd(activity, ch.name) {
-                    onChannelSelected(ch)
-                }
-            } else {
+        lockedChannelToPrompt = null
+        pendingUnlockedChannelAfterPayment = null
+        if (isCastActive) {
+            NeliCastManager.updateCastingChannel(
+                channel = ch,
+                currentUser = currentUser,
+                context = context
+            )
+        }
+        val activity = context as? Activity
+        if (activity != null) {
+            NeliAdManager.showChannelOpeningAd(activity, ch.name) {
                 onChannelSelected(ch)
             }
+        } else {
+            onChannelSelected(ch)
         }
     }
 
@@ -574,18 +571,70 @@ fun HomeScreen(
         }
     } else {
         // Mobile Layout: TopNavBar (No Cast button) + Main Content + NeliBottomBar
+        val infiniteTransition = rememberInfiniteTransition(label = "wallpaper_ambient_drift")
+        val bgOffsetX by infiniteTransition.animateFloat(
+            initialValue = -16f,
+            targetValue = 16f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 14000, easing = LinearEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "bg_offset_x"
+        )
+        val bgOffsetY by infiniteTransition.animateFloat(
+            initialValue = -10f,
+            targetValue = 10f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 18000, easing = LinearEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "bg_offset_y"
+        )
+        val bgScale by infiniteTransition.animateFloat(
+            initialValue = 1.05f,
+            targetValue = 1.12f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 20000, easing = LinearEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "bg_scale"
+        )
+
         Box(
             modifier = modifier
                 .fillMaxSize()
                 .background(if (NeliThemeManager.isLightMode) Color(0xFFFFF7F6) else Color(0xFF070A1A))
         ) {
-            // Authentic Neon Ribbon Wallpaper from User's custom design (Orange, Pink & Blue silk waves on midnight)
+            // Authentic Neon Ribbon Wallpaper with smooth organic floating motion
             if (!NeliThemeManager.isLightMode) {
                 Image(
                     painter = painterResource(id = R.drawable.neli_bg_wallpaper),
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .scale(bgScale)
+                        .offset(x = bgOffsetX.dp, y = bgOffsetY.dp)
+                )
+
+                // Subtle glowing ambient light overlay that gently breathes with the movement
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.radialGradient(
+                                colors = listOf(
+                                    Color(0x22FF2A85),
+                                    Color(0x1500E5FF),
+                                    Color.Transparent
+                                ),
+                                center = Offset(
+                                    x = 420f + bgOffsetX * 8f,
+                                    y = 650f + bgOffsetY * 8f
+                                ),
+                                radius = 950f
+                            )
+                        )
                 )
             }
 

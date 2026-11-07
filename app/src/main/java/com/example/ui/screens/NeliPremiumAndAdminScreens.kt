@@ -1024,48 +1024,6 @@ fun PremiumTabContent(
                     }
                 }
 
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        OutlinedButton(
-                            onClick = {
-                                nishalipaResultMessage = null
-                                nishalipaIsSuccess = false
-                                if (currentUser?.email?.contains("@nelitv.phone") == true) {
-                                    nishalipaPhoneInput = currentUser.email.substringBefore("@")
-                                }
-                                showNishalipaDialog = true
-                            },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .tvButtonGrow(shape = RoundedCornerShape(14.dp))
-                                .height(52.dp)
-                                .testTag("premium_nishalipa_button"),
-                            shape = RoundedCornerShape(14.dp),
-                            border = BorderStroke(1.2.dp, Color(0xFF00E5FF)),
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                contentColor = Color(0xFF00E5FF),
-                                containerColor = Color(0x1400E5FF)
-                            )
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.CheckCircle,
-                                contentDescription = "Nishalipa",
-                                tint = Color(0xFF00E5FF),
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "Nishalipa (Angalia Malipo Supabase)",
-                                color = Color(0xFF00E5FF),
-                                fontSize = if (screenProfile.isSmallPhone) 12.sp else 14.sp,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
-                }
-
                 PremiumCheckoutStep.ENTER_PHONE -> {
                     Card(
                         modifier = Modifier

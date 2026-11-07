@@ -192,7 +192,7 @@ fun TopNavBar(
                         letterSpacing = (-0.4).sp
                     )
                     Text(
-                        text = "play",
+                        text = "Tv",
                         color = Color(0xFFFF2E7E),
                         fontSize = 20.sp,
                         fontWeight = FontWeight.ExtraBold,
@@ -201,39 +201,28 @@ fun TopNavBar(
                 }
             }
 
-            // Right: Watch on PC (only on mobile, not TV) -> Search Button
+            // Right: Watch on PC (Icon only, hidden on TV) -> Search Button -> Crown Icon (Icon only, hidden on TV)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                // Watch on PC Icon Button (Mobile Only)
                 if (!isTvDevice) {
-                    Surface(
+                    IconButton(
                         onClick = { showWatchOnPcDialog = true },
-                        shape = RoundedCornerShape(20.dp),
-                        color = Color(0x330055FF),
-                        border = BorderStroke(1.5.dp, Color(0xFF00E5FF)),
                         modifier = Modifier
-                            .height(36.dp)
+                            .size(38.dp)
+                            .clip(CircleShape)
+                            .background(Color(0x2A0055FF))
+                            .border(1.5.dp, Color(0xFF00E5FF), CircleShape)
                             .testTag("watch_on_pc_header_button")
                     ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Laptop,
-                                contentDescription = "Watch on PC",
-                                tint = Color(0xFF00E5FF),
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Text(
-                                text = "Watch on PC",
-                                color = Color.White,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
+                        Icon(
+                            imageVector = Icons.Default.Laptop,
+                            contentDescription = "Watch on PC",
+                            tint = Color(0xFF00E5FF),
+                            modifier = Modifier.size(19.dp)
+                        )
                     }
                 }
 
@@ -241,7 +230,7 @@ fun TopNavBar(
                     onClick = onToggleSearch,
                     modifier = Modifier
                         .testTag("search_icon_button")
-                        .size(48.dp)
+                        .size(40.dp)
                         .clip(CircleShape)
                         .background(
                             if (isSearchOpen) NeliMagenta.copy(alpha = 0.16f) else Color.Transparent
@@ -255,35 +244,23 @@ fun TopNavBar(
                     )
                 }
 
-                // Mobile Only: Gold Crown Premium Button immediately after Search (matching user design)
+                // Mobile Only: Gold Crown Button (Icon Only without word Premium)
                 if (!isTvDevice) {
-                    Surface(
+                    IconButton(
                         onClick = onPremiumClick,
-                        shape = RoundedCornerShape(20.dp),
-                        color = Color(0x33F59E0B),
-                        border = BorderStroke(1.5.dp, Color(0xFFFFD700)),
                         modifier = Modifier
-                            .height(36.dp)
+                            .size(38.dp)
+                            .clip(CircleShape)
+                            .background(Color(0x33F59E0B))
+                            .border(1.5.dp, Color(0xFFFFD700), CircleShape)
                             .testTag("header_premium_button")
                     ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.WorkspacePremium,
-                                contentDescription = "Premium",
-                                tint = Color(0xFFFFD700),
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Text(
-                                text = "Premium",
-                                color = Color.White,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
+                        Icon(
+                            imageVector = Icons.Default.WorkspacePremium,
+                            contentDescription = "VIP Premium",
+                            tint = Color(0xFFFFD700),
+                            modifier = Modifier.size(20.dp)
+                        )
                     }
                 }
             }

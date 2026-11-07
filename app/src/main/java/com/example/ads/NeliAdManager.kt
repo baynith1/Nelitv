@@ -116,13 +116,17 @@ object NeliAdManager {
         val appContext = context.applicationContext
 
         // Rule: Smart TV has zero ads
-        if (NeliTvDetector.isTvHardware(appContext)) {
+        if (NeliTvDetector.isTelevision(appContext)) {
             Log.i(TAG, "Smart TV device detected. Start.io ads permanently disabled.")
             return
         }
 
         try {
             Log.i(TAG, "Initializing Start.io SDK with App ID $START_IO_APP_ID...")
+            if (com.example.BuildConfig.DEBUG) {
+                StartAppSDK.setTestAdsEnabled(true)
+                Log.i(TAG, "Start.io test ads enabled for development/debug mode.")
+            }
             StartAppSDK.initParams(appContext, START_IO_APP_ID)
                 .setReturnAdsEnabled(false) // Disable intrusive return/splash ads
                 .setCallback {
@@ -144,7 +148,7 @@ object NeliAdManager {
      */
     fun isAdsAllowed(context: Context): Boolean {
         // 1. Smart TV devices are 100% ad-free
-        if (NeliTvDetector.isTvHardware(context)) {
+        if (NeliTvDetector.isTelevision(context)) {
             return false
         }
         // 2. Active Premium subscription users are 100% ad-free
@@ -496,24 +500,48 @@ fun StartIoNativeCardAd(
 
     val ad = nativeDetails ?: return
 
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
-            .clickable {
-                try {
-                    ad.sendClick(context)
-                    onClick()
-                } catch (e: Exception) {
-                    Log.e("NeliTvAds", "Error sending native ad click: ${e.message}")
+    var interactionView by remember { mutableStateOf<View?>(null) }
+    DisposableEffect(ad) {
+        onDispose {
+            try {
+                ad.unregisterView()
+            } catch (_: Exception) {}
+        }
+    }
+
+    Box(modifier = modifier) {
+        AndroidView(
+            factory = { ctx ->
+                View(ctx).also { v ->
+                    interactionView = v
+                    try {
+                        ad.registerViewForInteraction(v)
+                    } catch (e: Exception) {
+                        Log.e("NeliTvAds", "Error registering native ad: ${e.message}")
+                    }
                 }
-            }
-            .border(1.dp, Color(0x55F59E0B), RoundedCornerShape(18.dp))
-            .testTag("startio_native_channel_card"),
-        shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF0F1738)),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
-    ) {
+            },
+            modifier = Modifier.size(0.dp)
+        )
+
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(18.dp))
+                .clickable {
+                    try {
+                        interactionView?.performClick()
+                        onClick()
+                    } catch (e: Exception) {
+                        Log.e("NeliTvAds", "Error clicking native ad: ${e.message}")
+                    }
+                }
+                .border(1.dp, Color(0x55F59E0B), RoundedCornerShape(18.dp))
+                .testTag("startio_native_channel_card"),
+            shape = RoundedCornerShape(18.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF0F1738)),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+        ) {
         Column(modifier = Modifier.fillMaxWidth()) {
             Box(
                 modifier = Modifier
@@ -624,4 +652,5 @@ fun StartIoNativeCardAd(
             }
         }
     }
+}
 }

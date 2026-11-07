@@ -188,7 +188,7 @@ fun PlayerScreen(
 
     // Scheduled 15-Minute Playback Ad Break for non-premium mobile users
     LaunchedEffect(activeChannel.id, uiState) {
-        if (uiState is PlayerUiState.Playing && activity != null) {
+        if (uiState is PlayerUiState.Ready && activity != null) {
             while (true) {
                 delay(30_000L)
                 com.example.ads.NeliAdManager.checkAndTrigger15MinAdBreak(
@@ -314,18 +314,7 @@ fun PlayerScreen(
                 if (subState.isVerified && !subState.isFreeForeverAccount && subState.expiresAtMs in 1..now) {
                     com.example.data.NeliSubscriptionManager.expireSubscriptionIfNeeded(context, now)
                 }
-                val isLockedNow = com.example.data.NeliAdminManager.isChannelLockedForUser(
-                    channelId = activeChannel.id,
-                    currentUser = null,
-                    isPremiumActive = com.example.data.NeliSubscriptionManager.isPremiumMemberActive(now, context),
-                    nowMs = now,
-                    context = context
-                )
-                if (isLockedNow) {
-                    onBack()
-                    break
-                }
-                delay(1000L)
+                delay(2000L)
             }
         }
     }

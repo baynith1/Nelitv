@@ -116,29 +116,7 @@ object NeliAdminManager {
         return user != null && user.isLoggedIn && isAdminEmail(user.email)
     }
 
-    val DEFAULT_LOCKED_CHANNEL_IDS = setOf(
-        "R17JUvbCEzu2eTbjnE74", // Azam Sports 1 HD (Zakulipia)
-        "f74ba826-f031-4e64-9ec1-f7ffa4e6ec0f", // Azam Sports 2 HD (Zakulipia)
-        "008ffe6e-a30f-4ed1-9ddb-4033dde18576", // Azam Two (Zakulipia)
-        "bein_sport_live", // Bein Sport
-        "b_sport_live", // B Sport
-        "b_esports_live", // B Esports
-        "sky_sports_live", // Sky sports
-        "ziggo_sport_4_live", // ziggo sport 4
-        "sk_5_hd_live", // sk 5 hd
-        "sk_3_hd_live", // sk 3 hd
-        "sk_6_hd_live", // sk 6 hd
-        "4f36f2d1-ff7f-467b-b4f2-6f303263f28b", // KIX (Action Movies)
-        "sport_tv_1_europe", // Sport tv.1
-        "ee2ba70e-c28b-40ce-8ba1-0c20f133d04c", // TNT SPORTS 1 HD
-        "ba2b232c-a79d-4130-b5d8-4883fbce7a1d", // TNT SPORTS 2 HD
-        "mbc_2_channel", // MBC 2
-        "sony_movie_action_channel", // Sony Movie Action (Sony Movie One)
-        "comedy_channel", // Comedy
-        "zee_cinema_channel", // Zee Cinema
-        "movie_box_channel", // Movie Box
-        "movie_room_channel" // Movie Room
-    )
+    val DEFAULT_LOCKED_CHANNEL_IDS = emptySet<String>()
 
     fun initialize(context: Context) {
         val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
