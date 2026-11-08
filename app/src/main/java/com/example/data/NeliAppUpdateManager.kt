@@ -240,12 +240,13 @@ object NeliAppUpdateManager {
         }
     }
 
-    fun dismissHomepageUpdatePopup(versionTag: String = _releaseInfo.value.versionTag) {
-        if (_isMandatoryUpdateRequired.value) {
+    fun dismissHomepageUpdatePopup(versionTag: String = _releaseInfo.value.versionTag, forceDismiss: Boolean = true) {
+        if (!forceDismiss && _isMandatoryUpdateRequired.value) {
             // Update is strictly mandatory across all screens! User must update to continue using.
             _showHomepageUpdatePopup.value = true
             return
         }
+        _isMandatoryUpdateRequired.value = false
         dismissedPopupTagInSession = versionTag.trim()
         _showHomepageUpdatePopup.value = false
     }

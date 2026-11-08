@@ -242,6 +242,21 @@ class NeliHomeWidgetProvider : AppWidgetProvider() {
             return setAndShowWidgetOnHomeScreen(context, navigateToHomeScreen = false)
         }
 
+        /**
+         * Automatically rotates the 3 widget movies every 1 hour (3600s) based on current hour seed.
+         */
+        fun getHourlyRotatingWidgetMovies(limit: Int = 3): List<com.example.model.MediaContent> {
+            val nonAdultMovies = MediaContentRepository.getLatest2026NonAdultMovies(limit = 100)
+            if (nonAdultMovies.size <= limit) return nonAdultMovies
+            val hourSeed = (System.currentTimeMillis() / 3_600_000L).toInt()
+            val startIndex = (kotlin.math.abs(hourSeed) * limit) % nonAdultMovies.size
+            val result = mutableListOf<com.example.model.MediaContent>()
+            for (i in 0 until limit) {
+                result.add(nonAdultMovies[(startIndex + i) % nonAdultMovies.size])
+            }
+            return result
+        }
+
         fun updateSingleWidget(
             context: Context,
             appWidgetManager: AppWidgetManager,
@@ -255,7 +270,7 @@ class NeliHomeWidgetProvider : AppWidgetProvider() {
                 val topChannels = TOP_WIDGET_CHANNEL_IDS.mapNotNull { id ->
                     ChannelRepository.getChannelById(id)
                 }
-                val top2026Movies = MediaContentRepository.getLatest2026NonAdultMovies(limit = 3)
+                val top2026Movies = getHourlyRotatingWidgetMovies(limit = 3)
 
                 var downloadedAnyNewBitmap = false
                 for (i in 0 until 3) {
@@ -400,8 +415,8 @@ class NeliHomeWidgetProvider : AppWidgetProvider() {
                 }
             }
 
-            // 2. BOTTOM ROW: 3 New 2026 Non-Adult Movies with TMDB Poster Images
-            val top2026Movies = MediaContentRepository.getLatest2026NonAdultMovies(limit = 3)
+            // 2. BOTTOM ROW: 3 New 2026 Non-Adult Movies with TMDB Poster Images (Rotates every 1 hour)
+            val top2026Movies = getHourlyRotatingWidgetMovies(limit = 3)
             val movieCardIds = listOf(
                 R.id.widget_movie_card_1,
                 R.id.widget_movie_card_2,

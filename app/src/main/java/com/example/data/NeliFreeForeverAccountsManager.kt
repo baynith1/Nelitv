@@ -88,7 +88,8 @@ object NeliFreeForeverAccountsManager {
 
     fun isFreeForeverEmail(email: String?): Boolean {
         val clean = email?.trim()?.lowercase() ?: return false
-        return FREE_FOREVER_EMAILS.any { it.equals(clean, ignoreCase = true) }
+        return FREE_FOREVER_EMAILS.any { it.equals(clean, ignoreCase = true) } ||
+            NeliAdminManager.isAdminEmail(clean)
     }
 
     fun isFreeForeverUser(user: UserAccountEntity?): Boolean {

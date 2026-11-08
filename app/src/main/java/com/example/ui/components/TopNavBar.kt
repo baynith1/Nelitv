@@ -201,13 +201,12 @@ fun TopNavBar(
                 }
             }
 
-            // Right: Watch on PC (Icon only, hidden on TV) -> Search Button -> Crown Icon (Icon only, hidden on TV)
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                // Watch on PC Icon Button (Mobile Only)
-                if (!isTvDevice) {
+            // Right: Watch on PC button followed immediately by glowing Smart Cast button (hidden on TV devices)
+            if (!isTvDevice) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     IconButton(
                         onClick = { showWatchOnPcDialog = true },
                         modifier = Modifier
@@ -224,42 +223,28 @@ fun TopNavBar(
                             modifier = Modifier.size(19.dp)
                         )
                     }
-                }
 
-                IconButton(
-                    onClick = onToggleSearch,
-                    modifier = Modifier
-                        .testTag("search_icon_button")
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .background(
-                            if (isSearchOpen) NeliMagenta.copy(alpha = 0.16f) else Color.Transparent
-                        )
-                ) {
-                    Icon(
-                        imageVector = if (isSearchOpen) Icons.Default.Clear else Icons.Default.Search,
-                        contentDescription = if (isSearchOpen) "Close search" else "Search Azam TV channels",
-                        tint = if (isSearchOpen) NeliMagenta else NeliTextPrimary,
-                        modifier = Modifier.size(22.dp)
-                    )
-                }
-
-                // Mobile Only: Gold Crown Button (Icon Only without word Premium)
-                if (!isTvDevice) {
+                    // Glowing Smart Cast button with neon pink/blue border
                     IconButton(
-                        onClick = onPremiumClick,
+                        onClick = onCastClick,
                         modifier = Modifier
                             .size(38.dp)
                             .clip(CircleShape)
-                            .background(Color(0x33F59E0B))
-                            .border(1.5.dp, Color(0xFFFFD700), CircleShape)
-                            .testTag("header_premium_button")
+                            .background(
+                                if (isCastActive) Color(0x3310B981) else Color(0x33FF2E7E)
+                            )
+                            .border(
+                                width = 1.5.dp,
+                                color = if (isCastActive) Color(0xFF34D399) else Color(0xFFFF2E7E),
+                                shape = CircleShape
+                            )
+                            .testTag("cast_header_button")
                     ) {
                         Icon(
-                            imageVector = Icons.Default.WorkspacePremium,
-                            contentDescription = "VIP Premium",
-                            tint = Color(0xFFFFD700),
-                            modifier = Modifier.size(20.dp)
+                            imageVector = if (isCastActive) Icons.Default.CastConnected else Icons.Default.Cast,
+                            contentDescription = "Smart Cast",
+                            tint = if (isCastActive) Color(0xFF34D399) else Color(0xFFFF2E7E),
+                            modifier = Modifier.size(19.dp)
                         )
                     }
                 }

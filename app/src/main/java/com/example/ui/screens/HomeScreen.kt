@@ -230,23 +230,10 @@ fun HomeScreen(
             onGoToPremium = {
                 showCastDialog = false
                 isSearchOpen = false
-                neliViewModel.selectTab(BottomNavTab.PREMIUM)
+                neliViewModel.selectTab(BottomNavTab.SEARCH)
             },
-            onSelectChannelToWatchAndCast = { ch ->
-                handleChannelSelection(ch)
-            }
-        )
-    }
-
-    if (lockedChannelToPrompt != null && !isPremiumActive) {
-        LockedChannelPremiumDialog(
-            channel = lockedChannelToPrompt!!,
-            onDismiss = { lockedChannelToPrompt = null },
-            onGoToPremium = {
-                pendingUnlockedChannelAfterPayment = lockedChannelToPrompt
-                lockedChannelToPrompt = null
-                isSearchOpen = false
-                neliViewModel.selectTab(BottomNavTab.PREMIUM)
+            onSelectChannelToWatchAndCast = { selectedCh ->
+                onChannelSelected(selectedCh)
             }
         )
     }
@@ -372,33 +359,15 @@ fun HomeScreen(
                         )
                     }
 
-                    BottomNavTab.PREMIUM -> {
-                        PremiumTabContent(
-                            currentUser = currentUser,
-                            pendingChannelToResume = pendingUnlockedChannelAfterPayment,
-                            onPaymentCompletedContinueWatching = {
-                                val pending = pendingUnlockedChannelAfterPayment
-                                if (pending != null) {
-                                    pendingUnlockedChannelAfterPayment = null
-                                    handleChannelSelection(pending)
-                                } else {
-                                    neliViewModel.selectTab(BottomNavTab.HOME)
-                                }
-                            },
-                            onNavigateToLoginOrSignUp = {
-                                neliViewModel.selectTab(BottomNavTab.ACCOUNT)
-                            },
-                            onBack = {
-                                neliViewModel.selectTab(BottomNavTab.HOME)
-                            },
-                            onSignInUser = { email, password ->
-                                neliViewModel.signInUser(email, password)
-                            },
-                            onSignUpUser = { realName, email, password ->
-                                neliViewModel.signUpUser(realName, email, password)
-                            },
-                            isAuthLoading = isAuthLoading,
-                            authErrorMessage = authError
+                    BottomNavTab.SEARCH -> {
+                        SearchScreen(
+                            channels = liveChannels,
+                            mediaCatalog = mediaCatalog,
+                            onChannelSelected = { ch -> handleChannelSelection(ch) },
+                            onMediaSelected = { media ->
+                                selectedMediaId = media.id
+                                neliViewModel.openMediaDetails(media.id)
+                            }
                         )
                     }
 
@@ -546,7 +515,7 @@ fun HomeScreen(
                     activeTabLabel = when (selectedTab) {
                         BottomNavTab.HOME -> "Live TV & Sports"
                         BottomNavTab.DISCOVERY -> "Discovery (Movies & Series)"
-                        BottomNavTab.PREMIUM -> "Plans & Subscriptions"
+                        BottomNavTab.SEARCH -> "Search & Explore"
                         BottomNavTab.DOWNLOAD -> "Downloads"
                         BottomNavTab.ACCOUNT -> "Account & Settings"
                     },
@@ -674,7 +643,7 @@ fun HomeScreen(
                     onPremiumClick = {
                         isSearchOpen = false
                         searchQuery = ""
-                        neliViewModel.selectTab(BottomNavTab.PREMIUM)
+                        neliViewModel.selectTab(BottomNavTab.SEARCH)
                     },
                     adminSmsMessage = adminSmsMessage
                 )
@@ -958,7 +927,7 @@ private fun LiveTvHomeTab(
                     adTag = "home_below_hero",
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                        .padding(vertical = 4.dp)
                 )
             }
         } else if (adminSmsMessage.isNotBlank()) {
@@ -1067,16 +1036,6 @@ private fun LiveTvHomeTab(
                         repeat(emptySlots) {
                             Spacer(modifier = Modifier.weight(1f))
                         }
-                    }
-
-                    // Banner ad placement after every 2 channel cards
-                    if (columnsPerRow == 2 || (rowIndex + 1) % 2 == 0) {
-                        StartIoBannerAd(
-                            adTag = "home_channel_row_${blockIndex}_$rowIndex",
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 4.dp)
-                        )
                     }
                 }
 

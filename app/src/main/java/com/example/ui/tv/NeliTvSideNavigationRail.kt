@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material.icons.filled.WorkspacePremium
 import androidx.compose.material3.Badge
@@ -60,7 +61,7 @@ data class TvNavItem(
 val TvNavItems = listOf(
     TvNavItem(BottomNavTab.HOME, "Home", Icons.Default.Home, "tv_nav_home"),
     TvNavItem(BottomNavTab.DISCOVERY, "Discovery", Icons.Default.Explore, "tv_nav_discovery"),
-    TvNavItem(BottomNavTab.PREMIUM, "Premium", Icons.Default.WorkspacePremium, "tv_nav_premium"),
+    TvNavItem(BottomNavTab.SEARCH, "Search", Icons.Default.Search, "tv_nav_search"),
     TvNavItem(BottomNavTab.DOWNLOAD, "Downloads", Icons.Default.Download, "tv_nav_downloads"),
     TvNavItem(BottomNavTab.ACCOUNT, "Account", Icons.Default.Person, "tv_nav_account")
 )

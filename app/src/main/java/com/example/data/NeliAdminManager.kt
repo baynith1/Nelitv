@@ -252,96 +252,28 @@ object NeliAdminManager {
     }
 
     fun isChannelLockedByDefault(channel: LiveChannel): Boolean {
-        if (isChannelExplicitlyFree(channel)) return false
-
-        val name = channel.name.trim().lowercase()
-        val id = channel.id.trim()
-
-        // Azam TV zilizobaki ni zakulipia zote:
-        // Azam Two ni zakulipia
-        if (name.contains("azam two") || id == "008ffe6e-a30f-4ed1-9ddb-4033dde18576") return true
-        // Azam Sport 1 na 2 ni zakulipia
-        if (id == "R17JUvbCEzu2eTbjnE74" || id == "f74ba826-f031-4e64-9ec1-f7ffa4e6ec0f") return true
-        if ((name.contains("azam sport") || name.contains("azam sports")) &&
-            (name.contains("1") || name.contains("2"))) return true
-        if (name.contains("kix") || id == "4f36f2d1-ff7f-467b-b4f2-6f303263f28b") return true
-
-        // Sports channels locked until subscription:
-        if (name.contains("bein sport") || id == "bein_sport_live") return true
-        if (name.contains("b sport") || id == "b_sport_live") return true
-        if (name.contains("b esports") || name.contains("b esport") || id == "b_esports_live") return true
-        if (name.contains("sky sport") || name.contains("sky sports") || id == "sky_sports_live") return true
-        if (name.contains("ziggo sport") || id == "ziggo_sport_4_live") return true
-        if (name.contains("sk 5") || name.contains("sk5") || id == "sk_5_hd_live") return true
-        if (name.contains("sk 3") || name.contains("sk3") || id == "sk_3_hd_live") return true
-        if (name.contains("sk 6") || name.contains("sk6") || id == "sk_6_hd_live") return true
-
-        // Za Europe: Sport tv.1 & TNT Sports ni premium zifunge
-        if (name.contains("sport tv.1") || name.contains("sport tv 1") || id == "sport_tv_1_europe") return true
-        if (name.contains("tnt sport") || name.contains("tnt sports") ||
-            id == "ee2ba70e-c28b-40ce-8ba1-0c20f133d04c" || id == "ba2b232c-a79d-4130-b5d8-4883fbce7a1d") return true
-
-        // Movie channels zilizobaki
-        if (name.contains("mbc 2") || name.contains("mbc2") || id == "mbc_2_channel") return true
-        if (name.contains("sony movie") || id == "sony_movie_action_channel") return true
-        if (name.contains("comedy") || id == "comedy_channel") return true
-        if (name.contains("zee cinema") || id == "zee_cinema_channel") return true
-        if (name.contains("movie box") || id == "movie_box_channel") return true
-        if (name.contains("movie room") || id == "movie_room_channel") return true
-
-        return channel.isLockedDefault
+        return false
     }
 
     /**
      * Checks whether the Admin has marked this channel as locked for Free Users.
      */
     fun isChannelLockedByAdmin(channelId: String, channelObj: LiveChannel? = null): Boolean {
-        val channel = channelObj ?: ChannelRepository.getChannelById(channelId)
-        if (channel != null && isChannelExplicitlyFree(channel)) return false
-        if (_areAllChannelsLocked.value) return true
-
-        if (_lockedChannelIds.value.contains(channelId)) return true
-        if (DEFAULT_LOCKED_CHANNEL_IDS.contains(channelId)) return true
-
-        if (channel != null) {
-            if (channel.isLockedDefault) return true
-            if (isChannelLockedByDefault(channel)) return true
-            val nameMatch = channel.name.lowercase().trim().replace(" ", "_")
-            if (_lockedChannelIds.value.contains(nameMatch) || DEFAULT_LOCKED_CHANNEL_IDS.contains(nameMatch)) return true
-            val idMatch = channel.id.lowercase().trim()
-            if (_lockedChannelIds.value.contains(idMatch) || DEFAULT_LOCKED_CHANNEL_IDS.contains(idMatch)) return true
-        }
         return false
     }
 
     /**
-     * Determines whether a channel is locked for the current user right now:
-     * - Reads real-time subscription status from [NeliSubscriptionManager]:
-     *   If the user already paid earlier and their subscription is still active (`nowMs < expiresAtMs`),
-     *   NEVER locks the channel until the subscription expires.
-     * - Free users without active subscription see locked channels with Lock icon / Pay to Watch.
-     * - Admin User (`Admin@login.com` or `baynithcinema@gmail.com`): NEVER locked.
+     * All channels are 100% unlocked for everyone (Free Forever with Ads).
      */
     fun isChannelLockedForUser(
         channelId: String,
         channelObj: LiveChannel? = null,
         currentUser: UserAccountEntity? = null,
-        isPremiumActive: Boolean = NeliSubscriptionManager.isPremiumMemberActive(),
+        isPremiumActive: Boolean = true,
         nowMs: Long = System.currentTimeMillis(),
         context: Context? = null
     ): Boolean {
-        if (isAdminUser(currentUser)) return false
-        if (NeliFreeForeverAccountsManager.isFreeForeverUser(currentUser)) return false
-        if (NeliSubscriptionManager.subscriptionState.value.isFreeForeverAccount) return false
-
-        val channel = channelObj ?: ChannelRepository.getChannelById(channelId)
-        if (channel != null && isChannelExplicitlyFree(channel)) return false
-
-        val hasActiveSubscription = isPremiumActive && NeliSubscriptionManager.isPremiumMemberActive(nowMs = nowMs, context = context)
-        if (hasActiveSubscription) {
-            return false
-        }
-        return isChannelLockedByAdmin(channelId, channel)
+        return false
     }
 
     fun setLockAllChannels(context: Context, lockAll: Boolean) {

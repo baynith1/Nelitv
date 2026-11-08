@@ -298,14 +298,14 @@ object ChannelRepository {
         LiveChannel(
             id = "tom_and_jerry_channel",
             name = "Tom and Jerry",
-            description = "Tom and Jerry 24/7 Non-stop Kids Cartoons • Free Channel",
-            streamUrl = "https://raw.githubusercontent.com/baynith1/Nelitv/main/streams/tom_and_jerry.m3u8",
-            backupStreamUrl = "https://raw.githubusercontent.com/baynith1/Nelitv/main/streams/tom_and_jerry.m3u8",
+            description = "Tom and Jerry 24/7 Non-stop Classic Cartoons • Free Channel",
+            streamUrl = "https://live20.bozztv.com/giatvplayout7/giatv-208314/tracks-v1a1/mono.ts.m3u8",
+            backupStreamUrl = "https://live20.bozztv.com/giatvplayout7/giatv-208314/tracks-v1a1/mono.ts.m3u8",
             streamFormat = "hls",
-            thumbnailUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcR6sF2F_w8mY_yP_hG4Q9qf29uL9v_E5aE9-w&s=10",
+            thumbnailUrl = "https://i.pinimg.com/1200x/d2/d0/c6/d2d0c69e6ec56ef717b9bbc23fc8e2fc.jpg",
             categories = listOf("kids", "azam tv"),
             language = "en",
-            country = "Tanzania",
+            country = "International",
             featured = true,
             isLockedDefault = false
         ),
@@ -590,16 +590,16 @@ object ChannelRepository {
             featured = true,
             isLockedDefault = false
         ),
-        // TinyPop Kids (Top 4 Kids Channel)
+        // Tiny PoP (Top Kids Channel)
         LiveChannel(
             id = "tinypop_kids_channel",
-            name = "TinyPop Kids",
-            description = "TinyPop Kids Non-stop Fun & Learning",
-            streamUrl = "https://rakuten-tinypop-1-gb.samsung.wurl.tv/playlist.m3u8",
-            backupStreamUrl = "https://rakuten-tinypop-1-gb.samsung.wurl.tv/playlist.m3u8",
+            name = "Tiny PoP",
+            description = "Tiny PoP 24/7 Fun, Music & Kids Learning • Free Channel",
+            streamUrl = "https://amg01753-narrativeuk-amg01753c1-rakuten-uk-2339.playouts.now.amagi.tv/1080p/index.m3u8",
+            backupStreamUrl = "https://amg01753-narrativeuk-amg01753c1-rakuten-uk-2339.playouts.now.amagi.tv/1080p/index.m3u8",
             streamFormat = "hls",
-            thumbnailUrl = "android.resource://com.example/drawable/tinypop_kids_logo",
-            categories = listOf("kids"),
+            thumbnailUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQiuCodQn6rh_w9wBibE0iJuvh8MXfe1ADizsanCYJuzg&s=10",
+            categories = listOf("kids", "azam tv"),
             language = "en",
             encryptionType = "none",
             featured = true,
@@ -1253,32 +1253,18 @@ object ChannelRepository {
             featured = true,
             isLockedDefault = true
         ),
-        // Kids Channels for Azam TV & Kids category
+        // 27. POP Animation Network (Free Channel)
         LiveChannel(
-            id = "tom_and_jerry_channel",
-            name = "Tom and Jerry",
-            description = "Tom and Jerry 24/7 Non-stop Kids Cartoons",
-            streamUrl = "https://raw.githubusercontent.com/baynith1/Nelitv/main/streams/tom_and_jerry.m3u8",
-            backupStreamUrl = "https://raw.githubusercontent.com/baynith1/Nelitv/main/streams/tom_and_jerry.m3u8",
+            id = "pop_animation_network_channel",
+            name = "POP Animation Network",
+            description = "POP Animation Network 24/7 Cartoons & Anime • Free Channel",
+            streamUrl = "https://narrative-popkids-rakuten.amagi.tv/1080p/index.m3u8",
+            backupStreamUrl = "https://narrative-popkids-rakuten.amagi.tv/1080p/index.m3u8",
             streamFormat = "hls",
-            thumbnailUrl = "android.resource://com.example/drawable/tom_and_jerry_logo",
-            categories = listOf("kids", "azam tv"),
+            thumbnailUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRZD3actU8XChxT38HWiBH-1Q7n60jJbzh8LGf1AMA-sQ&s=10",
+            categories = listOf("kids", "entertainment", "azam tv"),
             language = "en",
-            country = "Tanzania",
-            featured = true,
-            isLockedDefault = false
-        ),
-        LiveChannel(
-            id = "pop_kids_channel",
-            name = "Pop Kids",
-            description = "Pop Kids 24/7 Animation, Cartoons & Family Fun",
-            streamUrl = "https://raw.githubusercontent.com/baynith1/Nelitv/main/streams/pop_kids.m3u8",
-            backupStreamUrl = "https://raw.githubusercontent.com/baynith1/Nelitv/main/streams/pop_kids.m3u8",
-            streamFormat = "hls",
-            thumbnailUrl = "android.resource://com.example/drawable/pop_kids_logo",
-            categories = listOf("kids", "azam tv"),
-            language = "en",
-            country = "Tanzania",
+            country = "International",
             featured = true,
             isLockedDefault = false
         )
@@ -1556,14 +1542,14 @@ object ChannelRepository {
     fun resolveGuaranteedChannelLogoUrl(channel: LiveChannel): String {
         val lowerName = channel.name.lowercase()
         val lowerId = channel.id.lowercase()
-        if (lowerId.contains("pop_kids") || lowerName.contains("pop kids") || lowerName.contains("pop network")) {
-            return "android.resource://com.example/drawable/pop_kids_logo"
+        if (lowerId.contains("pop_animation") || lowerId.contains("pop_kids") || lowerName.contains("pop animation") || lowerName.contains("pop kids") || lowerName.contains("pop network")) {
+            return "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRZD3actU8XChxT38HWiBH-1Q7n60jJbzh8LGf1AMA-sQ&s=10"
         }
         if (lowerId.contains("tinypop") || lowerName.contains("tinypop") || lowerName.contains("tiny pop")) {
-            return "android.resource://com.example/drawable/tinypop_kids_logo"
+            return "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQiuCodQn6rh_w9wBibE0iJuvh8MXfe1ADizsanCYJuzg&s=10"
         }
         if (lowerId.contains("tom_and_jerry") || lowerName.contains("tom and jerry") || lowerName.contains("tom & jerry")) {
-            return "android.resource://com.example/drawable/tom_and_jerry_logo"
+            return "https://i.pinimg.com/1200x/d2/d0/c6/d2d0c69e6ec56ef717b9bbc23fc8e2fc.jpg"
         }
         val raw = channel.thumbnailUrl.trim()
         if (raw.startsWith("android.resource://", ignoreCase = true)) {
@@ -1587,14 +1573,14 @@ object ChannelRepository {
     fun resolveFallbackChannelLogoUrl(channel: LiveChannel): String {
         val lowerName = channel.name.lowercase()
         val lowerId = channel.id.lowercase()
-        if (lowerId.contains("pop_kids") || lowerName.contains("pop kids") || lowerName.contains("pop network")) {
-            return "android.resource://com.example/drawable/pop_kids_logo"
+        if (lowerId.contains("pop_animation") || lowerId.contains("pop_kids") || lowerName.contains("pop animation") || lowerName.contains("pop kids") || lowerName.contains("pop network")) {
+            return "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRZD3actU8XChxT38HWiBH-1Q7n60jJbzh8LGf1AMA-sQ&s=10"
         }
         if (lowerId.contains("tinypop") || lowerName.contains("tinypop") || lowerName.contains("tiny pop")) {
-            return "android.resource://com.example/drawable/tinypop_kids_logo"
+            return "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQiuCodQn6rh_w9wBibE0iJuvh8MXfe1ADizsanCYJuzg&s=10"
         }
         if (lowerId.contains("tom_and_jerry") || lowerName.contains("tom and jerry") || lowerName.contains("tom & jerry")) {
-            return "android.resource://com.example/drawable/tom_and_jerry_logo"
+            return "https://i.pinimg.com/1200x/d2/d0/c6/d2d0c69e6ec56ef717b9bbc23fc8e2fc.jpg"
         }
         val localMatch = channels.find {
             it.id.equals(channel.id, ignoreCase = true) ||

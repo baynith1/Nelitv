@@ -208,6 +208,12 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
     private val _savedGoogleAccounts = MutableStateFlow<List<UserAccountEntity>>(emptyList())
     val savedGoogleAccounts: StateFlow<List<UserAccountEntity>> = _savedGoogleAccounts.asStateFlow()
 
+    companion object {
+        private val isSyncCycleRunning = java.util.concurrent.atomic.AtomicBoolean(false)
+        @Volatile
+        private var lastSyncCompletedAtMs: Long = 0L
+    }
+
     private val connectivityManager =
         appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
 
@@ -304,10 +310,6 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private val isSyncCycleRunning = java.util.concurrent.atomic.AtomicBoolean(false)
-    @Volatile
-    private var lastSyncCompletedAtMs: Long = 0L
-
     private fun triggerAutomaticBackgroundSync() {
         val now = System.currentTimeMillis()
         if (now - lastSyncCompletedAtMs < 15_000L) return
@@ -395,7 +397,7 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         _selectedMediaId.value = null
-        if (_selectedTab.value != BottomNavTab.PREMIUM && _selectedTab.value != BottomNavTab.ACCOUNT) {
+        if (_selectedTab.value != BottomNavTab.SEARCH && _selectedTab.value != BottomNavTab.ACCOUNT) {
             _selectedTab.value = BottomNavTab.HOME
         }
     }

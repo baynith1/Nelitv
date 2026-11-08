@@ -400,11 +400,10 @@ fun NeliApp(
     // Never render a floating PiP overlay inside the NeliPlay app UI!
     val controller = sharedPlayerController
     if (isSystemInPipMode && activeChannel != null && controller != null) {
-        FloatingPipPlayerOverlay(
+        com.example.ui.components.SystemPipPlayerView(
             playerController = controller,
             onExpandToFullScreen = {},
-            onClosePip = closeAndReleasePlayback,
-            isSystemPipMode = true
+            onClosePip = closeAndReleasePlayback
         )
         return
     }

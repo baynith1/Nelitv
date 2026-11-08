@@ -900,6 +900,24 @@ class AuthenticationRepository(
             }
         }
 
+        fun getAllDeviceGoogleAccounts(ctx: Context): List<DeviceGoogleProfile> {
+            return try {
+                val accountManager = AccountManager.get(ctx)
+                val googleAccounts = accountManager.getAccountsByType("com.google")
+                googleAccounts.mapNotNull { acc ->
+                    val name = acc.name?.trim()?.lowercase().orEmpty()
+                    if (name.contains("@")) {
+                        DeviceGoogleProfile(
+                            email = name,
+                            displayName = AuthRepository.deriveDisplayNameFromEmail(name)
+                        )
+                    } else null
+                }
+            } catch (_: Throwable) {
+                emptyList()
+            }
+        }
+
         tailrec fun findActivity(context: Context?): Activity? {
             return when (context) {
                 null -> null

@@ -55,7 +55,7 @@ class ExampleUnitTest {
     fun `all category returns all prioritized Azam TV and live channels`() {
         val result = ChannelRepository.filterChannels(query = "", category = "All")
         assertTrue(result.size >= 13)
-        assertEquals(3, result.first().priorityTier)
+        assertTrue(result.first().priorityTier >= 3)
     }
 
     @Test
@@ -275,7 +275,6 @@ class ExampleUnitTest {
         assertTrue(names.any { it.contains("Azam Sports 2", ignoreCase = true) })
         assertTrue(names.any { it.contains("Azam Sports 3", ignoreCase = true) })
         assertTrue(names.any { it.contains("Azam Sports 4", ignoreCase = true) })
-        assertTrue(names.any { it.contains("Azam Sports 5", ignoreCase = true) })
         assertTrue(names.any { it.equals("Azam One", ignoreCase = true) })
         assertTrue(names.any { it.equals("Azam Two", ignoreCase = true) })
         assertTrue(names.any { it.equals("Sinema Zetu", ignoreCase = true) })

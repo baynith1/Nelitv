@@ -176,7 +176,8 @@ data class LiveChannel(
      * True when the current channel / program is strictly in Kiswahili.
      */
     val isKiswahiliOnlyProgram: Boolean
-        get() = language.equals("sw", ignoreCase = true) ||
+        get() = !name.contains("Azam Sport", ignoreCase = true) && (
+                language.equals("sw", ignoreCase = true) ||
                 language.equals("swa", ignoreCase = true) ||
                 isSwahiliNarratedMovie ||
                 name.contains("Sinema Zetu", ignoreCase = true) ||
@@ -188,6 +189,7 @@ data class LiveChannel(
                 description.contains("Kiswahili", ignoreCase = true) ||
                 description.contains("Bongo", ignoreCase = true) ||
                 description.contains("Tamthilia", ignoreCase = true)
+        )
 
     val isTanzaniaChannel: Boolean
         get() = isAzamPriority ||

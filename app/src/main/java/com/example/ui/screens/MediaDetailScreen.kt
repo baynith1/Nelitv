@@ -578,11 +578,20 @@ fun MediaDetailScreen(
                                         onPlayChannel(media.toPlayableChannel())
                                     }
                                 } else if (!isActivelyDownloadingThis) {
-                                    // Immediately start downloading using the streaming link's quality
-                                    if (media.isSeries && currentVodEpisode != null) {
-                                        onDownloadEpisode(currentVodEpisode)
+                                    val startDownload = {
+                                        if (media.isSeries && currentVodEpisode != null) {
+                                            onDownloadEpisode(currentVodEpisode)
+                                        } else {
+                                            onDownloadMedia(media)
+                                        }
+                                    }
+                                    val act = detailContext as? android.app.Activity
+                                    if (act != null) {
+                                        com.example.ads.NeliAdManager.showDownloadMovieAd(act) {
+                                            startDownload()
+                                        }
                                     } else {
-                                        onDownloadMedia(media)
+                                        startDownload()
                                     }
                                 }
                             },

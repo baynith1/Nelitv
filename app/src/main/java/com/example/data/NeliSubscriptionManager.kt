@@ -535,6 +535,7 @@ object NeliSubscriptionManager {
         val cleanEmail = email.trim()
         val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         if (cleanEmail.isBlank()) {
+            NeliAdminManager.setAdminSessionActive(context = context, active = false)
             // Signed out -> clear active account session and pending orders so next user starts fresh
             val detectedIp = resolveDeviceIpAddress(context)
             val deviceId = resolveDeviceIdentityId(context)
@@ -567,7 +568,9 @@ object NeliSubscriptionManager {
         val current = _subscriptionState.value
         // If the user JUST paid without logging in (requiresPostPaymentAuth == true and no account linked yet),
         // bind that fresh payment to this account; otherwise load strictly this account's own subscription!
-        if (current.isVerified && current.isActiveNow && current.requiresPostPaymentAuth && current.linkedUserEmail.isBlank()) {
+        if (!NeliFreeForeverAccountsManager.isFreeForeverEmail(cleanEmail) &&
+            !NeliAdminManager.isAdminEmail(cleanEmail) &&
+            current.isVerified && current.isActiveNow && current.requiresPostPaymentAuth && current.linkedUserEmail.isBlank()) {
             return linkUserAccountToSubscription(
                 context = context,
                 uid = uid,
@@ -582,6 +585,11 @@ object NeliSubscriptionManager {
             email = cleanEmail,
             realName = realName
         )
+        if (NeliAdminManager.isAdminEmail(cleanEmail)) {
+            NeliAdminManager.setAdminSessionActive(context = context, active = true)
+        } else {
+            NeliAdminManager.setAdminSessionActive(context = context, active = false)
+        }
         _subscriptionState.value = accountState
         prefs.edit()
             .putBoolean(KEY_IS_VERIFIED, accountState.isVerified)
@@ -1020,6 +1028,11 @@ object NeliSubscriptionManager {
             pendingAmountTzs = 0
         )
         _subscriptionState.value = updated
+        if (NeliAdminManager.isAdminEmail(cleanEmail)) {
+            NeliAdminManager.setAdminSessionActive(context = context, active = true)
+        } else {
+            NeliAdminManager.setAdminSessionActive(context = context, active = false)
+        }
 
         if (context != null) {
             if (updated.isVerified && cleanEmail.isNotBlank()) {

@@ -2422,7 +2422,6 @@ fun EmbeddedChannelWebViewPlayer(
                             settings.apply {
                                 javaScriptEnabled = true
                                 domStorageEnabled = true
-                                databaseEnabled = true
                                 mediaPlaybackRequiresUserGesture = false
                                 loadWithOverviewMode = true
                                 useWideViewPort = true
@@ -2433,12 +2432,17 @@ fun EmbeddedChannelWebViewPlayer(
                                 mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
                                 cacheMode = android.webkit.WebSettings.LOAD_DEFAULT
                             }
+                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                                setRendererPriorityPolicy(android.webkit.WebView.RENDERER_PRIORITY_IMPORTANT, false)
+                            }
+                            setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
                             webViewClient = object : android.webkit.WebViewClient() {
                                 override fun onRenderProcessGone(
                                     view: android.webkit.WebView?,
                                     detail: android.webkit.RenderProcessGoneDetail?
                                 ): Boolean {
-                                    // CRITICAL FIX: Return true so Chromium aw_browser_terminator does NOT kill the app!
+                                    // CRITICAL: Return true so Chromium aw_browser_terminator does NOT kill the app process!
+                                    android.util.Log.w("NeliTvPlayer", "WebView renderer process gone. Handled safely without crash.")
                                     try {
                                         view?.let { wv ->
                                             (wv.parent as? ViewGroup)?.removeView(wv)
@@ -2470,45 +2474,50 @@ fun EmbeddedChannelWebViewPlayer(
                             setBackgroundColor(android.graphics.Color.BLACK)
                             webViewRef = this
 
-                            val rawHtml = channel.embeddedHtml.trim()
                             val directUrl = channel.streamUrl.trim()
-                            val iframeHtml = if (rawHtml.isNotBlank()) {
-                                rawHtml
+                            if (directUrl.startsWith("http://", ignoreCase = true) || directUrl.startsWith("https://", ignoreCase = true)) {
+                                // Load direct URL directly to avoid synthetic nested iframe memory and site-isolation overhead in Chromium
+                                loadUrl(directUrl)
                             } else {
-                                """<iframe src="$directUrl" width="100%" height="100%" style="border:0;" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe>"""
+                                val rawHtml = channel.embeddedHtml.trim()
+                                val iframeHtml = if (rawHtml.isNotBlank()) {
+                                    rawHtml
+                                } else {
+                                    """<iframe src="$directUrl" width="100%" height="100%" style="border:0;" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe>"""
+                                }
+                                val htmlContent = """
+                                    <!DOCTYPE html>
+                                    <html lang="en">
+                                    <head>
+                                        <meta charset="UTF-8">
+                                        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+                                        <style>
+                                            html, body {
+                                                margin: 0;
+                                                padding: 0;
+                                                width: 100%;
+                                                height: 100%;
+                                                background-color: #000000;
+                                                overflow: hidden;
+                                                display: flex;
+                                                align-items: center;
+                                                justify-content: center;
+                                            }
+                                            iframe {
+                                                width: 100vw;
+                                                height: 100vh;
+                                                border: none;
+                                                outline: none;
+                                            }
+                                        </style>
+                                    </head>
+                                    <body>
+                                        $iframeHtml
+                                    </body>
+                                    </html>
+                                """.trimIndent()
+                                loadDataWithBaseURL("https://baynith-tv.base44.app", htmlContent, "text/html", "UTF-8", null)
                             }
-                            val htmlContent = """
-                                <!DOCTYPE html>
-                                <html lang="en">
-                                <head>
-                                    <meta charset="UTF-8">
-                                    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-                                    <style>
-                                        html, body {
-                                            margin: 0;
-                                            padding: 0;
-                                            width: 100%;
-                                            height: 100%;
-                                            background-color: #000000;
-                                            overflow: hidden;
-                                            display: flex;
-                                            align-items: center;
-                                            justify-content: center;
-                                        }
-                                        iframe {
-                                            width: 100vw;
-                                            height: 100vh;
-                                            border: none;
-                                            outline: none;
-                                        }
-                                    </style>
-                                </head>
-                                <body>
-                                    $iframeHtml
-                                </body>
-                                </html>
-                            """.trimIndent()
-                            loadDataWithBaseURL("https://baynith-tv.base44.app", htmlContent, "text/html", "UTF-8", null)
                         }
                     },
                     modifier = Modifier.fillMaxSize()

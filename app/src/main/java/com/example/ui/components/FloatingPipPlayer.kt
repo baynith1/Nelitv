@@ -371,51 +371,7 @@ fun SystemPipPlayerView(
     onClosePip: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val activeChannel by playerController.currentChannel.collectAsState()
-    val uiState by playerController.uiState.collectAsState()
-    val playbackInfo by playerController.playbackInfo.collectAsState()
-    val episodesCatalog by MediaContentRepository.episodesCatalog.collectAsState()
-
-    val seriesEpisodes = remember(activeChannel.id, activeChannel.seriesId, episodesCatalog) {
-        val explicitSeriesId = activeChannel.seriesId.ifBlank {
-            val cleanEpId = activeChannel.episodeId.ifBlank { activeChannel.id.removePrefix("ep_") }
-            episodesCatalog.find { it.id == cleanEpId }?.seriesId.orEmpty()
-        }
-        if (explicitSeriesId.isNotBlank()) {
-            MediaContentRepository.getEpisodesForSeries(explicitSeriesId)
-        } else {
-            emptyList()
-        }
-    }
-
-    val currentEpisodeIndex = remember(activeChannel.id, activeChannel.episodeId, seriesEpisodes) {
-        if (seriesEpisodes.isEmpty()) -1 else {
-            val cleanEpId = activeChannel.episodeId.ifBlank { activeChannel.id.removePrefix("ep_") }
-            val idx = seriesEpisodes.indexOfFirst { it.id == cleanEpId }
-            if (idx >= 0) idx else 0
-        }
-    }
-
-    val isSeriesVod = !activeChannel.isLiveBroadcast && seriesEpisodes.isNotEmpty()
-    val previousEpisode = if (isSeriesVod && currentEpisodeIndex > 0) {
-        seriesEpisodes[currentEpisodeIndex - 1]
-    } else null
-    val nextEpisode = if (isSeriesVod && currentEpisodeIndex >= 0 && currentEpisodeIndex < seriesEpisodes.lastIndex) {
-        seriesEpisodes[currentEpisodeIndex + 1]
-    } else null
-
-    val seriesTitlePrefix = remember(activeChannel.name, activeChannel.seriesId) {
-        MediaContentRepository.getMediaById(activeChannel.seriesId)?.title
-            ?: activeChannel.name.substringBefore(" •").trim()
-    }
-
-    LaunchedEffect(isSeriesVod, nextEpisode, seriesTitlePrefix) {
-        playerController.onEpisodeEndedAutoNext = {
-            if (isSeriesVod && nextEpisode != null) {
-                nextEpisode.toPlayableChannel(seriesTitlePrefix)
-            } else null
-        }
-    }
+    val activeExoPlayer = remember(playerController) { playerController.initializePlayer() }
 
     Box(
         modifier = modifier
@@ -423,19 +379,29 @@ fun SystemPipPlayerView(
             .background(Color.Black)
             .testTag("system_pip_player_view")
     ) {
-        PipPlayerSurfaceAndControls(
-            playerController = playerController,
-            activeChannel = activeChannel,
-            uiState = uiState,
-            playbackInfo = playbackInfo,
-            isSeriesVod = isSeriesVod,
-            previousEpisode = previousEpisode,
-            nextEpisode = nextEpisode,
-            seriesTitlePrefix = seriesTitlePrefix,
-            showControls = true,
-            resizeFeedbackText = null,
-            onExpandToFullScreen = onExpandToFullScreen,
-            onClosePip = onClosePip
+        AndroidView(
+            factory = { ctx ->
+                PlayerView(ctx).apply {
+                    useController = false
+                    keepScreenOn = true
+                    setShutterBackgroundColor(android.graphics.Color.BLACK)
+                    resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                    layoutParams = ViewGroup.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT
+                    )
+                    player = activeExoPlayer
+                }
+            },
+            update = { playerView ->
+                if (playerView.player != activeExoPlayer) {
+                    playerView.player = activeExoPlayer
+                }
+            },
+            onRelease = { playerView ->
+                playerView.player = null
+            },
+            modifier = Modifier.fillMaxSize()
         )
     }
 }

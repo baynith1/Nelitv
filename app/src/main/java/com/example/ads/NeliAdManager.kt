@@ -5,6 +5,7 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -18,14 +19,17 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -108,6 +112,9 @@ object NeliAdManager {
     private val _nativeCardAdState = MutableStateFlow<NativeAdDetails?>(null)
     val nativeCardAdState: StateFlow<NativeAdDetails?> = _nativeCardAdState.asStateFlow()
 
+    private val _isAdCurrentlyDisplaying = MutableStateFlow(false)
+    val isAdCurrentlyDisplaying: StateFlow<Boolean> = _isAdCurrentlyDisplaying.asStateFlow()
+
     /**
      * Initializes Start.io SDK on application launch.
      */
@@ -123,10 +130,9 @@ object NeliAdManager {
 
         try {
             Log.i(TAG, "Initializing Start.io SDK with App ID $START_IO_APP_ID...")
-            if (com.example.BuildConfig.DEBUG) {
-                StartAppSDK.setTestAdsEnabled(true)
-                Log.i(TAG, "Start.io test ads enabled for development/debug mode.")
-            }
+            // Production: Always serve real live ads from Start.io network
+            StartAppSDK.setTestAdsEnabled(false)
+            Log.i(TAG, "Start.io real production ads active with App ID $START_IO_APP_ID.")
             StartAppSDK.initParams(appContext, START_IO_APP_ID)
                 .setReturnAdsEnabled(false) // Disable intrusive return/splash ads
                 .setCallback {
@@ -285,6 +291,7 @@ object NeliAdManager {
             val safeResume = {
                 if (!hasResumed) {
                     hasResumed = true
+                    _isAdCurrentlyDisplaying.value = false
                     isInterstitialLoaded = false
                     preloadInterstitialAd(activity)
                     onPlaybackResume()
@@ -301,11 +308,12 @@ object NeliAdManager {
 
             ad.showAd(object : AdDisplayListener {
                 override fun adHidden(ad: Ad?) {
-                    Log.d(TAG, "Interstitial closed by user, resuming playback.")
+                    Log.d(TAG, "Interstitial closed by user, starting clean video playback.")
                     safeResume()
                 }
 
                 override fun adDisplayed(ad: Ad?) {
+                    _isAdCurrentlyDisplaying.value = true
                     Log.i(TAG, "Interstitial impression logged successfully.")
                 }
 
@@ -320,6 +328,7 @@ object NeliAdManager {
             })
         } else {
             Log.d(TAG, "No preloaded ad ready for $channelName. Opening channel immediately.")
+            _isAdCurrentlyDisplaying.value = false
             preloadInterstitialAd(activity)
             onPlaybackResume()
         }
@@ -388,6 +397,70 @@ object NeliAdManager {
         }
         return false
     }
+
+    /**
+     * Shows an ad when user taps "Download Movie".
+     * Download starts in background and user is never blocked if ad fails or is dismissed.
+     */
+    fun showDownloadMovieAd(
+        activity: Activity,
+        onContinueDownload: () -> Unit
+    ) {
+        if (!isAdsAllowed(activity)) {
+            onContinueDownload()
+            return
+        }
+
+        val ad = interstitialAd
+        if (ad != null && isInterstitialLoaded) {
+            Log.i(TAG, "Showing Start.io ad for movie download...")
+            var continued = false
+            fun continueOnce() {
+                if (!continued) {
+                    continued = true
+                    isInterstitialLoaded = false
+                    preloadInterstitialAd(activity)
+                    onContinueDownload()
+                }
+            }
+
+            ad.showAd(object : AdDisplayListener {
+                override fun adHidden(ad: Ad?) {
+                    Log.i(TAG, "Download ad dismissed by user, starting download now.")
+                    continueOnce()
+                }
+
+                override fun adDisplayed(ad: Ad?) {
+                    Log.i(TAG, "Download ad displayed.")
+                }
+
+                override fun adClicked(ad: Ad?) {
+                    Log.i(TAG, "Download ad clicked.")
+                }
+
+                override fun adNotDisplayed(ad: Ad?) {
+                    Log.w(TAG, "Download ad not displayed, continuing download.")
+                    continueOnce()
+                }
+            })
+        } else {
+            Log.d(TAG, "No preloaded ad for download, proceeding immediately.")
+            preloadInterstitialAd(activity)
+            onContinueDownload()
+        }
+    }
+
+    /**
+     * Shows Start.io App Open / Splash ad on app launch for mobile users.
+     */
+    fun showAppOpenSplashAd(activity: Activity) {
+        if (!isAdsAllowed(activity)) return
+        try {
+            StartAppAd.showSplash(activity, null)
+        } catch (e: Throwable) {
+            Log.d(TAG, "App open splash ad skipped: ${e.message}")
+        }
+    }
 }
 
 /**
@@ -414,17 +487,13 @@ fun StartIoBannerAd(
         return
     }
 
-    var isAdLoaded by remember { mutableStateOf(false) }
     var isFailed by remember { mutableStateOf(false) }
 
-    AnimatedVisibility(visible = !isFailed) {
+    if (!isFailed) {
         Box(
             modifier = modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 6.dp)
-                .clip(RoundedCornerShape(14.dp))
-                .background(Color(0xFF0C1126))
-                .border(1.dp, Color(0x33263560), RoundedCornerShape(14.dp))
+                .height(60.dp)
                 .testTag("startio_banner_ad_$adTag"),
             contentAlignment = Alignment.Center
         ) {
@@ -433,20 +502,31 @@ fun StartIoBannerAd(
                     val frameLayout = FrameLayout(ctx).apply {
                         layoutParams = ViewGroup.LayoutParams(
                             ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.WRAP_CONTENT
+                            ViewGroup.LayoutParams.MATCH_PARENT
                         )
+                        clipChildren = false
+                        clipToPadding = false
                     }
                     try {
-                        val banner = Banner(ctx, object : BannerListener {
+                        var act: Activity? = null
+                        var c = ctx
+                        while (c is android.content.ContextWrapper) {
+                            if (c is Activity) {
+                                act = c
+                                break
+                            }
+                            c = c.baseContext
+                        }
+                        val bannerContext = act ?: ctx
+
+                        val banner = Banner(bannerContext, object : BannerListener {
                             override fun onReceiveAd(bannerView: View?) {
-                                isAdLoaded = true
                                 isFailed = false
                                 Log.i("NeliTvAds", "Start.io Banner ($adTag) received successfully.")
                             }
 
                             override fun onFailedToReceiveAd(bannerView: View?) {
                                 isFailed = true
-                                isAdLoaded = false
                                 Log.d("NeliTvAds", "Start.io Banner ($adTag) failed to receive ad. Collapsing.")
                             }
 
@@ -455,9 +535,15 @@ fun StartIoBannerAd(
                             }
 
                             override fun onImpression(bannerView: View?) {
-                                Log.d("NeliTvAds", "Start.io Banner ($adTag) impression.")
+                                Log.d("NeliTvAds", "Start.io Banner ($adTag) impression recorded.")
                             }
-                        })
+                        }).apply {
+                            layoutParams = FrameLayout.LayoutParams(
+                                FrameLayout.LayoutParams.WRAP_CONTENT,
+                                FrameLayout.LayoutParams.WRAP_CONTENT,
+                                Gravity.CENTER
+                            )
+                        }
                         frameLayout.addView(banner)
                     } catch (e: Exception) {
                         isFailed = true
@@ -467,7 +553,7 @@ fun StartIoBannerAd(
                 },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 4.dp)
+                    .height(60.dp)
             )
         }
     }
@@ -509,19 +595,28 @@ fun StartIoNativeCardAd(
         }
     }
 
-    Box(modifier = modifier) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .heightIn(min = 180.dp)
+    ) {
+        // Real-sized view layer measured across the full card so StartApp impression validation succeeds
         AndroidView(
             factory = { ctx ->
-                View(ctx).also { v ->
-                    interactionView = v
+                FrameLayout(ctx).apply {
+                    layoutParams = ViewGroup.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT
+                    )
+                    interactionView = this
                     try {
-                        ad.registerViewForInteraction(v)
+                        ad.registerViewForInteraction(this)
                     } catch (e: Exception) {
                         Log.e("NeliTvAds", "Error registering native ad: ${e.message}")
                     }
                 }
             },
-            modifier = Modifier.size(0.dp)
+            modifier = Modifier.matchParentSize()
         )
 
         Card(
@@ -599,7 +694,7 @@ fun StartIoNativeCardAd(
                         fontWeight = FontWeight.Bold
                     )
                     Icon(
-                        imageVector = Icons.Default.OpenInNew,
+                        imageVector = Icons.AutoMirrored.Filled.OpenInNew,
                         contentDescription = null,
                         tint = Color.White,
                         modifier = Modifier.size(10.dp)
