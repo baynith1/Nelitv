@@ -1,4 +1,4 @@
-# Nelitv (by Neliplay)
+# Neli
 
 **Nelitv** is an Android live television, Azam TV sports, Swahili cinema, series, short drama, and offline VOD streaming application built with **Kotlin**, **Jetpack Compose (Material Design 3)**, **AndroidX Media3 (ExoPlayer)**, and **Room**.
 
@@ -86,7 +86,3 @@ FIREBASE_API_KEY=YOUR_FIREBASE_API_KEY
 
 ---
 
-## Support & Contact
-
-- **Brand**: Neliplay / Nelitv
-- **Customer Care (WhatsApp & Call)**: `+255 760 816 851` (Neliplay Customercare • Alex Michael Baineth)
