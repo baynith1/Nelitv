@@ -200,11 +200,10 @@ class MainActivity : ComponentActivity() {
         if (!isChangingConfigurations && !isInPictureInPictureMode) {
             wasInBackground = true
         }
-        if (wasInPipMode && !isInPictureInPictureMode) {
+        if (isFinishing) {
             wasInPipMode = false
             hasActivePlaybackForPip = false
             NeliPlaybackReleaseHook.onReleaseActivePlayback?.invoke()
-            finishAndRemoveTask()
         }
     }
 
@@ -279,17 +278,19 @@ class MainActivity : ComponentActivity() {
     ) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
         isSystemInPipMode = isInPictureInPictureMode
-        if (isInPictureInPictureMode) {
-            wasInPipMode = true
-        } else {
-            // When exiting PiP: if the activity is NOT resumed, user closed PiP with the (X) button
-            if (wasInPipMode && lifecycle.currentState < androidx.lifecycle.Lifecycle.State.RESUMED) {
-                wasInPipMode = false
-                hasActivePlaybackForPip = false
-                NeliPlaybackReleaseHook.onReleaseActivePlayback?.invoke()
-                finishAndRemoveTask()
+        wasInPipMode = isInPictureInPictureMode
+    }
+
+    override fun onMultiWindowModeChanged(
+        isInMultiWindowMode: Boolean,
+        newConfig: Configuration
+    ) {
+        super.onMultiWindowModeChanged(isInMultiWindowMode, newConfig)
+        if (!isInMultiWindowMode && !isInPictureInPictureMode) {
+            val supported = com.example.notifications.NeliSplitScreenNotifier.isSplitScreenSupported(this)
+            if (!supported) {
+                com.example.notifications.NeliSplitScreenNotifier.showUnsupportedSplitScreenToast(this)
             }
-            wasInPipMode = false
         }
     }
 
@@ -467,5 +468,8 @@ fun NeliApp(
 
         // Mandatory In-App Update popup renders over EVERY screen and blocks until updated
         NeliHomepageAutoUpdatePopupDialog()
+
+        // 3-second floating notification when user device does not support split screen
+        com.example.notifications.FloatingSplitScreenUnsupportedNotice()
     }
 }

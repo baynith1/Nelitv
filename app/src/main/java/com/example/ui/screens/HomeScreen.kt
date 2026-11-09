@@ -1,6 +1,7 @@
 package com.example.ui.screens
 
 import android.app.Activity
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -195,19 +196,21 @@ fun HomeScreen(
         lockedChannelToPrompt = null
         pendingUnlockedChannelAfterPayment = null
         if (isCastActive) {
-            NeliCastManager.updateCastingChannel(
+            NeliCastManager.startCastingMedia(
                 channel = ch,
                 currentUser = currentUser,
                 context = context
             )
-        }
-        val activity = context as? Activity
-        if (activity != null) {
-            NeliAdManager.showChannelOpeningAd(activity, ch.name) {
+            // Stream and audio play on the Smart TV; phone acts as remote control and remains free for user
+        } else {
+            val activity = context as? Activity
+            if (activity != null) {
+                NeliAdManager.showChannelOpeningAd(activity, ch.name) {
+                    onChannelSelected(ch)
+                }
+            } else {
                 onChannelSelected(ch)
             }
-        } else {
-            onChannelSelected(ch)
         }
     }
 
@@ -280,7 +283,7 @@ fun HomeScreen(
                         channel = playable,
                         downloads = downloads
                     )
-                    onChannelSelected(resolvedChannel)
+                    handleChannelSelection(resolvedChannel)
                 },
                 onToggleWatchlist = { neliViewModel.toggleWatchlist(it) },
                 onDownloadMedia = { neliViewModel.addDownload(it) },
@@ -365,7 +368,6 @@ fun HomeScreen(
                             mediaCatalog = mediaCatalog,
                             onChannelSelected = { ch -> handleChannelSelection(ch) },
                             onMediaSelected = { media ->
-                                selectedMediaId = media.id
                                 neliViewModel.openMediaDetails(media.id)
                             }
                         )
@@ -541,32 +543,42 @@ fun HomeScreen(
     } else {
         // Mobile Layout: TopNavBar (No Cast button) + Main Content + NeliBottomBar
         val infiniteTransition = rememberInfiniteTransition(label = "wallpaper_ambient_drift")
+        // Ultra-smooth, slow organic ambient background animation
         val bgOffsetX by infiniteTransition.animateFloat(
-            initialValue = -16f,
-            targetValue = 16f,
+            initialValue = -20f,
+            targetValue = 20f,
             animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 14000, easing = LinearEasing),
+                animation = tween(durationMillis = 24000, easing = FastOutSlowInEasing),
                 repeatMode = RepeatMode.Reverse
             ),
             label = "bg_offset_x"
         )
         val bgOffsetY by infiniteTransition.animateFloat(
-            initialValue = -10f,
-            targetValue = 10f,
+            initialValue = -14f,
+            targetValue = 14f,
             animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 18000, easing = LinearEasing),
+                animation = tween(durationMillis = 28000, easing = FastOutSlowInEasing),
                 repeatMode = RepeatMode.Reverse
             ),
             label = "bg_offset_y"
         )
         val bgScale by infiniteTransition.animateFloat(
-            initialValue = 1.05f,
-            targetValue = 1.12f,
+            initialValue = 1.04f,
+            targetValue = 1.14f,
             animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 20000, easing = LinearEasing),
+                animation = tween(durationMillis = 32000, easing = FastOutSlowInEasing),
                 repeatMode = RepeatMode.Reverse
             ),
             label = "bg_scale"
+        )
+        val ambientColorPhase by infiniteTransition.animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 26000, easing = LinearEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "ambient_color_phase"
         )
 
         Box(
@@ -586,22 +598,40 @@ fun HomeScreen(
                         .offset(x = bgOffsetX.dp, y = bgOffsetY.dp)
                 )
 
-                // Subtle glowing ambient light overlay that gently breathes with the movement
+                // Slow and smooth organic morphing ambient gradient overlay
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .background(
                             Brush.radialGradient(
                                 colors = listOf(
-                                    Color(0x22FF2A85),
-                                    Color(0x1500E5FF),
+                                    Color(0x35FF2E7E).copy(alpha = 0.18f + ambientColorPhase * 0.12f),
+                                    Color(0x2500E5FF).copy(alpha = 0.22f - ambientColorPhase * 0.10f),
+                                    Color(0x18180A30),
                                     Color.Transparent
                                 ),
                                 center = Offset(
-                                    x = 420f + bgOffsetX * 8f,
-                                    y = 650f + bgOffsetY * 8f
+                                    x = 420f + bgOffsetX * 10f,
+                                    y = 650f + bgOffsetY * 10f
                                 ),
-                                radius = 950f
+                                radius = 1050f
+                            )
+                        )
+                )
+
+                // Secondary soft floating aura for smooth visual richness
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.linearGradient(
+                                colors = listOf(
+                                    Color(0x1A6D28D9),
+                                    Color.Transparent,
+                                    Color(0x1500E5FF)
+                                ),
+                                start = Offset(bgOffsetX * 12f, bgOffsetY * 12f),
+                                end = Offset(1000f - bgOffsetX * 12f, 1800f - bgOffsetY * 12f)
                             )
                         )
                 )
@@ -645,6 +675,8 @@ fun HomeScreen(
                         searchQuery = ""
                         neliViewModel.selectTab(BottomNavTab.SEARCH)
                     },
+                    isCastActive = isCastActive,
+                    onCastClick = { showCastDialog = true },
                     adminSmsMessage = adminSmsMessage
                 )
 
@@ -665,6 +697,9 @@ fun HomeScreen(
                     activeDownloadCount = downloadingIds.size
                 )
             }
+
+            // Launch welcome / v2.5 update dialog with notification prompt
+            NeliV25WelcomeUpdateDialog()
         }
     }
 }

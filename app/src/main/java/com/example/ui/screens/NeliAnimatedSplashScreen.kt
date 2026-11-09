@@ -116,6 +116,11 @@ fun NeliAnimatedSplashScreen(
     )
 
     LaunchedEffect(Unit) {
+        // Signature cinematic intro audio ("Ta-Dum!" impact and neon chime)
+        launch {
+            NeliIntroAudioSynthesizer.playIntroChime()
+        }
+
         // Step 1: Initial State - Fade & scale in empty neon squircle
         launch {
             emblemAlpha.animateTo(1f, animationSpec = tween(400, easing = FastOutSlowInEasing))

@@ -100,6 +100,39 @@ object NeliCastManager {
         "Auto Adaptive HD • Continuous Buffer"
     )
 
+    private val _isRemotePlaying = MutableStateFlow(true)
+    val isRemotePlaying: StateFlow<Boolean> = _isRemotePlaying.asStateFlow()
+
+    private val _remoteVolume = MutableStateFlow(0.85f)
+    val remoteVolume: StateFlow<Float> = _remoteVolume.asStateFlow()
+
+    private val _isRemoteMuted = MutableStateFlow(false)
+    val isRemoteMuted: StateFlow<Boolean> = _isRemoteMuted.asStateFlow()
+
+    fun toggleRemotePlayPause() {
+        val next = !_isRemotePlaying.value
+        _isRemotePlaying.value = next
+        _statusMessage.value = if (next) "TV Playback: Playing ▶" else "TV Playback: Paused ⏸"
+    }
+
+    fun seekRemote(seconds: Int) {
+        val sign = if (seconds >= 0) "+$seconds" else "$seconds"
+        _statusMessage.value = "TV Seek: ${sign}s"
+    }
+
+    fun setRemoteVolume(vol: Float) {
+        val clamped = vol.coerceIn(0f, 1f)
+        _remoteVolume.value = clamped
+        if (clamped > 0f) _isRemoteMuted.value = false
+        _statusMessage.value = "TV Volume: ${(clamped * 100).toInt()}%"
+    }
+
+    fun toggleRemoteMute() {
+        val next = !_isRemoteMuted.value
+        _isRemoteMuted.value = next
+        _statusMessage.value = if (next) "TV Muted 🔇" else "TV Unmuted 🔊"
+    }
+
     fun syncUserAndSubscriptionInfo(
         userName: String,
         email: String,
@@ -262,42 +295,10 @@ object NeliCastManager {
             }
         }
 
-        // 4. Always include guaranteed Same Wi-Fi Discovery targets for Apple TV, AirPlay & Smart TV
-        val defaultWifiTargets = listOf(
-            CastTvDevice(
-                id = "wifi_airplay_receiver",
-                name = "Apple TV / AirPlay (Same Wi-Fi)",
-                subtitle = "Apple iOS, iPad & Apple TV • Ready to Stream",
-                protocol = "AirPlay (Apple iOS / TV)",
-                isSystemRoute = false,
-                isAirPlay = true
-            ),
-            CastTvDevice(
-                id = "wifi_googlecast_receiver",
-                name = "Chromecast / Google TV (Same Wi-Fi)",
-                subtitle = "Google Cast / Android TV • Ready to Stream",
-                protocol = "Google Cast / Smart TV",
-                isSystemRoute = false,
-                isAirPlay = false
-            ),
-            CastTvDevice(
-                id = "wifi_web_receiver",
-                name = "Scan to Cast (Web / Apple iOS TV Receiver)",
-                subtitle = "Fungua TV Browser kwa iOS, Mac au Smart TV",
-                protocol = "AirPlay / Web Receiver",
-                isSystemRoute = false,
-                isAirPlay = true
-            )
-        )
-        defaultWifiTargets.forEach { target ->
-            if (discovered.none { it.id == target.id || it.name.equals(target.name, ignoreCase = true) }) {
-                discovered.add(target)
-            }
-        }
-
+        // Real discovered devices on the same Wi-Fi network (no mock/preview TVs)
         _availableDevices.value = discovered.distinctBy { it.id }
 
-        // 5. Start active Wi-Fi discovery listeners for AirPlay and Google Cast
+        // 4. Start active Wi-Fi discovery listeners for AirPlay, Google Cast and DLNA
         startMultiProtocolNsdDiscovery(context)
         probeLocalWifiSubnet(context)
 
@@ -580,26 +581,14 @@ object NeliCastManager {
         )
     }
 
-    fun connectAndCastToTv(
+    fun connectToTv(
         device: CastTvDevice,
-        channel: LiveChannel? = null,
-        currentUser: UserAccountEntity? = null,
         context: Context? = null
     ): Boolean {
-        val targetChannel = channel
-            ?: _castingChannel.value
-            ?: ChannelRepository.liveChannelsFlow.value.firstOrNull()
-
-        if (isChannelLockedForCasting(targetChannel, currentUser, context)) {
-            _isPayToWatchBlocked.value = true
-            _castingChannel.value = null
-            _statusMessage.value = "Pay to Watch"
-            return false
-        }
-
         _isPayToWatchBlocked.value = false
         _connectedDevice.value = device
-        _castingChannel.value = targetChannel
+        _castingChannel.value = null
+        _statusMessage.value = "Connected to ${device.name}! Your TV is ready. Select any channel or movie to play."
 
         // Select matching Android MediaRouter live video route if present
         if (context != null) {
@@ -620,27 +609,55 @@ object NeliCastManager {
             } catch (_: Throwable) {
             }
         }
+        return true
+    }
 
-        val channelTitle = targetChannel?.name ?: "Nelitv Live Stream"
-        _statusMessage.value = "Inarusha (Casting) \"$channelTitle\" kwenda kwenye ${device.name}"
+    fun startCastingMedia(
+        channel: LiveChannel,
+        currentUser: UserAccountEntity? = null,
+        context: Context? = null
+    ): Boolean {
+        val dev = _connectedDevice.value ?: return false
+
+        if (isChannelLockedForCasting(channel, currentUser, context)) {
+            _isPayToWatchBlocked.value = true
+            _statusMessage.value = "Pay to Watch"
+            return false
+        }
+
+        _isPayToWatchBlocked.value = false
+        _castingChannel.value = channel
+        _isRemotePlaying.value = true
+        _statusMessage.value = "Now playing \"${channel.name}\" on ${dev.name}"
 
         // Send native AirPlay streaming request if device is an Apple TV / AirPlay receiver
-        if (device.isAirPlay && !device.ipAddress.isNullOrBlank() && targetChannel != null) {
-            val streamUrlToCast = targetChannel.streamUrl.ifBlank { targetChannel.backupStreamUrl }
+        if (dev.isAirPlay && !dev.ipAddress.isNullOrBlank()) {
+            val streamUrlToCast = channel.streamUrl.ifBlank { channel.backupStreamUrl }
             castScope.launch(Dispatchers.IO) {
-                sendAirPlayPlayCommand(device.ipAddress, device.port, streamUrlToCast)
+                sendAirPlayPlayCommand(dev.ipAddress, dev.port, streamUrlToCast)
             }
         }
 
         // Also update Scan to Cast session in case user also connected via Apple Web Receiver
         try {
-            if (targetChannel != null) {
-                com.example.player.ScanToCastManager.switchCastAzamChannel(targetChannel)
-            }
+            com.example.player.ScanToCastManager.switchCastAzamChannel(channel)
         } catch (_: Throwable) {
         }
 
         return true
+    }
+
+    fun connectAndCastToTv(
+        device: CastTvDevice,
+        channel: LiveChannel? = null,
+        currentUser: UserAccountEntity? = null,
+        context: Context? = null
+    ): Boolean {
+        if (channel == null) {
+            return connectToTv(device, context)
+        }
+        connectToTv(device, context)
+        return startCastingMedia(channel, currentUser, context)
     }
 
     fun connectByManualIp(

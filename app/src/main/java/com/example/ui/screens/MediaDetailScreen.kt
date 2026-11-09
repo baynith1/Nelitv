@@ -97,6 +97,9 @@ import com.example.ui.theme.NeliSurface
 import com.example.ui.theme.NeliSurfaceVariant
 import com.example.ui.theme.NeliTextPrimary
 import com.example.ui.theme.NeliTextSecondary
+import com.example.ads.StartIoBannerAd
+import com.example.ads.StartIoNativeCardAd
+import com.example.ads.NeliAdManager
 
 @Composable
 fun MediaDetailScreen(
@@ -535,10 +538,20 @@ fun MediaDetailScreen(
                 ) {
                     Button(
                         onClick = {
-                            if (media.isSeries && currentVodEpisode != null) {
-                                onPlayChannel(currentVodEpisode.toPlayableChannel(media.title))
+                            val playAction = {
+                                if (media.isSeries && currentVodEpisode != null) {
+                                    onPlayChannel(currentVodEpisode.toPlayableChannel(media.title))
+                                } else {
+                                    onPlayChannel(media.toPlayableChannel())
+                                }
+                            }
+                            val act = detailContext as? android.app.Activity
+                            if (act != null) {
+                                NeliAdManager.showChannelOpeningAd(act, media.title) {
+                                    playAction()
+                                }
                             } else {
-                                onPlayChannel(media.toPlayableChannel())
+                                playAction()
                             }
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta),
@@ -624,7 +637,15 @@ fun MediaDetailScreen(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                // Start.io Banner Ad below action buttons
+                StartIoBannerAd(
+                    adTag = "detail_page_banner",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp)
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
 
                 Text(
                     text = "Synopsis",
@@ -649,6 +670,19 @@ fun MediaDetailScreen(
                         fontWeight = FontWeight.Medium
                     )
                 }
+            }
+        }
+
+        // Start.io Native Sponsored Card in Media Details
+        item(key = "detail_native_sponsored_card") {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+            ) {
+                StartIoNativeCardAd(
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
         }
 

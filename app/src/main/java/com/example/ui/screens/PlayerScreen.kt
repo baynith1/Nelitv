@@ -744,7 +744,16 @@ fun PlayerScreen(
                     currentUser = null,
                     onDismiss = { showCastDialog = false },
                     onSelectChannelToWatchAndCast = { selectedCh ->
-                        playerController.switchChannel(selectedCh)
+                        if (connectedCastDevice != null) {
+                            com.example.player.NeliCastManager.startCastingMedia(
+                                channel = selectedCh,
+                                currentUser = null,
+                                context = context
+                            )
+                            activeExoPlayer.pause()
+                        } else {
+                            playerController.switchChannel(selectedCh)
+                        }
                     }
                 )
             }

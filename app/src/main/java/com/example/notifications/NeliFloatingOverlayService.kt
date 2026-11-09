@@ -67,6 +67,19 @@ class NeliFloatingOverlayService : Service() {
             } catch (_: Exception) {
             }
         }
+
+        fun showSplitScreenOverlayToast(context: Context) {
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Settings.canDrawOverlays(context)) {
+                    val intent = Intent(context, NeliFloatingOverlayService::class.java).apply {
+                        putExtra(EXTRA_TITLE, "NELITV • SPLIT SCREEN")
+                        putExtra(EXTRA_SUBTITLE, "Your device does not support split screen")
+                    }
+                    context.startService(intent)
+                }
+            } catch (_: Exception) {
+            }
+        }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null

@@ -40,14 +40,14 @@ data class AppUpdateReleaseInfo(
 
 object NeliAppUpdateManager {
 
-    const val CURRENT_APP_VERSION_TAG = "v1.0.2"
-    const val CURRENT_APP_VERSION_NAME = "1.0.2"
+    const val CURRENT_APP_VERSION_TAG = "v2.5"
+    const val CURRENT_APP_VERSION_NAME = "2.5"
 
     const val DEFAULT_APK_DOWNLOAD_URL =
-        "https://github.com/baynith1/Nelitv/releases/download/v1.0.2/Nelitv.apk"
+        "https://github.com/baynith1/Nelitv/releases/download/v2.5/Nelitv.apk"
 
     const val DEFAULT_GITHUB_RELEASE_TAG_URL =
-        "https://github.com/baynith1/Nelitv/releases/tag/v1.0.2"
+        "https://github.com/baynith1/Nelitv/releases/tag/v2.5"
 
     const val GITHUB_LATEST_RELEASE_API_URL =
         "https://api.github.com/repos/baynith1/Nelitv/releases/latest"
@@ -894,41 +894,31 @@ object NeliAppUpdateManager {
             return
         }
         val cleanTag = _releaseInfo.value.versionTag.trim().ifBlank { CURRENT_APP_VERSION_TAG }
-        val conflictAnalysis = inspectApkPackageConflict(
+        markReleaseAsInstalled(
             context = context,
-            apkFile = file,
-            targetVersionTag = cleanTag
+            versionTag = cleanTag,
+            publishedAt = _releaseInfo.value.publishedAt,
+            apkUrl = _releaseInfo.value.apkDownloadUrl
         )
-        if (conflictAnalysis.wouldCausePackageConflict) {
-            applyConflictFreeInAppUpdate(
-                context = context,
-                versionTag = cleanTag,
-                apkUrl = _releaseInfo.value.apkDownloadUrl,
-                savedFileName = file.name
+        val apkUri = try {
+            FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                file
             )
-            _showHomepageUpdatePopup.value = false
-        } else {
-            markReleaseAsInstalled(
-                context = context,
-                versionTag = cleanTag,
-                publishedAt = _releaseInfo.value.publishedAt,
-                apkUrl = _releaseInfo.value.apkDownloadUrl
-            )
-            val apkUri = try {
-                FileProvider.getUriForFile(
-                    context,
-                    "${context.packageName}.fileprovider",
-                    file
-                )
-            } catch (_: Exception) {
-                Uri.fromFile(file)
-            }
-            val installIntent = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(apkUri, "application/vnd.android.package-archive")
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
+        } catch (_: Exception) {
+            Uri.fromFile(file)
+        }
+        val installIntent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(apkUri, "application/vnd.android.package-archive")
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        try {
             context.startActivity(installIntent)
+            _showHomepageUpdatePopup.value = false
+        } catch (e: Exception) {
+            android.util.Log.e("NeliAppUpdateManager", "Failed to start install intent: ${e.message}")
         }
     }
 

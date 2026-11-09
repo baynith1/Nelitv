@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -34,15 +35,21 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.AddCircle
+import androidx.compose.material.icons.filled.AllInclusive
 import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.Cast
 import androidx.compose.material.icons.filled.CastConnected
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.FastForward
+import androidx.compose.material.icons.filled.FastRewind
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.PlayArrow
@@ -50,10 +57,13 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.SettingsRemote
 import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.VolumeOff
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.WorkspacePremium
 import com.example.ui.theme.rememberNeliScreenProfile
 import androidx.compose.material3.Button
@@ -67,6 +77,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -2957,9 +2969,8 @@ fun NeliCastModalSheet(
     val lockAllForFree by NeliAdminManager.areAllChannelsLocked.collectAsState()
     var isSearchingTv by remember { mutableStateOf(true) }
 
-    val selectedCastChannel = remember(currentChannel, castingChannel, availableChannels) {
-        currentChannel ?: castingChannel ?: availableChannels.firstOrNull()
-    }
+    val selectedCastChannel = castingChannel
+    var castCategoryFilter by rememberSaveable { mutableStateOf("All") }
 
     val isChannelLockedForUser = remember(
         selectedCastChannel?.id,
@@ -2994,6 +3005,10 @@ fun NeliCastModalSheet(
         isSearchingTv = false
     }
 
+    val isRemotePlaying by NeliCastManager.isRemotePlaying.collectAsState()
+    val remoteVolume by NeliCastManager.remoteVolume.collectAsState()
+    val isRemoteMuted by NeliCastManager.isRemoteMuted.collectAsState()
+
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -3001,20 +3016,29 @@ fun NeliCastModalSheet(
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 24.dp)
-                .widthIn(max = 500.dp)
+                .padding(horizontal = 14.dp, vertical = 20.dp)
+                .widthIn(max = 520.dp)
                 .testTag("cast_modal_dialog"),
-            shape = RoundedCornerShape(22.dp),
-            color = Color(0xFF101524)
+            shape = RoundedCornerShape(24.dp),
+            color = Color(0xFF0B0F19)
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .border(1.dp, Color(0x4400E5FF), RoundedCornerShape(22.dp))
+                    .border(
+                        BorderStroke(
+                            1.5.dp,
+                            Brush.linearGradient(
+                                listOf(Color(0xFF9333EA), Color(0xFF00E5FF), Color(0xFFEC4899))
+                            )
+                        ),
+                        RoundedCornerShape(24.dp)
+                    )
+                    .verticalScroll(rememberScrollState())
                     .padding(18.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                // Clean Header
+                // Top Header: NeliTv Branding + App Title + Close
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -3022,64 +3046,94 @@ fun NeliCastModalSheet(
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        modifier = Modifier.weight(1f)
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Box(
+                        Image(
+                            painter = painterResource(id = R.drawable.img_nelitv_app_logo_1790873809763),
+                            contentDescription = "NeliTv Logo",
+                            contentScale = ContentScale.Crop,
                             modifier = Modifier
-                                .size(40.dp)
-                                .clip(CircleShape)
-                                .background(
-                                    if (isCasting) Color(0x2234D399) else Color(0x2200E5FF)
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = if (isCasting) Icons.Default.CastConnected else Icons.Default.Cast,
-                                contentDescription = "Cast to TV",
-                                tint = if (isCasting) Color(0xFF34D399) else NeliGenreCyan,
-                                modifier = Modifier.size(22.dp)
-                            )
-                        }
+                                .size(38.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .border(1.5.dp, Color(0xFF00E5FF), RoundedCornerShape(10.dp))
+                        )
                         Column {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "Neli",
+                                    color = Color.White,
+                                    fontSize = 19.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                                Text(
+                                    text = "Tv",
+                                    color = Color(0xFFEC4899),
+                                    fontSize = 19.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                            }
                             Text(
-                                text = "Cast to TV",
-                                color = Color.White,
-                                fontSize = 17.sp,
-                                fontWeight = FontWeight.Black
-                            )
-                            Text(
-                                text = if (isChannelLockedForUser) {
-                                    "Pay to Watch"
-                                } else if (isCasting && !connectedTvName.isNullOrBlank()) {
-                                    "Connected: $connectedTvName"
-                                } else {
-                                    selectedCastChannel?.name ?: "Select a TV below"
-                                },
-                                color = when {
-                                    isChannelLockedForUser -> Color(0xFFFBBF24)
-                                    isCasting -> Color(0xFF34D399)
-                                    else -> NeliTextSecondary
-                                },
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold
+                                text = "Watch • Discover • Enjoy",
+                                color = NeliGenreCyan,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 0.5.sp
                             )
                         }
                     }
 
                     IconButton(
                         onClick = onDismiss,
-                        modifier = Modifier.testTag("cast_dialog_close_button")
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF1E293B))
+                            .testTag("cast_dialog_close_button")
                     ) {
                         Icon(
                             imageVector = Icons.Default.Close,
                             contentDescription = "Close",
-                            tint = NeliTextSecondary
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
                         )
                     }
                 }
 
-                // Pay to Watch Enforcement Banner when channel is locked by Admin
+                // Smart Casting Hero Banner
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(
+                            Brush.horizontalGradient(
+                                listOf(Color(0xFF3B0764), Color(0xFF1E1B4B), Color(0xFF0284C7))
+                            )
+                        )
+                        .border(1.dp, Color(0x6600E5FF), RoundedCornerShape(14.dp))
+                        .padding(horizontal = 14.dp, vertical = 10.dp)
+                ) {
+                    Column {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = "Smart Casting Made Easy!",
+                                color = Color(0xFFFDE047),
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Black
+                            )
+                        }
+                        Text(
+                            text = "Enjoy NeliTv on your Big Screen",
+                            color = Color.White.copy(alpha = 0.9f),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+
+                // Pay to Watch Banner if locked
                 if (isChannelLockedForUser || isPayToWatchBlocked) {
                     Column(
                         modifier = Modifier
@@ -3132,168 +3186,222 @@ fun NeliCastModalSheet(
                             )
                         }
                     }
-                } else if (!castStatusMessage.isNullOrBlank()) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(Color(0xFF17223B))
-                            .padding(10.dp)
-                    ) {
-                        Text(
-                            text = castStatusMessage!!,
-                            color = NeliGenreCyan,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
                 }
 
-                // Available TVs header + Search / Tafuta TV button
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        text = if (isSearchingTv) {
-                            "Searching TV..."
-                        } else {
-                            "TV Zilizopo (${discoveredDevices.size})"
-                        },
-                        color = NeliTextPrimary,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-
-                    OutlinedButton(
-                        onClick = triggerTvSearch,
-                        modifier = Modifier.testTag("cast_search_again_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Refresh,
-                            contentDescription = "Tafuta TV / Search",
-                            tint = NeliGenreCyan,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "Tafuta TV / Search",
-                            color = Color.White,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-
-                // Discovered TVs list
-                if (isSearchingTv) {
+                // ==========================================
+                // IF NOT CONNECTED: DEVICE SELECTION & SETUP
+                // ==========================================
+                if (!isCasting) {
+                    // Step 1 & 2 Progress
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(NeliSurface)
-                            .padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        CircularProgressIndicator(
-                            color = NeliGenreCyan,
-                            strokeWidth = 2.5.dp,
-                            modifier = Modifier.size(22.dp)
-                        )
-                        Text(
-                            text = "Inatafuta TV zilizopo kwenye Wi-Fi...",
-                            color = NeliTextSecondary,
-                            fontSize = 12.sp
-                        )
-                    }
-                } else if (discoveredDevices.isEmpty()) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(NeliSurface)
-                            .border(1.dp, NeliBorder, RoundedCornerShape(12.dp))
-                            .padding(14.dp)
-                            .testTag("cast_no_devices_found_box"),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Tv,
-                            contentDescription = null,
-                            tint = NeliTextSecondary,
-                            modifier = Modifier.size(26.dp)
-                        )
-                        Text(
-                            text = "Hakuna TV iliyopatikana bado",
-                            color = Color.White,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            textAlign = TextAlign.Center
-                        )
-                        Text(
-                            text = "Bonyeza 'Tafuta TV / Search' au fungua 'Wireless TV Setting' kuunganisha Smart TV yako.",
-                            color = NeliTextSecondary,
-                            fontSize = 11.sp,
-                            textAlign = TextAlign.Center
-                        )
-                    }
-                } else {
-                    Column(
                         modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        discoveredDevices.forEach { device: CastTvDevice ->
-                            val isThisDeviceConnected = isCasting && connectedTvName == device.name
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color(0xFF0F2E23))
+                                .border(1.dp, Color(0xFF10B981), RoundedCornerShape(10.dp))
+                                .padding(8.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
                             Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(
-                                        if (isThisDeviceConnected) Color(0xFF0E2923) else NeliSurface
-                                    )
-                                    .border(
-                                        width = 1.dp,
-                                        color = if (isThisDeviceConnected) Color(0xFF10B981) else NeliBorder,
-                                        shape = RoundedCornerShape(12.dp)
-                                    )
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(18.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF10B981)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text("1", color = Color.Black, fontSize = 10.sp, fontWeight = FontWeight.Black)
+                                }
+                                Text("Open & Tap Cast ✓", color = Color(0xFF34D399), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color(0xFF1E1B4B))
+                                .border(1.dp, Color(0xFF818CF8), RoundedCornerShape(10.dp))
+                                .padding(8.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(18.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF6366F1)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text("2", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Black)
+                                }
+                                Text("Select Your TV", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+
+                    // Device Selection Title & Refresh
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Cast,
+                                contentDescription = null,
+                                tint = NeliGenreCyan,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Text(
+                                text = "Cast to Available Devices",
+                                color = Color.White,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        IconButton(
+                            onClick = triggerTvSearch,
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF1E293B))
+                                .testTag("cast_search_again_button")
+                        ) {
+                            if (isSearchingTv) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    color = NeliGenreCyan,
+                                    strokeWidth = 2.dp
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.Refresh,
+                                    contentDescription = "Refresh",
+                                    tint = NeliGenreCyan,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    // List of compatible devices
+                    if (isSearchingTv) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color(0xFF131B2E))
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            CircularProgressIndicator(
+                                color = NeliGenreCyan,
+                                strokeWidth = 2.5.dp,
+                                modifier = Modifier.size(22.dp)
+                            )
+                            Text(
+                                text = "Inatafuta Smart TV na vifaa vya Cast kwenye Wi-Fi...",
+                                color = Color.White,
+                                fontSize = 12.sp
+                            )
+                        }
+                    } else if (discoveredDevices.isEmpty()) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(Color(0xFF131B2E))
+                                .border(1.dp, Color(0xFF1E293B), RoundedCornerShape(14.dp))
+                                .padding(16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Tv,
+                                contentDescription = null,
+                                tint = Color(0xFF64748B),
+                                modifier = Modifier.size(32.dp)
+                            )
+                            Text(
+                                text = "Hakuna Smart TV iliyopatikana kwenye Wi-Fi bado",
+                                color = Color.White,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.Center
+                            )
+                            Text(
+                                text = "Hakikisha Smart TV yako au kifaa cha Google Cast / Apple TV kiko kwenye mtandao (Wi-Fi) mmoja na simu hii.",
+                                color = Color(0xFF94A3B8),
+                                fontSize = 11.sp,
+                                textAlign = TextAlign.Center
+                            )
+                            Button(
+                                onClick = triggerTvSearch,
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Icon(imageVector = Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(14.dp), tint = NeliGenreCyan)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Tafuta Tena (Search)", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    } else {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            discoveredDevices.forEach { device: CastTvDevice ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .background(Color(0xFF131B2E))
+                                        .border(1.dp, Color(0xFF1E293B), RoundedCornerShape(14.dp))
                                     .clickable {
-                                        if (isChannelLockedForUser) {
-                                            NeliCastManager.connectAndCastToTv(
-                                                device = device,
-                                                channel = selectedCastChannel,
-                                                currentUser = currentUser,
-                                                context = context
-                                            )
-                                        } else {
-                                            val ok = NeliCastManager.connectAndCastToTv(
-                                                device = device,
-                                                channel = selectedCastChannel,
-                                                currentUser = currentUser,
-                                                context = context
-                                            )
-                                            if (ok) {
-                                                selectedCastChannel?.let { onSelectChannelToWatchAndCast(it) }
-                                            }
-                                        }
+                                        NeliCastManager.connectToTv(device = device, context = context)
                                     }
-                                    .padding(12.dp)
+                                    .padding(horizontal = 14.dp, vertical = 12.dp)
                                     .testTag("cast_device_item_${device.id}"),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
                                     modifier = Modifier.weight(1f)
                                 ) {
-                                    Icon(
-                                        imageVector = if (isThisDeviceConnected) Icons.Default.CastConnected else Icons.Default.Tv,
-                                        contentDescription = null,
-                                        tint = if (isThisDeviceConnected) Color(0xFF34D399) else NeliGenreCyan
-                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .size(38.dp)
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(
+                                                if (device.isAirPlay) Color(0xFF1E1B4B) else Color(0xFF0C243B)
+                                            ),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Tv,
+                                            contentDescription = null,
+                                            tint = if (device.isAirPlay) Color(0xFFA78BFA) else Color(0xFF38BDF8),
+                                            modifier = Modifier.size(22.dp)
+                                        )
+                                    }
                                     Column {
                                         Text(
                                             text = device.name,
@@ -3303,186 +3411,880 @@ fun NeliCastModalSheet(
                                         )
                                         Text(
                                             text = "${device.protocol} • ${device.subtitle}",
-                                            color = NeliTextSecondary,
+                                            color = Color(0xFF94A3B8),
                                             fontSize = 11.sp
                                         )
                                     }
                                 }
 
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(
+                                            Brush.horizontalGradient(
+                                                listOf(Color(0xFF9333EA), Color(0xFFEC4899))
+                                            )
+                                        )
+                                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                                ) {
+                                    Text(
+                                        text = "Connect",
+                                        color = Color.White,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    }
+
+                    // Apple TV Direct IP Connect
+                    var showManualIpInput by rememberSaveable { mutableStateOf(false) }
+                    var manualIpText by rememberSaveable { mutableStateOf("") }
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color(0xFF131B2E))
+                            .padding(10.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { showManualIpInput = !showManualIpInput },
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Tv,
+                                    contentDescription = null,
+                                    tint = Color(0xFFA78BFA),
+                                    modifier = Modifier.size(16.dp)
+                                )
                                 Text(
-                                    text = when {
-                                        isChannelLockedForUser -> "Pay to Watch"
-                                        isThisDeviceConnected -> "Connected ✓"
-                                        else -> "Connect"
-                                    },
-                                    color = when {
-                                        isChannelLockedForUser -> Color(0xFFFBBF24)
-                                        isThisDeviceConnected -> Color(0xFF34D399)
-                                        else -> NeliMagenta
-                                    },
+                                    text = "Apple TV / AirPlay Direct IP Connection",
+                                    color = Color.White,
                                     fontSize = 12.sp,
-                                    fontWeight = FontWeight.ExtraBold
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                            Icon(
+                                imageVector = if (showManualIpInput) Icons.Default.Close else Icons.Default.AddCircle,
+                                contentDescription = null,
+                                tint = NeliTextSecondary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+
+                        if (showManualIpInput) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedTextField(
+                                    value = manualIpText,
+                                    onValueChange = { manualIpText = it },
+                                    placeholder = { Text("192.168.1.50", fontSize = 12.sp) },
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.weight(1f).testTag("cast_manual_ip_input")
+                                )
+                                Button(
+                                    onClick = {
+                                        val ip = manualIpText.trim()
+                                        if (ip.isNotBlank()) {
+                                            NeliCastManager.connectByManualIp(
+                                                ip = ip,
+                                                isAirPlay = true,
+                                                channel = selectedCastChannel,
+                                                currentUser = currentUser,
+                                                context = context
+                                            )
+                                        }
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta),
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.testTag("cast_manual_ip_connect_button")
+                                ) {
+                                    Text("Connect", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+
+                    // How It Works Card (Matching Infographic)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(Color(0xFF101A2F))
+                            .border(1.dp, Color(0xFF1E3A8A), RoundedCornerShape(14.dp))
+                            .padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CheckCircle,
+                                contentDescription = null,
+                                tint = Color(0xFFFDE047),
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Text(
+                                text = "How It Works",
+                                color = Color(0xFFFDE047),
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Black
+                            )
+                        }
+
+                        Text(
+                            text = "Your phone becomes a remote control, and the video plays directly on TV.",
+                            color = Color.White.copy(alpha = 0.9f),
+                            fontSize = 11.sp
+                        )
+
+                        val benefits = listOf(
+                            "No notifications on TV",
+                            "Independent playback",
+                            "Control: Play, Pause, Next, Volume",
+                            "Works even if you get a call or message"
+                        )
+                        benefits.forEach { benefit ->
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(16.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF10B981)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Check,
+                                        contentDescription = null,
+                                        tint = Color.Black,
+                                        modifier = Modifier.size(11.dp)
+                                    )
+                                }
+                                Text(
+                                    text = benefit,
+                                    color = Color.White,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium
                                 )
                             }
                         }
                     }
-                }
 
-                // Apple TV / AirPlay Direct IP Connect Option
-                var showManualIpInput by rememberSaveable { mutableStateOf(false) }
-                var manualIpText by rememberSaveable { mutableStateOf("") }
-
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(NeliSurface)
-                        .padding(10.dp)
-                ) {
-                    Row(
+                    // Supported Devices Card
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { showManualIpInput = !showManualIpInput },
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(Color(0xFF131B2E))
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Tv,
+                                imageVector = Icons.Default.Star,
                                 contentDescription = null,
-                                tint = NeliGenreCyan,
-                                modifier = Modifier.size(18.dp)
+                                tint = Color(0xFFFDE047),
+                                modifier = Modifier.size(16.dp)
                             )
                             Text(
-                                text = "Unganisha moja kwa moja kwa IP (Apple TV / AirPlay)",
-                                color = Color.White,
+                                text = "Supported Devices",
+                                color = Color(0xFFFDE047),
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold
                             )
                         }
-                        Icon(
-                            imageVector = if (showManualIpInput) Icons.Default.Close else Icons.Default.AddCircle,
-                            contentDescription = null,
-                            tint = NeliTextSecondary
-                        )
-                    }
 
-                    if (showManualIpInput) {
-                        Spacer(modifier = Modifier.height(8.dp))
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            OutlinedTextField(
-                                value = manualIpText,
-                                onValueChange = { manualIpText = it },
-                                placeholder = { Text("mfano: 192.168.1.50", fontSize = 12.sp) },
-                                singleLine = true,
-                                shape = RoundedCornerShape(8.dp),
-                                modifier = Modifier.weight(1f).testTag("cast_manual_ip_input")
-                            )
-                            Button(
-                                onClick = {
-                                    val ip = manualIpText.trim()
-                                    if (ip.isNotBlank()) {
-                                        NeliCastManager.connectByManualIp(
-                                            ip = ip,
-                                            isAirPlay = true,
-                                            channel = selectedCastChannel,
-                                            currentUser = currentUser,
-                                            context = context
-                                        )
-                                    }
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta),
-                                shape = RoundedCornerShape(8.dp),
-                                modifier = Modifier.testTag("cast_manual_ip_connect_button")
-                            ) {
-                                Text("Connect", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            listOf(
+                                "Google Cast (Chromecast)",
+                                "Google TV & Android TV",
+                                "Apple TV (AirPlay)",
+                                "NVIDIA Shield",
+                                "All Smart TVs (Samsung, LG, etc.)"
+                            ).forEach { devLabel ->
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(Color(0xFF1E293B))
+                                        .border(1.dp, Color(0x3300E5FF), RoundedCornerShape(8.dp))
+                                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                                ) {
+                                    Text(
+                                        text = devLabel,
+                                        color = Color.White,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
                             }
                         }
                     }
-                }
 
-                // Bottom Action Buttons: Wireless TV Setting & Cast to Play Now
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
+                    // System Cast Settings Button
                     OutlinedButton(
-                        onClick = {
-                            NeliCastManager.openSystemCastSettings(context)
-                        },
+                        onClick = { NeliCastManager.openSystemCastSettings(context) },
                         modifier = Modifier
-                            .weight(1f)
-                            .height(48.dp)
-                            .testTag("cast_open_system_settings_button")
+                            .fillMaxWidth()
+                            .height(44.dp)
+                            .testTag("cast_open_system_settings_button"),
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, Color(0xFF38BDF8))
                     ) {
                         Icon(
                             imageVector = Icons.Default.SettingsRemote,
                             contentDescription = null,
+                            tint = Color(0xFF38BDF8),
                             modifier = Modifier.size(16.dp)
                         )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Wireless TV Setting", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Wireless TV Display Settings",
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
 
-                    if (isCasting) {
+                    // Bottom Banner: "Cast Once. Enjoy Forever! FREE FOREVER!"
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(
+                                Brush.horizontalGradient(
+                                    listOf(Color(0xFF047857), Color(0xFF0F766E), Color(0xFF1E3A8A))
+                                )
+                            )
+                            .padding(horizontal = 14.dp, vertical = 10.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.AllInclusive,
+                                    contentDescription = null,
+                                    tint = Color(0xFF34D399),
+                                    modifier = Modifier.size(24.dp)
+                                )
+                                Column {
+                                    Text(
+                                        text = "Cast Once. Enjoy Forever!",
+                                        color = Color.White,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Black
+                                    )
+                                    Text(
+                                        text = "100% Free Forever with Ads",
+                                        color = Color(0xFF6EE7B7),
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Color(0xFF10B981))
+                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                            ) {
+                                Text(
+                                    text = "FREE FOREVER!",
+                                    color = Color.Black,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                            }
+                        }
+                    }
+
+                } else {
+                    // ==========================================
+                    // IF CONNECTED: STANDBY SCREEN & PHONE REMOTE
+                    // ==========================================
+
+                    // Step 3: Connected Banner
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(
+                                Brush.horizontalGradient(
+                                    listOf(Color(0xFF064E3B), Color(0xFF065F46), Color(0xFF047857))
+                                )
+                            )
+                            .border(1.dp, Color(0xFF10B981), RoundedCornerShape(16.dp))
+                            .padding(14.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFF10B981)),
+                                    contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = null,
+                                    tint = Color.Black,
+                                    modifier = Modifier.size(26.dp)
+                                )
+                            }
+
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Connected!",
+                                    color = Color.White,
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                                Text(
+                                    text = "Your TV ($connectedTvName) is ready to watch.",
+                                    color = Color(0xFFA7F3D0),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+
+                            Icon(
+                                imageVector = Icons.Default.CastConnected,
+                                contentDescription = null,
+                                tint = Color(0xFF6EE7B7),
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
+                    }
+
+                    // Step 4: Standby Screen Display (Styled like NeliTv Big Screen in Infographic)
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(18.dp)),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF030712)),
+                        border = BorderStroke(2.dp, Brush.horizontalGradient(listOf(Color(0xFF9333EA), Color(0xFF00E5FF))))
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(
+                                    Brush.verticalGradient(
+                                        listOf(Color(0xFF0F172A), Color(0xFF020617))
+                                    )
+                                )
+                                .padding(18.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            // Standby Screen Header
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Image(
+                                    painter = painterResource(id = R.drawable.img_nelitv_app_logo_1790873809763),
+                                    contentDescription = null,
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                )
+                                Row {
+                                    Text("Neli", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Black)
+                                    Text("Tv", color = Color(0xFFEC4899), fontSize = 22.sp, fontWeight = FontWeight.Black)
+                                }
+                            }
+
+                            Text(
+                                text = "Your TV is connected!",
+                                color = Color.White,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Black,
+                                textAlign = TextAlign.Center
+                            )
+
+                            Text(
+                                text = "Play any channel or movie on your phone to start watching here.",
+                                color = Color(0xFF94A3B8),
+                                fontSize = 12.sp,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.padding(horizontal = 12.dp)
+                            )
+
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(20.dp))
+                                    .background(
+                                        Brush.horizontalGradient(
+                                            listOf(Color(0xFF2563EB), Color(0xFF7C3AED))
+                                        )
+                                    )
+                                    .padding(horizontal = 14.dp, vertical = 6.dp)
+                            ) {
+                                Text(
+                                    text = "Watch • Discover • Enjoy",
+                                    color = Color.White,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+
+                            // Active streaming title
+                            selectedCastChannel?.let { activeCh ->
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(Color(0xFF1E293B))
+                                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(
+                                            text = "Playing: ${activeCh.name}",
+                                            color = NeliGenreCyan,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            text = "1080p Anti-Stutter HD",
+                                            color = Color(0xFF34D399),
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.ExtraBold
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Phone Remote Control Card (Shown whenever media is streaming on TV)
+                    if (selectedCastChannel != null) {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(18.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFF111827)),
+                            border = BorderStroke(1.dp, Color(0xFF374151))
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(14.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.PhoneAndroid,
+                                            contentDescription = null,
+                                            tint = Color(0xFFF472B6),
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Text(
+                                            text = "Phone Remote Control",
+                                            color = Color.White,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Black
+                                        )
+                                    }
+
+                                    Text(
+                                        text = if (isRemotePlaying) "Playing on TV ▶" else "Paused ⏸",
+                                        color = if (isRemotePlaying) Color(0xFF34D399) else Color(0xFFFBBF24),
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+
+                                // Playback controls row: Rewind 10s, Play/Pause, Forward 10s
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceEvenly
+                                ) {
+                                    IconButton(
+                                        onClick = { NeliCastManager.seekRemote(-10) },
+                                        modifier = Modifier
+                                            .size(48.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFF1F2937))
+                                            .testTag("remote_seek_back_button")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.FastRewind,
+                                            contentDescription = "Rewind 10s",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                    }
+
+                                    IconButton(
+                                        onClick = { NeliCastManager.toggleRemotePlayPause() },
+                                        modifier = Modifier
+                                            .size(60.dp)
+                                            .clip(CircleShape)
+                                            .background(
+                                                Brush.horizontalGradient(
+                                                    listOf(Color(0xFF9333EA), Color(0xFFEC4899))
+                                                )
+                                            )
+                                            .testTag("remote_play_pause_button")
+                                    ) {
+                                        Icon(
+                                            imageVector = if (isRemotePlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                            contentDescription = if (isRemotePlaying) "Pause" else "Play",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(32.dp)
+                                        )
+                                    }
+
+                                    IconButton(
+                                        onClick = { NeliCastManager.seekRemote(10) },
+                                        modifier = Modifier
+                                            .size(48.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFF1F2937))
+                                            .testTag("remote_seek_forward_button")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.FastForward,
+                                            contentDescription = "Forward 10s",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                    }
+                                }
+
+                                // Volume Slider Row
+                                Column(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            IconButton(
+                                                onClick = { NeliCastManager.toggleRemoteMute() },
+                                                modifier = Modifier.size(28.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = if (isRemoteMuted) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
+                                                    contentDescription = "Mute",
+                                                    tint = if (isRemoteMuted) Color(0xFFEF4444) else NeliGenreCyan,
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                            }
+                                            Text(
+                                                text = "TV Volume",
+                                                color = Color.White,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+
+                                        Text(
+                                            text = if (isRemoteMuted) "Muted" else "${(remoteVolume * 100).toInt()}%",
+                                            color = Color(0xFF94A3B8),
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    }
+
+                                    Slider(
+                                        value = if (isRemoteMuted) 0f else remoteVolume,
+                                        onValueChange = { NeliCastManager.setRemoteVolume(it) },
+                                        valueRange = 0f..1f,
+                                        colors = SliderDefaults.colors(
+                                            thumbColor = Color(0xFF00E5FF),
+                                            activeTrackColor = Color(0xFF00E5FF),
+                                            inactiveTrackColor = Color(0xFF334155)
+                                        ),
+                                        modifier = Modifier.fillMaxWidth().testTag("remote_volume_slider")
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Complete Channel & Movie Picker Section (Automatic list to choose from)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(Color(0xFF0D1527))
+                            .border(1.dp, Color(0xFF1E293B), RoundedCornerShape(16.dp))
+                            .padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Tv,
+                                    contentDescription = null,
+                                    tint = NeliGenreCyan,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Text(
+                                    text = if (selectedCastChannel == null) "Chagua Channel ya Kuplay kwenye TV:" else "Badilisha Channel / Movie kwenye TV:",
+                                    color = Color.White,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
+                        // Category Filter Chips
+                        val castCategories = listOf("All", "Sports", "Movies", "Kids", "Series", "News")
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            castCategories.forEach { cat ->
+                                val isSelected = castCategoryFilter.equals(cat, ignoreCase = true)
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(
+                                            if (isSelected) Color(0xFF9333EA) else Color(0xFF1E293B)
+                                        )
+                                        .clickable { castCategoryFilter = cat }
+                                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                                ) {
+                                    Text(
+                                        text = cat,
+                                        color = if (isSelected) Color.White else Color(0xFF94A3B8),
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+
+                        // Filtered Channels List
+                        val filteredList = remember(availableChannels, castCategoryFilter) {
+                            if (castCategoryFilter.equals("All", ignoreCase = true)) {
+                                availableChannels
+                            } else {
+                                availableChannels.filter {
+                                    it.category.contains(castCategoryFilter, ignoreCase = true) ||
+                                        it.name.contains(castCategoryFilter, ignoreCase = true)
+                                }
+                            }
+                        }
+
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            filteredList.take(12).forEach { ch ->
+                                val isCurrentlyCasting = ch.id == selectedCastChannel?.id
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(
+                                            if (isCurrentlyCasting) Color(0xFF1E1B4B) else Color(0xFF131B2E)
+                                        )
+                                        .border(
+                                            1.dp,
+                                            if (isCurrentlyCasting) Color(0xFF00E5FF) else Color(0xFF1E293B),
+                                            RoundedCornerShape(12.dp)
+                                        )
+                                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(34.dp)
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(Color(0xFF1F2937)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Tv,
+                                                contentDescription = null,
+                                                tint = if (isCurrentlyCasting) Color(0xFF00E5FF) else Color(0xFF94A3B8),
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+
+                                        Column {
+                                            Text(
+                                                text = ch.name,
+                                                color = Color.White,
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            Text(
+                                                text = "${ch.category} • Anti-Stutter 1080p",
+                                                color = Color(0xFF94A3B8),
+                                                fontSize = 10.sp
+                                            )
+                                        }
+                                    }
+
+                                    Button(
+                                        onClick = {
+                                            NeliCastManager.startCastingMedia(
+                                                channel = ch,
+                                                currentUser = currentUser,
+                                                context = context
+                                            )
+                                        },
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = if (isCurrentlyCasting) Color(0xFF10B981) else Color(0xFF9333EA)
+                                        ),
+                                        shape = RoundedCornerShape(8.dp),
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                        modifier = Modifier.height(34.dp).testTag("cast_play_on_tv_${ch.id}")
+                                    ) {
+                                        Icon(
+                                            imageVector = if (isCurrentlyCasting) Icons.Default.CastConnected else Icons.Default.PlayArrow,
+                                            contentDescription = null,
+                                            tint = Color.White,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = if (isCurrentlyCasting) "Playing on TV" else "Play on TV",
+                                            color = Color.White,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Independent playback confirmation
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color(0xFF0F172A))
+                            .border(1.dp, Color(0xFF1E293B), RoundedCornerShape(12.dp))
+                            .padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CheckCircle,
+                            contentDescription = null,
+                            tint = Color(0xFF10B981),
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = "TV playback is independent of phone notifications, lock screen, and incoming phone calls.",
+                            color = Color(0xFF94A3B8),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+
+                    // Bottom Disconnect & Keep Watching Row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
                         Button(
-                            onClick = {
-                                NeliCastManager.disconnectCast()
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = NeliLiveRed),
+                            onClick = { NeliCastManager.disconnectCast() },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
+                            shape = RoundedCornerShape(12.dp),
                             modifier = Modifier
                                 .weight(1f)
                                 .height(48.dp)
                                 .testTag("cast_disconnect_button")
                         ) {
-                            Text("Stop Casting", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Text(
+                                text = "Stop Casting",
+                                color = Color.White,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold
+                            )
                         }
-                    } else {
+
                         Button(
-                            onClick = {
-                                if (isChannelLockedForUser) {
-                                    onDismiss()
-                                    onGoToPremium()
-                                } else {
-                                    val targetDevice = discoveredDevices.firstOrNull()
-                                    if (targetDevice != null) {
-                                        NeliCastManager.connectAndCastToTv(
-                                            device = targetDevice,
-                                            channel = selectedCastChannel,
-                                            currentUser = currentUser,
-                                            context = context
-                                        )
-                                    }
-                                    selectedCastChannel?.let { onSelectChannelToWatchAndCast(it) }
-                                    onDismiss()
-                                }
-                            },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = if (isChannelLockedForUser) Color(0xFFF59E0B) else NeliMagenta
-                            ),
+                            onClick = onDismiss,
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
+                            shape = RoundedCornerShape(12.dp),
                             modifier = Modifier
                                 .weight(1f)
                                 .height(48.dp)
-                                .testTag("cast_start_watching_button")
+                                .testTag("cast_keep_watching_button")
                         ) {
-                            Icon(
-                                imageVector = if (isChannelLockedForUser) Icons.Default.Lock else Icons.Default.PlayArrow,
-                                contentDescription = null,
-                                tint = if (isChannelLockedForUser) Color.Black else Color.White,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = if (isChannelLockedForUser) "Pay to Watch" else "Cast to Play Now",
-                                color = if (isChannelLockedForUser) Color.Black else Color.White,
-                                fontSize = 12.sp,
+                                text = "Keep Watching",
+                                color = Color.White,
+                                fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold
                             )
                         }

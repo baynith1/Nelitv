@@ -598,7 +598,7 @@ object ChannelRepository {
             streamUrl = "https://amg01753-narrativeuk-amg01753c1-rakuten-uk-2339.playouts.now.amagi.tv/1080p/index.m3u8",
             backupStreamUrl = "https://amg01753-narrativeuk-amg01753c1-rakuten-uk-2339.playouts.now.amagi.tv/1080p/index.m3u8",
             streamFormat = "hls",
-            thumbnailUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQiuCodQn6rh_w9wBibE0iJuvh8MXfe1ADizsanCYJuzg&s=10",
+            thumbnailUrl = "android.resource://com.example/drawable/tinypop_kids_logo",
             categories = listOf("kids", "azam tv"),
             language = "en",
             encryptionType = "none",
@@ -652,22 +652,6 @@ object ChannelRepository {
             clearKeys = mapOf("8714fe102679348e9c76cfd315dacaa0" to "a8b86ceda831061c13c7c4c67bd77f8e"),
             country = "Tanzania",
             featured = true
-        ),
-        // 18. POP Animation Network (Tanzania Live TV - HLS M3U8)
-        LiveChannel(
-            id = "tv_1788953482934_twaqe",
-            name = "POP Animation Network",
-            description = "Kids • Tanzania Live TV",
-            streamUrl = "https://narrative-popkids-rakuten.amagi.tv/1080p/index.m3u8",
-            streamFormat = "hls",
-            thumbnailUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSDr0lcgVyDkVpdt6fh7yCYby-shZUQ3K3e_pBwt6j8HA&s=10",
-            categories = listOf("kids", "tanzania"),
-            language = "en",
-            encryptionType = "none",
-            country = "Tanzania",
-            featured = true,
-            enabled = true,
-            published = true
         ),
         // 19. Baby Tv (MPD + ClearKey)
         LiveChannel(
@@ -1546,7 +1530,7 @@ object ChannelRepository {
             return "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRZD3actU8XChxT38HWiBH-1Q7n60jJbzh8LGf1AMA-sQ&s=10"
         }
         if (lowerId.contains("tinypop") || lowerName.contains("tinypop") || lowerName.contains("tiny pop")) {
-            return "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQiuCodQn6rh_w9wBibE0iJuvh8MXfe1ADizsanCYJuzg&s=10"
+            return "android.resource://com.example/drawable/tinypop_kids_logo"
         }
         if (lowerId.contains("tom_and_jerry") || lowerName.contains("tom and jerry") || lowerName.contains("tom & jerry")) {
             return "https://i.pinimg.com/1200x/d2/d0/c6/d2d0c69e6ec56ef717b9bbc23fc8e2fc.jpg"
@@ -1577,7 +1561,7 @@ object ChannelRepository {
             return "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRZD3actU8XChxT38HWiBH-1Q7n60jJbzh8LGf1AMA-sQ&s=10"
         }
         if (lowerId.contains("tinypop") || lowerName.contains("tinypop") || lowerName.contains("tiny pop")) {
-            return "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQiuCodQn6rh_w9wBibE0iJuvh8MXfe1ADizsanCYJuzg&s=10"
+            return "android.resource://com.example/drawable/tinypop_kids_logo"
         }
         if (lowerId.contains("tom_and_jerry") || lowerName.contains("tom and jerry") || lowerName.contains("tom & jerry")) {
             return "https://i.pinimg.com/1200x/d2/d0/c6/d2d0c69e6ec56ef717b9bbc23fc8e2fc.jpg"
