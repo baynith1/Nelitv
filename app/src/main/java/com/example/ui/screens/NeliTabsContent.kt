@@ -2359,9 +2359,9 @@ fun AccountTabContent(
                                     )
                                     Text(
                                         text = if (isFreeForeverVipUser) {
-                                            "Free Forever VIP ✓ (Bure Milele • Max Vifaa 2)"
+                                            "Free Forever VIP ✓ (Max 2 Devices)"
                                         } else {
-                                            "Premium Member ✓ (Verified • ${subState.planTitle.ifBlank { "VIP" }})"
+                                            "Premium Member ✓ (${subState.planTitle.ifBlank { "VIP" }})"
                                         },
                                         color = Color(0xFFFBBF24),
                                         fontSize = 11.sp,
@@ -2377,7 +2377,7 @@ fun AccountTabContent(
                             )
                             Text(
                                 text = when {
-                                    isFreeForeverVipUser -> "Free Forever VIP • Channels Zote Wazi Milele (Max 2 Devices)"
+                                    isFreeForeverVipUser -> "Free Forever VIP (Max 2 Devices)"
                                     isVerifiedPremiumMember -> "Muda Uliobaki: ${subState.formatLiveCountdown(accountCurrentTimeMs)}"
                                     else -> "Free User • Account Synced"
                                 },
@@ -2437,30 +2437,74 @@ fun AccountTabContent(
                         }
                     }
 
-                    OutlinedButton(
-                        onClick = {
-                            isAdminPanelOpen = false
-                            isFullAdminDashboardOpen = false
-                            onSignOut()
-                        },
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(46.dp)
-                            .testTag("sign_out_button")
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.Logout,
-                            contentDescription = null,
-                            tint = NeliMagenta,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Sign Out",
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold
-                        )
+                        OutlinedButton(
+                            onClick = {
+                                try {
+                                    val intent = android.accounts.AccountManager.newChooseAccountIntent(
+                                        null,
+                                        null,
+                                        arrayOf("com.google"),
+                                        null,
+                                        null,
+                                        null,
+                                        null
+                                    )
+                                    deviceGoogleAccountPickerLauncher.launch(intent)
+                                } catch (_: Throwable) {
+                                    onChooseGoogleAccount()
+                                }
+                            },
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(46.dp)
+                                .testTag("switch_account_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Person,
+                                contentDescription = null,
+                                tint = NeliGenreCyan,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Switch Account",
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp
+                            )
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                isAdminPanelOpen = false
+                                isFullAdminDashboardOpen = false
+                                onSignOut()
+                            },
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(46.dp)
+                                .testTag("sign_out_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.Logout,
+                                contentDescription = null,
+                                tint = NeliMagenta,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Sign Out",
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp
+                            )
+                        }
                     }
                 }
             }
@@ -2959,69 +3003,50 @@ fun NeliGoogleAccountAuthSection(
             .tvCardGrow(shape = RoundedCornerShape(22.dp))
             .clip(RoundedCornerShape(22.dp))
             .background(NeliSurface)
-            .border(1.dp, Color(0x44A855F7), RoundedCornerShape(22.dp))
+            .border(
+                1.dp,
+                Brush.horizontalGradient(listOf(Color(0xFF9333EA), Color(0xFF00E5FF), Color(0xFFEC4899))),
+                RoundedCornerShape(22.dp)
+            )
             .padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        // Top Header: Sign Up with Google
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             Box(
                 modifier = Modifier
-                    .size(52.dp)
-                    .clip(CircleShape)
-                    .background(Color.White),
+                    .size(46.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(
+                        Brush.linearGradient(
+                            listOf(Color(0xFF9333EA), Color(0xFF00E5FF))
+                        )
+                    ),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = "G",
-                    color = NeliMagenta,
+                    color = Color.White,
                     fontWeight = FontWeight.Black,
-                    fontSize = 28.sp
+                    fontSize = 24.sp
                 )
             }
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Sign in with Google",
-                    color = NeliTextPrimary,
-                    fontSize = 19.sp,
-                    fontWeight = FontWeight.ExtraBold
+                    text = "Sign Up with Google",
+                    color = Color.White,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Black
                 )
                 Text(
-                    text = "Nelitv is 100% Free Forever with Ads. All channels unlocked!",
+                    text = "Fast and secure sign in with your Google account",
                     color = NeliGenreCyan,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold
-                )
-            }
-        }
-
-        // Free Forever badge
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
-                .background(Color(0x2210B981))
-                .border(1.dp, Color(0xFF34D399), RoundedCornerShape(12.dp))
-                .padding(horizontal = 12.dp, vertical = 10.dp)
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.CheckCircle,
-                    contentDescription = null,
-                    tint = Color(0xFF34D399),
-                    modifier = Modifier.size(18.dp)
-                )
-                Text(
-                    text = "Channels Zote Ziko Wazi (Bure Kabisa na Ads) • Hakuna Malipo",
-                    color = Color(0xFF34D399),
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold
                 )
             }
         }
@@ -3044,211 +3069,8 @@ fun NeliGoogleAccountAuthSection(
             }
         }
 
-        // Device Google Accounts list if found
-        val accountsToShow = remember(deviceGoogleAccounts, savedGoogleAccounts) {
-            val list = mutableListOf<Pair<String, String>>()
-            for (acc in deviceGoogleAccounts) {
-                list.add(Pair(acc.email, acc.displayName))
-            }
-            for (saved in savedGoogleAccounts) {
-                list.add(Pair(saved.email, saved.realName))
-            }
-            list.distinctBy { it.first }
-        }
-
-        val primaryAccount = accountsToShow.firstOrNull()
-
-        if (primaryAccount != null) {
-            val primaryEmail = primaryAccount.first
-            val rawName = primaryAccount.second
-            val primaryName = if (rawName.isNotBlank()) rawName else primaryEmail.substringBefore("@")
-
-            // YouTube-style 1-Tap Google Account Card
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(18.dp)),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF161F33)),
-                border = BorderStroke(1.5.dp, Brush.horizontalGradient(listOf(Color(0xFF4285F4), Color(0xFFEA4335), Color(0xFFFBBC05), Color(0xFF34A853))))
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Text(
-                        text = "Akaunti Iliyogunduliwa kwenye Simu (Detected Account):",
-                        color = Color(0xFF94A3B8),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(14.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(48.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFF1E293B))
-                                .border(2.dp, Color(0xFF4285F4), CircleShape),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = primaryName.take(1).uppercase(),
-                                color = Color(0xFF38BDF8),
-                                fontWeight = FontWeight.Black,
-                                fontSize = 22.sp
-                            )
-                        }
-
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = primaryName,
-                                color = Color.White,
-                                fontWeight = FontWeight.Black,
-                                fontSize = 16.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                text = primaryEmail,
-                                color = Color(0xFF94A3B8),
-                                fontSize = 12.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(Color(0xFF0F766E))
-                                .padding(horizontal = 8.dp, vertical = 4.dp)
-                        ) {
-                            Text(
-                                text = "1-TAP",
-                                color = Color(0xFF5EEAD4),
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Black
-                            )
-                        }
-                    }
-
-                    // 1-Tap Sign In Button
-                    Button(
-                        onClick = {
-                            onCompleteGoogleSignIn(primaryEmail, primaryName)
-                        },
-                        enabled = !isAuthLoading,
-                        colors = ButtonDefaults.buttonColors(containerColor = Color.White),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(48.dp)
-                            .testTag("google_1tap_sign_in_button")
-                    ) {
-                        if (isAuthLoading) {
-                            CircularProgressIndicator(color = Color(0xFF4285F4), modifier = Modifier.size(20.dp))
-                        } else {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.Center
-                            ) {
-                                Text(
-                                    text = "G",
-                                    color = Color(0xFF4285F4),
-                                    fontWeight = FontWeight.Black,
-                                    fontSize = 18.sp
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "Ingia kama $primaryName (Sign in 1-Tap)",
-                                    color = Color(0xFF0F172A),
-                                    fontWeight = FontWeight.ExtraBold,
-                                    fontSize = 14.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Other accounts or switch account
-            if (accountsToShow.size > 1) {
-                Text(
-                    text = "Akaunti Nyingine za Google (Other Accounts):",
-                    color = NeliTextSecondary,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold
-                )
-
-                for (pair in accountsToShow.drop(1).take(4)) {
-                    val accEmail = pair.first
-                    val accName = pair.second
-                    val cleanName = if (accName.isNotBlank()) accName else accEmail.substringBefore("@")
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(NeliSurfaceVariant)
-                            .border(1.dp, Color(0x33A855F7), RoundedCornerShape(12.dp))
-                            .clickable(enabled = !isAuthLoading) {
-                                onCompleteGoogleSignIn(accEmail, cleanName)
-                            }
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(32.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFF334155)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = cleanName.take(1).uppercase(),
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp
-                            )
-                        }
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = cleanName,
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                text = accEmail,
-                                color = NeliGenreCyan,
-                                fontSize = 11.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                        Text(
-                            text = "Chagua",
-                            color = NeliMagenta,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-            }
-        }
-
-        // Button to choose any other Google account or add a new Google account
-        OutlinedButton(
+        // BIG GOOGLE BUTTON (Styled with colors matching NeliTv logo)
+        Button(
             onClick = {
                 try {
                     val intent = android.accounts.AccountManager.newChooseAccountIntent(
@@ -3266,31 +3088,154 @@ fun NeliGoogleAccountAuthSection(
                 }
             },
             enabled = !isAuthLoading,
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-            border = BorderStroke(1.dp, Color(0xFF475569)),
-            shape = RoundedCornerShape(12.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
+            contentPadding = PaddingValues(0.dp),
+            shape = RoundedCornerShape(14.dp),
             modifier = Modifier
                 .fillMaxWidth()
-                .height(46.dp)
-                .testTag("google_sign_in_primary_button")
+                .height(54.dp)
+                .background(
+                    Brush.horizontalGradient(
+                        listOf(Color(0xFF9333EA), Color(0xFF00E5FF), Color(0xFFEC4899))
+                    ),
+                    RoundedCornerShape(14.dp)
+                )
+                .testTag("big_google_signup_login_button")
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center
+            if (isAuthLoading) {
+                CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp), strokeWidth = 2.5.dp)
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .background(Color.White),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "G",
+                            color = Color(0xFF4285F4),
+                            fontWeight = FontWeight.Black,
+                            fontSize = 18.sp
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(
+                        text = "Sign Up / Login with Google",
+                        color = Color.White,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Black,
+                        letterSpacing = 0.5.sp
+                    )
+                }
+            }
+        }
+
+        // Saved Accounts & Previous Accounts (Free accounts or previous Google accounts for quick re-login)
+        val accountsToShow = remember(deviceGoogleAccounts, savedGoogleAccounts) {
+            val list = mutableListOf<Pair<String, String>>()
+            for (acc in deviceGoogleAccounts) {
+                list.add(Pair(acc.email, acc.displayName))
+            }
+            for (saved in savedGoogleAccounts) {
+                list.add(Pair(saved.email, saved.realName))
+            }
+            list.distinctBy { it.first.lowercase() }
+        }
+
+        if (accountsToShow.isNotEmpty()) {
+            Text(
+                text = "Akaunti Zilizohifadhiwa (Saved Accounts):",
+                color = Color(0xFFCBD5E1),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold
+            )
+
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Default.Person,
-                    contentDescription = null,
-                    tint = Color(0xFF94A3B8),
-                    modifier = Modifier.size(16.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = if (primaryAccount != null) "Badili Akaunti (Use Another Google Account)" else "Chagua Akaunti ya Google (Choose Google Account)",
-                    color = Color.White,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 13.sp
-                )
+                accountsToShow.take(5).forEach { pair ->
+                    val accEmail = pair.first
+                    val accName = pair.second
+                    val cleanName = if (accName.isNotBlank()) accName else accEmail.substringBefore("@")
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(NeliSurfaceVariant)
+                            .border(1.dp, Color(0x33A855F7), RoundedCornerShape(12.dp))
+                            .clickable(enabled = !isAuthLoading) {
+                                onCompleteGoogleSignIn(accEmail, cleanName)
+                            }
+                            .padding(horizontal = 12.dp, vertical = 10.dp)
+                            .testTag("saved_account_item_${accEmail}"),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFF1E293B))
+                                    .border(1.5.dp, Color(0xFF00E5FF), CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = cleanName.take(1).uppercase().ifEmpty { "G" },
+                                    color = Color(0xFF00E5FF),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.sp
+                                )
+                            }
+                            Column {
+                                Text(
+                                    text = cleanName,
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = accEmail,
+                                    color = Color(0xFF94A3B8),
+                                    fontSize = 11.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(
+                                    Brush.horizontalGradient(
+                                        listOf(Color(0xFF9333EA), Color(0xFFEC4899))
+                                    )
+                                )
+                                .padding(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                text = "Login",
+                                color = Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
             }
         }
     }

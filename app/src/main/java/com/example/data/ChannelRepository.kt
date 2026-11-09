@@ -598,7 +598,7 @@ object ChannelRepository {
             streamUrl = "https://amg01753-narrativeuk-amg01753c1-rakuten-uk-2339.playouts.now.amagi.tv/1080p/index.m3u8",
             backupStreamUrl = "https://amg01753-narrativeuk-amg01753c1-rakuten-uk-2339.playouts.now.amagi.tv/1080p/index.m3u8",
             streamFormat = "hls",
-            thumbnailUrl = "android.resource://com.example/drawable/tinypop_kids_logo",
+            thumbnailUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQiuCodQn6rh_w9wBibE0iJuvh8MXfe1ADizsanCYJuzg&s=10",
             categories = listOf("kids", "azam tv"),
             language = "en",
             encryptionType = "none",
@@ -1530,7 +1530,7 @@ object ChannelRepository {
             return "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRZD3actU8XChxT38HWiBH-1Q7n60jJbzh8LGf1AMA-sQ&s=10"
         }
         if (lowerId.contains("tinypop") || lowerName.contains("tinypop") || lowerName.contains("tiny pop")) {
-            return "android.resource://com.example/drawable/tinypop_kids_logo"
+            return "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQiuCodQn6rh_w9wBibE0iJuvh8MXfe1ADizsanCYJuzg&s=10"
         }
         if (lowerId.contains("tom_and_jerry") || lowerName.contains("tom and jerry") || lowerName.contains("tom & jerry")) {
             return "https://i.pinimg.com/1200x/d2/d0/c6/d2d0c69e6ec56ef717b9bbc23fc8e2fc.jpg"
@@ -1561,7 +1561,7 @@ object ChannelRepository {
             return "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRZD3actU8XChxT38HWiBH-1Q7n60jJbzh8LGf1AMA-sQ&s=10"
         }
         if (lowerId.contains("tinypop") || lowerName.contains("tinypop") || lowerName.contains("tiny pop")) {
-            return "android.resource://com.example/drawable/tinypop_kids_logo"
+            return "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQiuCodQn6rh_w9wBibE0iJuvh8MXfe1ADizsanCYJuzg&s=10"
         }
         if (lowerId.contains("tom_and_jerry") || lowerName.contains("tom and jerry") || lowerName.contains("tom & jerry")) {
             return "https://i.pinimg.com/1200x/d2/d0/c6/d2d0c69e6ec56ef717b9bbc23fc8e2fc.jpg"

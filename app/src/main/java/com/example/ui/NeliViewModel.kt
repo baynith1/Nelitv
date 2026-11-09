@@ -251,10 +251,23 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
     init {
         registerConnectivityMonitor()
 
-        // Run non-UI initialization and background sync strictly on Dispatchers.IO so main UI thread stays 60/120fps
         viewModelScope.launch(Dispatchers.IO) {
             MediaContentRepository.initializeAndPrewarmFromCache(appContext)
             NeliAppUpdateManager.initialize(appContext)
+            try {
+                val saved = userManager.getSavedAccounts()
+                val deviceAccounts = authenticationRepository.getAllDeviceGoogleAccounts(appContext).map {
+                    com.example.data.local.UserAccountEntity(
+                        uid = it.email.hashCode().toString(),
+                        realName = it.displayName,
+                        email = it.email,
+                        passwordHash = "google_auth",
+                        isLoggedIn = false
+                    )
+                }
+                _savedGoogleAccounts.value = (saved + deviceAccounts).distinctBy { it.email.lowercase() }
+            } catch (_: Throwable) {
+            }
             userManager.signInWithGoogleAutoOrPrimaryAccount(
                 uiContext = appContext,
                 forceInteractive = false
@@ -785,6 +798,20 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
                 email = "",
                 realName = ""
             )
+            try {
+                val saved = userManager.getSavedAccounts()
+                val deviceAccounts = authenticationRepository.getAllDeviceGoogleAccounts(appContext).map {
+                    com.example.data.local.UserAccountEntity(
+                        uid = it.email.hashCode().toString(),
+                        realName = it.displayName,
+                        email = it.email,
+                        passwordHash = "google_auth",
+                        isLoggedIn = false
+                    )
+                }
+                _savedGoogleAccounts.value = (saved + deviceAccounts).distinctBy { it.email.lowercase() }
+            } catch (_: Throwable) {
+            }
         }
     }
 
