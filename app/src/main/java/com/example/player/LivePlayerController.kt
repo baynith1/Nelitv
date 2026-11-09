@@ -1413,12 +1413,16 @@ class LivePlayerController(
             .setSeekParameters(SeekParameters.CLOSEST_SYNC)
             .build()
             .apply {
-                volume = 1.0f
-                playWhenReady = !isPhoneCallActiveOrRinging()
+                val isAdActive = com.example.ads.NeliAdManager.isAdCurrentlyDisplaying.value
+                volume = if (isAdActive) 0.0f else 1.0f
+                playWhenReady = !isPhoneCallActiveOrRinging() && !isAdActive
                 addListener(playerListener)
             }
 
-        _playbackInfo.value = _playbackInfo.value.copy(isMuted = false, volume = 1.0f)
+        _playbackInfo.value = _playbackInfo.value.copy(
+            isMuted = false,
+            volume = if (com.example.ads.NeliAdManager.isAdCurrentlyDisplaying.value) 0.0f else 1.0f
+        )
         exoPlayer = player
         loadChannelStream(player, preserveVodPosition = false)
         updatePlaybackInfo()
