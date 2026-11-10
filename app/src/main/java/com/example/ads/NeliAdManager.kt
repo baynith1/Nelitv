@@ -129,7 +129,10 @@ object NeliAdManager {
         }
 
         try {
-            Log.i(TAG, "Initializing Start.io SDK strictly with App ID $START_IO_APP_ID...")
+            // Must be called BEFORE init/load so Start.io knows to route test ads instead of live production ads in debug/emulator
+            StartAppSDK.setTestAdsEnabled(com.example.BuildConfig.DEBUG)
+
+            Log.i(TAG, "Initializing Start.io SDK strictly with App ID $START_IO_APP_ID (testMode=${com.example.BuildConfig.DEBUG})...")
             StartAppSDK.initParams(appContext, START_IO_APP_ID)
                 .setReturnAdsEnabled(false) // Disable intrusive return/splash ads
                 .setCallback {
@@ -140,10 +143,6 @@ object NeliAdManager {
                     preloadNativeAd(appContext)
                 }
                 .init()
-
-            // In debug/emulator builds, enable test ads so Start.io serves sample ads without "serving ads disabled"
-            // In release builds, this is automatically false for live production monetization
-            StartAppSDK.setTestAdsEnabled(com.example.BuildConfig.DEBUG)
             isInitialized = true
         } catch (e: Exception) {
             Log.e(TAG, "Start.io initialization failed: ${e.message}", e)

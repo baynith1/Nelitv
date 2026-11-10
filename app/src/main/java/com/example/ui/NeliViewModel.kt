@@ -423,8 +423,13 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
      * Downloads a movie or series to the phone's internal storage (`offline_media`) using its streaming link directly.
      * Runs in a persistent background scope so it continues even when the user exits the app.
      */
-    fun addDownload(media: MediaContent) {
-        val effectiveDownloadUrl = media.downloadUrl.ifBlank { media.streamUrl }.ifBlank { media.playbackUrl }
+    fun addDownload(media: MediaContent, quality: DownloadQualityOption? = null) {
+        val baseDownloadUrl = media.downloadUrl.ifBlank { media.streamUrl }.ifBlank { media.playbackUrl }
+        val effectiveDownloadUrl = if (quality != null) {
+            quality.resolveQualityStreamUrl(baseDownloadUrl)
+        } else {
+            baseDownloadUrl
+        }
         val guaranteedPoster = MediaContentRepository.resolveGuaranteedMediaImageUrl(
             media.posterUrl,
             media.backdropUrl,
@@ -435,12 +440,13 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
             media.posterUrl,
             effectiveDownloadUrl
         )
+        val qualitySuffix = if (quality != null) " [${quality.resolutionBadge}]" else ""
         val item = DownloadedItemEntity(
             id = media.id,
             title = if (media.narrated && media.narrationLanguage.isNotBlank()) {
-                "${media.title} (${media.narrationLanguage})"
+                "${media.title} (${media.narrationLanguage})$qualitySuffix"
             } else {
-                media.title
+                "${media.title}$qualitySuffix"
             },
             type = media.type,
             posterUrl = guaranteedPoster,
@@ -448,8 +454,8 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
             streamUrl = ChannelRepository.normalizeDashStreamUrl(effectiveDownloadUrl),
             genre = media.primaryGenre,
             duration = media.duration,
-            rating = media.rating,
-            fileSizeLabel = "Starting turbo download • 1%",
+            rating = quality?.resolutionBadge ?: media.rating,
+            fileSizeLabel = if (quality != null) "Starting download (${quality.estimatedMovieSize}) • 1%" else "Starting turbo download • 1%",
             downloadStatus = "DOWNLOADING",
             progressPercent = 1
         )
@@ -467,25 +473,32 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
     fun addEpisodeDownload(
         episode: EpisodeItem,
         seriesTitle: String,
-        seriesPoster: String
+        seriesPoster: String,
+        quality: DownloadQualityOption? = null
     ) {
-        val effectiveDownloadUrl = episode.downloadUrl.ifBlank { episode.streamUrl }.ifBlank { episode.playbackUrl }
+        val baseDownloadUrl = episode.downloadUrl.ifBlank { episode.streamUrl }.ifBlank { episode.playbackUrl }
+        val effectiveDownloadUrl = if (quality != null) {
+            quality.resolveQualityStreamUrl(baseDownloadUrl)
+        } else {
+            baseDownloadUrl
+        }
         val poster = MediaContentRepository.resolveGuaranteedMediaImageUrl(
             episode.stillPath,
             seriesPoster,
             effectiveDownloadUrl
         )
+        val qualitySuffix = if (quality != null) " [${quality.resolutionBadge}]" else ""
         val item = DownloadedItemEntity(
             id = episode.id,
-            title = "$seriesTitle • S${episode.seasonNumber}E${episode.episodeNumber}: ${episode.name}",
+            title = "$seriesTitle • S${episode.seasonNumber}E${episode.episodeNumber}: ${episode.name}$qualitySuffix",
             type = "series",
             posterUrl = poster,
             backdropUrl = poster,
             streamUrl = ChannelRepository.normalizeDashStreamUrl(effectiveDownloadUrl),
             genre = if (episode.narrated) "Series • ${episode.narrationLanguage}" else "Series",
             duration = episode.durationLabel,
-            rating = "HD",
-            fileSizeLabel = "Starting turbo download • 1%",
+            rating = quality?.resolutionBadge ?: "HD",
+            fileSizeLabel = if (quality != null) "Starting download (${quality.estimatedEpisodeSize}) • 1%" else "Starting turbo download • 1%",
             downloadStatus = "DOWNLOADING",
             progressPercent = 1
         )

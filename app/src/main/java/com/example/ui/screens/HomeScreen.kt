@@ -294,6 +294,17 @@ fun HomeScreen(
                         seriesPoster = selectedMedia.posterUrl
                     )
                 },
+                onDownloadMediaWithQuality = { media, quality ->
+                    neliViewModel.addDownload(media, quality)
+                },
+                onDownloadEpisodeWithQuality = { ep, quality ->
+                    neliViewModel.addEpisodeDownload(
+                        episode = ep,
+                        seriesTitle = selectedMedia.title,
+                        seriesPoster = selectedMedia.posterUrl,
+                        quality = quality
+                    )
+                },
                 onSelectRecommendedMedia = { rec ->
                     neliViewModel.openMediaDetails(rec.id)
                 },

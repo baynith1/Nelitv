@@ -301,8 +301,8 @@ object ChannelRepository {
             id = "tom_and_jerry_channel",
             name = "Tom and Jerry",
             description = "Tom and Jerry 24/7 Non-stop Classic Cartoons • Free Channel",
-            streamUrl = "https://live20.bozztv.com/giatvplayout7/giatv-208314/tracks-v1a1/mono.ts.m3u8",
-            backupStreamUrl = "https://live20.bozztv.com/giatvplayout7/giatv-208314/tracks-v1a1/mono.ts.m3u8",
+            streamUrl = "https://cdn4.skygo.mn/live/disk1/Cartoon_Network/HLSv3-FTA/Cartoon_Network.m3u8",
+            backupStreamUrl = "https://cdn4.skygo.mn/live/disk1/Cartoon_Network/HLSv3-FTA/Cartoon_Network.m3u8",
             streamFormat = "hls",
             thumbnailUrl = "https://i.pinimg.com/1200x/d2/d0/c6/d2d0c69e6ec56ef717b9bbc23fc8e2fc.jpg",
             categories = listOf("kids", "azam tv"),
@@ -387,7 +387,7 @@ object ChannelRepository {
             streamUrl = "https://tvsen6.aynaott.com/beinsports/tracks-v1a1/mono.ts.m3u8",
             backupStreamUrl = "https://tvsen6.aynaott.com/beinsports/tracks-v1a1/mono.ts.m3u8",
             streamFormat = "hls",
-            thumbnailUrl = "https://upload.wikimedia.org/wikipedia/commons/d/d6/BeIN_Sports_logo_%28vertical_version%29.svg",
+            thumbnailUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTHYKYpQY4llVzOVWO2eVAGQ1qTE2pfb277_JUqIMiEmg&s=10",
             categories = listOf("sports", "entertainment"),
             language = "en",
             country = "International",
@@ -403,7 +403,7 @@ object ChannelRepository {
             backupStreamUrl = "https://barinaslive1.boldmss.com/ESPN_7/ESPN_7.isml/ESPN_7-video=2400000.m3u8",
             audioStreamUrl = "https://barinaslive1.boldmss.com/ESPN_7/ESPN_7.isml/ESPN_7-audio_spa=128000.m3u8",
             streamFormat = "hls",
-            thumbnailUrl = "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a2/ESPN_logo.svg/1200px-ESPN_logo.svg.png",
+            thumbnailUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSPfQdqOw6JmZtom15HnkOOK_HEShQa4IGhbYEMh_IaDg&s=10",
             categories = listOf("sports", "entertainment"),
             language = "es",
             country = "International",
@@ -460,8 +460,8 @@ object ChannelRepository {
             id = "mutv_official_live",
             name = "MUTV",
             description = "MUTV Official Manchester United Live Action, Interviews & Previews",
-            streamUrl = "https://fastly.live.brightcove.com/6374054671112/eu-west-1/6058004203001/profile_0/chunklist__1.m3u8",
-            backupStreamUrl = "https://fastly.live.brightcove.com/6374054671112/eu-west-1/6058004203001/profile_0/chunklist__1.m3u8",
+            streamUrl = "https://fastly.live.brightcove.com/6374054671112/eu-west-1/6058004203001/eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJob3N0IjoiYXplMnp5LmVncmVzcy55ODN1ZWIiLCJhY2NvdW50X2lkIjoiNjA1ODAwNDIwMzAwMSIsImVobiI6ImZhc3RseS5saXZlLmJyaWdodGNvdmUuY29tIiwiaXNzIjoiYmxpdmUtcGxheWJhY2stc291cmNlLWFwaSIsInN1YiI6InBhdGhtYXB0b2tlbiIsImF1ZCI6WyI2MDU4MDA0MjAzMDAxIl0sImp0aSI6IjYzNzQwNTQ2NzExMTIifQ.3FmuTna3DAmY7xlhK5fk6LMrosrtrR5VsU2QOgYO5y4/playlist-hls.m3u8",
+            backupStreamUrl = "https://fastly.live.brightcove.com/6374054671112/eu-west-1/6058004203001/eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJob3N0IjoiYXplMnp5LmVncmVzcy55ODN1ZWIiLCJhY2NvdW50X2lkIjoiNjA1ODAwNDIwMzAwMSIsImVobiI6ImZhc3RseS5saXZlLmJyaWdodGNvdmUuY29tIiwiaXNzIjoiYmxpdmUtcGxheWJhY2stc291cmNlLWFwaSIsInN1YiI6InBhdGhtYXB0b2tlbiIsImF1ZCI6WyI2MDU4MDA0MjAzMDAxIl0sImp0aSI6IjYzNzQwNTQ2NzExMTIifQ.3FmuTna3DAmY7xlhK5fk6LMrosrtrR5VsU2QOgYO5y4/playlist-hls.m3u8",
             streamFormat = "hls",
             thumbnailUrl = "https://d2n0069hmnqmmx.cloudfront.net/epgdata/1.0/newchanlogos/512/512/skychb1834.png",
             categories = listOf("sports", "entertainment"),
@@ -811,7 +811,7 @@ object ChannelRepository {
             streamUrl = "https://amg01753-narrativeuk-amg01753c1-rakuten-uk-2339.playouts.now.amagi.tv/1080p/index.m3u8",
             backupStreamUrl = "https://amg01753-narrativeuk-amg01753c1-rakuten-uk-2339.playouts.now.amagi.tv/1080p/index.m3u8",
             streamFormat = "hls",
-            thumbnailUrl = "https://images-wixmp-ed30a86b8c4ca887773594c2.wixmp.com/f/560dfea6-13fc-45c5-abb5-0692213c6010/dhxef9c-c5430006-509c-4f1e-a21e-0982e297a960.png?token=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1cm46YXBwOjdlMGQxODg5ODIyNjQzNzNhNWYwZDQxNWVhMGQyNmUwIiwiaXNzIjoidXJuOmFwcDo3ZTBkMTg4OTgyMjY0MzczYTVmMGQ0MTVlYTBkMjZlMCIsIm9iaiI6W1t7InBhdGgiOiIvZi81NjBkZmVhNi0xM2ZjLTQ1YzUtYWJiNS0wNjkyMjEzYzYwMTAvZGh4ZWY5Yy1jNTQzMDAwNi01MDljLTRmMWUtYTIxZS0wOTgyZTI5N2E5NjAucG5nIn1dXSwiYXVkIjpbInVybjpzZXJ2aWNlOmZpbGUuZG93bmxvYWQiXX0.iKUbv_561oakU1zHe76okMlZQM-MUbvfD8n7NYel-JE",
+            thumbnailUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQt5EpOkm1U0S2nSzyzan8hawJv8708eZ1BSeuxAV3ghQ&s=10",
             categories = listOf("kids", "azam tv"),
             language = "en",
             encryptionType = "none",
@@ -1328,8 +1328,8 @@ object ChannelRepository {
             id = "zee_cinema_channel",
             name = "Zee Cinema",
             description = "Zee Cinema Blockbuster Hindi & Bollywood Movies",
-            streamUrl = "https://cityeden.catcast.tv/content/41333/index.m3u8",
-            backupStreamUrl = "https://cityeden.catcast.tv/content/41333/index.m3u8",
+            streamUrl = "https://da86m1sqpm3o0.cloudfront.net/28072023/smil:zeecinemaapachd.smil/playlist.m3u8",
+            backupStreamUrl = "https://da86m1sqpm3o0.cloudfront.net/28072023/smil:zeecinemaapachd.smil/playlist.m3u8",
             streamFormat = "hls",
             thumbnailUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTdG9GLKG_zhevUt2nTSQPIXOHM-CmIXn-YMPYC31rR&s=10",
             categories = listOf("movies", "azam tv"),
@@ -1743,7 +1743,7 @@ object ChannelRepository {
             return "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRZD3actU8XChxT38HWiBH-1Q7n60jJbzh8LGf1AMA-sQ&s=10"
         }
         if (lowerId.contains("tinypop") || lowerName.contains("tinypop") || lowerName.contains("tiny pop")) {
-            return "https://images-wixmp-ed30a86b8c4ca887773594c2.wixmp.com/f/560dfea6-13fc-45c5-abb5-0692213c6010/dhxef9c-c5430006-509c-4f1e-a21e-0982e297a960.png?token=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1cm46YXBwOjdlMGQxODg5ODIyNjQzNzNhNWYwZDQxNWVhMGQyNmUwIiwiaXNzIjoidXJuOmFwcDo3ZTBkMTg4OTgyMjY0MzczYTVmMGQ0MTVlYTBkMjZlMCIsIm9iaiI6W1t7InBhdGgiOiIvZi81NjBkZmVhNi0xM2ZjLTQ1YzUtYWJiNS0wNjkyMjEzYzYwMTAvZGh4ZWY5Yy1jNTQzMDAwNi01MDljLTRmMWUtYTIxZS0wOTgyZTI5N2E5NjAucG5nIn1dXSwiYXVkIjpbInVybjpzZXJ2aWNlOmZpbGUuZG93bmxvYWQiXX0.iKUbv_561oakU1zHe76okMlZQM-MUbvfD8n7NYel-JE"
+            return "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQt5EpOkm1U0S2nSzyzan8hawJv8708eZ1BSeuxAV3ghQ&s=10"
         }
         if (lowerId.contains("tom_and_jerry") || lowerName.contains("tom and jerry") || lowerName.contains("tom & jerry")) {
             return "https://i.pinimg.com/1200x/d2/d0/c6/d2d0c69e6ec56ef717b9bbc23fc8e2fc.jpg"
@@ -1774,7 +1774,7 @@ object ChannelRepository {
             return "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRZD3actU8XChxT38HWiBH-1Q7n60jJbzh8LGf1AMA-sQ&s=10"
         }
         if (lowerId.contains("tinypop") || lowerName.contains("tinypop") || lowerName.contains("tiny pop")) {
-            return "https://images-wixmp-ed30a86b8c4ca887773594c2.wixmp.com/f/560dfea6-13fc-45c5-abb5-0692213c6010/dhxef9c-c5430006-509c-4f1e-a21e-0982e297a960.png?token=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1cm46YXBwOjdlMGQxODg5ODIyNjQzNzNhNWYwZDQxNWVhMGQyNmUwIiwiaXNzIjoidXJuOmFwcDo3ZTBkMTg4OTgyMjY0MzczYTVmMGQ0MTVlYTBkMjZlMCIsIm9iaiI6W1t7InBhdGgiOiIvZi81NjBkZmVhNi0xM2ZjLTQ1YzUtYWJiNS0wNjkyMjEzYzYwMTAvZGh4ZWY5Yy1jNTQzMDAwNi01MDljLTRmMWUtYTIxZS0wOTgyZTI5N2E5NjAucG5nIn1dXSwiYXVkIjpbInVybjpzZXJ2aWNlOmZpbGUuZG93bmxvYWQiXX0.iKUbv_561oakU1zHe76okMlZQM-MUbvfD8n7NYel-JE"
+            return "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQt5EpOkm1U0S2nSzyzan8hawJv8708eZ1BSeuxAV3ghQ&s=10"
         }
         if (lowerId.contains("tom_and_jerry") || lowerName.contains("tom and jerry") || lowerName.contains("tom & jerry")) {
             return "https://i.pinimg.com/1200x/d2/d0/c6/d2d0c69e6ec56ef717b9bbc23fc8e2fc.jpg"

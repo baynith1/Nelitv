@@ -1595,6 +1595,10 @@ object OfflineDownloadManager {
         removeActiveEntity(id)
         removeActiveTitle(id)
         clearProgress(id)
+        if (context != null) {
+            cancelDownloadNotification(context.applicationContext, id)
+            syncForegroundServiceState(context.applicationContext)
+        }
     }
 
     /**

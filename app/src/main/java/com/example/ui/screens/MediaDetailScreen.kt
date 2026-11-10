@@ -116,12 +116,18 @@ fun MediaDetailScreen(
     onToggleWatchlist: (MediaContent) -> Unit,
     onDownloadMedia: (MediaContent) -> Unit,
     onDownloadEpisode: (EpisodeItem) -> Unit,
+    onDownloadMediaWithQuality: (MediaContent, DownloadQualityOption) -> Unit = { m, _ -> onDownloadMedia(m) },
+    onDownloadEpisodeWithQuality: (EpisodeItem, DownloadQualityOption) -> Unit = { ep, _ -> onDownloadEpisode(ep) },
     onSelectRecommendedMedia: (MediaContent) -> Unit = {},
     onOpenDownloadsTab: () -> Unit = {},
     onDismissDownloadBanner: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     BackHandler(onBack = onBack)
+
+    var showQualityDialogForMedia by remember { mutableStateOf(false) }
+    var pendingEpisodeForQualityDialog by remember { mutableStateOf<EpisodeItem?>(null) }
+    var selectedQualityOption by remember { mutableStateOf(DownloadQualityOption.HIGH_720P) }
 
     var tmdbEnrichedMedia by remember(media) { mutableStateOf(media) }
     LaunchedEffect(media.id) {
@@ -591,20 +597,10 @@ fun MediaDetailScreen(
                                         onPlayChannel(media.toPlayableChannel())
                                     }
                                 } else if (!isActivelyDownloadingThis) {
-                                    val startDownload = {
-                                        if (media.isSeries && currentVodEpisode != null) {
-                                            onDownloadEpisode(currentVodEpisode)
-                                        } else {
-                                            onDownloadMedia(media)
-                                        }
-                                    }
-                                    val act = detailContext as? android.app.Activity
-                                    if (act != null) {
-                                        com.example.ads.NeliAdManager.showDownloadMovieAd(act) {
-                                            startDownload()
-                                        }
+                                    if (media.isSeries && currentVodEpisode != null) {
+                                        pendingEpisodeForQualityDialog = currentVodEpisode
                                     } else {
-                                        startDownload()
+                                        showQualityDialogForMedia = true
                                     }
                                 }
                             },
@@ -939,7 +935,7 @@ fun MediaDetailScreen(
                                     if (idx >= 0) activeEpisodeIndex = idx
                                     onPlayChannel(ep.toPlayableChannel(media.title))
                                 } else if (!isEpActivelyDownloading) {
-                                    onDownloadEpisode(ep)
+                                    pendingEpisodeForQualityDialog = ep
                                 }
                             },
                             enabled = !isEpActivelyDownloading,
@@ -1009,6 +1005,55 @@ fun MediaDetailScreen(
             }
         }
         }
+    }
+
+    if (showQualityDialogForMedia) {
+        DownloadQualityDialog(
+            title = media.title,
+            isEpisode = false,
+            selectedQuality = selectedQualityOption,
+            onSelectQuality = { selectedQualityOption = it },
+            onConfirmDownload = { quality ->
+                showQualityDialogForMedia = false
+                val startDownload = {
+                    onDownloadMediaWithQuality(media, quality)
+                }
+                val act = detailContext as? android.app.Activity
+                if (act != null) {
+                    com.example.ads.NeliAdManager.showDownloadMovieAd(act) {
+                        startDownload()
+                    }
+                } else {
+                    startDownload()
+                }
+            },
+            onDismiss = { showQualityDialogForMedia = false }
+        )
+    }
+
+    val epToDownload = pendingEpisodeForQualityDialog
+    if (epToDownload != null) {
+        DownloadQualityDialog(
+            title = "${media.title} • S${epToDownload.seasonNumber}E${epToDownload.episodeNumber}",
+            isEpisode = true,
+            selectedQuality = selectedQualityOption,
+            onSelectQuality = { selectedQualityOption = it },
+            onConfirmDownload = { quality ->
+                pendingEpisodeForQualityDialog = null
+                val startDownload = {
+                    onDownloadEpisodeWithQuality(epToDownload, quality)
+                }
+                val act = detailContext as? android.app.Activity
+                if (act != null) {
+                    com.example.ads.NeliAdManager.showDownloadMovieAd(act) {
+                        startDownload()
+                    }
+                } else {
+                    startDownload()
+                }
+            },
+            onDismiss = { pendingEpisodeForQualityDialog = null }
+        )
     }
 }
 
