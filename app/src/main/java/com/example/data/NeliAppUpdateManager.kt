@@ -149,16 +149,11 @@ object NeliAppUpdateManager {
     }
 
     fun getEffectiveInstalledVersionTag(context: Context? = null): String {
-        var bestTag = effectiveInstalledVersionTag.ifBlank { CURRENT_APP_VERSION_TAG }
+        var bestTag = CURRENT_APP_VERSION_TAG
         if (context != null) {
             try {
-                val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                val savedInstalled = prefs.getString(KEY_INSTALLED_VERSION_TAG, null)?.trim().orEmpty()
-                if (savedInstalled.isNotBlank() && isRemoteVersionNewer(bestTag, savedInstalled)) {
-                    bestTag = savedInstalled
-                }
                 val pkgTag = getPackageVersionTag(context)
-                if (pkgTag.isNotBlank() && isRemoteVersionNewer(bestTag, pkgTag)) {
+                if (pkgTag.isNotBlank()) {
                     bestTag = pkgTag
                 }
             } catch (_: Exception) {
@@ -850,7 +845,14 @@ object NeliAppUpdateManager {
                 }
                 val body = response.body
                 val totalLength = body?.contentLength() ?: 28_000_000L
-                val destination = File(context.cacheDir, "Nelitv-update.apk")
+                val cleanTag = versionTag.trim().removePrefix("v").ifBlank { "update" }
+                val downloadFileName = "Nelitv-v$cleanTag.apk"
+                val publicDownloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                val destination = if (publicDownloadsDir != null && publicDownloadsDir.exists()) {
+                    File(publicDownloadsDir, downloadFileName)
+                } else {
+                    File(context.cacheDir, downloadFileName)
+                }
                 if (destination.exists()) destination.delete()
 
                 body?.byteStream()?.use { input ->
@@ -873,10 +875,21 @@ object NeliAppUpdateManager {
                     }
                 }
 
+                // Notify Android MediaScanner / DownloadManager of the new file in Downloads
+                try {
+                    android.media.MediaScannerConnection.scanFile(
+                        context,
+                        arrayOf(destination.absolutePath),
+                        arrayOf("application/vnd.android.package-archive"),
+                        null
+                    )
+                } catch (_: Exception) {
+                }
+
                 downloadedApkFile = destination
                 _inAppDownloadProgress.value = 1.0f
                 _isInAppDownloadComplete.value = true
-                _apkDownloadStatusMessage.value = "Upakuaji umekamilika! Binya 'Sakinisha Sasisho' kuendelea."
+                _apkDownloadStatusMessage.value = "Upakuaji umekamilika ($downloadFileName)! Binya 'UPDATE' kuendelea."
             } catch (e: Exception) {
                 _inAppDownloadProgress.value = null
                 _apkDownloadStatusMessage.value = "Hitilafu wakati wa kupakua: ${e.message}"
@@ -894,12 +907,13 @@ object NeliAppUpdateManager {
             return
         }
         val cleanTag = _releaseInfo.value.versionTag.trim().ifBlank { CURRENT_APP_VERSION_TAG }
-        markReleaseAsInstalled(
-            context = context,
-            versionTag = cleanTag,
-            publishedAt = _releaseInfo.value.publishedAt,
-            apkUrl = _releaseInfo.value.apkDownloadUrl
-        )
+        try {
+            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .edit()
+                .putString(KEY_PENDING_UPDATE_TAG, cleanTag)
+                .apply()
+        } catch (_: Exception) {
+        }
         val apkUri = try {
             FileProvider.getUriForFile(
                 context,

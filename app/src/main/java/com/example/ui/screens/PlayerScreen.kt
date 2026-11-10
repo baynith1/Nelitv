@@ -263,11 +263,12 @@ fun PlayerScreen(
         }
     }
 
-    // Dedicated Embedded Player for Baynith Sport 1 & 2 (Clean WebView with Back button only)
+    // Dedicated Embedded Player for Super Sport & EPL League Tv (Clean WebView with Back & PiP button)
     if (activeChannel.isEmbedded) {
         EmbeddedChannelWebViewPlayer(
             channel = activeChannel,
-            onBack = onBack
+            onBack = onBack,
+            onEnterPipMode = onEnterPipMode ?: {}
         )
         return
     }
@@ -2375,7 +2376,8 @@ private fun formatDurationMs(ms: Long): String {
 @Composable
 fun EmbeddedChannelWebViewPlayer(
     channel: LiveChannel,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onEnterPipMode: () -> Unit = {}
 ) {
     BackHandler { onBack() }
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -2395,10 +2397,22 @@ fun EmbeddedChannelWebViewPlayer(
     DisposableEffect(channel.id, reloadToken) {
         val originalOrientation = activity?.requestedOrientation
         activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        // Completely hide status bar and system navigation bars (Immersive Sticky Mode)
+        activity?.window?.let { win ->
+            androidx.core.view.WindowCompat.setDecorFitsSystemWindows(win, false)
+            val insetsController = androidx.core.view.WindowCompat.getInsetsController(win, win.decorView)
+            insetsController.systemBarsBehavior =
+                androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            insetsController.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+        }
         onDispose {
             try {
                 if (originalOrientation != null) {
-                    activity.requestedOrientation = originalOrientation
+                    activity?.requestedOrientation = originalOrientation
+                }
+                activity?.window?.let { win ->
+                    val insetsController = androidx.core.view.WindowCompat.getInsetsController(win, win.decorView)
+                    insetsController.show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
                 }
                 webViewRef?.let { wv ->
                     wv.stopLoading()
@@ -2568,24 +2582,47 @@ fun EmbeddedChannelWebViewPlayer(
             }
         }
 
-        // Sleek floating Back button ONLY
-        IconButton(
-            onClick = onBack,
+        // Floating Top Bar with Back and PiP button
+        Row(
             modifier = Modifier
+                .fillMaxWidth()
                 .statusBarsPadding()
                 .padding(16.dp)
-                .size(46.dp)
-                .background(Color.Black.copy(alpha = 0.65f), CircleShape)
-                .border(1.dp, Color.White.copy(alpha = 0.2f), CircleShape)
-                .align(Alignment.TopStart)
-                .testTag("embedded_player_back_button")
+                .align(Alignment.TopStart),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                contentDescription = "Rudi nyuma",
-                tint = Color.White,
-                modifier = Modifier.size(24.dp)
-            )
+            IconButton(
+                onClick = onBack,
+                modifier = Modifier
+                    .size(46.dp)
+                    .background(Color.Black.copy(alpha = 0.65f), CircleShape)
+                    .border(1.dp, Color.White.copy(alpha = 0.2f), CircleShape)
+                    .testTag("embedded_player_back_button")
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Rudi nyuma",
+                    tint = Color.White,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+
+            IconButton(
+                onClick = onEnterPipMode,
+                modifier = Modifier
+                    .size(46.dp)
+                    .background(Color.Black.copy(alpha = 0.65f), CircleShape)
+                    .border(1.dp, Color.White.copy(alpha = 0.2f), CircleShape)
+                    .testTag("embedded_player_pip_button")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.PictureInPictureAlt,
+                    contentDescription = "Punguza Skrini (PiP)",
+                    tint = Color.White,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
         }
     }
 }

@@ -224,29 +224,6 @@ fun TopNavBar(
                         )
                     }
 
-                    // Glowing Smart Cast button with neon pink/blue border
-                    IconButton(
-                        onClick = onCastClick,
-                        modifier = Modifier
-                            .size(38.dp)
-                            .clip(CircleShape)
-                            .background(
-                                if (isCastActive) Color(0x3310B981) else Color(0x33FF2E7E)
-                            )
-                            .border(
-                                width = 1.5.dp,
-                                color = if (isCastActive) Color(0xFF34D399) else Color(0xFFFF2E7E),
-                                shape = CircleShape
-                            )
-                            .testTag("cast_header_button")
-                    ) {
-                        Icon(
-                            imageVector = if (isCastActive) Icons.Default.CastConnected else Icons.Default.Cast,
-                            contentDescription = "Smart Cast",
-                            tint = if (isCastActive) Color(0xFF34D399) else Color(0xFFFF2E7E),
-                            modifier = Modifier.size(19.dp)
-                        )
-                    }
                 }
             }
         }

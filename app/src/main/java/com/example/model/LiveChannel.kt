@@ -79,7 +79,8 @@ data class LiveChannel(
     val rating: String = "",
     val scheduleEvents: List<ChannelScheduleEvent> = emptyList(),
     val isLockedDefault: Boolean = false,
-    val embeddedHtml: String = ""
+    val embeddedHtml: String = "",
+    val audioStreamUrl: String = ""
 ) {
     val isEmbedded: Boolean
         get() = embeddedHtml.isNotBlank() || streamFormat.equals("embedded", ignoreCase = true)
@@ -229,9 +230,9 @@ data class LiveChannel(
             id == "008ffe6e-a30f-4ed1-9ddb-4033dde18576" || name.equals("Azam Two", ignoreCase = true) || name.equals("Azam 2", ignoreCase = true) -> 2950
             id == "f56ca8c1-3d3f-4dd2-8d9d-b0b54b559f6e" || name.equals("Sinema Zetu", ignoreCase = true) -> 2900
 
-            // Down after Azam One, Azam Two and Sinema Zetu: Baynith Sport 1 & Baynith Sport 2
-            id == "baynith_sport_1" || name.equals("Baynith Sport 1", ignoreCase = true) || name.equals("Baynith Sports 1", ignoreCase = true) -> 2850
-            id == "baynith_sport_2" || name.equals("Baynith Sport 2", ignoreCase = true) || name.equals("Baynith Sports 2", ignoreCase = true) -> 2800
+            // Down after Azam One, Azam Two and Sinema Zetu: Super Sport (Baynith 1) & EPL League Tv (Baynith 2)
+            id == "baynith_sport_1" || id == "super_sport_live" || name.equals("Super Sport", ignoreCase = true) || name.equals("Baynith Sport 1", ignoreCase = true) -> 2850
+            id == "baynith_sport_2" || id == "epl_league_tv_live" || name.equals("EPL League Tv", ignoreCase = true) || name.equals("Baynith Sport 2", ignoreCase = true) -> 2800
 
             // 2. Azam sports channel From Azam sport 1 to 4
             id == "R17JUvbCEzu2eTbjnE74" || name.contains("Azam Sport 1", ignoreCase = true) || name.contains("Azam Sports 1", ignoreCase = true) -> 2750
@@ -239,10 +240,26 @@ data class LiveChannel(
             id == "1c976127-e8a4-4bd6-8e73-5da0edce369b" || name.contains("Azam Sport 3", ignoreCase = true) || name.contains("Azam Sports 3", ignoreCase = true) -> 2650
             id == "244bcd50-b3bf-4d5e-8419-08cc7bad1a7c" || name.contains("Azam Sport 4", ignoreCase = true) || name.contains("Azam Sports 4", ignoreCase = true) -> 2600
 
-            // 3. Kids channels only 3: Tom and Jerry, TinyPop kids, and Pop network (POP Animation)
+            // New User Requested Sports Channels right under Azam Sports 1-4
+            id == "bein_sports_official_live" || name.equals("beIN Sports", ignoreCase = true) -> 2595
+            id == "espn_7_official_live" || name.equals("ESPN 7", ignoreCase = true) -> 2590
+            id == "fox_sports_news_official_live" || name.equals("Fox Sports News", ignoreCase = true) -> 2585
+            id == "nbc_sports_now_official_live" || name.equals("NBC Sports NOW", ignoreCase = true) -> 2580
+            id == "real_madrid_tv_official_live" || name.equals("Real Madrid TV", ignoreCase = true) -> 2575
+            id == "mutv_official_live" || name.equals("MUTV", ignoreCase = true) -> 2570
+            id == "fifa_plus_women_official_live" || name.equals("FIFA+ Women", ignoreCase = true) -> 2565
+            id == "bek_sports_official_live" || name.equals("BEK Sports", ignoreCase = true) -> 2560
+            id == "inter_tv_official_live" || name.equals("Inter TV", ignoreCase = true) -> 2555
+            id == "red_bull_tv_official_live" || name.equals("Red Bull TV", ignoreCase = true) -> 2552
+
+            // 3. Kids channels: Tom and Jerry, TinyPoP, Pop Animation + New Kids Channels
             id == "tom_and_jerry_channel" || name.contains("Tom and Jerry", ignoreCase = true) -> 2550
-            id == "tinypop_kids_channel" || name.contains("TinyPop", ignoreCase = true) -> 2500
+            id == "tinypop_kids_channel" || name.contains("TinyPop", ignoreCase = true) || name.contains("Tiny PoP", ignoreCase = true) -> 2500
             id == "tv_1788953482934_twaqe" || id == "pop_kids_channel" || name.contains("POP Animation", ignoreCase = true) || name.contains("Pop Kids", ignoreCase = true) || name.contains("Pop network", ignoreCase = true) -> 2450
+            id == "lego_channel_official_live" || name.equals("LEGO Channel", ignoreCase = true) -> 2445
+            id == "moonbug_kids_official_live" || name.equals("Moonbug Kids", ignoreCase = true) -> 2440
+            id == "nick_jr_official_live" || name.equals("Nick Jr.", ignoreCase = true) -> 2435
+            id == "mr_bean_live_action_official_live" || name.contains("Mr Bean", ignoreCase = true) -> 2430
 
             // 4. Followed By UTV, kix, mbc 2, Zbc and zbc 2
             id == "d7b415f7-d024-4c7f-a570-653367e8dc5c" || name.equals("UTV", ignoreCase = true) -> 2350

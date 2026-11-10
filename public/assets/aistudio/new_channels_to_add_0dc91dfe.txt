@@ -1,0 +1,99 @@
+some changes
+
+change Baynith sport 1 name to Super Sport and change its logo to (https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQRXdkBQjulSPjDIGj-uoSq4M-KtghT3B5s8wHWxPA8uw&s=10)
+
+also change the Baynith Sport 2 to EPL League Tv and change itd logo to (https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRCz0sRYKbBB2ulNZ5yIvWFMPp7IRlkD8KcJAmTZDlAwA&s=10)
+
+new channels to add but channel zangu za azam tv zibaki juu na hizi zifuate zilipo ishia na ziwe searchable na ziplay vizuri kwenye player yetu
+
+THIS ARE SPORTS CHANNELS 
+
+1. beIN Sports
+
+logo url (https://upload.wikimedia.org/wikipedia/commons/d/d6/BeIN_Sports_logo_%28vertical_version%29.svg)
+
+stream url (https://tvsen6.aynaott.com/beinsports/tracks-v1a1/mono.ts.m3u8)
+
+2. ESPN 7
+
+logo url (https://upload.wikimedia.org/wikipedia/commons/thumb/7/7f/ESPN_7_logo.svg/960px-ESPN_7_logo.svg.png)
+
+stream url (https://barinaslive1.boldmss.com/ESPN_7/ESPN_7.isml/ESPN_7-video=2400000.m3u8) and audio url (https://barinaslive1.boldmss.com/ESPN_7/ESPN_7.isml/ESPN_7-audio_spa=128000.m3u8)
+
+this channel ESPN 7 unatakiwa ku combine both video stream and audio in real time sync coz stream url haina sauti
+
+4. Fox Sports News
+
+logo url (https://i.imgur.com/FhMQrJk.png)
+
+stream url (https://skynewsau-live-premium.akamaized.net/hls/live/2105307/foxsportsnews/live_1080p.m3u8)
+
+5.NBC Sports NOW
+
+logo url (https://i.imgur.com/EzNf2Yx.png)
+
+stream url (https://d4whmvwm0rdvi.cloudfront.net/manifest/3fec3e5cac39a52b2132f9c66c83dae043dc17d4/prod_default_xumo-nbcu-linear/cf99210b-7bce-4879-b09a-56cdc9caee65/3.m3u8)
+
+6. Real Madrid TV
+
+logo url (https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSqZKGMKFxGg4ztxI_Saar2JHCDDdg9gX31gx1tZ5CKgDpTm-RMQuKfSodr&s=10)
+
+stream url (https://rmtv.akamaized.net/hls/live/2043154/rmtv-en-web/bitrate_3.m3u8)
+
+7. MUTV
+
+logo url (https://d2n0069hmnqmmx.cloudfront.net/epgdata/1.0/newchanlogos/512/512/skychb1834.png)
+
+stream url (https://fastly.live.brightcove.com/6374054671112/eu-west-1/6058004203001/eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJob3N0IjoiYXplMnp5LmVncmVzcy55ODN1ZWIiLCJhY2NvdW50X2lkIjoiNjA1ODAwNDIwMzAwMSIsImVobiI6ImZhc3RseS5saXZlLmJyaWdodGNvdmUuY29tIiwiaXNzIjoiYmxpdmUtcGxheWJhY2stc291cmNlLWFwaSIsInN1YiI6InBhdGhtYXB0b2tlbiIsImF1ZCI6WyI2MDU4MDA0MjAzMDAxIl0sImp0aSI6IjYzNzQwNTQ2NzExMTIifQ.3FmuTna3DAmY7xlhK5fk6LMrosrtrR5VsU2QOgYO5y4/chunklist__1.m3u8)
+
+8. FIFA+ Women
+
+logo url (https://i.ibb.co/LhpwRm8V/GB3800009-F0-20251028-T010335-SQUARE.png)
+
+stream url (https://cffda8ff.wurl.com/manifest/f36d25e7e52f1ba8d7e56eb859c636563214f541/U2Ftc3VuZy1nYl9GSUZBUGx1c3dvbWVuX0hMUw/53ebf4dd-c488-4374-bf8d-7172ad5f1dab/1.m3u8)
+
+
+9. BEK Sports
+
+logo url (https://cdn.tvpassport.com/image/station/100x100/beksports.png)
+
+stream url (https://cdn3.wowza.com/5/ZWQ1K2NYTmpFbGsr/BEK-WOWZA-1/smil:BEKPRIMEW.smil/chunklist_b3596000_slENG.m3u8)
+
+10. Inter TV
+
+logo url (https://i.imgur.com/FUTqh2L.png)
+
+stream url (https://d3k8wzt41aflvx.cloudfront.net/INTERTV/Live_aac128.m3u8)
+
+11. Red Bull TV
+
+logo url (https://i.postimg.cc/8c78JM28/image.png)
+
+stream url (https://db34cc6127ac459db55cab5f97cd66b9.mediatailor.us-west-2.amazonaws.com/v1/manifest/ba62fe743df0fe93366eba3a257d792884136c7f/LINEAR-680-WORBAUENFAST-WHALETVPLUS/e0338950-9702-4aff-9e42-c8946ed10026/2.m3u8)
+
+THIS ARE KIDS CHANNEL
+
+1. LEGO Channel
+
+logo url (https://i.imgur.com/xePwW13.png)
+
+stream url (https://dh18i7whff86v.cloudfront.net/1.m3u8)
+
+2. Moonbug Kids
+
+logo url (https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSYUJh9fLEdYSmF93ijEnWQCBG8EBZCH3l22pG_RpHydg&s=10)
+
+stream logo (https://mumbai-edge.smartplaytv.in/Moonbug/tracks-v1a1/mono.m3u8)
+
+3. Nick Jr.
+
+logo url (https://upload.wikimedia.org/wikipedia/commons/thumb/c/c5/Nick_Jr._logo_2023_(outline).svg/960px-Nick_Jr._logo_2023_(outline).svg.png)
+
+stream url (https://stream8.cinerama.uz/1501/tracks-v1a1/mono.m3u8)
+
+4. Mr Bean Live Action
+
+logo url (https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRWM8SdLFRvr2dkOeHaGo6UYkc20lkllZzmcoKYa8gB1A&s)
+
+stream url (https://amg00627-amg00627c40-rakuten-uk-5725.playouts.now.amagi.tv/ts-eu-w1-n2/playlist/amg00627-banijayfast-mrbeanpopupcc-rakutenuk/cb543d177c6c64869cd43e61cef343a3f9591fde1d6988693eb5518975d1073edce2a59caa08ff16388f1ede7f0a66413a3e951fda77118fd87eb141453c5728cfffe729a2c05616b7db083429b56a062a866a68ac39437ed0e21f48a238b6720a5aa82a66443d80b846ac7354db80148b61299bce8c37683f03409a5e5afba358b1ebb05f4cdd65f4b14e55c17c40b59f43c8821da689dd539d5e8274f1119ac4f3ddd5438bd0f30493758a82f931581fadba3bfbfd5cb8c09b67309d03592c7c74c0d3597ad35efc21625aeaf6c8be1f9f59aedb6fe9324698cd91f1951af1cbd301566c52ff6898ff083518a2d6526226efc1a198c430208255faaee8dc7e4654977e776ac677d12e2739dfa88544c48b229fb8278aa37a5d16f4d114cbd3e2d8af878444ca719187ecce690b0e4214128a58959f6ff020c937fd9d446f0f1b04e5b17df0abf512706e468d851ef31618b2d4c2c3fc0629c56d1e15b9358f1555229c7a3c3cd62cff9b2e65c67359d27b6ead2a40ea28cbb122f1a8ccf6466ae5aca06ccb2fbee544828c41c30b1b560db4fe2925356f75c2e16b0870348372edddceee601a428bd3c8edcb47371733750a5b6b836cfc3c39a6e31f49cc00dfad25b9b1e9673d1e0075/87/1280x720_3329040/index.m3u8)
+

@@ -128,10 +128,12 @@ object ChannelRepository {
     fun isExcludedChannel(name: String, id: String = ""): Boolean {
         val lower = name.trim().lowercase()
         val idLower = id.trim().lowercase()
-        // Baynith Sport 1 and Baynith Sport 2 are user-requested embedded channels
+        // Super Sport (Baynith 1) and EPL League Tv (Baynith 2) are user-requested channels
         if (idLower == "baynith_sport_1" || idLower == "baynith_sport_2" ||
             lower == "baynith sport 1" || lower == "baynith sport 2" ||
-            lower == "baynith sports 1" || lower == "baynith sports 2"
+            lower == "baynith sports 1" || lower == "baynith sports 2" ||
+            lower == "super sport" || lower == "epl league tv" ||
+            idLower == "super_sport_live" || idLower == "epl_league_tv_live"
         ) {
             return false
         }
@@ -264,30 +266,30 @@ object ChannelRepository {
             featured = true,
             isLockedDefault = false
         ),
-        // BAYNITH SPORT 1 (Embedded Code Player)
+        // SUPER SPORT (Formerly Baynith Sport 1 - Embedded Code Player)
         LiveChannel(
             id = "baynith_sport_1",
-            name = "Baynith Sport 1",
-            description = "Baynith Sport 1 Live • Special Dedicated Player",
+            name = "Super Sport",
+            description = "Super Sport Live • Football & World Class Sports HD",
             streamUrl = "https://baynith-tv.base44.app/embed/sport-1",
             backupStreamUrl = "https://baynith-tv.base44.app/embed/sport-1",
             streamFormat = "embedded",
-            thumbnailUrl = "https://media.base44.com/images/public/6a5b94f18b73c016937f1de4/f4e57c3c8_generated_image.png",
+            thumbnailUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQRXdkBQjulSPjDIGj-uoSq4M-KtghT3B5s8wHWxPA8uw&s=10",
             categories = listOf("sports", "entertainment"),
             language = "sw",
             encryptionType = "none",
             featured = true,
             embeddedHtml = """<iframe src="https://baynith-tv.base44.app/embed/sport-1" width="100%" height="100%" style="aspect-ratio:16/9;border:0;" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen loading="lazy"></iframe>"""
         ),
-        // BAYNITH SPORT 2 (Embedded Code Player)
+        // EPL LEAGUE TV (Formerly Baynith Sport 2 - Embedded Code Player)
         LiveChannel(
             id = "baynith_sport_2",
-            name = "Baynith Sport 2",
-            description = "Baynith Sport 2 Live • Special Dedicated Player",
+            name = "EPL League Tv",
+            description = "EPL League Tv Live • Premier League & Match Highlights HD",
             streamUrl = "https://baynith-tv.base44.app/embed/sport-2",
             backupStreamUrl = "https://baynith-tv.base44.app/embed/sport-2",
             streamFormat = "embedded",
-            thumbnailUrl = "https://media.base44.com/images/public/6a5b94f18b73c016937f1de4/6fb8e2604_generated_image.png",
+            thumbnailUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRCz0sRYKbBB2ulNZ5yIvWFMPp7IRlkD8KcJAmTZDlAwA&s=10",
             categories = listOf("sports", "entertainment"),
             language = "sw",
             encryptionType = "none",
@@ -374,6 +376,217 @@ object ChannelRepository {
             encryptionType = "clearkey",
             clearKeys = mapOf("fbcac74e355b3b5d9b6cbc56c7597dbf" to "5f980e872b378d88b46f656a806205c3"),
             country = "Tanzania",
+            featured = true,
+            isLockedDefault = false
+        ),
+        // 9. beIN Sports (Official Live Stream)
+        LiveChannel(
+            id = "bein_sports_official_live",
+            name = "beIN Sports",
+            description = "beIN Sports Live Football & Champions League HD",
+            streamUrl = "https://tvsen6.aynaott.com/beinsports/tracks-v1a1/mono.ts.m3u8",
+            backupStreamUrl = "https://tvsen6.aynaott.com/beinsports/tracks-v1a1/mono.ts.m3u8",
+            streamFormat = "hls",
+            thumbnailUrl = "https://upload.wikimedia.org/wikipedia/commons/d/d6/BeIN_Sports_logo_%28vertical_version%29.svg",
+            categories = listOf("sports", "entertainment"),
+            language = "en",
+            country = "International",
+            featured = true,
+            isLockedDefault = false
+        ),
+        // 10. ESPN 7 (Synchronized Video + Spanish Audio Streams)
+        LiveChannel(
+            id = "espn_7_official_live",
+            name = "ESPN 7",
+            description = "ESPN 7 Live Sports & Football HD (Synchronized Stream)",
+            streamUrl = "https://barinaslive1.boldmss.com/ESPN_7/ESPN_7.isml/ESPN_7-video=2400000.m3u8",
+            backupStreamUrl = "https://barinaslive1.boldmss.com/ESPN_7/ESPN_7.isml/ESPN_7-video=2400000.m3u8",
+            audioStreamUrl = "https://barinaslive1.boldmss.com/ESPN_7/ESPN_7.isml/ESPN_7-audio_spa=128000.m3u8",
+            streamFormat = "hls",
+            thumbnailUrl = "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a2/ESPN_logo.svg/1200px-ESPN_logo.svg.png",
+            categories = listOf("sports", "entertainment"),
+            language = "es",
+            country = "International",
+            featured = true,
+            isLockedDefault = false
+        ),
+        // 11. Fox Sports News
+        LiveChannel(
+            id = "fox_sports_news_official_live",
+            name = "Fox Sports News",
+            description = "Fox Sports News 24/7 Live Highlights, Breaking Scores & Analysis HD",
+            streamUrl = "https://skynewsau-live-premium.akamaized.net/hls/live/2105307/foxsportsnews/live_1080p.m3u8",
+            backupStreamUrl = "https://skynewsau-live-premium.akamaized.net/hls/live/2105307/foxsportsnews/live_1080p.m3u8",
+            streamFormat = "hls",
+            thumbnailUrl = "https://i.imgur.com/FhMQrJk.png",
+            categories = listOf("sports", "news"),
+            language = "en",
+            country = "International",
+            featured = true,
+            isLockedDefault = false
+        ),
+        // 12. NBC Sports NOW
+        LiveChannel(
+            id = "nbc_sports_now_official_live",
+            name = "NBC Sports NOW",
+            description = "NBC Sports NOW 24/7 Live Premier League & Olympic Sports HD",
+            streamUrl = "https://d4whmvwm0rdvi.cloudfront.net/manifest/3fec3e5cac39a52b2132f9c66c83dae043dc17d4/prod_default_xumo-nbcu-linear/cf99210b-7bce-4879-b09a-56cdc9caee65/3.m3u8",
+            backupStreamUrl = "https://d4whmvwm0rdvi.cloudfront.net/manifest/3fec3e5cac39a52b2132f9c66c83dae043dc17d4/prod_default_xumo-nbcu-linear/cf99210b-7bce-4879-b09a-56cdc9caee65/3.m3u8",
+            streamFormat = "hls",
+            thumbnailUrl = "https://i.imgur.com/EzNf2Yx.png",
+            categories = listOf("sports", "entertainment"),
+            language = "en",
+            country = "USA",
+            featured = true,
+            isLockedDefault = false
+        ),
+        // 13. Real Madrid TV
+        LiveChannel(
+            id = "real_madrid_tv_official_live",
+            name = "Real Madrid TV",
+            description = "Real Madrid TV Live Matches, Documentaries & Santiago Bernabeu HD",
+            streamUrl = "https://rmtv.akamaized.net/hls/live/2043154/rmtv-en-web/bitrate_3.m3u8",
+            backupStreamUrl = "https://rmtv.akamaized.net/hls/live/2043154/rmtv-en-web/bitrate_3.m3u8",
+            streamFormat = "hls",
+            thumbnailUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSqZKGMKFxGg4ztxI_Saar2JHCDDdg9gX31gx1tZ5CKgDpTm-RMQuKfSodr&s=10",
+            categories = listOf("sports", "entertainment"),
+            language = "en",
+            country = "Spain",
+            featured = true,
+            isLockedDefault = false
+        ),
+        // 14. MUTV (Manchester United TV)
+        LiveChannel(
+            id = "mutv_official_live",
+            name = "MUTV",
+            description = "MUTV Official Manchester United Live Action, Interviews & Previews",
+            streamUrl = "https://fastly.live.brightcove.com/6374054671112/eu-west-1/6058004203001/profile_0/chunklist__1.m3u8",
+            backupStreamUrl = "https://fastly.live.brightcove.com/6374054671112/eu-west-1/6058004203001/profile_0/chunklist__1.m3u8",
+            streamFormat = "hls",
+            thumbnailUrl = "https://d2n0069hmnqmmx.cloudfront.net/epgdata/1.0/newchanlogos/512/512/skychb1834.png",
+            categories = listOf("sports", "entertainment"),
+            language = "en",
+            country = "UK",
+            featured = true,
+            isLockedDefault = false
+        ),
+        // 15. FIFA+ Women
+        LiveChannel(
+            id = "fifa_plus_women_official_live",
+            name = "FIFA+ Women",
+            description = "FIFA+ Women Football World Cup & Global Matches Live HD",
+            streamUrl = "https://cffda8ff.wurl.com/manifest/f36d25e7e52f1ba8d7e56eb859c636563214f541/U2Ftc3VuZy1nYl9GSUZBUGx1c3dvbWVuX0hMUw/53ebf4dd-c488-4374-bf8d-7172ad5f1dab/1.m3u8",
+            backupStreamUrl = "https://cffda8ff.wurl.com/manifest/f36d25e7e52f1ba8d7e56eb859c636563214f541/U2Ftc3VuZy1nYl9GSUZBUGx1c3dvbWVuX0hMUw/53ebf4dd-c488-4374-bf8d-7172ad5f1dab/1.m3u8",
+            streamFormat = "hls",
+            thumbnailUrl = "https://i.ibb.co/LhpwRm8V/GB3800009-F0-20251028-T010335-SQUARE.png",
+            categories = listOf("sports", "entertainment"),
+            language = "en",
+            country = "International",
+            featured = true,
+            isLockedDefault = false
+        ),
+        // 16. BEK Sports
+        LiveChannel(
+            id = "bek_sports_official_live",
+            name = "BEK Sports",
+            description = "BEK Sports Prime Live High School & Regional Sports HD",
+            streamUrl = "https://cdn3.wowza.com/5/ZWQ1K2NYTmpFbGsr/BEK-WOWZA-1/smil:BEKPRIMEW.smil/chunklist_b3596000_slENG.m3u8",
+            backupStreamUrl = "https://cdn3.wowza.com/5/ZWQ1K2NYTmpFbGsr/BEK-WOWZA-1/smil:BEKPRIMEW.smil/chunklist_b3596000_slENG.m3u8",
+            streamFormat = "hls",
+            thumbnailUrl = "https://cdn.tvpassport.com/image/station/100x100/beksports.png",
+            categories = listOf("sports"),
+            language = "en",
+            country = "USA",
+            featured = true,
+            isLockedDefault = false
+        ),
+        // 17. Inter TV
+        LiveChannel(
+            id = "inter_tv_official_live",
+            name = "Inter TV",
+            description = "Inter TV Official Inter Milan Live Football, Training & Matchday",
+            streamUrl = "https://d3k8wzt41aflvx.cloudfront.net/INTERTV/Live_aac128.m3u8",
+            backupStreamUrl = "https://d3k8wzt41aflvx.cloudfront.net/INTERTV/Live_aac128.m3u8",
+            streamFormat = "hls",
+            thumbnailUrl = "https://i.imgur.com/FUTqh2L.png",
+            categories = listOf("sports", "entertainment"),
+            language = "it",
+            country = "Italy",
+            featured = true,
+            isLockedDefault = false
+        ),
+        // 18. Red Bull TV
+        LiveChannel(
+            id = "red_bull_tv_official_live",
+            name = "Red Bull TV",
+            description = "Red Bull TV Live Extreme Sports, Formula 1, Moto & Adventures",
+            streamUrl = "https://db34cc6127ac459db55cab5f97cd66b9.mediatailor.us-west-2.amazonaws.com/v1/manifest/ba62fe743df0fe93366eba3a257d792884136c7f/LINEAR-680-WORBAUENFAST-WHALETVPLUS/e0338950-9702-4aff-9e42-c8946ed10026/2.m3u8",
+            backupStreamUrl = "https://db34cc6127ac459db55cab5f97cd66b9.mediatailor.us-west-2.amazonaws.com/v1/manifest/ba62fe743df0fe93366eba3a257d792884136c7f/LINEAR-680-WORBAUENFAST-WHALETVPLUS/e0338950-9702-4aff-9e42-c8946ed10026/2.m3u8",
+            streamFormat = "hls",
+            thumbnailUrl = "https://i.postimg.cc/8c78JM28/image.png",
+            categories = listOf("sports", "entertainment"),
+            language = "en",
+            country = "International",
+            featured = true,
+            isLockedDefault = false
+        ),
+        // 19. LEGO Channel (Kids)
+        LiveChannel(
+            id = "lego_channel_official_live",
+            name = "LEGO Channel",
+            description = "LEGO Channel 24/7 Fun LEGO Adventures, Ninjago & City Animation",
+            streamUrl = "https://dh18i7whff86v.cloudfront.net/1.m3u8",
+            backupStreamUrl = "https://dh18i7whff86v.cloudfront.net/1.m3u8",
+            streamFormat = "hls",
+            thumbnailUrl = "https://i.imgur.com/xePwW13.png",
+            categories = listOf("kids", "entertainment"),
+            language = "en",
+            country = "International",
+            featured = true,
+            isLockedDefault = false
+        ),
+        // 20. Moonbug Kids
+        LiveChannel(
+            id = "moonbug_kids_official_live",
+            name = "Moonbug Kids",
+            description = "Moonbug Kids CoComelon, Blippi, Little Baby Bum & Moriah HD",
+            streamUrl = "https://mumbai-edge.smartplaytv.in/Moonbug/tracks-v1a1/mono.m3u8",
+            backupStreamUrl = "https://mumbai-edge.smartplaytv.in/Moonbug/tracks-v1a1/mono.m3u8",
+            streamFormat = "hls",
+            thumbnailUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSYUJh9fLEdYSmF93ijEnWQCBG8EBZCH3l22pG_RpHydg&s=10",
+            categories = listOf("kids", "entertainment"),
+            language = "en",
+            country = "International",
+            featured = true,
+            isLockedDefault = false
+        ),
+        // 21. Nick Jr.
+        LiveChannel(
+            id = "nick_jr_official_live",
+            name = "Nick Jr.",
+            description = "Nick Jr. Paw Patrol, Peppa Pig, Blaze & Dora The Explorer Live HD",
+            streamUrl = "https://stream8.cinerama.uz/1501/tracks-v1a1/mono.m3u8",
+            backupStreamUrl = "https://stream8.cinerama.uz/1501/tracks-v1a1/mono.m3u8",
+            streamFormat = "hls",
+            thumbnailUrl = "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c5/Nick_Jr._logo_2023_%28outline%29.svg/960px-Nick_Jr._logo_2023_%28outline%29.svg.png",
+            categories = listOf("kids", "entertainment"),
+            language = "en",
+            country = "International",
+            featured = true,
+            isLockedDefault = false
+        ),
+        // 22. Mr Bean Live Action
+        LiveChannel(
+            id = "mr_bean_live_action_official_live",
+            name = "Mr Bean Live Action",
+            description = "Mr Bean Live Action 24/7 Comedy & Classic Hilarious Episodes",
+            streamUrl = "https://amg00627-amg00627c40-rakuten-uk-5725.playouts.now.amagi.tv/playlist/amg00627-rowanandco-mrbeanlive-rakutenuk/playlist.m3u8",
+            backupStreamUrl = "https://amg00627-amg00627c40-rakuten-uk-5725.playouts.now.amagi.tv/playlist/amg00627-rowanandco-mrbeanlive-rakutenuk/playlist.m3u8",
+            streamFormat = "hls",
+            thumbnailUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRWM8SdLFRvr2dkOeHaGo6UYkc20lkllZzmcoKYa8gB1A&s",
+            categories = listOf("kids", "comedy", "entertainment"),
+            language = "en",
+            country = "UK",
             featured = true,
             isLockedDefault = false
         ),
@@ -598,7 +811,7 @@ object ChannelRepository {
             streamUrl = "https://amg01753-narrativeuk-amg01753c1-rakuten-uk-2339.playouts.now.amagi.tv/1080p/index.m3u8",
             backupStreamUrl = "https://amg01753-narrativeuk-amg01753c1-rakuten-uk-2339.playouts.now.amagi.tv/1080p/index.m3u8",
             streamFormat = "hls",
-            thumbnailUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQiuCodQn6rh_w9wBibE0iJuvh8MXfe1ADizsanCYJuzg&s=10",
+            thumbnailUrl = "https://images-wixmp-ed30a86b8c4ca887773594c2.wixmp.com/f/560dfea6-13fc-45c5-abb5-0692213c6010/dhxef9c-c5430006-509c-4f1e-a21e-0982e297a960.png?token=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1cm46YXBwOjdlMGQxODg5ODIyNjQzNzNhNWYwZDQxNWVhMGQyNmUwIiwiaXNzIjoidXJuOmFwcDo3ZTBkMTg4OTgyMjY0MzczYTVmMGQ0MTVlYTBkMjZlMCIsIm9iaiI6W1t7InBhdGgiOiIvZi81NjBkZmVhNi0xM2ZjLTQ1YzUtYWJiNS0wNjkyMjEzYzYwMTAvZGh4ZWY5Yy1jNTQzMDAwNi01MDljLTRmMWUtYTIxZS0wOTgyZTI5N2E5NjAucG5nIn1dXSwiYXVkIjpbInVybjpzZXJ2aWNlOmZpbGUuZG93bmxvYWQiXX0.iKUbv_561oakU1zHe76okMlZQM-MUbvfD8n7NYel-JE",
             categories = listOf("kids", "azam tv"),
             language = "en",
             encryptionType = "none",
@@ -1530,7 +1743,7 @@ object ChannelRepository {
             return "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRZD3actU8XChxT38HWiBH-1Q7n60jJbzh8LGf1AMA-sQ&s=10"
         }
         if (lowerId.contains("tinypop") || lowerName.contains("tinypop") || lowerName.contains("tiny pop")) {
-            return "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQiuCodQn6rh_w9wBibE0iJuvh8MXfe1ADizsanCYJuzg&s=10"
+            return "https://images-wixmp-ed30a86b8c4ca887773594c2.wixmp.com/f/560dfea6-13fc-45c5-abb5-0692213c6010/dhxef9c-c5430006-509c-4f1e-a21e-0982e297a960.png?token=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1cm46YXBwOjdlMGQxODg5ODIyNjQzNzNhNWYwZDQxNWVhMGQyNmUwIiwiaXNzIjoidXJuOmFwcDo3ZTBkMTg4OTgyMjY0MzczYTVmMGQ0MTVlYTBkMjZlMCIsIm9iaiI6W1t7InBhdGgiOiIvZi81NjBkZmVhNi0xM2ZjLTQ1YzUtYWJiNS0wNjkyMjEzYzYwMTAvZGh4ZWY5Yy1jNTQzMDAwNi01MDljLTRmMWUtYTIxZS0wOTgyZTI5N2E5NjAucG5nIn1dXSwiYXVkIjpbInVybjpzZXJ2aWNlOmZpbGUuZG93bmxvYWQiXX0.iKUbv_561oakU1zHe76okMlZQM-MUbvfD8n7NYel-JE"
         }
         if (lowerId.contains("tom_and_jerry") || lowerName.contains("tom and jerry") || lowerName.contains("tom & jerry")) {
             return "https://i.pinimg.com/1200x/d2/d0/c6/d2d0c69e6ec56ef717b9bbc23fc8e2fc.jpg"
@@ -1561,7 +1774,7 @@ object ChannelRepository {
             return "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRZD3actU8XChxT38HWiBH-1Q7n60jJbzh8LGf1AMA-sQ&s=10"
         }
         if (lowerId.contains("tinypop") || lowerName.contains("tinypop") || lowerName.contains("tiny pop")) {
-            return "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQiuCodQn6rh_w9wBibE0iJuvh8MXfe1ADizsanCYJuzg&s=10"
+            return "https://images-wixmp-ed30a86b8c4ca887773594c2.wixmp.com/f/560dfea6-13fc-45c5-abb5-0692213c6010/dhxef9c-c5430006-509c-4f1e-a21e-0982e297a960.png?token=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1cm46YXBwOjdlMGQxODg5ODIyNjQzNzNhNWYwZDQxNWVhMGQyNmUwIiwiaXNzIjoidXJuOmFwcDo3ZTBkMTg4OTgyMjY0MzczYTVmMGQ0MTVlYTBkMjZlMCIsIm9iaiI6W1t7InBhdGgiOiIvZi81NjBkZmVhNi0xM2ZjLTQ1YzUtYWJiNS0wNjkyMjEzYzYwMTAvZGh4ZWY5Yy1jNTQzMDAwNi01MDljLTRmMWUtYTIxZS0wOTgyZTI5N2E5NjAucG5nIn1dXSwiYXVkIjpbInVybjpzZXJ2aWNlOmZpbGUuZG93bmxvYWQiXX0.iKUbv_561oakU1zHe76okMlZQM-MUbvfD8n7NYel-JE"
         }
         if (lowerId.contains("tom_and_jerry") || lowerName.contains("tom and jerry") || lowerName.contains("tom & jerry")) {
             return "https://i.pinimg.com/1200x/d2/d0/c6/d2d0c69e6ec56ef717b9bbc23fc8e2fc.jpg"

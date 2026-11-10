@@ -328,7 +328,8 @@ fun NeliApp(
 
     val isPipAllowed = NeliThemeManager.isPipModeAllowed
     LaunchedEffect(activeChannel, sharedPlayerController, isPipAllowed) {
-        onActivePlaybackChanged(activeChannel != null && sharedPlayerController != null && isPipAllowed)
+        val hasActiveStream = (activeChannel != null && sharedPlayerController != null) || (activeChannel?.isEmbedded == true)
+        onActivePlaybackChanged(hasActiveStream && isPipAllowed)
     }
 
     LaunchedEffect(isSystemInPipMode, sharedPlayerController) {
@@ -400,13 +401,22 @@ fun NeliApp(
     // PiP is strictly ONLY supported OUTSIDE the app via Android System PiP (when user presses Home or switches to SMS/WhatsApp).
     // Never render a floating PiP overlay inside the NeliPlay app UI!
     val controller = sharedPlayerController
-    if (isSystemInPipMode && activeChannel != null && controller != null) {
-        com.example.ui.components.SystemPipPlayerView(
-            playerController = controller,
-            onExpandToFullScreen = {},
-            onClosePip = closeAndReleasePlayback
-        )
-        return
+    if (isSystemInPipMode && activeChannel != null) {
+        if (activeChannel!!.isEmbedded) {
+            // Keep embedded channel playing smoothly inside system PiP window without black screen
+            com.example.ui.screens.EmbeddedChannelWebViewPlayer(
+                channel = activeChannel!!,
+                onBack = closeAndReleasePlayback
+            )
+            return
+        } else if (controller != null) {
+            com.example.ui.components.SystemPipPlayerView(
+                playerController = controller,
+                onExpandToFullScreen = {},
+                onClosePip = closeAndReleasePlayback
+            )
+            return
+        }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {

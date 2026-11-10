@@ -37,6 +37,7 @@ import androidx.media3.exoplayer.dash.DashMediaSource
 import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.source.MediaSource
+import androidx.media3.exoplayer.source.MergingMediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.exoplayer.source.UnrecognizedInputFormatException
 import androidx.media3.exoplayer.trackselection.AdaptiveTrackSelection
@@ -1924,7 +1925,7 @@ class LivePlayerController(
                 !isLocalOfflineFile &&
                 (channel.isDash || effectiveStreamUrl.contains(".mpd", ignoreCase = true))
 
-        return when {
+        val mainMediaSource = when {
             useProgressive -> {
                 val mediaItemBuilder = MediaItem.Builder()
                     .setUri(manifestUri)
@@ -1972,6 +1973,30 @@ class LivePlayerController(
                     .createMediaSource(mediaItemBuilder.build())
             }
         }
+
+        // If channel specifies a separate synchronized audio stream (e.g. ESPN 7 Spanish audio), combine them in real-time
+        if (channel.audioStreamUrl.isNotBlank()) {
+            val audioUri = Uri.parse(channel.audioStreamUrl)
+            val audioMediaItem = MediaItem.Builder()
+                .setUri(audioUri)
+                .setMimeType(MimeTypes.APPLICATION_M3U8)
+                .setMediaId("${channel.id}_audio")
+                .apply {
+                    if (channel.isLiveBroadcast) {
+                        setLiveConfiguration(liveConfiguration)
+                    }
+                }
+                .build()
+
+            val audioMediaSource = HlsMediaSource.Factory(dataSourceFactory)
+                .setAllowChunklessPreparation(true)
+                .setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
+                .createMediaSource(audioMediaItem)
+
+            return MergingMediaSource(mainMediaSource, audioMediaSource)
+        }
+
+        return mainMediaSource
     }
 
     fun retry() {

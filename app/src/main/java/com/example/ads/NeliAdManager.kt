@@ -90,8 +90,6 @@ import kotlinx.coroutines.flow.asStateFlow
 object NeliAdManager {
     private const val TAG = "NeliTvAds"
     const val START_IO_APP_ID = "209957114"
-    // Official Start.io demo app ID for testing on emulators and debug builds without "serving ads disabled"
-    const val START_IO_TEST_DEMO_APP_ID = "205489527"
 
     // 15-Minute playback ad interval in milliseconds (15 * 60 * 1000)
     const val AD_BREAK_INTERVAL_MS = 15 * 60 * 1000L
@@ -131,22 +129,21 @@ object NeliAdManager {
         }
 
         try {
-            val isTestEnv = com.example.BuildConfig.DEBUG || com.example.data.AuthenticationRepository.isRunningOnEmulator()
-            val effectiveAppId = if (isTestEnv) START_IO_TEST_DEMO_APP_ID else START_IO_APP_ID
-            Log.i(TAG, "Initializing Start.io SDK with App ID $effectiveAppId (testAdsEnabled=$isTestEnv)...")
-
-            StartAppSDK.initParams(appContext, effectiveAppId)
+            Log.i(TAG, "Initializing Start.io SDK strictly with App ID $START_IO_APP_ID...")
+            StartAppSDK.initParams(appContext, START_IO_APP_ID)
                 .setReturnAdsEnabled(false) // Disable intrusive return/splash ads
                 .setCallback {
                     isInitialized = true
-                    StartAppSDK.setTestAdsEnabled(isTestEnv)
-                    Log.i(TAG, "Start.io SDK initialized successfully!")
+                    Log.i(TAG, "Start.io SDK initialized successfully with App ID $START_IO_APP_ID!")
                     preloadInterstitialAd(appContext)
                     preloadRewardedAd(appContext)
                     preloadNativeAd(appContext)
                 }
                 .init()
-            StartAppSDK.setTestAdsEnabled(isTestEnv)
+
+            // In debug/emulator builds, enable test ads so Start.io serves sample ads without "serving ads disabled"
+            // In release builds, this is automatically false for live production monetization
+            StartAppSDK.setTestAdsEnabled(com.example.BuildConfig.DEBUG)
             isInitialized = true
         } catch (e: Exception) {
             Log.e(TAG, "Start.io initialization failed: ${e.message}", e)
