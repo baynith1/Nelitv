@@ -1864,6 +1864,33 @@ object ChannelRepository {
         }
     }
 
+    fun isJwtTokenExpired(
+        jwtToken: String,
+        nowEpochSec: Long = System.currentTimeMillis() / 1000L
+    ): Boolean {
+        val clean = jwtToken.trim()
+        if (clean.isEmpty()) return true
+        val exp = extractJwtExpEpochSeconds(clean) ?: return false
+        return exp > 0L && nowEpochSec >= (exp - 30L)
+    }
+
+    fun hasLiveAuthoritativeToken(): Boolean {
+        return hasAuthoritativeLiveToken && !isJwtTokenExpired(AZAM_CDN_TOKEN)
+    }
+
+    fun resetTokenStateForTesting() {
+        AZAM_CDN_HOST = DEFAULT_AZAM_CDN_HOST
+        AZAM_CDN_TOKEN = DEFAULT_AZAM_CDN_TOKEN
+        AZAM_CDN_EXP = null
+        effectiveTokenExpiryEpochSec = EXTENDED_TOKEN_EXPIRY_EPOCH_SEC
+        hasAuthoritativeLiveToken = false
+        lastLiveTokenSyncEpochMs = 0L
+        AZAM_CDN_SOURCE = DEFAULT_AZAM_CDN_SOURCE
+        AZAM_TOKEN_ENDPOINT_URL = DEFAULT_TOKEN_ENDPOINT_URL
+        cachedBackupApiChannels = emptyList()
+        refreshLiveChannels()
+    }
+
     /**
      * Updates the active CDN authorization token and edge host from a JSON payload or raw JWT:
      * `{"token": "...", "cdnHost": "https://cdnedgch2.azamtvltd.co.tz", "source": "cache"}`
@@ -1951,7 +1978,7 @@ object ChannelRepository {
 
                 if (shouldReplaceToken) {
                     AZAM_CDN_TOKEN = newToken
-                    if (isAuthoritativeTokenApi) {
+                    if (isAuthoritativeTokenApi || (!isJwtTokenExpired(newToken) && candidateExp > currentExp)) {
                         hasAuthoritativeLiveToken = true
                         lastLiveTokenSyncEpochMs = System.currentTimeMillis()
                     }
@@ -2785,6 +2812,9 @@ object ChannelRepository {
      * so that all live channels stream with valid authenticated credentials.
      */
     fun resolveChannelSpecificToken(urlOrPath: String): String {
+        if (hasLiveAuthoritativeToken()) {
+            return AZAM_CDN_TOKEN
+        }
         val lower = urlOrPath.lowercase()
         return when {
             lower.contains("/azamsport1/") -> AZAM_SPORT_1_TOKEN
@@ -2824,10 +2854,13 @@ object ChannelRepository {
     /**
      * Normalizes Azam TV & CDN stream URLs (`.mpd` manifests and `.mp4` / `.m4s` CDN streams/segments):
      * - Rewrites `https://cdnblncr.azamtvltd.co.tz` to [AZAM_CDN_HOST] (`https://cdnedgch2.azamtvltd.co.tz`)
-     * - Updates path tokens and `?cdntoken=` query parameters with the active dynamic CDN token
+     * - Updates path tokens and `?cdntoken=` query parameters with the active dynamic CDN token when live/forced
      * - Leaves external `.m3u8` HLS links untouched unless they use `azamtvltd.co.tz` or `cdntoken=`.
      */
-    fun normalizeDashStreamUrl(rawUrl: String): String {
+    fun normalizeDashStreamUrl(
+        rawUrl: String,
+        forceLatestLiveToken: Boolean = false
+    ): String {
         val trimmed = rawUrl.trim()
         if (trimmed.isEmpty()) return trimmed
 
@@ -2854,11 +2887,25 @@ object ChannelRepository {
             return rewrittenHostUrl
         }
 
-        val pathToken = if (hasPathTokenPrefix) {
-            basePath.substringAfter("/tok_").substringBefore("/").trim()
-                .replace("%3D", "=", ignoreCase = true)
+        val shouldOverrideWithLiveToken = forceLatestLiveToken || hasLiveAuthoritativeToken()
+
+        val effectiveBasePath = if (shouldOverrideWithLiveToken && hasPathTokenPrefix) {
+            val tokIdx = basePath.indexOf("/tok_", ignoreCase = true)
+            val beforeTok = basePath.substring(0, tokIdx)
+            val afterPrefix = basePath.substring(tokIdx + "/tok_".length)
+            val oldPathToken = afterPrefix.substringBefore("/").trim().replace("%3D", "=", ignoreCase = true)
+            val remainingPath = afterPrefix.substringAfter("/", "")
+            val replacePathToken = oldPathToken.isEmpty() ||
+                isSupersededOrRevokedToken(oldPathToken) ||
+                isJwtTokenExpired(oldPathToken) ||
+                oldPathToken != AZAM_CDN_TOKEN
+            if (replacePathToken && remainingPath.isNotEmpty()) {
+                "$beforeTok/tok_$AZAM_CDN_TOKEN/$remainingPath"
+            } else {
+                basePath
+            }
         } else {
-            ""
+            basePath
         }
 
         val embeddedTokenParam = existingQuery
@@ -2867,9 +2914,16 @@ object ChannelRepository {
             ?.substringAfter("=")
             ?.trim()
             .orEmpty()
+        val decodedEmbeddedToken = embeddedTokenParam.replace("%3D", "=", ignoreCase = true)
 
         val effectiveToken = when {
-            embeddedTokenParam.isNotEmpty() && !isSupersededOrRevokedToken(embeddedTokenParam) -> embeddedTokenParam
+            shouldOverrideWithLiveToken && (
+                embeddedTokenParam.isEmpty() ||
+                    isSupersededOrRevokedToken(decodedEmbeddedToken) ||
+                    isJwtTokenExpired(decodedEmbeddedToken) ||
+                    decodedEmbeddedToken != AZAM_CDN_TOKEN
+                ) -> AZAM_CDN_TOKEN
+            embeddedTokenParam.isNotEmpty() && !isSupersededOrRevokedToken(decodedEmbeddedToken) -> embeddedTokenParam
             else -> AZAM_CDN_TOKEN
         }
 
@@ -2878,7 +2932,7 @@ object ChannelRepository {
             .filter { it.isNotBlank() && !it.startsWith("cdntoken=", ignoreCase = true) }
 
         val finalQuery = (otherParams + "cdntoken=$effectiveToken").joinToString("&")
-        return "$basePath?$finalQuery"
+        return "$effectiveBasePath?$finalQuery"
     }
 
     fun getChannelById(id: String): LiveChannel? =

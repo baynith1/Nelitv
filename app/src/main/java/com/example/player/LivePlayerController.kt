@@ -347,6 +347,24 @@ class LivePlayerController(
          */
         const val LIVE_STREAM_STALL_AUTO_FIX_THRESHOLD_MS = 15_000L
         const val LIVE_STREAM_AUTO_FIX_COOLDOWN_MS = 8_000L
+        const val LIVE_RECONNECT_BEHIND_EDGE_MS = 30_000L
+
+        /**
+         * Computes the live playlist seek position (~[behindLiveEdgeMs] behind live edge) when
+         * returning to Live TV after a VAST ad break, rather than resuming at a stale paused offset.
+         */
+        fun computeLiveReconnectPositionMs(
+            windowDurationMs: Long,
+            windowDefaultPositionMs: Long,
+            behindLiveEdgeMs: Long = LIVE_RECONNECT_BEHIND_EDGE_MS
+        ): Long {
+            if (windowDurationMs <= 0L || windowDurationMs == C.TIME_UNSET) {
+                return windowDefaultPositionMs.coerceAtLeast(0L)
+            }
+            val safeLag = behindLiveEdgeMs.coerceAtLeast(5_000L)
+            val maxSeekable = (windowDurationMs - 2_000L).coerceAtLeast(0L)
+            return (windowDurationMs - safeLag).coerceIn(0L, maxSeekable)
+        }
 
         /**
          * Computes the target [BatteryPowerProfile] based on real-time device battery level,
@@ -451,6 +469,12 @@ class LivePlayerController(
      */
     var onEpisodeEndedAutoNext: (() -> LiveChannel?)? = null
 
+    /**
+     * Optional hook invoked on natural VOD completion (`STATE_ENDED`) so End-roll VAST can play
+     * before advancing to the next episode or finishing playback.
+     */
+    var onVodPlaybackCompletedNaturally: ((proceedAfterEndRoll: () -> Unit) -> Unit)? = null
+
     private var exoPlayer: ExoPlayer? = null
     private var trackSelector: DefaultTrackSelector? = null
     private var bandwidthMeter: DefaultBandwidthMeter? = null
@@ -461,6 +485,9 @@ class LivePlayerController(
     private var lastKnownVodPositionMs = 0L
     private var pausedByCallOrExternalAudio: Boolean = false
     private var pausedSpecificallyByPhoneCall: Boolean = false
+    @Volatile
+    private var isAdBreakPaused: Boolean = false
+    private var pendingLiveReconnectBehindMs: Long = 0L
     private var lastSystemStatusPollTimeMs = 0L
     private var cachedPhoneCallActive = false
     private var cachedConnectionLabel: String = "Mobile Data / Wi-Fi"
@@ -817,6 +844,15 @@ class LivePlayerController(
                             pausedSpecificallyByPhoneCall = true
                             player.playWhenReady = false
                             player.pause()
+                        } else if (isAdBreakPaused) {
+                            player.playWhenReady = false
+                            player.volume = 0.0f
+                            player.pause()
+                        }
+                        if (pendingLiveReconnectBehindMs > 0L && channel.isLiveBroadcast && player.isCurrentMediaItemLive) {
+                            val lagMs = pendingLiveReconnectBehindMs
+                            pendingLiveReconnectBehindMs = 0L
+                            seekPlayerInsideLiveWindow(player, lagMs)
                         }
                         val dur = player.duration
                         if (channel.shouldAutoSkipSwahiliMovieIntro && dur != C.TIME_UNSET && dur in 1..(SWAHILI_MOVIE_INTRO_SKIP_MS + 5_000L)) {
@@ -848,7 +884,7 @@ class LivePlayerController(
                         // Live TV never ends; restart or re-sync seamlessly
                         player?.let { p ->
                             p.seekTo(0L)
-                            if (!pausedByCallOrExternalAudio) {
+                            if (!pausedByCallOrExternalAudio && !isAdBreakPaused) {
                                 p.playWhenReady = true
                                 p.play()
                             }
@@ -860,13 +896,22 @@ class LivePlayerController(
                         player.playWhenReady = true
                         player.play()
                     } else {
-                        // Check if there is a Next Episode in Series VOD to auto-advance to
-                        val nextEpChannel = onEpisodeEndedAutoNext?.invoke()
-                        if (nextEpChannel != null) {
-                            switchChannel(nextEpChannel)
+                        val finishVodOrAdvance = {
+                            val nextEpChannel = onEpisodeEndedAutoNext?.invoke()
+                            if (nextEpChannel != null) {
+                                switchChannel(nextEpChannel)
+                            } else {
+                                _uiState.value = PlayerUiState.Ready
+                                updatePlaybackInfo()
+                            }
+                        }
+                        val completionHook = onVodPlaybackCompletedNaturally
+                        if (completionHook != null) {
+                            completionHook {
+                                finishVodOrAdvance()
+                            }
                         } else {
-                            _uiState.value = PlayerUiState.Ready
-                            updatePlaybackInfo()
+                            finishVodOrAdvance()
                         }
                     }
                 }
@@ -954,7 +999,7 @@ class LivePlayerController(
             }
 
             val httpCode = extractHttpErrorCode(error)
-            val maxReconnects = if (channel.isLiveBroadcast) 1 else 2
+            val maxReconnects = if (channel.isLiveBroadcast) 3 else 2
             if (autoReconnectAttempts < maxReconnects) {
                 autoReconnectAttempts++
                 _uiState.value = PlayerUiState.Buffering
@@ -966,6 +1011,7 @@ class LivePlayerController(
                     applyNetworkQualityMode(NetworkQualityMode.ULTRA_LOW_BANDO_SAVER)
                 }
                 val resumePos = lastKnownVodPositionMs
+                val attemptNumber = autoReconnectAttempts
                 if (channel.isLiveBroadcast) {
                     Thread {
                         try {
@@ -978,18 +1024,33 @@ class LivePlayerController(
                         mainHandler.post {
                             exoPlayer?.let { p ->
                                 val backupMatch = com.example.data.ChannelRepository.findBackupChannelFor(channel)
-                                val candidateUrl = channel.backupStreamUrl
-                                    .ifBlank { backupMatch?.streamUrl.orEmpty() }
-                                    .ifBlank { channel.streamUrl }
+                                val candidates = buildList {
+                                    add(com.example.data.ChannelRepository.normalizeDashStreamUrl(channel.streamUrl, forceLatestLiveToken = true))
+                                    if (channel.backupStreamUrl.isNotBlank()) {
+                                        add(com.example.data.ChannelRepository.normalizeDashStreamUrl(channel.backupStreamUrl, forceLatestLiveToken = true))
+                                    }
+                                    if (backupMatch != null && backupMatch.streamUrl.isNotBlank()) {
+                                        add(com.example.data.ChannelRepository.normalizeDashStreamUrl(backupMatch.streamUrl, forceLatestLiveToken = true))
+                                    }
+                                }.distinct().filter { it.isNotBlank() }
+
+                                val candidateUrl = candidates.getOrElse((attemptNumber - 1).coerceAtLeast(0)) {
+                                    candidates.firstOrNull() ?: channel.streamUrl
+                                }
                                 val mergedClearKeys = com.example.data.ChannelRepository.resolveClearKeysForChannel(
                                     channel.copy(clearKeys = (backupMatch?.clearKeys ?: emptyMap()) + channel.clearKeys)
                                 )
-                                val normalizedStreamUrl = com.example.data.ChannelRepository.normalizeDashStreamUrl(candidateUrl)
+                                val normalizedStreamUrl = com.example.data.ChannelRepository.normalizeDashStreamUrl(
+                                    rawUrl = candidateUrl,
+                                    forceLatestLiveToken = true
+                                )
                                 TokenManager.injectHeadersIntoFactory(sharedBaseHttpDataSourceFactory, normalizedStreamUrl)
                                 channel = channel.copy(
                                     streamUrl = normalizedStreamUrl,
                                     backupStreamUrl = channel.backupStreamUrl.ifBlank {
-                                        backupMatch?.streamUrl?.let { com.example.data.ChannelRepository.normalizeDashStreamUrl(it) }.orEmpty()
+                                        backupMatch?.streamUrl?.let {
+                                            com.example.data.ChannelRepository.normalizeDashStreamUrl(it, forceLatestLiveToken = true)
+                                        }.orEmpty()
                                     },
                                     clearKeys = mergedClearKeys,
                                     encryptionType = if (mergedClearKeys.isNotEmpty()) "clearkey" else channel.encryptionType
@@ -1146,6 +1207,13 @@ class LivePlayerController(
         return evaluateAndApplyBatteryAwareConfig(forceRefreshBattery = true)
     }
 
+    private fun DefaultTrackSelector.Parameters.Builder.applyCoreCompatibilityFlags(): DefaultTrackSelector.Parameters.Builder {
+        return setExceedVideoConstraintsIfNecessary(true)
+            .setExceedRendererCapabilitiesIfNecessary(true)
+            .setAllowVideoMixedMimeTypeAdaptiveness(true)
+            .setAllowVideoNonSeamlessAdaptiveness(true)
+    }
+
     /**
      * Evaluates current device battery state, charging status, OS Power Save Mode, and background/PiP
      * loading state to apply CPU-saving parameters to ExoPlayer.
@@ -1162,23 +1230,27 @@ class LivePlayerController(
             )
         } else {
             // Even in manual quality modes, enforce frame rate cap and off-screen background video track disabling
-            trackSelector?.let { selector ->
-                selector.setParameters(
-                    selector.buildUponParameters()
-                        .setMaxVideoFrameRate(profile.maxFrameRate)
-                        .setRendererDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
-                )
-            }
-            exoPlayer?.let { player ->
-                player.trackSelectionParameters = player.trackSelectionParameters
-                    .buildUpon()
+            val selector = trackSelector
+            if (selector != null) {
+                val params = selector.buildUponParameters()
                     .setMaxVideoFrameRate(profile.maxFrameRate)
+                    .setRendererDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
                     .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
+                    .applyCoreCompatibilityFlags()
                     .build()
-                player.setWakeMode(
-                    if (profile.isCpuSavingActive || disableOffscreenVideoTrack) C.WAKE_MODE_NONE else C.WAKE_MODE_NETWORK
-                )
+                selector.setParameters(params)
+            } else {
+                exoPlayer?.let { player ->
+                    player.trackSelectionParameters = player.trackSelectionParameters
+                        .buildUpon()
+                        .setMaxVideoFrameRate(profile.maxFrameRate)
+                        .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
+                        .build()
+                }
             }
+            exoPlayer?.setWakeMode(
+                if (profile.isCpuSavingActive || disableOffscreenVideoTrack) C.WAKE_MODE_NONE else C.WAKE_MODE_NETWORK
+            )
             updatePlaybackInfo()
         }
         return profile
@@ -1237,35 +1309,37 @@ class LivePlayerController(
             val selectorKey = "AUTO_${maxW}x${maxH}_${maxBr}_${activePowerProfile.maxFrameRate}_${forceLowest}_${disableOffscreenVideoTrack}_${activePowerProfile.isCpuSavingActive}"
             if (selectorKey != lastAppliedTrackSelectorKey) {
                 lastAppliedTrackSelectorKey = selectorKey
-                trackSelector?.let { selector ->
-                    selector.setParameters(
-                        selector.buildUponParameters()
-                            .setMaxVideoSize(maxW, maxH)
-                            .setMaxVideoBitrate(maxBr)
-                            .setMaxVideoFrameRate(activePowerProfile.maxFrameRate)
-                            .setMinVideoSize(minW, minH)
-                            .setMinVideoBitrate(minBr)
-                            .setForceLowestBitrate(forceLowest)
-                            .setRendererDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
-                            .setExceedVideoConstraintsIfNecessary(true)
-                            .setExceedRendererCapabilitiesIfNecessary(true)
-                    )
-                }
-                exoPlayer?.let { player ->
-                    player.trackSelectionParameters = player.trackSelectionParameters
-                        .buildUpon()
+                val selector = trackSelector
+                if (selector != null) {
+                    val params = selector.buildUponParameters()
                         .setMaxVideoSize(maxW, maxH)
                         .setMaxVideoBitrate(maxBr)
                         .setMaxVideoFrameRate(activePowerProfile.maxFrameRate)
                         .setMinVideoSize(minW, minH)
                         .setMinVideoBitrate(minBr)
                         .setForceLowestBitrate(forceLowest)
+                        .setRendererDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
                         .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
+                        .applyCoreCompatibilityFlags()
                         .build()
-                    player.setWakeMode(
-                        if (activePowerProfile.isCpuSavingActive || disableOffscreenVideoTrack) C.WAKE_MODE_NONE else C.WAKE_MODE_NETWORK
-                    )
+                    selector.setParameters(params)
+                } else {
+                    exoPlayer?.let { player ->
+                        player.trackSelectionParameters = player.trackSelectionParameters
+                            .buildUpon()
+                            .setMaxVideoSize(maxW, maxH)
+                            .setMaxVideoBitrate(maxBr)
+                            .setMaxVideoFrameRate(activePowerProfile.maxFrameRate)
+                            .setMinVideoSize(minW, minH)
+                            .setMinVideoBitrate(minBr)
+                            .setForceLowestBitrate(forceLowest)
+                            .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
+                            .build()
+                    }
                 }
+                exoPlayer?.setWakeMode(
+                    if (activePowerProfile.isCpuSavingActive || disableOffscreenVideoTrack) C.WAKE_MODE_NONE else C.WAKE_MODE_NETWORK
+                )
             }
         }
 
@@ -1414,6 +1488,7 @@ class LivePlayerController(
             .setSeekParameters(SeekParameters.CLOSEST_SYNC)
             .build()
             .apply {
+                trackSelectionParameters = selector.parameters
                 val isAdActive = com.example.ads.NeliAdManager.isAdCurrentlyDisplaying.value
                 volume = if (isAdActive) 0.0f else 1.0f
                 playWhenReady = !isPhoneCallActiveOrRinging() && !isAdActive
@@ -1425,6 +1500,19 @@ class LivePlayerController(
             volume = if (com.example.ads.NeliAdManager.isAdCurrentlyDisplaying.value) 0.0f else 1.0f
         )
         exoPlayer = player
+        if (channel.isLiveBroadcast &&
+            (channel.streamUrl.contains("azamtvltd.co.tz", ignoreCase = true) ||
+                channel.streamUrl.contains("cdntoken=", ignoreCase = true)) &&
+            (!com.example.data.ChannelRepository.hasLiveAuthoritativeToken() ||
+                com.example.data.ChannelRepository.isJwtTokenExpired(com.example.data.ChannelRepository.AZAM_CDN_TOKEN))
+        ) {
+            Thread {
+                try {
+                    TokenManager.ensureValidToken()
+                } catch (_: Exception) {
+                }
+            }.start()
+        }
         loadChannelStream(player, preserveVodPosition = false)
         updatePlaybackInfo()
         return player
@@ -1443,6 +1531,11 @@ class LivePlayerController(
         }
         channel = newChannel
         _currentChannel.value = newChannel
+        isAdBreakPaused = false
+        pendingLiveReconnectBehindMs = 0L
+        com.example.ads.NeliAdManager.updateAgeRestrictedForKidsContent(
+            newChannel.categories.any { it.contains("kid", ignoreCase = true) }
+        )
         autoReconnectAttempts = 0
         hasReachedReadyForCurrentStream = false
         consecutiveRebufferCount = 0
@@ -1552,93 +1645,124 @@ class LivePlayerController(
             connectionLabel = detectConnectionLabel()
         )
         val player = exoPlayer ?: return
-        player.trackSelectionParameters = when (mode) {
-            NetworkQualityMode.ULTRA_LOW_BANDO_SAVER -> {
-                player.trackSelectionParameters
-                    .buildUpon()
-                    .setMaxVideoSize(426, 240)
-                    .setMaxVideoBitrate(220_000)
-                    .setMaxVideoFrameRate(activePowerProfile.maxFrameRate)
-                    .setMinVideoSize(0, 0)
-                    .setMinVideoBitrate(0)
-                    .setForceLowestBitrate(true)
-                    .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
-                    .build()
-            }
-            NetworkQualityMode.WEAK_NETWORK_SAVER -> {
-                player.trackSelectionParameters
-                    .buildUpon()
-                    .setMaxVideoSize(640, 360)
-                    .setMaxVideoBitrate(550_000)
-                    .setMaxVideoFrameRate(activePowerProfile.maxFrameRate)
-                    .setMinVideoSize(0, 0)
-                    .setMinVideoBitrate(0)
-                    .setForceLowestBitrate(true)
-                    .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
-                    .build()
-            }
-            NetworkQualityMode.STANDARD_480P -> {
-                player.trackSelectionParameters
-                    .buildUpon()
-                    .setMaxVideoSize(854, 480)
-                    .setMaxVideoBitrate(1_100_000)
-                    .setMaxVideoFrameRate(activePowerProfile.maxFrameRate)
-                    .setMinVideoSize(640, 360)
-                    .setMinVideoBitrate(400_000)
-                    .setForceLowestBitrate(false)
-                    .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
-                    .build()
-            }
-            NetworkQualityMode.AUTO_ADAPTIVE -> {
-                trackSelector?.let { selector ->
-                    selector.setParameters(
-                        selector.buildUponParameters()
-                            .setMaxVideoSize(mappedTier.maxWidth, mappedTier.maxHeight)
-                            .setMaxVideoBitrate(mappedTier.maxBitrateBps)
-                            .setMaxVideoFrameRate(activePowerProfile.maxFrameRate)
-                            .setMinVideoSize(mappedTier.minPreferredWidth, mappedTier.minPreferredHeight)
-                            .setMinVideoBitrate(mappedTier.minPreferredBitrateBps)
-                            .setForceLowestBitrate(mappedTier.forceLowestBitrate)
-                            .setRendererDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
-                            .setExceedVideoConstraintsIfNecessary(true)
-                            .setExceedRendererCapabilitiesIfNecessary(true)
-                    )
+        val selector = trackSelector
+        if (selector != null) {
+            val builder = selector.buildUponParameters()
+            when (mode) {
+                NetworkQualityMode.ULTRA_LOW_BANDO_SAVER -> {
+                    builder.setMaxVideoSize(426, 240)
+                        .setMaxVideoBitrate(220_000)
+                        .setMaxVideoFrameRate(activePowerProfile.maxFrameRate)
+                        .setMinVideoSize(0, 0)
+                        .setMinVideoBitrate(0)
+                        .setForceLowestBitrate(true)
+                        .setRendererDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
+                        .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
                 }
-                player.trackSelectionParameters
-                    .buildUpon()
-                    .setMaxVideoSize(mappedTier.maxWidth, mappedTier.maxHeight)
-                    .setMaxVideoBitrate(mappedTier.maxBitrateBps)
-                    .setMaxVideoFrameRate(activePowerProfile.maxFrameRate)
-                    .setMinVideoSize(mappedTier.minPreferredWidth, mappedTier.minPreferredHeight)
-                    .setMinVideoBitrate(mappedTier.minPreferredBitrateBps)
-                    .setForceLowestBitrate(mappedTier.forceLowestBitrate)
-                    .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
-                    .build()
-            }
-            NetworkQualityMode.STRONG_NETWORK_HD -> {
-                trackSelector?.let { selector ->
-                    selector.setParameters(
-                        selector.buildUponParameters()
-                            .setMaxVideoSize(1920, 1080)
-                            .setMaxVideoBitrate(5_500_000)
-                            .setMaxVideoFrameRate(activePowerProfile.maxFrameRate)
-                            .setMinVideoSize(1280, 720)
-                            .setMinVideoBitrate(1_500_000)
-                            .setForceLowestBitrate(false)
-                            .setRendererDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
-                            .setExceedVideoConstraintsIfNecessary(true)
-                    )
+                NetworkQualityMode.WEAK_NETWORK_SAVER -> {
+                    builder.setMaxVideoSize(640, 360)
+                        .setMaxVideoBitrate(550_000)
+                        .setMaxVideoFrameRate(activePowerProfile.maxFrameRate)
+                        .setMinVideoSize(0, 0)
+                        .setMinVideoBitrate(0)
+                        .setForceLowestBitrate(true)
+                        .setRendererDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
+                        .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
                 }
-                player.trackSelectionParameters
-                    .buildUpon()
-                    .setMaxVideoSize(1920, 1080)
-                    .setMaxVideoBitrate(5_500_000)
-                    .setMaxVideoFrameRate(activePowerProfile.maxFrameRate)
-                    .setMinVideoSize(1280, 720)
-                    .setMinVideoBitrate(1_500_000)
-                    .setForceLowestBitrate(false)
-                    .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
-                    .build()
+                NetworkQualityMode.STANDARD_480P -> {
+                    builder.setMaxVideoSize(854, 480)
+                        .setMaxVideoBitrate(1_100_000)
+                        .setMaxVideoFrameRate(activePowerProfile.maxFrameRate)
+                        .setMinVideoSize(640, 360)
+                        .setMinVideoBitrate(400_000)
+                        .setForceLowestBitrate(false)
+                        .setRendererDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
+                        .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
+                }
+                NetworkQualityMode.AUTO_ADAPTIVE -> {
+                    builder.setMaxVideoSize(mappedTier.maxWidth, mappedTier.maxHeight)
+                        .setMaxVideoBitrate(mappedTier.maxBitrateBps)
+                        .setMaxVideoFrameRate(activePowerProfile.maxFrameRate)
+                        .setMinVideoSize(mappedTier.minPreferredWidth, mappedTier.minPreferredHeight)
+                        .setMinVideoBitrate(mappedTier.minPreferredBitrateBps)
+                        .setForceLowestBitrate(mappedTier.forceLowestBitrate)
+                        .setRendererDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
+                        .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
+                }
+                NetworkQualityMode.STRONG_NETWORK_HD -> {
+                    builder.setMaxVideoSize(1920, 1080)
+                        .setMaxVideoBitrate(5_500_000)
+                        .setMaxVideoFrameRate(activePowerProfile.maxFrameRate)
+                        .setMinVideoSize(1280, 720)
+                        .setMinVideoBitrate(1_500_000)
+                        .setForceLowestBitrate(false)
+                        .setRendererDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
+                        .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
+                }
+            }
+            selector.setParameters(builder.applyCoreCompatibilityFlags().build())
+        } else {
+            player.trackSelectionParameters = when (mode) {
+                NetworkQualityMode.ULTRA_LOW_BANDO_SAVER -> {
+                    player.trackSelectionParameters
+                        .buildUpon()
+                        .setMaxVideoSize(426, 240)
+                        .setMaxVideoBitrate(220_000)
+                        .setMaxVideoFrameRate(activePowerProfile.maxFrameRate)
+                        .setMinVideoSize(0, 0)
+                        .setMinVideoBitrate(0)
+                        .setForceLowestBitrate(true)
+                        .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
+                        .build()
+                }
+                NetworkQualityMode.WEAK_NETWORK_SAVER -> {
+                    player.trackSelectionParameters
+                        .buildUpon()
+                        .setMaxVideoSize(640, 360)
+                        .setMaxVideoBitrate(550_000)
+                        .setMaxVideoFrameRate(activePowerProfile.maxFrameRate)
+                        .setMinVideoSize(0, 0)
+                        .setMinVideoBitrate(0)
+                        .setForceLowestBitrate(true)
+                        .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
+                        .build()
+                }
+                NetworkQualityMode.STANDARD_480P -> {
+                    player.trackSelectionParameters
+                        .buildUpon()
+                        .setMaxVideoSize(854, 480)
+                        .setMaxVideoBitrate(1_100_000)
+                        .setMaxVideoFrameRate(activePowerProfile.maxFrameRate)
+                        .setMinVideoSize(640, 360)
+                        .setMinVideoBitrate(400_000)
+                        .setForceLowestBitrate(false)
+                        .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
+                        .build()
+                }
+                NetworkQualityMode.AUTO_ADAPTIVE -> {
+                    player.trackSelectionParameters
+                        .buildUpon()
+                        .setMaxVideoSize(mappedTier.maxWidth, mappedTier.maxHeight)
+                        .setMaxVideoBitrate(mappedTier.maxBitrateBps)
+                        .setMaxVideoFrameRate(activePowerProfile.maxFrameRate)
+                        .setMinVideoSize(mappedTier.minPreferredWidth, mappedTier.minPreferredHeight)
+                        .setMinVideoBitrate(mappedTier.minPreferredBitrateBps)
+                        .setForceLowestBitrate(mappedTier.forceLowestBitrate)
+                        .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
+                        .build()
+                }
+                NetworkQualityMode.STRONG_NETWORK_HD -> {
+                    player.trackSelectionParameters
+                        .buildUpon()
+                        .setMaxVideoSize(1920, 1080)
+                        .setMaxVideoBitrate(5_500_000)
+                        .setMaxVideoFrameRate(activePowerProfile.maxFrameRate)
+                        .setMinVideoSize(1280, 720)
+                        .setMinVideoBitrate(1_500_000)
+                        .setForceLowestBitrate(false)
+                        .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
+                        .build()
+                }
             }
         }
     }
@@ -1687,7 +1811,12 @@ class LivePlayerController(
         isPlaying: Boolean? = null,
         elapsedRealtimeMs: Long = android.os.SystemClock.elapsedRealtime()
     ): Boolean {
-        if (!channel.isLiveBroadcast || pausedByCallOrExternalAudio || isBackgroundLoadingActive) {
+        if (!channel.isLiveBroadcast ||
+            pausedByCallOrExternalAudio ||
+            isBackgroundLoadingActive ||
+            isAdBreakPaused ||
+            com.example.ads.NeliAdManager.isAdCurrentlyDisplaying.value
+        ) {
             return false
         }
         val player = exoPlayer
@@ -1828,8 +1957,16 @@ class LivePlayerController(
             if (channel.isLiveBroadcast && !channel.isMp4) {
                 player.seekToDefaultPosition()
             }
-            player.playWhenReady = true
-            player.play()
+            val blockAutoPlayForAd = isAdBreakPaused || com.example.ads.NeliAdManager.isAdCurrentlyDisplaying.value
+            if (!blockAutoPlayForAd && !_playbackInfo.value.isMuted) {
+                player.volume = _playbackInfo.value.volume.takeIf { it > 0f } ?: 1.0f
+            }
+            player.playWhenReady = !blockAutoPlayForAd && !isPhoneCallActiveOrRinging()
+            if (player.playWhenReady) {
+                player.play()
+            } else {
+                player.pause()
+            }
         } catch (e: Exception) {
             _uiState.value = PlayerUiState.Error(
                 userFriendlyMessage = "Kuna shida ya mtandao kwa sasa jaribu tena baadae",
@@ -1909,9 +2046,9 @@ class LivePlayerController(
         val extractorsFactory = sharedExtractorsFactory
 
         val liveConfiguration = MediaItem.LiveConfiguration.Builder()
-            .setTargetOffsetMs(10_000L)
-            .setMinOffsetMs(5_000L)
-            .setMaxOffsetMs(30_000L)
+            .setTargetOffsetMs(18_000L)
+            .setMinOffsetMs(10_000L)
+            .setMaxOffsetMs(60_000L)
             .build()
 
         val isLocalHlsPlaylist = isLocalOfflineFile &&
@@ -2174,17 +2311,21 @@ class LivePlayerController(
         } else {
             arrayOf("sw", "swa", "kis", "en", "eng")
         }
-        trackSelector?.let { selector ->
+        val selector = trackSelector
+        if (selector != null) {
             selector.setParameters(
                 selector.buildUponParameters()
                     .setPreferredAudioLanguages(*preferredOrder)
+                    .applyCoreCompatibilityFlags()
+                    .build()
             )
-        }
-        exoPlayer?.let { player ->
-            player.trackSelectionParameters = player.trackSelectionParameters
-                .buildUpon()
-                .setPreferredAudioLanguages(*preferredOrder)
-                .build()
+        } else {
+            exoPlayer?.let { player ->
+                player.trackSelectionParameters = player.trackSelectionParameters
+                    .buildUpon()
+                    .setPreferredAudioLanguages(*preferredOrder)
+                    .build()
+            }
         }
     }
 
@@ -2221,8 +2362,134 @@ class LivePlayerController(
         exoPlayer?.pause()
     }
 
-    fun play() {
+    fun isAdPausedForBreak(): Boolean = isAdBreakPaused
+
+    fun captureExactVodPositionMs(): Long {
+        val currentPos = exoPlayer?.currentPosition ?: C.TIME_UNSET
+        return if (currentPos != C.TIME_UNSET && currentPos > 0L) {
+            lastKnownVodPositionMs = currentPos
+            currentPos
+        } else {
+            lastKnownVodPositionMs.coerceAtLeast(0L)
+        }
+    }
+
+    /**
+     * Cleanly pauses and mutes active content while a verified InMobi VAST ad displays.
+     */
+    fun pauseForAdBreak() {
+        isAdBreakPaused = true
         exoPlayer?.let { player ->
+            if (!channel.isLiveBroadcast) {
+                captureExactVodPositionMs()
+            }
+            player.playWhenReady = false
+            player.volume = 0.0f
+            player.pause()
+        }
+        updatePlaybackInfo()
+    }
+
+    /**
+     * Resumes VOD immediately after a Pre-roll VAST check/display while honoring the Swahili intro
+     * skip threshold when applicable and keeping regular movies starting cleanly from 00:00.
+     */
+    fun resumeVodFromPreRoll() {
+        isAdBreakPaused = false
+        exoPlayer?.let { player ->
+            player.volume = if (_playbackInfo.value.isMuted) 0.0f else _playbackInfo.value.volume
+            if (channel.shouldAutoSkipSwahiliMovieIntro && !hasAppliedSwahiliMovieIntroSkip) {
+                val dur = player.duration
+                if (dur == C.TIME_UNSET || dur > (SWAHILI_MOVIE_INTRO_SKIP_MS + 10_000L)) {
+                    hasAppliedSwahiliMovieIntroSkip = true
+                    lastKnownVodPositionMs = SWAHILI_MOVIE_INTRO_SKIP_MS
+                    player.seekTo(SWAHILI_MOVIE_INTRO_SKIP_MS)
+                }
+            }
+            player.playWhenReady = true
+            player.play()
+        }
+        updatePlaybackInfo()
+    }
+
+    /**
+     * Restores exact VOD playback position immediately after Mid-roll VAST dismissal.
+     */
+    fun resumeVodAtExactPosition(savedPositionMs: Long) {
+        isAdBreakPaused = false
+        val targetPos = savedPositionMs.coerceAtLeast(0L)
+        lastKnownVodPositionMs = targetPos
+        exoPlayer?.let { player ->
+            player.volume = if (_playbackInfo.value.isMuted) 0.0f else _playbackInfo.value.volume
+            val dur = player.duration
+            val clampedTarget = if (dur != C.TIME_UNSET && dur > 0L) {
+                targetPos.coerceIn(0L, dur)
+            } else {
+                targetPos
+            }
+            player.seekTo(clampedTarget)
+            if (player.playbackState == Player.STATE_IDLE) {
+                player.prepare()
+            }
+            player.playWhenReady = true
+            player.play()
+        }
+        updatePlaybackInfo()
+    }
+
+    private fun seekPlayerInsideLiveWindow(player: ExoPlayer, behindLiveEdgeMs: Long) {
+        val timeline = player.currentTimeline
+        if (timeline.isEmpty || player.currentMediaItemIndex >= timeline.windowCount) {
+            player.seekToDefaultPosition()
+            return
+        }
+        val window = Timeline.Window()
+        timeline.getWindow(player.currentMediaItemIndex, window)
+        if (!window.isLive || window.durationMs == C.TIME_UNSET || window.durationMs <= 0L) {
+            player.seekToDefaultPosition()
+            return
+        }
+        val targetPosMs = computeLiveReconnectPositionMs(
+            windowDurationMs = window.durationMs,
+            windowDefaultPositionMs = window.defaultPositionMs,
+            behindLiveEdgeMs = behindLiveEdgeMs
+        )
+        player.seekTo(targetPosMs)
+    }
+
+    /**
+     * Reconnects a Live TV stream ~30 seconds behind the live broadcast edge after a 15-minute
+     * VAST break rather than resuming from the stale paused segment.
+     */
+    fun reconnectLiveEdgeBehind(behindLiveEdgeMs: Long = LIVE_RECONNECT_BEHIND_EDGE_MS) {
+        isAdBreakPaused = false
+        consecutiveLiveStallAutoFixes = 0
+        exoPlayer?.let { player ->
+            player.volume = if (_playbackInfo.value.isMuted) 0.0f else _playbackInfo.value.volume
+            if (player.playbackState == Player.STATE_IDLE ||
+                player.playbackState == Player.STATE_ENDED ||
+                player.playerError != null
+            ) {
+                pendingLiveReconnectBehindMs = behindLiveEdgeMs
+                loadChannelStream(player, preserveVodPosition = false)
+            } else if (player.isCurrentMediaItemLive) {
+                seekPlayerInsideLiveWindow(player, behindLiveEdgeMs)
+                player.playWhenReady = true
+                player.play()
+            } else {
+                player.playWhenReady = true
+                player.play()
+            }
+            lastLivePositionProgressRealtimeMs = android.os.SystemClock.elapsedRealtime()
+            lastLiveObservedPositionMs = player.currentPosition
+        }
+        updatePlaybackInfo()
+    }
+
+    fun play() {
+        isAdBreakPaused = false
+        exoPlayer?.let { player ->
+            player.volume = if (_playbackInfo.value.isMuted) 0.0f else _playbackInfo.value.volume
             if (channel.isLiveBroadcast && player.isCurrentMediaItemLive) {
                 // Returning to Live HLS/DASH TV jumps to the live edge, while progressive CDN MP4 continues smoothly
                 player.seekToDefaultPosition()

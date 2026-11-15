@@ -41,16 +41,32 @@ enum class DownloadQualityOption(
         estimatedEpisodeSize = "720 MB"
     );
 
-    fun resolveQualityStreamUrl(originalUrl: String): String {
+    fun resolveQualityStreamUrl(
+        originalUrl: String,
+        explicitQualityUrls: Map<String, String> = emptyMap()
+    ): String {
+        val explicitMatch = explicitQualityUrls.entries.firstOrNull { (k, v) ->
+            v.isNotBlank() && (
+                k.equals(qualityKey, ignoreCase = true) ||
+                    k.equals(qualityKey.removeSuffix("p"), ignoreCase = true)
+                )
+        }?.value?.trim()
+        if (!explicitMatch.isNullOrBlank()) {
+            return explicitMatch
+        }
+
         val clean = originalUrl.trim()
-        if (clean.contains("b-cdn.net", ignoreCase = true)) {
-            val baseDir = clean.substringBeforeLast("/")
+        val baseUrl = clean.substringBefore("?")
+        val querySuffix = clean.substringAfter("?", "").let { if (it.isNotEmpty()) "?$it" else "" }
+
+        if (baseUrl.contains("b-cdn.net", ignoreCase = true)) {
+            val baseDir = baseUrl.substringBeforeLast("/")
             if (baseDir.startsWith("http")) {
-                return "$baseDir/play_${qualityKey}.mp4"
+                return "$baseDir/play_${qualityKey}.mp4$querySuffix"
             }
         }
-        if (clean.contains("play_360p.mp4") || clean.contains("play_480p.mp4") ||
-            clean.contains("play_720p.mp4") || clean.contains("play_1080p.mp4")
+        if (baseUrl.contains("play_360p.mp4") || baseUrl.contains("play_480p.mp4") ||
+            baseUrl.contains("play_720p.mp4") || baseUrl.contains("play_1080p.mp4")
         ) {
             return clean.replace(Regex("play_\\d+p\\.mp4"), "play_${qualityKey}.mp4")
         }
@@ -123,7 +139,8 @@ data class EpisodeItem(
     val downloadUrl: String = streamUrl,
     val subtitleUrl: String = "",
     val allowStreaming: Boolean = true,
-    val allowDownload: Boolean = downloadEnabled
+    val allowDownload: Boolean = downloadEnabled,
+    val qualityUrls: Map<String, String> = emptyMap()
 ) {
     val title: String
         get() = name
@@ -224,7 +241,8 @@ data class MediaContent(
     val allowStreaming: Boolean = true,
     val allowDownload: Boolean = downloadEnabled,
     val youtubeVideoId: String = "",
-    val youtubeUrl: String = ""
+    val youtubeUrl: String = "",
+    val qualityUrls: Map<String, String> = emptyMap()
 ) {
     val isSeries: Boolean =
         type.equals("series", ignoreCase = true) ||

@@ -49,6 +49,9 @@ object TokenManager {
     @Volatile
     private var lastNetworkRefreshAttemptMs: Long = 0L
 
+    @Volatile
+    private var lastAuthFailureRecoveryMs: Long = 0L
+
     private val _tokenSessionFlow = MutableStateFlow(
         TokenSession(
             token = ChannelRepository.AZAM_CDN_TOKEN,
@@ -181,7 +184,10 @@ object TokenManager {
             rawUriStr
         }
 
-        val normalizedStr = ChannelRepository.normalizeDashStreamUrl(inputUrl)
+        val normalizedStr = ChannelRepository.normalizeDashStreamUrl(
+            rawUrl = inputUrl,
+            forceLatestLiveToken = forceLatestToken
+        )
         val normalizedUri = Uri.parse(normalizedStr)
 
         val finalUri = if (normalizedUri.toString().contains("cdntoken=", ignoreCase = true)) {
@@ -291,11 +297,12 @@ object TokenManager {
      */
     fun fetchLiveTokenBlocking(
         forceRefresh: Boolean = false,
-        apiUrl: String = ChannelRepository.AZAM_TOKEN_ENDPOINT_URL
+        apiUrl: String = ChannelRepository.AZAM_TOKEN_ENDPOINT_URL,
+        bypassCooldown: Boolean = false
     ): String = synchronized(blockingLock) {
         val now = System.currentTimeMillis()
         val minCooldownMs = if (forceRefresh) 2_000L else 15_000L
-        if (lastNetworkRefreshAttemptMs > 0L && (now - lastNetworkRefreshAttemptMs) < minCooldownMs) {
+        if (!bypassCooldown && lastNetworkRefreshAttemptMs > 0L && (now - lastNetworkRefreshAttemptMs) < minCooldownMs) {
             return currentToken
         }
         lastNetworkRefreshAttemptMs = now
@@ -351,11 +358,12 @@ object TokenManager {
         httpStatusCode: Int? = null
     ): String = synchronized(blockingLock) {
         val now = System.currentTimeMillis()
-        if (lastNetworkRefreshAttemptMs > 0L && (now - lastNetworkRefreshAttemptMs) < 2_000L) {
+        if (lastAuthFailureRecoveryMs > 0L && (now - lastAuthFailureRecoveryMs) < 1_000L) {
             return currentToken
         }
-        // 1. Fetch fresh token from the primary token API endpoint
-        fetchLiveTokenBlocking(forceRefresh = true)
+        lastAuthFailureRecoveryMs = now
+        // 1. Fetch fresh token immediately bypassing cooldown
+        fetchLiveTokenBlocking(forceRefresh = true, bypassCooldown = true)
 
         // 2. Re-normalize all live channel URLs and update registered ExoPlayer HTTP factories
         ChannelRepository.refreshLiveChannels()

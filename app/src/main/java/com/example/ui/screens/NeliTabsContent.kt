@@ -820,13 +820,22 @@ fun DiscoveryTabContent(
             }
         }
 
-        // Start.io Banner Ad between Movies and Series content sections
+        // InMobi Banner & Native Ads between Movies and Series content sections
         item(key = "discovery_banner_between_movies_and_series") {
-            com.example.ads.StartIoBannerAd(
+            com.example.ads.InMobiBannerAd(
                 adTag = "discovery_movies_series",
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 4.dp)
+            )
+        }
+
+        item(key = "discovery_native_between_movies_and_series") {
+            com.example.ads.InMobiNativeCardAd(
+                adTag = "discovery_movies_series",
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 6.dp)
             )
         }
 
@@ -875,9 +884,9 @@ fun DiscoveryTabContent(
             }
         }
 
-        // Start.io Banner Ad between Series and Adults
+        // InMobi Banner Ad between Series and Adults
         item(key = "discovery_banner_between_series_and_adults") {
-            com.example.ads.StartIoBannerAd(
+            com.example.ads.InMobiBannerAd(
                 adTag = "discovery_series_adults",
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1255,6 +1264,30 @@ fun SearchTabContent(
                     }
                 }
 
+                item(
+                    span = { GridItemSpan(maxLineSpan) },
+                    key = "search_tab_banner_ad"
+                ) {
+                    com.example.ads.InMobiBannerAd(
+                        adTag = "search_tab_banner",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp)
+                    )
+                }
+
+                item(
+                    span = { GridItemSpan(maxLineSpan) },
+                    key = "search_tab_native_ad"
+                ) {
+                    com.example.ads.InMobiNativeCardAd(
+                        adTag = "search_tab_native",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp)
+                    )
+                }
+
                 if (filteredMedia.isNotEmpty()) {
                     item(
                         span = { GridItemSpan(maxLineSpan) },
@@ -1384,6 +1417,16 @@ fun DownloadTabContent(
                     )
                 }
             }
+        }
+
+        // InMobi Banner Ad in Download Tab
+        item(key = "download_tab_inmobi_banner") {
+            com.example.ads.InMobiBannerAd(
+                adTag = "download_tab_banner",
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 2.dp)
+            )
         }
 
         if (!downloadBannerMessage.isNullOrBlank()) {
@@ -2020,19 +2063,8 @@ fun AccountTabContent(
                 ) {
                     OutlinedButton(
                         onClick = {
-                            try {
-                                val intent = AccountManager.newChooseAccountIntent(
-                                    null,
-                                    null,
-                                    arrayOf("com.google"),
-                                    null,
-                                    null,
-                                    null,
-                                    null
-                                )
-                                deviceGoogleAccountPickerLauncher.launch(intent)
-                            } catch (_: Throwable) {
-                            }
+                            onDismissGoogleSignInSheet()
+                            onSignInWithGoogle()
                         },
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier
@@ -2443,20 +2475,7 @@ fun AccountTabContent(
                     ) {
                         OutlinedButton(
                             onClick = {
-                                try {
-                                    val intent = android.accounts.AccountManager.newChooseAccountIntent(
-                                        null,
-                                        null,
-                                        arrayOf("com.google"),
-                                        null,
-                                        null,
-                                        null,
-                                        null
-                                    )
-                                    deviceGoogleAccountPickerLauncher.launch(intent)
-                                } catch (_: Throwable) {
-                                    onChooseGoogleAccount()
-                                }
+                                onChooseGoogleAccount()
                             },
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier
@@ -3072,20 +3091,7 @@ fun NeliGoogleAccountAuthSection(
         // BIG GOOGLE BUTTON (Styled with colors matching NeliTv logo)
         Button(
             onClick = {
-                try {
-                    val intent = android.accounts.AccountManager.newChooseAccountIntent(
-                        null,
-                        null,
-                        arrayOf("com.google"),
-                        null,
-                        null,
-                        null,
-                        null
-                    )
-                    deviceGoogleAccountPickerLauncher.launch(intent)
-                } catch (_: Throwable) {
-                    onSignInWithGoogle()
-                }
+                onSignInWithGoogle()
             },
             enabled = !isAuthLoading,
             colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
@@ -3136,16 +3142,11 @@ fun NeliGoogleAccountAuthSection(
             }
         }
 
-        // Saved Accounts & Previous Accounts (Free accounts or previous Google accounts for quick re-login)
-        val accountsToShow = remember(deviceGoogleAccounts, savedGoogleAccounts) {
-            val list = mutableListOf<Pair<String, String>>()
-            for (acc in deviceGoogleAccounts) {
-                list.add(Pair(acc.email, acc.displayName))
-            }
-            for (saved in savedGoogleAccounts) {
-                list.add(Pair(saved.email, saved.realName))
-            }
-            list.distinctBy { it.first.lowercase() }
+        // Saved Accounts & Previous Authenticated Accounts (verified via CredentialManager / Room)
+        val accountsToShow = remember(savedGoogleAccounts) {
+            savedGoogleAccounts
+                .map { Pair(it.email, it.realName) }
+                .distinctBy { it.first.lowercase() }
         }
 
         if (accountsToShow.isNotEmpty()) {

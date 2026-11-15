@@ -181,31 +181,132 @@ fun PlayerScreen(
     val uiState by playerController.uiState.collectAsState()
     val playbackInfo by playerController.playbackInfo.collectAsState()
 
-    LaunchedEffect(activeChannel.id, activeChannel.name) {
+    val isOfflineSavedPlayback = remember(activeChannel.id, activeChannel.streamUrl) {
+        activeChannel.id.startsWith("dl_") || activeChannel.streamUrl.startsWith("file:", ignoreCase = true)
+    }
+    val liveAdTimer = remember { com.example.ads.LiveTvAdTimerState() }
+    val vodCueTracker = remember { com.example.ads.VodVastCueTracker() }
+
+    LaunchedEffect(activeChannel.id, activeChannel.streamUrl, activeChannel.name) {
         com.example.data.NeliRealtimeAnalyticsManager.updateCurrentDeviceWatching(context, activeChannel)
-        com.example.ads.NeliAdManager.onChannelPlaybackStarted(activeChannel.id)
+        com.example.ads.NeliAdManager.updateAgeRestrictedForKidsContent(
+            activeChannel.categories.any { it.contains("kid", ignoreCase = true) }
+        )
+        if (activeChannel.isLiveBroadcast) {
+            liveAdTimer.onPlaybackStarted(activeChannel.id)
+        } else {
+            vodCueTracker.ensureSession("${activeChannel.id}|${activeChannel.streamUrl}")
+        }
+        if (!isOfflineSavedPlayback && activity != null) {
+            com.example.ads.NeliAdManager.preloadVideoVastAd(context)
+        }
     }
 
-    // Scheduled 15-Minute Playback Ad Break for non-premium mobile users
-    LaunchedEffect(activeChannel.id, uiState) {
-        if (uiState is PlayerUiState.Ready && activity != null) {
-            while (true) {
-                delay(30_000L)
-                com.example.ads.NeliAdManager.checkAndTrigger15MinAdBreak(
-                    activity = activity,
-                    onBeforeAd = {
-                        if (!activeChannel.isLiveBroadcast) {
-                            playerController.pause()
-                        }
-                    },
-                    onAfterAd = {
-                        if (!activeChannel.isLiveBroadcast) {
-                            playerController.play()
-                        } else {
-                            playerController.syncToLiveEdge()
-                        }
+    // VOD Cue 1: Pre-roll VAST before Movies & Series playback (non-blocking if unavailable/offline)
+    LaunchedEffect(activeChannel.id, activeChannel.streamUrl, isOfflineSavedPlayback) {
+        if (!activeChannel.isLiveBroadcast && !isOfflineSavedPlayback && activity != null && !vodCueTracker.preRollAttempted) {
+            vodCueTracker.markPreRollHandled()
+            if (com.example.ads.NeliAdManager.isAdsAllowed(context) &&
+                com.example.ads.NeliAdManager.isDeviceOnline(context)
+            ) {
+                playerController.pauseForAdBreak()
+                val ready = com.example.ads.NeliAdManager.awaitPlayableVideoVastAd(context, timeoutMs = 2_000L)
+                if (ready) {
+                    val shown = com.example.ads.NeliAdManager.showVerifiedVideoVastAd(
+                        activity = activity,
+                        cueLabel = "VOD_PRE_ROLL_${activeChannel.id}",
+                        onBeforeAd = { playerController.pauseForAdBreak() },
+                        onAfterAd = { playerController.resumeVodFromPreRoll() }
+                    )
+                    if (!shown) {
+                        playerController.resumeVodFromPreRoll()
                     }
+                } else {
+                    playerController.resumeVodFromPreRoll()
+                }
+            }
+        }
+    }
+
+    // Live TV 15-minute VAST + 30s-behind-live-edge reconnect & VOD Mid-roll VAST (30% and 75%)
+    LaunchedEffect(activeChannel.id, activeChannel.streamUrl, isOfflineSavedPlayback, activity) {
+        if (activity == null) return@LaunchedEffect
+        while (true) {
+            delay(1_000L)
+            if (isOfflineSavedPlayback || !com.example.ads.NeliAdManager.isAdsAllowed(context)) continue
+
+            val adDisplaying = com.example.ads.NeliAdManager.isAdCurrentlyDisplaying.value ||
+                playerController.isAdPausedForBreak()
+
+            if (activeChannel.isLiveBroadcast) {
+                if (liveAdTimer.accumulatedActivePlaybackMs >= (com.example.ads.NeliAdManager.LIVE_VAST_INTERVAL_MS - 30_000L) &&
+                    !com.example.ads.NeliAdManager.isVideoVastAdReady()
+                ) {
+                    com.example.ads.NeliAdManager.preloadVideoVastAd(context)
+                }
+
+                val isDue = liveAdTimer.recordTick(
+                    elapsedMs = 1_000L,
+                    isPlaying = playbackInfo.isPlaying,
+                    isBuffering = uiState is PlayerUiState.Buffering,
+                    isAdShowing = adDisplaying
                 )
+                if (isDue && !adDisplaying) {
+                    if (com.example.ads.NeliAdManager.isDeviceOnline(context) &&
+                        com.example.ads.NeliAdManager.isVideoVastAdReady()
+                    ) {
+                        val shown = com.example.ads.NeliAdManager.showVerifiedVideoVastAd(
+                            activity = activity,
+                            cueLabel = "LIVE_TV_15MIN_${activeChannel.id}",
+                            onBeforeAd = { playerController.pauseForAdBreak() },
+                            onAfterAd = {
+                                liveAdTimer.onBreakTriggeredAndCompleted()
+                                playerController.reconnectLiveEdgeBehind(
+                                    com.example.ads.NeliAdManager.LIVE_RECONNECT_BEHIND_EDGE_MS
+                                )
+                            }
+                        )
+                        if (!shown) {
+                            liveAdTimer.onBreakUnavailable(retryDelayMs = 45_000L)
+                            com.example.ads.NeliAdManager.preloadVideoVastAd(context)
+                        }
+                    } else {
+                        liveAdTimer.onBreakUnavailable(retryDelayMs = 45_000L)
+                        com.example.ads.NeliAdManager.preloadVideoVastAd(context)
+                    }
+                }
+            } else if (!adDisplaying && playbackInfo.isPlaying && uiState is PlayerUiState.Ready) {
+                val dur = playbackInfo.duration
+                val pos = playbackInfo.currentPosition
+                // Preserve initial Swahili 00:00 -> 05:30 auto-skip transition before evaluating mid-rolls
+                val swahiliSkipSettled = !activeChannel.shouldAutoSkipSwahiliMovieIntro ||
+                    pos >= com.example.player.LivePlayerController.SWAHILI_MOVIE_INTRO_SKIP_MS - 1_500L ||
+                    (dur != C.TIME_UNSET && dur in 1..(com.example.player.LivePlayerController.SWAHILI_MOVIE_INTRO_SKIP_MS + 5_000L))
+
+                if (swahiliSkipSettled && dur != C.TIME_UNSET && dur > 10_000L) {
+                    if ((pos >= (dur * 20L) / 100L) && !com.example.ads.NeliAdManager.isVideoVastAdReady()) {
+                        com.example.ads.NeliAdManager.preloadVideoVastAd(context)
+                    }
+                    val dueCue = vodCueTracker.evaluateMidRollDue(pos, dur)
+                    if ((dueCue == com.example.ads.VodVastCue.MID_ROLL_30 ||
+                            dueCue == com.example.ads.VodVastCue.MID_ROLL_75) &&
+                        com.example.ads.NeliAdManager.isDeviceOnline(context) &&
+                        com.example.ads.NeliAdManager.isVideoVastAdReady()
+                    ) {
+                        val savedPosMs = playerController.captureExactVodPositionMs()
+                        val shown = com.example.ads.NeliAdManager.showVerifiedVideoVastAd(
+                            activity = activity,
+                            cueLabel = "${dueCue.name}_${activeChannel.id}",
+                            onBeforeAd = { playerController.pauseForAdBreak() },
+                            onAfterAd = { playerController.resumeVodAtExactPosition(savedPosMs) }
+                        )
+                        if (!shown) {
+                            playerController.resumeVodAtExactPosition(savedPosMs)
+                        }
+                    } else if (dueCue != null && !com.example.ads.NeliAdManager.isVideoVastAdReady()) {
+                        com.example.ads.NeliAdManager.preloadVideoVastAd(context)
+                    }
+                }
             }
         }
     }
@@ -254,12 +355,35 @@ fun PlayerScreen(
             ?: activeChannel.name.substringBefore(" •").trim()
     }
 
-    // Wire Auto-Next Episode when current Series episode finishes
-    LaunchedEffect(isSeriesVod, nextEpisode, seriesTitlePrefix) {
+    // Wire End-roll VAST (Cue 4) + Auto-Next Episode on natural VOD completion
+    LaunchedEffect(isSeriesVod, nextEpisode, seriesTitlePrefix, activeChannel.id, isOfflineSavedPlayback, activity) {
         playerController.onEpisodeEndedAutoNext = {
             if (isSeriesVod && nextEpisode != null) {
                 nextEpisode.toPlayableChannel(seriesTitlePrefix)
             } else null
+        }
+        playerController.onVodPlaybackCompletedNaturally = { proceedAfterEndRoll ->
+            val canPlayEndRoll = !activeChannel.isLiveBroadcast &&
+                !isOfflineSavedPlayback &&
+                activity != null &&
+                com.example.ads.NeliAdManager.isAdsAllowed(context) &&
+                com.example.ads.NeliAdManager.isDeviceOnline(context) &&
+                vodCueTracker.markEndRollIfDue() &&
+                com.example.ads.NeliAdManager.isVideoVastAdReady()
+
+            if (canPlayEndRoll) {
+                val shown = com.example.ads.NeliAdManager.showVerifiedVideoVastAd(
+                    activity = activity!!,
+                    cueLabel = "VOD_END_ROLL_${activeChannel.id}",
+                    onBeforeAd = { playerController.pauseForAdBreak() },
+                    onAfterAd = { proceedAfterEndRoll() }
+                )
+                if (!shown) {
+                    proceedAfterEndRoll()
+                }
+            } else {
+                proceedAfterEndRoll()
+            }
         }
     }
 
@@ -271,10 +395,6 @@ fun PlayerScreen(
             onEnterPipMode = onEnterPipMode ?: {}
         )
         return
-    }
-
-    val isOfflineSavedPlayback = remember(activeChannel.id, activeChannel.streamUrl) {
-        activeChannel.id.startsWith("dl_") || activeChannel.streamUrl.startsWith("file:", ignoreCase = true)
     }
 
     var areControlsVisible by remember { mutableStateOf(true) }
@@ -495,7 +615,13 @@ fun PlayerScreen(
     }
 
     val isTvDevice = com.example.ui.tv.NeliTvDetector.isTelevision(context)
-    DisposableEffect(playerController, orientationMode, isTvDevice) {
+    LaunchedEffect(orientationMode, isTvDevice) {
+        if (!isTvDevice) {
+            activity?.requestedOrientation = orientationMode.activityOrientationConstant
+        }
+    }
+
+    DisposableEffect(playerController, isTvDevice) {
         val window = activity?.window
         window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         if (!isTvDevice) {
@@ -506,8 +632,6 @@ fun PlayerScreen(
         insetsController?.systemBarsBehavior =
             WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         insetsController?.hide(WindowInsetsCompat.Type.systemBars())
-
-        playerController.initializePlayer()
 
         onDispose {
             if (ownsController) {
@@ -688,7 +812,10 @@ fun PlayerScreen(
 
             // Always-On Live Stream Freeze / Stall Auto-Fix Watchdog & Auto-Play on Smart TV / Mobile
             LaunchedEffect(activeChannel.id) {
-                if (!activeExoPlayer.isPlaying) {
+                if (!activeExoPlayer.isPlaying &&
+                    !playerController.isAdPausedForBreak() &&
+                    !com.example.ads.NeliAdManager.isAdCurrentlyDisplaying.value
+                ) {
                     activeExoPlayer.playWhenReady = true
                     activeExoPlayer.play()
                 }
@@ -696,8 +823,14 @@ fun PlayerScreen(
                 while (true) {
                     delay(900L)
                     watchdogIteration++
-                    // If stuck in loading or buffering for more than 3.6 seconds, force-resume playback
-                    if (watchdogIteration % 4 == 0 && !activeExoPlayer.isPlaying) {
+                    val adBlockingPlayback = playerController.isAdPausedForBreak() ||
+                        com.example.ads.NeliAdManager.isAdCurrentlyDisplaying.value
+                    // Only recover if player dropped into IDLE or lost playWhenReady unexpectedly (never interrupt active buffering)
+                    if (!adBlockingPlayback &&
+                        watchdogIteration % 4 == 0 &&
+                        !activeExoPlayer.isPlaying &&
+                        (!activeExoPlayer.playWhenReady || activeExoPlayer.playbackState == Player.STATE_IDLE)
+                    ) {
                         if (!activeExoPlayer.playWhenReady) {
                             activeExoPlayer.playWhenReady = true
                         }
@@ -707,7 +840,7 @@ fun PlayerScreen(
                         activeExoPlayer.play()
                     }
 
-                    if (activeChannel.isLiveBroadcast) {
+                    if (!adBlockingPlayback && activeChannel.isLiveBroadcast) {
                         playerController.checkAndAutoFixLiveStreamStall()
                     }
                     com.example.data.NeliSubscriptionManager.expireSubscriptionIfNeeded(context)

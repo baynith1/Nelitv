@@ -335,7 +335,7 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
         if (!isSyncCycleRunning.compareAndSet(false, true)) return@withContext
         try {
             lastSyncCompletedAtMs = System.currentTimeMillis()
-            ChannelRepository.refreshLiveChannels()
+            ChannelRepository.autoSyncAllChannelsNow()
             val apiKey = AuthRepository.resolveApiKey(appContext)
             MediaContentRepository.syncFromFirebaseEndpoint(
                 databaseUrl = MediaContentRepository.DEFAULT_DATABASE_URL,
@@ -426,7 +426,7 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
     fun addDownload(media: MediaContent, quality: DownloadQualityOption? = null) {
         val baseDownloadUrl = media.downloadUrl.ifBlank { media.streamUrl }.ifBlank { media.playbackUrl }
         val effectiveDownloadUrl = if (quality != null) {
-            quality.resolveQualityStreamUrl(baseDownloadUrl)
+            quality.resolveQualityStreamUrl(baseDownloadUrl, media.qualityUrls)
         } else {
             baseDownloadUrl
         }
@@ -478,7 +478,7 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
     ) {
         val baseDownloadUrl = episode.downloadUrl.ifBlank { episode.streamUrl }.ifBlank { episode.playbackUrl }
         val effectiveDownloadUrl = if (quality != null) {
-            quality.resolveQualityStreamUrl(baseDownloadUrl)
+            quality.resolveQualityStreamUrl(baseDownloadUrl, episode.qualityUrls)
         } else {
             baseDownloadUrl
         }
@@ -630,11 +630,13 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Triggers Google Sign-In (selecting the primary/first Google account on the device or via CredentialManager).
-     * When interactive sign-in needs user account selection (e.g., on an emulator or before SHA-1 OAuth setup),
-     * opens the Google Account Sign-In Sheet & Device Account Chooser so Google Sign-In always works seamlessly.
+     * Triggers genuine interactive Google Sign-In via Jetpack [CredentialManager] (`GetSignInWithGoogleOption`)
+     * and exchanges the Google ID token with FirebaseAuth (`GoogleAuthProvider`).
      */
-    fun signInWithGoogle(uiContext: Context = appContext) {
+    fun signInWithGoogle(
+        uiContext: Context = appContext,
+        switchAccount: Boolean = false
+    ) {
         viewModelScope.launch {
             _isAuthLoading.value = true
             _authError.value = null
@@ -642,7 +644,8 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
 
             val result = authenticationRepository.signInWithGoogle(
                 uiContext = uiContext,
-                forceInteractive = true
+                forceInteractive = true,
+                forceAccountChooser = switchAccount
             )
             _isAuthLoading.value = false
             when (result) {
@@ -650,54 +653,66 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
                     _showGoogleSignInSheet.value = false
                     _googleFallbackMessage.value = null
                     _authError.value = null
+                    _savedGoogleAccounts.value = userManager.getSavedAccounts()
+                    com.example.data.NeliSubscriptionManager.switchActiveAccount(
+                        context = appContext,
+                        uid = result.account.uid,
+                        email = result.account.email,
+                        realName = result.account.realName
+                    )
+                }
+                is GoogleAutoSignInResult.Cancelled -> {
+                    _authError.value = null
+                    _googleFallbackMessage.value = null
+                }
+                is GoogleAutoSignInResult.Failed -> {
+                    _authError.value = result.message
                 }
                 is GoogleAutoSignInResult.PromptGoogleAccountSelection -> {
                     _savedGoogleAccounts.value = result.savedAccounts
-                    _showGoogleSignInSheet.value = true
+                    if (result.savedAccounts.isNotEmpty()) {
+                        _showGoogleSignInSheet.value = true
+                    } else {
+                        _authError.value = "Google Sign-In could not find a credential. Please try again."
+                    }
                     _googleFallbackMessage.value = null
-                    _authError.value = null
                 }
                 is GoogleAutoSignInResult.UseEmailFallback -> {
                     _savedGoogleAccounts.value = userManager.getSavedAccounts()
-                    _showGoogleSignInSheet.value = true
-                    _googleFallbackMessage.value = null
+                    _authError.value = result.reasonMessage
+                    _googleFallbackMessage.value = result.reasonMessage
                 }
             }
         }
     }
 
     /**
-     * Explicitly displays the Google Account Chooser bottom sheet so user can select from
-     * multiple Google accounts on the phone rather than defaulting to a single account.
+     * Clears any cached credential state and opens the genuine Google CredentialManager account chooser
+     * so the user can switch Google accounts.
      */
     fun chooseGoogleAccount(uiContext: Context = appContext) {
-        viewModelScope.launch {
-            _authError.value = null
-            _googleFallbackMessage.value = null
-            val deviceAccounts = authenticationRepository.getAllDeviceGoogleAccounts(uiContext)
-            val mapped = deviceAccounts.map {
-                com.example.data.local.UserAccountEntity(
-                    uid = it.email.hashCode().toString(),
-                    realName = it.displayName,
-                    email = it.email,
-                    passwordHash = "google_auth",
-                    isLoggedIn = false
-                )
-            }
-            _savedGoogleAccounts.value = (mapped + userManager.getSavedAccounts()).distinctBy { it.email.lowercase() }
-            _showGoogleSignInSheet.value = true
-        }
+        signInWithGoogle(uiContext = uiContext, switchAccount = true)
     }
 
-    fun completeGoogleSignIn(email: String, displayName: String = "") {
+    fun completeGoogleSignIn(
+        email: String,
+        displayName: String = "",
+        uiContext: Context = appContext
+    ) {
         viewModelScope.launch {
             _isAuthLoading.value = true
             _authError.value = null
             _googleFallbackMessage.value = null
-            val result = authenticationRepository.signInWithGoogleAccount(
-                email = email,
-                displayName = displayName
-            )
+            val cleanEmail = email.trim().lowercase()
+            val savedMatch = userManager.getSavedAccounts().firstOrNull {
+                it.email.equals(cleanEmail, ignoreCase = true)
+            }
+            if (savedMatch == null) {
+                _isAuthLoading.value = false
+                signInWithGoogle(uiContext = uiContext, switchAccount = true)
+                return@launch
+            }
+            val result = authenticationRepository.switchActiveSession(cleanEmail)
             _isAuthLoading.value = false
             result.onSuccess { user ->
                 _showGoogleSignInSheet.value = false
@@ -710,7 +725,7 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
                     realName = user.realName
                 )
             }.onFailure { err ->
-                _authError.value = err.message ?: "Please enter a valid Google email address."
+                _authError.value = err.message ?: "Unable to switch Google account. Please sign in again."
             }
         }
     }

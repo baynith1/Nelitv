@@ -10,9 +10,9 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
+import com.example.ads.InMobiBannerAd
+import com.example.ads.InMobiNativeCardAd
 import com.example.ads.NeliAdManager
-import com.example.ads.StartIoBannerAd
-import com.example.ads.StartIoNativeCardAd
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -94,7 +94,10 @@ import com.example.data.MediaContentRepository
 import com.example.data.NeliAdminManager
 import com.example.data.NeliSubscriptionManager
 import com.example.data.OfflineDownloadManager
+import androidx.compose.runtime.mutableLongStateOf
+import com.example.model.DownloadQualityOption
 import com.example.model.LiveChannel
+import com.example.model.MediaContent
 import com.example.player.NeliCastManager
 import androidx.compose.foundation.layout.fillMaxHeight
 import com.example.ui.NeliViewModel
@@ -192,24 +195,35 @@ fun HomeScreen(
         }
     }
 
+    var lastTappedLiveChannelId by remember { mutableStateOf("") }
+    var lastTappedLiveChannelMs by remember { mutableLongStateOf(0L) }
+    var pendingQuickDownloadMedia by remember { mutableStateOf<MediaContent?>(null) }
+    var quickDownloadSelectedQuality by remember { mutableStateOf(DownloadQualityOption.STANDARD_480P) }
+
     val handleChannelSelection: (LiveChannel) -> Unit = { ch ->
-        lockedChannelToPrompt = null
-        pendingUnlockedChannelAfterPayment = null
-        if (isCastActive) {
-            NeliCastManager.startCastingMedia(
-                channel = ch,
-                currentUser = currentUser,
-                context = context
-            )
-            // Stream and audio play on the Smart TV; phone acts as remote control and remains free for user
-        } else {
-            val activity = context as? Activity
-            if (activity != null) {
-                NeliAdManager.showChannelOpeningAd(activity, ch.name) {
+        val nowMs = System.currentTimeMillis()
+        val isDuplicateRapidTap = ch.id == lastTappedLiveChannelId && (nowMs - lastTappedLiveChannelMs) < 700L
+        if (!isDuplicateRapidTap) {
+            lastTappedLiveChannelId = ch.id
+            lastTappedLiveChannelMs = nowMs
+            lockedChannelToPrompt = null
+            pendingUnlockedChannelAfterPayment = null
+            if (isCastActive) {
+                NeliCastManager.startCastingMedia(
+                    channel = ch,
+                    currentUser = currentUser,
+                    context = context
+                )
+                // Stream and audio play on the Smart TV; phone acts as remote control and remains free for user
+            } else {
+                val activity = com.example.data.AuthenticationRepository.findActivity(context)
+                if (activity != null && ch.isLiveBroadcast) {
+                    NeliAdManager.showChannelOpeningAd(activity, ch.name, ch.id) {
+                        onChannelSelected(ch)
+                    }
+                } else {
                     onChannelSelected(ch)
                 }
-            } else {
-                onChannelSelected(ch)
             }
         }
     }
@@ -223,6 +237,7 @@ fun HomeScreen(
         neliViewModel.refreshConnectivityState()
         NeliSubscriptionManager.initialize(context)
         NeliAdminManager.initialize(context)
+        NeliAdManager.initialize(context)
     }
 
     if (showCastDialog) {
@@ -394,7 +409,7 @@ fun HomeScreen(
                             isOfflineMode = isOfflineMode,
                             downloadBannerMessage = downloadBannerMessage,
                             onDismissBanner = { neliViewModel.dismissDownloadBanner() },
-                            onStartQuickDownload = { media -> neliViewModel.addDownload(media) },
+                            onStartQuickDownload = { media -> pendingQuickDownloadMedia = media },
                             onPauseDownload = { id -> neliViewModel.pauseDownload(id) },
                             onRetryDownload = { item -> neliViewModel.retryDownload(item) },
                             onCancelDownload = { id -> neliViewModel.cancelDownload(id) },
@@ -426,9 +441,34 @@ fun HomeScreen(
                             },
                             onDeleteDownload = { id -> neliViewModel.deleteDownload(id) }
                         )
+
+                        val quickMedia = pendingQuickDownloadMedia
+                        if (quickMedia != null) {
+                            DownloadQualityDialog(
+                                title = quickMedia.title,
+                                isEpisode = false,
+                                selectedQuality = quickDownloadSelectedQuality,
+                                onSelectQuality = { quickDownloadSelectedQuality = it },
+                                onConfirmDownload = { chosenQuality ->
+                                    pendingQuickDownloadMedia = null
+                                    val act = com.example.data.AuthenticationRepository.findActivity(context)
+                                    if (act != null && !isOfflineMode) {
+                                        NeliAdManager.showDownloadRewardedAd(act) {
+                                            neliViewModel.addDownload(quickMedia, chosenQuality)
+                                        }
+                                    } else {
+                                        neliViewModel.addDownload(quickMedia, chosenQuality)
+                                    }
+                                },
+                                onDismiss = { pendingQuickDownloadMedia = null }
+                            )
+                        }
                     }
 
                     BottomNavTab.ACCOUNT -> {
+                        val hostActivity = remember(context) {
+                            com.example.data.AuthenticationRepository.findActivity(context)
+                        }
                         AccountTabContent(
                             currentUser = currentUser,
                             authError = authError,
@@ -440,13 +480,17 @@ fun HomeScreen(
                             watchlist = watchlist,
                             downloadsCount = downloads.count { it.downloadStatus == "COMPLETED" },
                             onSignInWithGoogle = {
-                                neliViewModel.signInWithGoogle(context)
+                                neliViewModel.signInWithGoogle(hostActivity ?: context)
                             },
                             onChooseGoogleAccount = {
-                                neliViewModel.chooseGoogleAccount(context)
+                                neliViewModel.chooseGoogleAccount(hostActivity ?: context)
                             },
                             onCompleteGoogleSignIn = { googleEmail, googleName ->
-                                neliViewModel.completeGoogleSignIn(googleEmail, googleName)
+                                neliViewModel.completeGoogleSignIn(
+                                    email = googleEmail,
+                                    displayName = googleName,
+                                    uiContext = hostActivity ?: context
+                                )
                             },
                             onDismissGoogleSignInSheet = {
                                 neliViewModel.dismissGoogleSignInSheet()
@@ -967,9 +1011,9 @@ private fun LiveTvHomeTab(
                 }
             }
 
-            // Start.io Banner Ad below hero slider (matching user mockup)
-            item(key = "home_startio_banner_below_hero") {
-                StartIoBannerAd(
+            // InMobi Banner Ad directly below hero slider
+            item(key = "home_inmobi_banner_below_hero") {
+                InMobiBannerAd(
                     adTag = "home_below_hero",
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1092,10 +1136,20 @@ private fun LiveTvHomeTab(
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp, vertical = 6.dp)
                     ) {
-                        StartIoNativeCardAd()
+                        InMobiNativeCardAd(adTag = "home_live_$blockIndex")
                     }
                 }
             }
+        }
+
+        // InMobi Banner Ad below the Live TV channel list
+        item(key = "home_inmobi_banner_below_live_tv") {
+            InMobiBannerAd(
+                adTag = "home_below_live_tv",
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 6.dp)
+            )
         }
         }
     }

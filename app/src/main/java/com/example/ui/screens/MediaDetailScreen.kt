@@ -97,8 +97,8 @@ import com.example.ui.theme.NeliSurface
 import com.example.ui.theme.NeliSurfaceVariant
 import com.example.ui.theme.NeliTextPrimary
 import com.example.ui.theme.NeliTextSecondary
-import com.example.ads.StartIoBannerAd
-import com.example.ads.StartIoNativeCardAd
+import com.example.ads.InMobiBannerAd
+import com.example.ads.InMobiNativeCardAd
 import com.example.ads.NeliAdManager
 
 @Composable
@@ -544,20 +544,10 @@ fun MediaDetailScreen(
                 ) {
                     Button(
                         onClick = {
-                            val playAction = {
-                                if (media.isSeries && currentVodEpisode != null) {
-                                    onPlayChannel(currentVodEpisode.toPlayableChannel(media.title))
-                                } else {
-                                    onPlayChannel(media.toPlayableChannel())
-                                }
-                            }
-                            val act = detailContext as? android.app.Activity
-                            if (act != null) {
-                                NeliAdManager.showChannelOpeningAd(act, media.title) {
-                                    playAction()
-                                }
+                            if (media.isSeries && currentVodEpisode != null) {
+                                onPlayChannel(currentVodEpisode.toPlayableChannel(media.title))
                             } else {
-                                playAction()
+                                onPlayChannel(media.toPlayableChannel())
                             }
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta),
@@ -633,8 +623,8 @@ fun MediaDetailScreen(
                     }
                 }
 
-                // Start.io Banner Ad below action buttons
-                StartIoBannerAd(
+                // InMobi Banner Ad below action buttons
+                InMobiBannerAd(
                     adTag = "detail_page_banner",
                     modifier = Modifier
                         .fillMaxWidth()
@@ -669,14 +659,15 @@ fun MediaDetailScreen(
             }
         }
 
-        // Start.io Native Sponsored Card in Media Details
+        // InMobi Native Sponsored Card in Media Details
         item(key = "detail_native_sponsored_card") {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
-                StartIoNativeCardAd(
+                InMobiNativeCardAd(
+                    adTag = "detail_page",
                     modifier = Modifier.fillMaxWidth()
                 )
             }
@@ -755,8 +746,18 @@ fun MediaDetailScreen(
                                     .background(NeliCardPurple)
                                     .border(1.dp, NeliGenreCyan.copy(alpha = 0.6f), RoundedCornerShape(10.dp))
                                     .clickable {
-                                        filteredEpisodes.forEach { ep ->
-                                            onDownloadEpisode(ep)
+                                        val act = detailContext as? android.app.Activity
+                                        val batchAction = {
+                                            filteredEpisodes.forEach { ep ->
+                                                onDownloadEpisode(ep)
+                                            }
+                                        }
+                                        if (act != null) {
+                                            NeliAdManager.showDownloadRewardedAd(act) {
+                                                batchAction()
+                                            }
+                                        } else {
+                                            batchAction()
                                         }
                                     }
                                     .padding(horizontal = 10.dp, vertical = 6.dp)
@@ -1020,7 +1021,7 @@ fun MediaDetailScreen(
                 }
                 val act = detailContext as? android.app.Activity
                 if (act != null) {
-                    com.example.ads.NeliAdManager.showDownloadMovieAd(act) {
+                    NeliAdManager.showDownloadRewardedAd(act) {
                         startDownload()
                     }
                 } else {
@@ -1045,7 +1046,7 @@ fun MediaDetailScreen(
                 }
                 val act = detailContext as? android.app.Activity
                 if (act != null) {
-                    com.example.ads.NeliAdManager.showDownloadMovieAd(act) {
+                    NeliAdManager.showDownloadRewardedAd(act) {
                         startDownload()
                     }
                 } else {
@@ -1124,7 +1125,7 @@ private fun CastMemberCard(member: CastMember) {
 }
 
 @Composable
-private fun DownloadQualityDialog(
+fun DownloadQualityDialog(
     title: String,
     isEpisode: Boolean,
     selectedQuality: DownloadQualityOption,

@@ -2005,4 +2005,260 @@ class ExampleRobolectricTest {
         assertNotNull(player)
         controller.release()
     }
+
+    @Test
+    fun `inmobi production credentials placements live timer vod vast cues and reconnect edge are exact`() {
+        assertEquals("com.nelitv.app", com.example.ads.NeliAdManager.INMOBI_APP_ID)
+        assertEquals("10000252102", com.example.ads.NeliAdManager.INMOBI_APP_KEY)
+        assertEquals(10000869536L, com.example.ads.NeliAdManager.PLACEMENT_INTERSTITIAL_ID)
+        assertEquals(10000869537L, com.example.ads.NeliAdManager.PLACEMENT_BANNER_ID)
+        assertEquals(10000869538L, com.example.ads.NeliAdManager.PLACEMENT_REWARDED_ID)
+        assertEquals(10000869539L, com.example.ads.NeliAdManager.PLACEMENT_VIDEO_VAST_ID)
+        assertEquals(10000869540L, com.example.ads.NeliAdManager.PLACEMENT_NATIVE_ID)
+        assertEquals(15L * 60L * 1000L, com.example.ads.NeliAdManager.LIVE_VAST_INTERVAL_MS)
+        assertEquals(30_000L, com.example.ads.NeliAdManager.LIVE_RECONNECT_BEHIND_EDGE_MS)
+
+        // LiveTvAdTimerState counts ONLY active playback (excludes pauses, buffering, and ad display)
+        val liveTimer = com.example.ads.LiveTvAdTimerState()
+        liveTimer.onPlaybackStarted("nick_jr_official_live")
+        org.junit.Assert.assertFalse(
+            liveTimer.recordTick(elapsedMs = 600_000L, isPlaying = false, isBuffering = false, isAdShowing = false)
+        )
+        org.junit.Assert.assertFalse(
+            liveTimer.recordTick(elapsedMs = 600_000L, isPlaying = true, isBuffering = true, isAdShowing = false)
+        )
+        org.junit.Assert.assertFalse(
+            liveTimer.recordTick(elapsedMs = 600_000L, isPlaying = true, isBuffering = false, isAdShowing = true)
+        )
+        assertEquals(0L, liveTimer.accumulatedActivePlaybackMs)
+
+        // Accumulates up to 15 minutes cleanly
+        org.junit.Assert.assertFalse(
+            liveTimer.recordTick(elapsedMs = 899_000L, isPlaying = true, isBuffering = false, isAdShowing = false)
+        )
+        assertTrue(
+            liveTimer.recordTick(elapsedMs = 1_000L, isPlaying = true, isBuffering = false, isAdShowing = false)
+        )
+        liveTimer.onBreakTriggeredAndCompleted()
+        assertEquals(0L, liveTimer.accumulatedActivePlaybackMs)
+
+        // Graceful backoff when no ad available
+        liveTimer.onBreakUnavailable(retryDelayMs = 60_000L)
+        assertEquals(14L * 60L * 1000L, liveTimer.accumulatedActivePlaybackMs)
+
+        // VodVastCueTracker triggers 30%, 75%, and End-roll once each and preserves exact position
+        val tracker = com.example.ads.VodVastCueTracker()
+        tracker.ensureSession("vod_movie_1")
+        tracker.markPreRollHandled()
+        assertTrue(tracker.preRollAttempted)
+        org.junit.Assert.assertNull(tracker.evaluateMidRollDue(positionMs = 200_000L, durationMs = 1_000_000L))
+
+        val cue30 = tracker.evaluateMidRollDue(positionMs = 305_000L, durationMs = 1_000_000L)
+        assertEquals(com.example.ads.VodVastCue.MID_ROLL_30, cue30)
+        assertEquals(305_000L, tracker.savedResumePositionMs)
+        // Must not duplicate 30% on subsequent ticks
+        org.junit.Assert.assertNull(tracker.evaluateMidRollDue(positionMs = 306_000L, durationMs = 1_000_000L))
+
+        val cue75 = tracker.evaluateMidRollDue(positionMs = 760_000L, durationMs = 1_000_000L)
+        assertEquals(com.example.ads.VodVastCue.MID_ROLL_75, cue75)
+        assertEquals(760_000L, tracker.savedResumePositionMs)
+        org.junit.Assert.assertNull(tracker.evaluateMidRollDue(positionMs = 761_000L, durationMs = 1_000_000L))
+
+        assertTrue(tracker.markEndRollIfDue())
+        org.junit.Assert.assertFalse(tracker.markEndRollIfDue())
+
+        // Scrubbing directly >= 75% skips 30% loop cleanly
+        tracker.ensureSession("vod_movie_scrub")
+        assertEquals(
+            com.example.ads.VodVastCue.MID_ROLL_75,
+            tracker.evaluateMidRollDue(positionMs = 800_000L, durationMs = 1_000_000L)
+        )
+        assertTrue(tracker.mid30Attempted)
+
+        // Live reconnect offset places playback ~30 seconds behind live edge
+        assertEquals(
+            90_000L,
+            com.example.player.LivePlayerController.computeLiveReconnectPositionMs(
+                windowDurationMs = 120_000L,
+                windowDefaultPositionMs = 110_000L,
+                behindLiveEdgeMs = 30_000L
+            )
+        )
+    }
+
+    @Test
+    fun `nick jr stream url is preserved switchChannel is idempotent swahili autoskip and download quality resolution work`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+
+        // 1. Nick Jr channel stream URL untouched & identical switchChannel does not re-init stack
+        val nickJr = com.example.data.ChannelRepository.channels.first { it.id == "nick_jr_official_live" }
+        assertEquals("https://stream8.cinerama.uz/1501/tracks-v1a1/mono.m3u8", nickJr.streamUrl)
+        val controller = com.example.player.LivePlayerController(context, nickJr)
+        val playerBefore = controller.initializePlayer()
+        controller.switchChannel(nickJr)
+        val playerAfter = controller.initializePlayer()
+        assertEquals(playerBefore, playerAfter)
+        assertEquals("nick_jr_official_live", controller.currentChannel.value.id)
+        controller.release()
+
+        // 2. Download quality resolution preserves ?token= query params and explicit map entries
+        val explicitMap = mapOf(
+            "360p" to "https://cdn.example.com/v/low.mp4?token=abc",
+            "1080p" to "https://cdn.example.com/v/full.mp4?token=xyz"
+        )
+        assertEquals(
+            "https://cdn.example.com/v/low.mp4?token=abc",
+            com.example.model.DownloadQualityOption.LOW_360P.resolveQualityStreamUrl(
+                "https://cdn.example.com/v/default.mp4?token=abc",
+                explicitMap
+            )
+        )
+        assertEquals(
+            "https://vz-123.b-cdn.net/vid/play_720p.mp4?token=tok123",
+            com.example.model.DownloadQualityOption.HIGH_720P.resolveQualityStreamUrl(
+                "https://vz-123.b-cdn.net/vid/play_480p.mp4?token=tok123"
+            )
+        )
+
+        // 3. Swahili-narrated movie auto-skips 05:30 while regular Movie starts at 00:00
+        val swahiliMovie = com.example.model.MediaContent(
+            id = "m_sw",
+            title = "Kiswahili Action",
+            type = "movie",
+            posterUrl = "",
+            backdropUrl = "",
+            streamUrl = "https://cdn.example.com/sw.mp4",
+            genre = "Action",
+            duration = "1h 45m",
+            rating = "8.0",
+            synopsis = "Swahili action movie",
+            narrated = true,
+            narrationLanguage = "Swahili"
+        )
+        val regularMovie = com.example.model.MediaContent(
+            id = "m_reg",
+            title = "Regular Movie",
+            type = "movie",
+            posterUrl = "",
+            backdropUrl = "",
+            streamUrl = "https://cdn.example.com/reg.mp4",
+            genre = "Action",
+            duration = "1h 50m",
+            rating = "8.2",
+            synopsis = "Regular English movie",
+            narrated = false,
+            narrationLanguage = "English"
+        )
+        val seriesItem = com.example.model.MediaContent(
+            id = "s_1",
+            title = "Swahili Series",
+            type = "series",
+            posterUrl = "",
+            backdropUrl = "",
+            streamUrl = "https://cdn.example.com/series.m3u8",
+            genre = "Drama",
+            duration = "45m",
+            rating = "8.5",
+            synopsis = "Series episode",
+            narrated = true,
+            narrationLanguage = "Swahili"
+        )
+        assertTrue(swahiliMovie.shouldAutoSkipSwahiliMovieIntro)
+        org.junit.Assert.assertFalse(regularMovie.shouldAutoSkipSwahiliMovieIntro)
+        org.junit.Assert.assertFalse(seriesItem.shouldAutoSkipSwahiliMovieIntro)
+    }
+
+    @Test
+    fun `live player preserves exceed video constraints across adaptive and quality changes and updates stale tokens`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+
+        // 1. LivePlayerController must preserve exceedVideoConstraintsIfNecessary & exceedRendererCapabilitiesIfNecessary
+        val sampleChannel = com.example.data.ChannelRepository.channels.first { it.id == "nick_jr_official_live" }
+        val otherChannel = com.example.data.ChannelRepository.channels.first { it.isAzamPriority }
+        val controller = com.example.player.LivePlayerController(context, sampleChannel)
+        val player = controller.initializePlayer()
+        val initialParams = player.trackSelectionParameters as androidx.media3.exoplayer.trackselection.DefaultTrackSelector.Parameters
+        assertTrue(initialParams.exceedVideoConstraintsIfNecessary)
+        assertTrue(initialParams.exceedRendererCapabilitiesIfNecessary)
+
+        controller.evaluateAndApplyAdaptiveTrackSelection(
+            estimatedBitrateBps = 200_000L,
+            bufferedDurationMs = 0L,
+            forceBufferingState = true
+        )
+        val adaptiveParams = player.trackSelectionParameters as androidx.media3.exoplayer.trackselection.DefaultTrackSelector.Parameters
+        assertTrue(adaptiveParams.exceedVideoConstraintsIfNecessary)
+        assertTrue(adaptiveParams.exceedRendererCapabilitiesIfNecessary)
+
+        for (mode in com.example.player.NetworkQualityMode.entries) {
+            controller.applyNetworkQualityMode(mode)
+            val modeParams = player.trackSelectionParameters as androidx.media3.exoplayer.trackselection.DefaultTrackSelector.Parameters
+            assertTrue(
+                "Mode $mode dropped exceedVideoConstraintsIfNecessary",
+                modeParams.exceedVideoConstraintsIfNecessary
+            )
+            assertTrue(
+                "Mode $mode dropped exceedRendererCapabilitiesIfNecessary",
+                modeParams.exceedRendererCapabilitiesIfNecessary
+            )
+        }
+
+        controller.switchChannel(otherChannel)
+        val switchedParams = player.trackSelectionParameters as androidx.media3.exoplayer.trackselection.DefaultTrackSelector.Parameters
+        assertTrue(switchedParams.exceedVideoConstraintsIfNecessary)
+        assertTrue(switchedParams.exceedRendererCapabilitiesIfNecessary)
+        controller.release()
+
+        // 2. Authoritative live token rewrites expired embedded /tok_ and ?cdntoken= URLs cleanly
+        val futureExpSec = (System.currentTimeMillis() / 1000L) + 7_200L
+        val payloadB64 = java.util.Base64.getUrlEncoder().withoutPadding()
+            .encodeToString("""{"exp":"$futureExpSec"}""".toByteArray(Charsets.UTF_8))
+        val freshLiveJwt = "eyJhbGciOiJIUzUxMiJ9.$payloadB64.fresh_live_sig"
+
+        try {
+            assertTrue(com.example.data.ChannelRepository.applyDirectAuthorizationToken(freshLiveJwt))
+            assertTrue(com.example.data.ChannelRepository.hasLiveAuthoritativeToken())
+
+            val staleUrl =
+                "https://cdnedgch2.azamtvltd.co.tz/tok_${com.example.data.ChannelRepository.AZAM_SPORT_1_TOKEN}/live/eds/AzamSport1/DASH/AzamSport1.mpd?cdntoken=${com.example.data.ChannelRepository.DEFAULT_AZAM_CDN_TOKEN}"
+            val updatedUrl = com.example.data.ChannelRepository.normalizeDashStreamUrl(staleUrl)
+            assertTrue(updatedUrl.contains("/tok_$freshLiveJwt/live/eds/AzamSport1/DASH/AzamSport1.mpd"))
+            assertTrue(updatedUrl.contains("cdntoken=$freshLiveJwt"))
+
+            val forcedSpec = com.example.player.TokenManager.injectTokenIntoDataSpec(
+                dataSpec = androidx.media3.datasource.DataSpec.Builder()
+                    .setUri(android.net.Uri.parse(staleUrl))
+                    .build(),
+                forceLatestToken = true
+            )
+            assertTrue(forcedSpec.uri.toString().contains("/tok_$freshLiveJwt/"))
+            assertTrue(forcedSpec.uri.toString().contains("cdntoken=$freshLiveJwt"))
+        } finally {
+            com.example.data.ChannelRepository.resetTokenStateForTesting()
+        }
+
+        // 3. Ad lock reset leaves isAdCurrentlyDisplaying cleanly false
+        com.example.ads.NeliAdManager.clearPlaybackTimer()
+        org.junit.Assert.assertFalse(com.example.ads.NeliAdManager.isAdCurrentlyDisplaying.value)
+
+        // 4. Interactive Google Sign-In requires an Activity context rather than faking login via AccountManager
+        val db = androidx.room.Room.inMemoryDatabaseBuilder(
+            context,
+            com.example.data.local.NeliDatabase::class.java
+        ).allowMainThreadQueries().build()
+        try {
+            kotlinx.coroutines.runBlocking {
+                val authRepo = com.example.data.AuthenticationRepository(context, db.mediaDao())
+                authRepo.signOut()
+                val outcome = authRepo.signInWithGoogle(
+                    uiContext = context,
+                    forceInteractive = true
+                )
+                assertTrue(outcome is com.example.data.GoogleAutoSignInResult.Failed)
+                org.junit.Assert.assertFalse(authRepo.isUserSignedIn())
+            }
+        } finally {
+            db.close()
+        }
+    }
 }

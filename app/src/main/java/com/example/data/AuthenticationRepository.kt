@@ -6,11 +6,15 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.os.Build
 import android.util.Base64
+import androidx.credentials.ClearCredentialStateRequest
 import androidx.credentials.Credential
 import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.GetCredentialResponse
+import androidx.credentials.exceptions.GetCredentialCancellationException
+import androidx.credentials.exceptions.GetCredentialException
+import androidx.credentials.exceptions.NoCredentialException
 import com.example.data.local.NeliDatabase
 import com.example.data.local.NeliMediaDao
 import com.example.data.local.UserAccountEntity
@@ -211,6 +215,14 @@ class AuthenticationRepository(
                 NeliFreeForeverAccountsManager.releaseDeviceOnLogout(context, activeUser.email)
             }
         } catch (_: Throwable) {
+        }
+        if (!isRunningInRobolectricTest()) {
+            try {
+                withTimeoutOrNull(1_500L) {
+                    CredentialManager.create(context).clearCredentialState(ClearCredentialStateRequest())
+                }
+            } catch (_: Throwable) {
+            }
         }
         try {
             getFirebaseAuthOrNull()?.signOut()
@@ -434,13 +446,16 @@ class AuthenticationRepository(
     // =========================================================================
 
     /**
-     * Performs Google Sign-In using active Firebase session, visible device Google accounts,
-     * or Android `CredentialManager` (`GetSignInWithGoogleOption` & `GetGoogleIdOption`),
-     * falling back to `PromptGoogleAccountSelection` when interactive selection is needed.
+     * Performs genuine Google Sign-In via Jetpack `CredentialManager`:
+     * - When `forceInteractive == true`: clears credential state if [forceAccountChooser] is true,
+     *   uses `GetSignInWithGoogleOption` as the sole option in `GetCredentialRequest`, and exchanges
+     *   the returned Google ID token with FirebaseAuth (`GoogleAuthProvider`).
+     * - When `forceInteractive == false`: restores active session or silently tries `GetGoogleIdOption`.
      */
     suspend fun signInWithGoogle(
         uiContext: Context = context,
-        forceInteractive: Boolean = true
+        forceInteractive: Boolean = true,
+        forceAccountChooser: Boolean = false
     ): GoogleAutoSignInResult = withContext(Dispatchers.IO) {
         try {
             if (!forceInteractive) {
@@ -451,78 +466,55 @@ class AuthenticationRepository(
                         autoSelectedPrimaryGoogleAccount = false
                     )
                 }
-            }
 
-            // 1. Check active FirebaseAuth user if already authenticated
-            val currentFbUser = getFirebaseAuthOrNull()?.currentUser
-            if (currentFbUser != null && !currentFbUser.email.isNullOrBlank()) {
-                val email = currentFbUser.email!!.trim().lowercase()
-                val name = currentFbUser.displayName?.takeIf { it.isNotBlank() }
-                    ?: AuthRepository.deriveDisplayNameFromEmail(email)
-                val synced = AuthRepository.signInWithGoogleAccount(
-                    context = context,
-                    dao = dao,
-                    email = email,
-                    displayName = name
-                ).getOrNull()
-                if (synced != null) {
-                    return@withContext GoogleAutoSignInResult.Success(
-                        account = synced,
-                        autoSelectedPrimaryGoogleAccount = true
-                    )
+                // Restore from an existing authenticated FirebaseAuth user if already signed in
+                val currentFbUser = getFirebaseAuthOrNull()?.currentUser
+                if (currentFbUser != null && !currentFbUser.email.isNullOrBlank()) {
+                    val email = currentFbUser.email!!.trim().lowercase()
+                    val name = currentFbUser.displayName?.takeIf { it.isNotBlank() }
+                        ?: AuthRepository.deriveDisplayNameFromEmail(email)
+                    val fbIdToken = fetchFirebaseUserIdToken(currentFbUser, forceRefresh = false).orEmpty()
+                    val synced = AuthRepository.signInWithGoogleAccount(
+                        context = context,
+                        dao = dao,
+                        email = email,
+                        displayName = name,
+                        googleIdToken = fbIdToken,
+                        firebaseUidOverride = currentFbUser.uid,
+                        authenticatedFirebaseIdToken = fbIdToken
+                    ).getOrNull()
+                    if (synced != null) {
+                        return@withContext GoogleAutoSignInResult.Success(
+                            account = synced,
+                            autoSelectedPrimaryGoogleAccount = true
+                        )
+                    }
                 }
             }
 
-            // 2. Check device Google accounts visible via AccountManager
-            val deviceGoogleAccount = findFirstDeviceGoogleAccount(uiContext)
-            if (deviceGoogleAccount != null) {
-                val synced = AuthRepository.signInWithGoogleAccount(
-                    context = context,
-                    dao = dao,
-                    email = deviceGoogleAccount.email,
-                    displayName = deviceGoogleAccount.displayName
-                ).getOrNull()
-                if (synced != null) {
-                    return@withContext GoogleAutoSignInResult.Success(
-                        account = synced,
-                        autoSelectedPrimaryGoogleAccount = true
-                    )
-                }
-            }
-
-            // 3. Query Android CredentialManager using the Activity context on Dispatchers.Main
             val activity = findActivity(uiContext)
-            if (activity != null && (!isRunningOnEmulator() || forceInteractive)) {
-                val credResult = tryCredentialManagerGoogleSignIn(activity, forceInteractive)
-                if (credResult != null) {
-                    return@withContext GoogleAutoSignInResult.Success(
-                        account = credResult,
-                        autoSelectedPrimaryGoogleAccount = true
+            if (activity == null) {
+                return@withContext if (forceInteractive) {
+                    GoogleAutoSignInResult.Failed(
+                        "Unable to open Google Sign-In dialog right now. Please reopen the app and try again."
+                    )
+                } else {
+                    GoogleAutoSignInResult.UseEmailFallback(
+                        "No active session found on this device."
                     )
                 }
             }
 
-            val savedAccounts = getSavedAccounts()
-            if (forceInteractive) {
-                val firstSaved = savedAccounts.firstOrNull()
-                return@withContext GoogleAutoSignInResult.PromptGoogleAccountSelection(
-                    suggestedEmail = firstSaved?.email.orEmpty(),
-                    suggestedName = firstSaved?.realName.orEmpty(),
-                    savedAccounts = savedAccounts
-                )
-            }
-
-            GoogleAutoSignInResult.UseEmailFallback(
-                "No Google account responded on this device. Use email instead, or register a new account below."
+            return@withContext tryCredentialManagerGoogleSignIn(
+                activity = activity,
+                forceInteractive = forceInteractive,
+                clearCredentialStateFirst = forceAccountChooser
             )
-        } catch (_: Throwable) {
-            val savedAccounts = getSavedAccounts()
+        } catch (t: Throwable) {
             if (forceInteractive) {
-                val firstSaved = savedAccounts.firstOrNull()
-                GoogleAutoSignInResult.PromptGoogleAccountSelection(
-                    suggestedEmail = firstSaved?.email.orEmpty(),
-                    suggestedName = firstSaved?.realName.orEmpty(),
-                    savedAccounts = savedAccounts
+                GoogleAutoSignInResult.Failed(
+                    t.message?.takeIf { it.isNotBlank() }
+                        ?: "Google Sign-In failed. Please check your connection and try again."
                 )
             } else {
                 GoogleAutoSignInResult.UseEmailFallback(
@@ -578,20 +570,35 @@ class AuthenticationRepository(
                 if (resolvedEmail.isNotBlank()) AuthRepository.deriveDisplayNameFromEmail(resolvedEmail) else ""
             }
 
-        if (cleanToken.isNotBlank()) {
-            signInFirebaseWithGoogleIdToken(cleanToken)
+        val firebaseAuth = getFirebaseAuthOrNull()
+        var authenticatedUid = ""
+        var authenticatedFirebaseIdToken = ""
+        if (firebaseAuth != null && cleanToken.isNotBlank()) {
+            val fbOutcome = signInFirebaseWithGoogleIdToken(cleanToken)
+            if (fbOutcome.isFailure) {
+                return@withContext Result.failure(
+                    fbOutcome.exceptionOrNull()
+                        ?: IllegalStateException("Firebase Google authentication failed.")
+                )
+            }
+            val authResultPair = fbOutcome.getOrNull()
+            authenticatedUid = authResultPair?.first.orEmpty()
+            authenticatedFirebaseIdToken = authResultPair?.second.orEmpty()
         }
 
-        val fbUser = getFirebaseAuthOrNull()?.currentUser
+        val fbUser = firebaseAuth?.currentUser
         val finalEmail = resolvedEmail.ifBlank { fbUser?.email?.trim()?.lowercase().orEmpty() }
         val finalName = resolvedName.ifBlank { fbUser?.displayName?.trim().orEmpty() }
+        val finalUid = authenticatedUid.ifBlank { fbUser?.uid.orEmpty() }
 
         AuthRepository.signInWithGoogleAccount(
             context = context,
             dao = dao,
             email = finalEmail,
             displayName = finalName,
-            googleIdToken = cleanToken
+            googleIdToken = cleanToken,
+            firebaseUidOverride = finalUid,
+            authenticatedFirebaseIdToken = authenticatedFirebaseIdToken
         )
     }
 
@@ -604,15 +611,28 @@ class AuthenticationRepository(
         displayName: String = "",
         idToken: String = ""
     ): Result<UserAccountEntity> = withContext(Dispatchers.IO) {
-        if (idToken.isNotBlank()) {
-            signInFirebaseWithGoogleIdToken(idToken)
+        var firebaseUid = ""
+        var firebaseIdToken = ""
+        val firebaseAuth = getFirebaseAuthOrNull()
+        if (firebaseAuth != null && idToken.isNotBlank()) {
+            val fbOutcome = signInFirebaseWithGoogleIdToken(idToken)
+            if (fbOutcome.isFailure) {
+                return@withContext Result.failure(
+                    fbOutcome.exceptionOrNull()
+                        ?: IllegalStateException("Firebase Google authentication failed.")
+                )
+            }
+            firebaseUid = fbOutcome.getOrNull()?.first.orEmpty()
+            firebaseIdToken = fbOutcome.getOrNull()?.second.orEmpty()
         }
         AuthRepository.signInWithGoogleAccount(
             context = context,
             dao = dao,
             email = email,
             displayName = displayName,
-            googleIdToken = idToken
+            googleIdToken = idToken,
+            firebaseUidOverride = firebaseUid,
+            authenticatedFirebaseIdToken = firebaseIdToken
         )
     }
 
@@ -622,52 +642,97 @@ class AuthenticationRepository(
 
     private suspend fun tryCredentialManagerGoogleSignIn(
         activity: Activity,
-        forceInteractive: Boolean
-    ): UserAccountEntity? {
+        forceInteractive: Boolean,
+        clearCredentialStateFirst: Boolean = false
+    ): GoogleAutoSignInResult {
         val credentialManager = CredentialManager.create(activity)
+        if (clearCredentialStateFirst && !isRunningInRobolectricTest()) {
+            try {
+                withTimeoutOrNull(1_500L) {
+                    credentialManager.clearCredentialState(ClearCredentialStateRequest())
+                }
+            } catch (_: Throwable) {
+            }
+        }
         val webClientId = resolveWebClientId(activity)
 
-        val requests = buildList {
+        val request = if (forceInteractive) {
+            val signInOption = GetSignInWithGoogleOption.Builder(webClientId).build()
+            GetCredentialRequest.Builder()
+                .addCredentialOption(signInOption)
+                .build()
+        } else {
+            val googleIdOption = GetGoogleIdOption.Builder()
+                .setFilterByAuthorizedAccounts(true)
+                .setAutoSelectEnabled(true)
+                .setServerClientId(webClientId)
+                .build()
+            GetCredentialRequest.Builder()
+                .addCredentialOption(googleIdOption)
+                .build()
+        }
+
+        val response: GetCredentialResponse = try {
+            withContext(Dispatchers.Main) {
+                credentialManager.getCredential(
+                    context = activity,
+                    request = request
+                )
+            }
+        } catch (_: GetCredentialCancellationException) {
+            return if (forceInteractive) {
+                GoogleAutoSignInResult.Cancelled
+            } else {
+                GoogleAutoSignInResult.UseEmailFallback("Google Sign-In was cancelled.")
+            }
+        } catch (e: NoCredentialException) {
+            return if (forceInteractive) {
+                GoogleAutoSignInResult.Failed(
+                    "No Google account found on this device. Add a Google account in device Settings or sign in with Google."
+                )
+            } else {
+                GoogleAutoSignInResult.UseEmailFallback(
+                    e.message ?: "No authorized Google account found on this device."
+                )
+            }
+        } catch (e: GetCredentialException) {
+            return if (forceInteractive) {
+                GoogleAutoSignInResult.Failed(
+                    "Google Sign-In failed: ${e.message ?: e.type}. Verify SHA-1 & OAuth config in Firebase."
+                )
+            } else {
+                GoogleAutoSignInResult.UseEmailFallback(
+                    e.message ?: "Google Sign-In unavailable."
+                )
+            }
+        } catch (t: Throwable) {
+            return if (forceInteractive) {
+                GoogleAutoSignInResult.Failed(
+                    "Google Sign-In failed: ${t.message ?: "Unexpected credential error."}"
+                )
+            } else {
+                GoogleAutoSignInResult.UseEmailFallback(
+                    t.message ?: "Google Sign-In unavailable."
+                )
+            }
+        }
+
+        val syncResult = signInWithGoogleCredential(response.credential)
+        val synced = syncResult.getOrNull()
+        return if (synced != null) {
+            GoogleAutoSignInResult.Success(
+                account = synced,
+                autoSelectedPrimaryGoogleAccount = true
+            )
+        } else {
+            val errMsg = syncResult.exceptionOrNull()?.message
+                ?: "Unable to verify your Google session with Firebase."
             if (forceInteractive) {
-                try {
-                    val signInOption = GetSignInWithGoogleOption.Builder(webClientId).build()
-                    add(GetCredentialRequest.Builder().addCredentialOption(signInOption).build())
-                } catch (_: Throwable) {
-                }
-            }
-            try {
-                val googleIdOption = GetGoogleIdOption.Builder()
-                    .setFilterByAuthorizedAccounts(false)
-                    .setAutoSelectEnabled(true)
-                    .setServerClientId(webClientId)
-                    .build()
-                add(GetCredentialRequest.Builder().addCredentialOption(googleIdOption).build())
-            } catch (_: Throwable) {
+                GoogleAutoSignInResult.Failed(errMsg)
+            } else {
+                GoogleAutoSignInResult.UseEmailFallback(errMsg)
             }
         }
-
-        for (request in requests) {
-            val timeoutMs = if (forceInteractive) 60_000L else 6_000L
-            val response: GetCredentialResponse? = try {
-                withTimeoutOrNull(timeoutMs) {
-                    withContext(Dispatchers.Main) {
-                        credentialManager.getCredential(
-                            context = activity,
-                            request = request
-                        )
-                    }
-                }
-            } catch (_: Throwable) {
-                null
-            }
-
-            val credential = response?.credential ?: continue
-            val synced = signInWithGoogleCredential(credential).getOrNull()
-            if (synced != null) {
-                return synced
-            }
-        }
-        return null
     }
 
     data class DeviceGoogleProfile(
@@ -785,22 +850,36 @@ class AuthenticationRepository(
         }
     }
 
-    private suspend fun signInFirebaseWithGoogleIdToken(idToken: String): String? {
-        val auth = getFirebaseAuthOrNull() ?: return null
+    private suspend fun signInFirebaseWithGoogleIdToken(idToken: String): Result<Pair<String, String>> {
+        val auth = getFirebaseAuthOrNull()
+            ?: return Result.failure(IllegalStateException("FirebaseAuth is unavailable in this environment."))
         return try {
-            withTimeoutOrNull(5_000L) {
-                suspendCancellableCoroutine<String?> { cont ->
+            val authUserResult = withTimeoutOrNull(15_000L) {
+                suspendCancellableCoroutine<Result<com.google.firebase.auth.FirebaseUser>> { cont ->
                     val credential = GoogleAuthProvider.getCredential(idToken, null)
                     auth.signInWithCredential(credential)
                         .addOnCompleteListener { task ->
-                            if (cont.isActive) {
-                                cont.resume(if (task.isSuccessful) task.result?.user?.uid else null)
+                            if (!cont.isActive) return@addOnCompleteListener
+                            val user = task.result?.user
+                            if (task.isSuccessful && user != null) {
+                                cont.resume(Result.success(user))
+                            } else {
+                                cont.resume(
+                                    Result.failure(
+                                        task.exception
+                                            ?: IllegalStateException("Firebase Google sign-in failed.")
+                                    )
+                                )
                             }
                         }
                 }
-            }
-        } catch (_: Throwable) {
-            null
+            } ?: return Result.failure(IllegalStateException("Firebase authentication timed out. Check your connection."))
+
+            val user = authUserResult.getOrElse { return Result.failure(it) }
+            val firebaseIdToken = fetchFirebaseUserIdToken(user, forceRefresh = false).orEmpty()
+            Result.success(user.uid to firebaseIdToken)
+        } catch (t: Throwable) {
+            Result.failure(t)
         }
     }
 
