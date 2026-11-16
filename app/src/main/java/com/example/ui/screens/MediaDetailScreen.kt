@@ -97,8 +97,8 @@ import com.example.ui.theme.NeliSurface
 import com.example.ui.theme.NeliSurfaceVariant
 import com.example.ui.theme.NeliTextPrimary
 import com.example.ui.theme.NeliTextSecondary
-import com.example.ads.InMobiBannerAd
-import com.example.ads.InMobiNativeCardAd
+import com.example.ads.StartIoBannerAd
+import com.example.ads.StartIoNativeCardAd
 import com.example.ads.NeliAdManager
 
 @Composable
@@ -116,18 +116,12 @@ fun MediaDetailScreen(
     onToggleWatchlist: (MediaContent) -> Unit,
     onDownloadMedia: (MediaContent) -> Unit,
     onDownloadEpisode: (EpisodeItem) -> Unit,
-    onDownloadMediaWithQuality: (MediaContent, DownloadQualityOption) -> Unit = { m, _ -> onDownloadMedia(m) },
-    onDownloadEpisodeWithQuality: (EpisodeItem, DownloadQualityOption) -> Unit = { ep, _ -> onDownloadEpisode(ep) },
     onSelectRecommendedMedia: (MediaContent) -> Unit = {},
     onOpenDownloadsTab: () -> Unit = {},
     onDismissDownloadBanner: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     BackHandler(onBack = onBack)
-
-    var showQualityDialogForMedia by remember { mutableStateOf(false) }
-    var pendingEpisodeForQualityDialog by remember { mutableStateOf<EpisodeItem?>(null) }
-    var selectedQualityOption by remember { mutableStateOf(DownloadQualityOption.HIGH_720P) }
 
     var tmdbEnrichedMedia by remember(media) { mutableStateOf(media) }
     LaunchedEffect(media.id) {
@@ -544,10 +538,20 @@ fun MediaDetailScreen(
                 ) {
                     Button(
                         onClick = {
-                            if (media.isSeries && currentVodEpisode != null) {
-                                onPlayChannel(currentVodEpisode.toPlayableChannel(media.title))
+                            val playAction = {
+                                if (media.isSeries && currentVodEpisode != null) {
+                                    onPlayChannel(currentVodEpisode.toPlayableChannel(media.title))
+                                } else {
+                                    onPlayChannel(media.toPlayableChannel())
+                                }
+                            }
+                            val act = detailContext as? android.app.Activity
+                            if (act != null) {
+                                NeliAdManager.showChannelOpeningAd(act, media.title) {
+                                    playAction()
+                                }
                             } else {
-                                onPlayChannel(media.toPlayableChannel())
+                                playAction()
                             }
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta),
@@ -587,10 +591,20 @@ fun MediaDetailScreen(
                                         onPlayChannel(media.toPlayableChannel())
                                     }
                                 } else if (!isActivelyDownloadingThis) {
-                                    if (media.isSeries && currentVodEpisode != null) {
-                                        pendingEpisodeForQualityDialog = currentVodEpisode
+                                    val startDownload = {
+                                        if (media.isSeries && currentVodEpisode != null) {
+                                            onDownloadEpisode(currentVodEpisode)
+                                        } else {
+                                            onDownloadMedia(media)
+                                        }
+                                    }
+                                    val act = detailContext as? android.app.Activity
+                                    if (act != null) {
+                                        com.example.ads.NeliAdManager.showDownloadMovieAd(act) {
+                                            startDownload()
+                                        }
                                     } else {
-                                        showQualityDialogForMedia = true
+                                        startDownload()
                                     }
                                 }
                             },
@@ -623,8 +637,8 @@ fun MediaDetailScreen(
                     }
                 }
 
-                // InMobi Banner Ad below action buttons
-                InMobiBannerAd(
+                // Start.io Banner Ad below action buttons
+                StartIoBannerAd(
                     adTag = "detail_page_banner",
                     modifier = Modifier
                         .fillMaxWidth()
@@ -659,15 +673,14 @@ fun MediaDetailScreen(
             }
         }
 
-        // InMobi Native Sponsored Card in Media Details
+        // Start.io Native Sponsored Card in Media Details
         item(key = "detail_native_sponsored_card") {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
-                InMobiNativeCardAd(
-                    adTag = "detail_page",
+                StartIoNativeCardAd(
                     modifier = Modifier.fillMaxWidth()
                 )
             }
@@ -746,18 +759,8 @@ fun MediaDetailScreen(
                                     .background(NeliCardPurple)
                                     .border(1.dp, NeliGenreCyan.copy(alpha = 0.6f), RoundedCornerShape(10.dp))
                                     .clickable {
-                                        val act = detailContext as? android.app.Activity
-                                        val batchAction = {
-                                            filteredEpisodes.forEach { ep ->
-                                                onDownloadEpisode(ep)
-                                            }
-                                        }
-                                        if (act != null) {
-                                            NeliAdManager.showDownloadRewardedAd(act) {
-                                                batchAction()
-                                            }
-                                        } else {
-                                            batchAction()
+                                        filteredEpisodes.forEach { ep ->
+                                            onDownloadEpisode(ep)
                                         }
                                     }
                                     .padding(horizontal = 10.dp, vertical = 6.dp)
@@ -936,7 +939,7 @@ fun MediaDetailScreen(
                                     if (idx >= 0) activeEpisodeIndex = idx
                                     onPlayChannel(ep.toPlayableChannel(media.title))
                                 } else if (!isEpActivelyDownloading) {
-                                    pendingEpisodeForQualityDialog = ep
+                                    onDownloadEpisode(ep)
                                 }
                             },
                             enabled = !isEpActivelyDownloading,
@@ -1007,55 +1010,6 @@ fun MediaDetailScreen(
         }
         }
     }
-
-    if (showQualityDialogForMedia) {
-        DownloadQualityDialog(
-            title = media.title,
-            isEpisode = false,
-            selectedQuality = selectedQualityOption,
-            onSelectQuality = { selectedQualityOption = it },
-            onConfirmDownload = { quality ->
-                showQualityDialogForMedia = false
-                val startDownload = {
-                    onDownloadMediaWithQuality(media, quality)
-                }
-                val act = detailContext as? android.app.Activity
-                if (act != null) {
-                    NeliAdManager.showDownloadRewardedAd(act) {
-                        startDownload()
-                    }
-                } else {
-                    startDownload()
-                }
-            },
-            onDismiss = { showQualityDialogForMedia = false }
-        )
-    }
-
-    val epToDownload = pendingEpisodeForQualityDialog
-    if (epToDownload != null) {
-        DownloadQualityDialog(
-            title = "${media.title} • S${epToDownload.seasonNumber}E${epToDownload.episodeNumber}",
-            isEpisode = true,
-            selectedQuality = selectedQualityOption,
-            onSelectQuality = { selectedQualityOption = it },
-            onConfirmDownload = { quality ->
-                pendingEpisodeForQualityDialog = null
-                val startDownload = {
-                    onDownloadEpisodeWithQuality(epToDownload, quality)
-                }
-                val act = detailContext as? android.app.Activity
-                if (act != null) {
-                    NeliAdManager.showDownloadRewardedAd(act) {
-                        startDownload()
-                    }
-                } else {
-                    startDownload()
-                }
-            },
-            onDismiss = { pendingEpisodeForQualityDialog = null }
-        )
-    }
 }
 
 @Composable
@@ -1125,7 +1079,7 @@ private fun CastMemberCard(member: CastMember) {
 }
 
 @Composable
-fun DownloadQualityDialog(
+private fun DownloadQualityDialog(
     title: String,
     isEpisode: Boolean,
     selectedQuality: DownloadQualityOption,

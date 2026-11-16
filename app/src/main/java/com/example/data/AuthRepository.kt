@@ -54,9 +54,7 @@ object AuthRepository {
         dao: NeliMediaDao,
         email: String,
         displayName: String = "",
-        googleIdToken: String = "",
-        firebaseUidOverride: String = "",
-        authenticatedFirebaseIdToken: String = ""
+        googleIdToken: String = ""
     ): Result<UserAccountEntity> = withContext(Dispatchers.IO) {
         val rawEmail = email.trim().lowercase()
         if (rawEmail.isBlank()) {
@@ -75,34 +73,6 @@ object AuthRepository {
         val resolvedName = displayName.trim().takeIf { it.length >= 2 }
             ?: existingLocal?.realName?.takeIf { it.isNotBlank() }
             ?: deriveDisplayNameFromEmail(normalizedEmail)
-
-        // When FirebaseAuth.signInWithCredential(GoogleAuthProvider) already succeeded on device,
-        // persist that genuine Firebase UID & ID token directly and sync profile/presence best-effort.
-        val cleanFbUid = firebaseUidOverride.trim()
-        val cleanFbToken = authenticatedFirebaseIdToken.trim()
-        if (cleanFbUid.isNotBlank()) {
-            if (cleanFbToken.isNotBlank()) {
-                try {
-                    saveRemoteUserProfile(cleanFbUid, resolvedName, normalizedEmail, cleanFbToken)
-                    updateRealtimePresence(cleanFbUid, resolvedName, cleanFbToken)
-                } catch (_: Throwable) {
-                }
-            }
-            val verifiedEntity = UserAccountEntity(
-                uid = cleanFbUid,
-                realName = resolvedName,
-                email = normalizedEmail,
-                passwordHash = existingLocal?.passwordHash?.takeIf { it.isNotBlank() } ?: "google_oauth_account",
-                idToken = cleanFbToken.ifBlank { googleIdToken.ifBlank { existingLocal?.idToken.orEmpty() } },
-                refreshToken = existingLocal?.refreshToken.orEmpty(),
-                isLoggedIn = true,
-                createdAt = existingLocal?.createdAt ?: System.currentTimeMillis(),
-                lastLoginAt = System.currentTimeMillis()
-            )
-            dao.logoutAllUsers()
-            dao.upsertUserAccount(verifiedEntity)
-            return@withContext Result.success(verifiedEntity)
-        }
 
         val apiKey = resolveApiKey(context)
         val deterministicGoogleSecret = "GglAuth_${sha256("neliplay_google_$normalizedEmail").take(20)}!"

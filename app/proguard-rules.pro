@@ -44,13 +44,3 @@
 -keep class com.google.android.gms.ads.** { *; }
 -dontwarn com.google.errorprone.annotations.**
 
-# Keep InMobi SDK & Open Measurement SDK
--keepattributes SourceFile,LineNumberTable
--keep class com.inmobi.** { *; }
--dontwarn com.inmobi.**
--keep class com.iab.** { *; }
--dontwarn com.iab.**
--keepclassmembers class * {
-    @android.webkit.JavascriptInterface <methods>;
-}
-

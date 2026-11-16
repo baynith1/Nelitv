@@ -335,7 +335,7 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
         if (!isSyncCycleRunning.compareAndSet(false, true)) return@withContext
         try {
             lastSyncCompletedAtMs = System.currentTimeMillis()
-            ChannelRepository.autoSyncAllChannelsNow()
+            ChannelRepository.refreshLiveChannels()
             val apiKey = AuthRepository.resolveApiKey(appContext)
             MediaContentRepository.syncFromFirebaseEndpoint(
                 databaseUrl = MediaContentRepository.DEFAULT_DATABASE_URL,
@@ -423,13 +423,8 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
      * Downloads a movie or series to the phone's internal storage (`offline_media`) using its streaming link directly.
      * Runs in a persistent background scope so it continues even when the user exits the app.
      */
-    fun addDownload(media: MediaContent, quality: DownloadQualityOption? = null) {
-        val baseDownloadUrl = media.downloadUrl.ifBlank { media.streamUrl }.ifBlank { media.playbackUrl }
-        val effectiveDownloadUrl = if (quality != null) {
-            quality.resolveQualityStreamUrl(baseDownloadUrl, media.qualityUrls)
-        } else {
-            baseDownloadUrl
-        }
+    fun addDownload(media: MediaContent) {
+        val effectiveDownloadUrl = media.downloadUrl.ifBlank { media.streamUrl }.ifBlank { media.playbackUrl }
         val guaranteedPoster = MediaContentRepository.resolveGuaranteedMediaImageUrl(
             media.posterUrl,
             media.backdropUrl,
@@ -440,13 +435,12 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
             media.posterUrl,
             effectiveDownloadUrl
         )
-        val qualitySuffix = if (quality != null) " [${quality.resolutionBadge}]" else ""
         val item = DownloadedItemEntity(
             id = media.id,
             title = if (media.narrated && media.narrationLanguage.isNotBlank()) {
-                "${media.title} (${media.narrationLanguage})$qualitySuffix"
+                "${media.title} (${media.narrationLanguage})"
             } else {
-                "${media.title}$qualitySuffix"
+                media.title
             },
             type = media.type,
             posterUrl = guaranteedPoster,
@@ -454,8 +448,8 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
             streamUrl = ChannelRepository.normalizeDashStreamUrl(effectiveDownloadUrl),
             genre = media.primaryGenre,
             duration = media.duration,
-            rating = quality?.resolutionBadge ?: media.rating,
-            fileSizeLabel = if (quality != null) "Starting download (${quality.estimatedMovieSize}) • 1%" else "Starting turbo download • 1%",
+            rating = media.rating,
+            fileSizeLabel = "Starting turbo download • 1%",
             downloadStatus = "DOWNLOADING",
             progressPercent = 1
         )
@@ -473,32 +467,25 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
     fun addEpisodeDownload(
         episode: EpisodeItem,
         seriesTitle: String,
-        seriesPoster: String,
-        quality: DownloadQualityOption? = null
+        seriesPoster: String
     ) {
-        val baseDownloadUrl = episode.downloadUrl.ifBlank { episode.streamUrl }.ifBlank { episode.playbackUrl }
-        val effectiveDownloadUrl = if (quality != null) {
-            quality.resolveQualityStreamUrl(baseDownloadUrl, episode.qualityUrls)
-        } else {
-            baseDownloadUrl
-        }
+        val effectiveDownloadUrl = episode.downloadUrl.ifBlank { episode.streamUrl }.ifBlank { episode.playbackUrl }
         val poster = MediaContentRepository.resolveGuaranteedMediaImageUrl(
             episode.stillPath,
             seriesPoster,
             effectiveDownloadUrl
         )
-        val qualitySuffix = if (quality != null) " [${quality.resolutionBadge}]" else ""
         val item = DownloadedItemEntity(
             id = episode.id,
-            title = "$seriesTitle • S${episode.seasonNumber}E${episode.episodeNumber}: ${episode.name}$qualitySuffix",
+            title = "$seriesTitle • S${episode.seasonNumber}E${episode.episodeNumber}: ${episode.name}",
             type = "series",
             posterUrl = poster,
             backdropUrl = poster,
             streamUrl = ChannelRepository.normalizeDashStreamUrl(effectiveDownloadUrl),
             genre = if (episode.narrated) "Series • ${episode.narrationLanguage}" else "Series",
             duration = episode.durationLabel,
-            rating = quality?.resolutionBadge ?: "HD",
-            fileSizeLabel = if (quality != null) "Starting download (${quality.estimatedEpisodeSize}) • 1%" else "Starting turbo download • 1%",
+            rating = "HD",
+            fileSizeLabel = "Starting turbo download • 1%",
             downloadStatus = "DOWNLOADING",
             progressPercent = 1
         )
@@ -630,13 +617,11 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Triggers genuine interactive Google Sign-In via Jetpack [CredentialManager] (`GetSignInWithGoogleOption`)
-     * and exchanges the Google ID token with FirebaseAuth (`GoogleAuthProvider`).
+     * Triggers Google Sign-In (selecting the primary/first Google account on the device or via CredentialManager).
+     * When interactive sign-in needs user account selection (e.g., on an emulator or before SHA-1 OAuth setup),
+     * opens the Google Account Sign-In Sheet & Device Account Chooser so Google Sign-In always works seamlessly.
      */
-    fun signInWithGoogle(
-        uiContext: Context = appContext,
-        switchAccount: Boolean = false
-    ) {
+    fun signInWithGoogle(uiContext: Context = appContext) {
         viewModelScope.launch {
             _isAuthLoading.value = true
             _authError.value = null
@@ -644,8 +629,7 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
 
             val result = authenticationRepository.signInWithGoogle(
                 uiContext = uiContext,
-                forceInteractive = true,
-                forceAccountChooser = switchAccount
+                forceInteractive = true
             )
             _isAuthLoading.value = false
             when (result) {
@@ -653,66 +637,54 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
                     _showGoogleSignInSheet.value = false
                     _googleFallbackMessage.value = null
                     _authError.value = null
-                    _savedGoogleAccounts.value = userManager.getSavedAccounts()
-                    com.example.data.NeliSubscriptionManager.switchActiveAccount(
-                        context = appContext,
-                        uid = result.account.uid,
-                        email = result.account.email,
-                        realName = result.account.realName
-                    )
-                }
-                is GoogleAutoSignInResult.Cancelled -> {
-                    _authError.value = null
-                    _googleFallbackMessage.value = null
-                }
-                is GoogleAutoSignInResult.Failed -> {
-                    _authError.value = result.message
                 }
                 is GoogleAutoSignInResult.PromptGoogleAccountSelection -> {
                     _savedGoogleAccounts.value = result.savedAccounts
-                    if (result.savedAccounts.isNotEmpty()) {
-                        _showGoogleSignInSheet.value = true
-                    } else {
-                        _authError.value = "Google Sign-In could not find a credential. Please try again."
-                    }
+                    _showGoogleSignInSheet.value = true
                     _googleFallbackMessage.value = null
+                    _authError.value = null
                 }
                 is GoogleAutoSignInResult.UseEmailFallback -> {
                     _savedGoogleAccounts.value = userManager.getSavedAccounts()
-                    _authError.value = result.reasonMessage
-                    _googleFallbackMessage.value = result.reasonMessage
+                    _showGoogleSignInSheet.value = true
+                    _googleFallbackMessage.value = null
                 }
             }
         }
     }
 
     /**
-     * Clears any cached credential state and opens the genuine Google CredentialManager account chooser
-     * so the user can switch Google accounts.
+     * Explicitly displays the Google Account Chooser bottom sheet so user can select from
+     * multiple Google accounts on the phone rather than defaulting to a single account.
      */
     fun chooseGoogleAccount(uiContext: Context = appContext) {
-        signInWithGoogle(uiContext = uiContext, switchAccount = true)
+        viewModelScope.launch {
+            _authError.value = null
+            _googleFallbackMessage.value = null
+            val deviceAccounts = authenticationRepository.getAllDeviceGoogleAccounts(uiContext)
+            val mapped = deviceAccounts.map {
+                com.example.data.local.UserAccountEntity(
+                    uid = it.email.hashCode().toString(),
+                    realName = it.displayName,
+                    email = it.email,
+                    passwordHash = "google_auth",
+                    isLoggedIn = false
+                )
+            }
+            _savedGoogleAccounts.value = (mapped + userManager.getSavedAccounts()).distinctBy { it.email.lowercase() }
+            _showGoogleSignInSheet.value = true
+        }
     }
 
-    fun completeGoogleSignIn(
-        email: String,
-        displayName: String = "",
-        uiContext: Context = appContext
-    ) {
+    fun completeGoogleSignIn(email: String, displayName: String = "") {
         viewModelScope.launch {
             _isAuthLoading.value = true
             _authError.value = null
             _googleFallbackMessage.value = null
-            val cleanEmail = email.trim().lowercase()
-            val savedMatch = userManager.getSavedAccounts().firstOrNull {
-                it.email.equals(cleanEmail, ignoreCase = true)
-            }
-            if (savedMatch == null) {
-                _isAuthLoading.value = false
-                signInWithGoogle(uiContext = uiContext, switchAccount = true)
-                return@launch
-            }
-            val result = authenticationRepository.switchActiveSession(cleanEmail)
+            val result = authenticationRepository.signInWithGoogleAccount(
+                email = email,
+                displayName = displayName
+            )
             _isAuthLoading.value = false
             result.onSuccess { user ->
                 _showGoogleSignInSheet.value = false
@@ -725,7 +697,7 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
                     realName = user.realName
                 )
             }.onFailure { err ->
-                _authError.value = err.message ?: "Unable to switch Google account. Please sign in again."
+                _authError.value = err.message ?: "Please enter a valid Google email address."
             }
         }
     }

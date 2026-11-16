@@ -1732,42 +1732,8 @@ object MediaContentRepository {
             viewsCount = fields.fsLong("viewsCount", 0L),
             voteCount = fields.fsLong("voteCount", 0L),
             watchlistsCount = fields.fsLong("watchlistsCount", 0L),
-            productionCountries = fields.fsStringList("productionCountries"),
-            qualityUrls = parseFirestoreQualityUrls(fields)
+            productionCountries = fields.fsStringList("productionCountries")
         )
-    }
-
-    private fun parseFirestoreQualityUrls(fields: JSONObject): Map<String, String> {
-        val result = linkedMapOf<String, String>()
-        listOf("qualityUrls", "qualities").forEach { fieldName ->
-            val mapFields = fields.optJSONObject(fieldName)
-                ?.optJSONObject("mapValue")
-                ?.optJSONObject("fields")
-            if (mapFields != null) {
-                val keys = mapFields.keys()
-                while (keys.hasNext()) {
-                    val key = keys.next()
-                    val url = mapFields.fsString(key).trim()
-                    if (url.isNotBlank()) {
-                        result[key] = url
-                    }
-                }
-            }
-        }
-        listOf(
-            "360p" to listOf("url_360p", "url360p"),
-            "480p" to listOf("url_480p", "url480p"),
-            "720p" to listOf("url_720p", "url720p"),
-            "1080p" to listOf("url_1080p", "url1080p")
-        ).forEach { (key, candidates) ->
-            if (!result.containsKey(key)) {
-                val matched = candidates.firstNotNullOfOrNull { f -> fields.fsString(f).trim().takeIf { it.isNotEmpty() } }
-                if (matched != null) {
-                    result[key] = matched
-                }
-            }
-        }
-        return result
     }
 
     private fun parseFirestoreSeriesDoc(doc: JSONObject): MediaContent? {
@@ -1890,8 +1856,7 @@ object MediaContentRepository {
             narrationLanguage = fields.fsString("narrationLanguage"),
             downloadEnabled = fields.fsBoolean("downloadEnabled", true),
             published = published,
-            viewsCount = fields.fsLong("viewsCount", 0L),
-            qualityUrls = parseFirestoreQualityUrls(fields)
+            viewsCount = fields.fsLong("viewsCount", 0L)
         )
     }
 

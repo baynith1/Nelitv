@@ -575,11 +575,18 @@ object OfflineDownloadManager {
                     add(rawStreamUrl)
                 } else if (rawStreamUrl.contains("b-cdn.net", ignoreCase = true)) {
                     val baseDir = rawStreamUrl.substringBefore("?").substringBeforeLast("/")
-                    add(rawStreamUrl)
-                    add("$baseDir/play_480p.mp4$querySuffix")
-                    add("$baseDir/play_360p.mp4$querySuffix")
-                    add("$baseDir/play_720p.mp4$querySuffix")
-                    add("$baseDir/playlist.m3u8$querySuffix")
+                    if (rawStreamUrl.substringBefore("?").endsWith(".mp4", ignoreCase = true)) {
+                        add(rawStreamUrl)
+                        add("$baseDir/play_480p.mp4$querySuffix")
+                        add("$baseDir/play_360p.mp4$querySuffix")
+                        add("$baseDir/play_720p.mp4$querySuffix")
+                        add("$baseDir/playlist.m3u8$querySuffix")
+                    } else {
+                        add("$baseDir/play_480p.mp4$querySuffix")
+                        add("$baseDir/play_360p.mp4$querySuffix")
+                        add("$baseDir/play_720p.mp4$querySuffix")
+                        add(rawStreamUrl)
+                    }
                 } else {
                     add(rawStreamUrl)
                 }
@@ -1588,10 +1595,6 @@ object OfflineDownloadManager {
         removeActiveEntity(id)
         removeActiveTitle(id)
         clearProgress(id)
-        if (context != null) {
-            cancelDownloadNotification(context.applicationContext, id)
-            syncForegroundServiceState(context.applicationContext)
-        }
     }
 
     /**

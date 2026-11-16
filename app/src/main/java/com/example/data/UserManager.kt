@@ -22,12 +22,6 @@ sealed interface GoogleAutoSignInResult {
     data class UseEmailFallback(
         val reasonMessage: String = "Google Sign-In could not complete. Use email instead, or register a new account below."
     ) : GoogleAutoSignInResult
-
-    data object Cancelled : GoogleAutoSignInResult
-
-    data class Failed(
-        val message: String
-    ) : GoogleAutoSignInResult
 }
 
 /**
@@ -92,12 +86,10 @@ class UserManager(
 
     suspend fun signInWithGoogleAutoOrPrimaryAccount(
         uiContext: Context = context,
-        forceInteractive: Boolean = false,
-        forceAccountChooser: Boolean = false
+        forceInteractive: Boolean = false
     ): GoogleAutoSignInResult = authenticationRepository.signInWithGoogle(
         uiContext = uiContext,
-        forceInteractive = forceInteractive,
-        forceAccountChooser = forceAccountChooser
+        forceInteractive = forceInteractive
     )
 
     suspend fun signOut() {
