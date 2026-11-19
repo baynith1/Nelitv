@@ -134,8 +134,11 @@ data class PremiumSubscriptionState(
     val pendingPhone: String = "",
     val pendingAmountTzs: Int = 0
 ) {
+    val isSpecialAdFreeAccount: Boolean
+        get() = NeliFreeForeverAccountsManager.isSpecialAdFreeEmail(linkedUserEmail) || planId == "special_ad_free"
+
     val isFreeForeverAccount: Boolean
-        get() = NeliFreeForeverAccountsManager.isFreeForeverEmail(linkedUserEmail) || planId == "free_forever"
+        get() = isSpecialAdFreeAccount || NeliFreeForeverAccountsManager.isFreeForeverEmail(linkedUserEmail) || planId == "free_forever"
 
     val isActiveNow: Boolean
         get() = isActiveAt(System.currentTimeMillis())
@@ -223,6 +226,7 @@ data class PremiumSubscriptionState(
         get() = formatRemainingLabelAt(System.currentTimeMillis())
 
     fun formatRemainingLabelAt(nowMs: Long = System.currentTimeMillis()): String {
+        if (isSpecialAdFreeAccount) return "VIP Ad-Free Account (Bila Matangazo ∞)"
         if (isFreeForeverAccount) return "Bure Milele (Free Forever • Max Vifaa 2)"
         val b = remainingBreakdown(nowMs)
         if (b.totalRemainingMillis <= 0L) return "Imeisha muda (Free User)"
@@ -367,7 +371,8 @@ object NeliSubscriptionManager {
         val linkedUid = prefs.getString(KEY_LINKED_UID, "").orEmpty()
         val linkedEmail = prefs.getString(KEY_LINKED_EMAIL, "").orEmpty()
         val linkedName = prefs.getString(KEY_LINKED_NAME, "").orEmpty()
-        val isFreeForever = NeliFreeForeverAccountsManager.isFreeForeverEmail(linkedEmail)
+        val isSpecialAdFree = NeliFreeForeverAccountsManager.isSpecialAdFreeEmail(linkedEmail)
+        val isFreeForever = isSpecialAdFree || NeliFreeForeverAccountsManager.isFreeForeverEmail(linkedEmail)
         val effectiveValid = isFreeForever || stillValid
         val effectiveExpiresAt = if (isFreeForever) now + 3_153_600_000_000L else if (stillValid) expiresAt else 0L
         val requiresAuth = effectiveValid && !isFreeForever && linkedEmail.isBlank() && linkedUid.isBlank()
@@ -382,11 +387,27 @@ object NeliSubscriptionManager {
 
         _subscriptionState.value = PremiumSubscriptionState(
             isVerified = effectiveValid,
-            planId = if (isFreeForever) "free_forever" else prefs.getString(KEY_PLAN_ID, "").orEmpty(),
-            planTitle = if (isFreeForever) "Bure Milele VIP (Max 2 Vifaa)" else prefs.getString(KEY_PLAN_TITLE, "").orEmpty(),
+            planId = when {
+                isSpecialAdFree -> "special_ad_free"
+                isFreeForever -> "free_forever"
+                else -> prefs.getString(KEY_PLAN_ID, "").orEmpty()
+            },
+            planTitle = when {
+                isSpecialAdFree -> "VIP Ad-Free Account"
+                isFreeForever -> "Bure Milele VIP (Max 2 Vifaa)"
+                else -> prefs.getString(KEY_PLAN_TITLE, "").orEmpty()
+            },
             amountTzs = if (isFreeForever) 0 else prefs.getInt(KEY_AMOUNT_TZS, 0),
-            phoneNumber = if (isFreeForever) "Free Forever (2 Devices)" else prefs.getString(KEY_PHONE, "").orEmpty(),
-            orderId = if (isFreeForever) "FREE-FOREVER-VIP" else prefs.getString(KEY_ORDER_ID, "").orEmpty(),
+            phoneNumber = when {
+                isSpecialAdFree -> "VIP Ad-Free"
+                isFreeForever -> "Free Forever (2 Devices)"
+                else -> prefs.getString(KEY_PHONE, "").orEmpty()
+            },
+            orderId = when {
+                isSpecialAdFree -> "VIP-AD-FREE"
+                isFreeForever -> "FREE-FOREVER-VIP"
+                else -> prefs.getString(KEY_ORDER_ID, "").orEmpty()
+            },
             deviceIpAddress = liveIp.ifBlank { savedIp },
             deviceId = savedDeviceId,
             activatedAtMs = prefs.getLong(KEY_ACTIVATED_AT, now),
@@ -466,6 +487,30 @@ object NeliSubscriptionManager {
         val now = System.currentTimeMillis()
         val detectedIp = resolveDeviceIpAddress(context)
         val deviceId = resolveDeviceIdentityId(context)
+
+        if (NeliFreeForeverAccountsManager.isSpecialAdFreeEmail(cleanEmail)) {
+            val foreverExpiry = now + 3_153_600_000_000L
+            return PremiumSubscriptionState(
+                isVerified = true,
+                planId = "special_ad_free",
+                planTitle = "VIP Ad-Free Account",
+                amountTzs = 0,
+                phoneNumber = "VIP Ad-Free",
+                orderId = "VIP-AD-FREE",
+                deviceIpAddress = detectedIp,
+                deviceId = deviceId,
+                activatedAtMs = now,
+                expiresAtMs = foreverExpiry,
+                linkedUserUid = uid.trim().ifBlank { "vip_adfree_${cleanEmail.hashCode()}" },
+                linkedUserEmail = cleanEmail,
+                linkedUserName = realName.trim().ifBlank { AuthRepository.deriveDisplayNameFromEmail(cleanEmail) },
+                requiresPostPaymentAuth = false,
+                pendingOrderId = "",
+                pendingPlanId = "",
+                pendingPhone = "",
+                pendingAmountTzs = 0
+            )
+        }
 
         if (NeliFreeForeverAccountsManager.isFreeForeverEmail(cleanEmail)) {
             val foreverExpiry = now + 3_153_600_000_000L
@@ -568,7 +613,7 @@ object NeliSubscriptionManager {
         val current = _subscriptionState.value
         // If the user JUST paid without logging in (requiresPostPaymentAuth == true and no account linked yet),
         // bind that fresh payment to this account; otherwise load strictly this account's own subscription!
-        if (!NeliFreeForeverAccountsManager.isFreeForeverEmail(cleanEmail) &&
+        if (!NeliFreeForeverAccountsManager.isAdFreeVipEmail(cleanEmail) &&
             !NeliAdminManager.isAdminEmail(cleanEmail) &&
             current.isVerified && current.isActiveNow && current.requiresPostPaymentAuth && current.linkedUserEmail.isBlank()) {
             return linkUserAccountToSubscription(

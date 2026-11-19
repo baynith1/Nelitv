@@ -20,7 +20,7 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="Nelitv (by Neliplay) • Live &amp; 2026 Cinema"
+            android:text="NeliTV • Live TV &amp; 2026 Cinema"
             android:textColor="#FFFFFFFF"
             android:textSize="12sp"
             android:textStyle="bold" />

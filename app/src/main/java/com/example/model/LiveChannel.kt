@@ -80,10 +80,21 @@ data class LiveChannel(
     val scheduleEvents: List<ChannelScheduleEvent> = emptyList(),
     val isLockedDefault: Boolean = false,
     val embeddedHtml: String = "",
-    val audioStreamUrl: String = ""
+    val audioStreamUrl: String = "",
+    val allowPip: Boolean = true,
+    val isYoutubeEmbedded: Boolean = false,
+    val channelAttribution: String = ""
 ) {
     val isEmbedded: Boolean
-        get() = embeddedHtml.isNotBlank() || streamFormat.equals("embedded", ignoreCase = true)
+        get() = embeddedHtml.isNotBlank() ||
+            streamFormat.equals("embedded", ignoreCase = true) ||
+            com.example.player.NeliEmbedPlayerHelper.isYoutubeOrEmbedNeliUrl(streamUrl)
+
+    val isPipAllowedForChannel: Boolean
+        get() = allowPip &&
+            !isYoutubeEmbedded &&
+            !streamUrl.contains("/embed-neli/", ignoreCase = true) &&
+            !com.example.player.NeliEmbedPlayerHelper.isYoutubeOrEmbedNeliUrl(streamUrl)
 
     val category: String
         get() = categories.firstOrNull()?.replaceFirstChar { it.uppercase() } ?: "Live TV"

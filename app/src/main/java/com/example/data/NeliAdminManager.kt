@@ -395,9 +395,7 @@ object NeliAdminManager {
     ): Result<LiveChannel> {
         val cleanName = name.trim()
         val cleanStream = streamUrl.trim()
-        val cleanThumb = thumbnailUrl.trim().ifBlank {
-            "https://i.ibb.co/B29Xvb5P/azam-sport-1-01.png"
-        }
+        val cleanThumb = thumbnailUrl.trim()
         val cleanCategory = category.trim().ifBlank { "Entertainment" }
         val cleanDesc = description.trim().ifBlank { "Watch $cleanName Live HD" }
 
@@ -577,7 +575,7 @@ object NeliAdminManager {
                 val streamUrl = obj.optString("streamUrl", "").ifBlank { continue }
                 val desc = obj.optString("description", "Live TV HD")
                 val format = obj.optString("streamFormat", "hls")
-                val thumb = obj.optString("thumbnailUrl", "https://i.ibb.co/B29Xvb5P/azam-sport-1-01.png")
+                val thumb = obj.optString("thumbnailUrl", "")
                 val cat = obj.optString("category", "entertainment")
                 list.add(
                     LiveChannel(

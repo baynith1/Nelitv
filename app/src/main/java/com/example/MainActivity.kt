@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -41,10 +42,13 @@ import com.example.model.LiveChannel
 import com.example.notifications.NeliNotificationScheduler
 import com.example.player.LivePlayerController
 import com.example.player.NativeLogSuppressor
+import com.example.ads.NeliAdManager
 import com.example.ui.NeliViewModel
 import com.example.ui.components.BottomNavTab
 import com.example.ui.components.FloatingPipPlayerOverlay
+import com.example.ui.components.MandatoryGoogleSignInDialog
 import com.example.ui.components.NeliHomepageAutoUpdatePopupDialog
+import com.example.ui.components.requiresMandatoryGoogleSignIn
 import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.PlayerScreen
 import com.example.ui.theme.NeliTVTheme
@@ -117,7 +121,14 @@ class MainActivity : ComponentActivity() {
         }
         extractDeepLinkFromIntent(intent)
 
-        // Schedule notifications, Firebase sync, and mandatory in-app update check asynchronously
+        // Schedule AdMob SDK init (mobile/tablet only — never on Smart TV), notifications, Firebase sync, and update check
+        // off the main thread so MainActivity's initial SurfaceSyncGroup frame transaction completes smoothly without stalls.
+        if (!isTvEnvironment) {
+            lifecycleScope.launch(Dispatchers.IO) {
+                kotlinx.coroutines.delay(400L)
+                NeliAdManager.initialize(this@MainActivity)
+            }
+        }
         lifecycleScope.launch(Dispatchers.Default) {
             com.example.data.NeliFirebaseSyncManager.initialize(this@MainActivity)
             NeliNotificationScheduler.scheduleAllDailyNotifications(this@MainActivity)
@@ -189,9 +200,15 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        com.example.data.NeliAppUpdateManager.reconcileInstalledPackageState(this)
+        lifecycleScope.launch(Dispatchers.IO) {
+            com.example.data.NeliAppUpdateManager.reconcileInstalledPackageState(this@MainActivity)
+        }
         if (wasInBackground) {
             wasInBackground = false
+            // Show Google AdMob App Open Ad when user returns to the app (strictly skipped on TV / VIP / Ad-Free)
+            if (!isTvEnvironment && !com.example.ui.tv.NeliTvDetector.isTelevision(this)) {
+                NeliAdManager.showAppOpenAdIfAvailable(this)
+            }
         }
     }
 
@@ -205,6 +222,13 @@ class MainActivity : ComponentActivity() {
             hasActivePlaybackForPip = false
             NeliPlaybackReleaseHook.onReleaseActivePlayback?.invoke()
         }
+    }
+
+    override fun onDestroy() {
+        wasInPipMode = false
+        hasActivePlaybackForPip = false
+        NeliPlaybackReleaseHook.onReleaseActivePlayback?.invoke()
+        super.onDestroy()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -328,7 +352,8 @@ fun NeliApp(
 
     val isPipAllowed = NeliThemeManager.isPipModeAllowed
     LaunchedEffect(activeChannel, sharedPlayerController, isPipAllowed) {
-        val hasActiveStream = (activeChannel != null && sharedPlayerController != null) || (activeChannel?.isEmbedded == true)
+        val channelAllowsPip = activeChannel?.isPipAllowedForChannel ?: false
+        val hasActiveStream = channelAllowsPip && ((activeChannel != null && sharedPlayerController != null) || (activeChannel?.isEmbedded == true))
         onActivePlaybackChanged(hasActiveStream && isPipAllowed)
     }
 
@@ -401,7 +426,7 @@ fun NeliApp(
     // PiP is strictly ONLY supported OUTSIDE the app via Android System PiP (when user presses Home or switches to SMS/WhatsApp).
     // Never render a floating PiP overlay inside the NeliPlay app UI!
     val controller = sharedPlayerController
-    if (isSystemInPipMode && activeChannel != null) {
+    if (isSystemInPipMode && activeChannel != null && activeChannel!!.isPipAllowedForChannel) {
         if (activeChannel!!.isEmbedded) {
             // Keep embedded channel playing smoothly inside system PiP window without black screen
             com.example.ui.screens.EmbeddedChannelWebViewPlayer(
@@ -430,10 +455,13 @@ fun NeliApp(
                 act?.let { a ->
                     try {
                         val isTv = com.example.ui.tv.NeliTvDetector.isTelevision(context)
-                        if (!isTv) {
-                            a.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                        val desiredOrientation = if (!isTv) {
+                            ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
                         } else {
-                            a.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                            ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                        }
+                        if (a.requestedOrientation != desiredOrientation) {
+                            a.requestedOrientation = desiredOrientation
                         }
                         a.window?.decorView?.let { decor ->
                             decor.scrollTo(0, 0)
@@ -473,6 +501,40 @@ fun NeliApp(
                     startOrSwitchChannel(selected)
                 },
                 neliViewModel = neliViewModel
+            )
+        }
+
+        val currentUser by neliViewModel.currentUser.collectAsState()
+        val hasResolvedInitialAuth by neliViewModel.hasResolvedInitialAuth.collectAsState()
+        val isAuthLoading by neliViewModel.isAuthLoading.collectAsState()
+        val authError by neliViewModel.authError.collectAsState()
+        val tvConfig = com.example.ui.tv.LocalTvConfiguration.current
+        val isTvMode = tvConfig.isTvDevice || com.example.ui.tv.NeliTvDetector.isTelevision(context)
+        val needsMandatorySignIn = !isTvMode &&
+            hasResolvedInitialAuth &&
+            requiresMandatoryGoogleSignIn(currentUser, isTelevision = isTvMode)
+
+        // Trigger Google AdMob App Open Ad once on cold app entry when user is signed in, not on TV, and not in player
+        var hasShownLaunchAppOpenAd by remember { mutableStateOf(false) }
+        LaunchedEffect(hasResolvedInitialAuth, needsMandatorySignIn, showFullPlayer, isTvMode) {
+            if (!isTvMode && !hasShownLaunchAppOpenAd && hasResolvedInitialAuth && !needsMandatorySignIn && !showFullPlayer) {
+                hasShownLaunchAppOpenAd = true
+                (context as? Activity)?.let { act ->
+                    NeliAdManager.showAppOpenAdIfAvailable(act)
+                }
+            }
+        }
+
+        // Unclosable mandatory Sign-In popup on Mobile/Tablet only (strictly disabled on Smart TV / Android TV).
+        if (needsMandatorySignIn && !showFullPlayer) {
+            MandatoryGoogleSignInDialog(
+                isLoading = isAuthLoading,
+                errorMessage = authError,
+                onContinueWithGoogle = { neliViewModel.signInWithGoogle(context) },
+                onSignInWithEmail = { email, password -> neliViewModel.signInUser(email, password) },
+                onSignUpWithEmail = { realName, email, password ->
+                    neliViewModel.signUpUser(realName, email, password)
+                }
             )
         }
 

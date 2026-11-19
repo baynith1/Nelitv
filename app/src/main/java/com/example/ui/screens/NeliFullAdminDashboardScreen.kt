@@ -702,20 +702,20 @@ private fun FreeForeverAccountsAdminCard(
                     modifier = Modifier
                         .size(38.dp)
                         .clip(CircleShape)
-                        .background(Color(0x2610B981)),
+                        .background(Color(0x26FF2E7E)),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Default.Verified,
                         contentDescription = null,
-                        tint = Color(0xFF34D399),
+                        tint = Color(0xFFFF4DA6),
                         modifier = Modifier.size(22.dp)
                     )
                 }
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "5 FREE FOREVER VIP ACCOUNTS (MAX 2 DEVICES)",
-                        color = Color(0xFF34D399),
+                        color = Color(0xFFFF4DA6),
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Black
                     )

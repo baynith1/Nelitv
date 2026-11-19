@@ -49,6 +49,9 @@ object TokenManager {
     @Volatile
     private var lastNetworkRefreshAttemptMs: Long = 0L
 
+    @Volatile
+    private var lastAuthFailureRecoveryMs: Long = 0L
+
     private val _tokenSessionFlow = MutableStateFlow(
         TokenSession(
             token = ChannelRepository.AZAM_CDN_TOKEN,
@@ -75,8 +78,24 @@ object TokenManager {
         get() = ChannelRepository.effectiveTokenExpiryEpochSec
 
     /**
-     * Builds the HTTP headers to inject into Media3 ExoPlayer requests, including the live
-     * authorization token headers and standard streaming headers.
+     * Returns true ONLY for Azam TV / StreamZone CDN stream URLs that require
+     * Azam JWT authorization headers and `?cdntoken=` parameters.
+     * Standard third-party HLS CDNs (CloudFront, Akamai, Brightcove, Wurl, Amagi, Wowza, Castr, AynaOTT)
+     * MUST NOT receive unrelated Authorization/Origin/Referer headers or they reject requests with HTTP 400/403.
+     */
+    fun isAzamOrStreamzoneUrl(url: String?): Boolean {
+        val clean = url?.trim().orEmpty()
+        if (clean.isEmpty()) return false
+        return clean.contains("azamtvltd.co.tz", ignoreCase = true) ||
+            clean.contains("/live/eds/", ignoreCase = true) ||
+            clean.contains("cdntoken=", ignoreCase = true) ||
+            clean.contains("streamzone.fun", ignoreCase = true)
+    }
+
+    /**
+     * Builds the HTTP headers to inject into Media3 ExoPlayer requests.
+     * Strictly scopes Azam Authorization/Origin/Referer headers to Azam/StreamZone URLs only
+     * so third-party M3U8 HLS CDNs never reject playback with HTTP 400/403.
      */
     fun buildExoPlayerHeaders(
         streamUrl: String? = null,
@@ -91,25 +110,18 @@ object TokenManager {
         val url = streamUrl.orEmpty()
         when {
             url.contains("193.47.62.") -> {
-                // FawaNews IP Sports streams (Bein Sport, B Sport, B Esports, Sky sports, ziggo sport 4, sk 5)
                 headers["Referer"] = "http://www.fawanews.sc/"
                 headers["Origin"] = "http://www.fawanews.sc"
             }
             url.contains("obstreamx.click", ignoreCase = true) -> {
-                // Sk moments & Europe football streams
                 headers["Referer"] = "https://getembed.live/"
                 headers["Origin"] = "https://getembed.live"
             }
             url.contains("azplay", ignoreCase = true) -> {
-                // Azplay live sports streams (Sport tv.1, Baynith Sports Hd, sk 3, sk 6)
                 headers["Referer"] = "https://getembed.live/"
                 headers["Origin"] = "https://getembed.live"
             }
-            url.isBlank() ||
-            url.contains("azamtvltd.co.tz", ignoreCase = true) ||
-            url.contains("/live/eds/", ignoreCase = true) ||
-            url.contains("cdntoken=", ignoreCase = true) ||
-            url.contains("streamzone.fun", ignoreCase = true) -> {
+            isAzamOrStreamzoneUrl(url) -> {
                 if (activeToken.isNotEmpty()) {
                     headers["Authorization"] = "Bearer $activeToken"
                     headers["X-CDN-Token"] = activeToken
@@ -123,15 +135,23 @@ object TokenManager {
     }
 
     /**
-     * Registers and injects the live authorization token headers directly into a Media3
-     * [DefaultHttpDataSource.Factory] so all outgoing ExoPlayer requests carry the latest token.
+     * Injects stream-appropriate HTTP headers into a Media3 [DefaultHttpDataSource.Factory].
+     * Only Azam/StreamZone factories are registered for automatic live token header rotation so
+     * third-party HLS factories are never polluted with Azam Authorization headers.
      */
     fun injectHeadersIntoFactory(
         factory: DefaultHttpDataSource.Factory,
         streamUrl: String? = null
     ): DefaultHttpDataSource.Factory {
-        if (!registeredHttpFactories.contains(factory)) {
-            registeredHttpFactories.add(factory)
+        if (isAzamOrStreamzoneUrl(streamUrl)) {
+            if (!registeredHttpFactories.contains(factory)) {
+                if (registeredHttpFactories.size >= 24) {
+                    registeredHttpFactories.removeAt(0)
+                }
+                registeredHttpFactories.add(factory)
+            }
+        } else {
+            registeredHttpFactories.remove(factory)
         }
         val headers = buildExoPlayerHeaders(streamUrl = streamUrl)
         factory.setDefaultRequestProperties(headers)
@@ -139,10 +159,10 @@ object TokenManager {
     }
 
     /**
-     * Propagates the latest token headers to all registered Media3 [DefaultHttpDataSource.Factory] instances.
+     * Propagates the latest Azam token headers strictly to registered Azam Media3 [DefaultHttpDataSource.Factory] instances.
      */
     private fun updateRegisteredFactories() {
-        val headers = buildExoPlayerHeaders()
+        val headers = buildExoPlayerHeaders(streamUrl = currentCdnHost)
         for (factory in registeredHttpFactories) {
             try {
                 factory.setDefaultRequestProperties(headers)
@@ -162,7 +182,15 @@ object TokenManager {
     ): DataSpec {
         val rawUriStr = dataSpec.uri.toString()
         val basePart = rawUriStr.substringBefore("?")
-        val rewrittenBasePart = if (forceLatestToken && basePart.contains("/tok_", ignoreCase = true)) {
+        val existingPathTok = if (basePart.contains("/tok_", ignoreCase = true)) {
+            basePart.substringAfter("/tok_").substringBefore("/").trim()
+        } else {
+            ""
+        }
+        val shouldRewritePathTok = basePart.contains("/tok_", ignoreCase = true) && (
+            forceLatestToken || ChannelRepository.isTokenExpiredOrOlderThanActive(existingPathTok)
+        )
+        val rewrittenBasePart = if (shouldRewritePathTok) {
             val beforeTok = basePart.substringBefore("/tok_")
             val afterTok = basePart.substringAfter("/tok_").substringAfter("/", "")
             if (afterTok.isNotEmpty()) "$beforeTok/tok_$currentToken/$afterTok" else basePart
@@ -181,7 +209,10 @@ object TokenManager {
             rawUriStr
         }
 
-        val normalizedStr = ChannelRepository.normalizeDashStreamUrl(inputUrl)
+        val normalizedStr = ChannelRepository.normalizeDashStreamUrl(
+            rawUrl = inputUrl,
+            forceLatestLiveToken = forceLatestToken
+        )
         val normalizedUri = Uri.parse(normalizedStr)
 
         val finalUri = if (normalizedUri.toString().contains("cdntoken=", ignoreCase = true)) {
@@ -291,11 +322,12 @@ object TokenManager {
      */
     fun fetchLiveTokenBlocking(
         forceRefresh: Boolean = false,
-        apiUrl: String = ChannelRepository.AZAM_TOKEN_ENDPOINT_URL
+        apiUrl: String = ChannelRepository.AZAM_TOKEN_ENDPOINT_URL,
+        bypassCooldown: Boolean = false
     ): String = synchronized(blockingLock) {
         val now = System.currentTimeMillis()
         val minCooldownMs = if (forceRefresh) 2_000L else 15_000L
-        if (lastNetworkRefreshAttemptMs > 0L && (now - lastNetworkRefreshAttemptMs) < minCooldownMs) {
+        if (!bypassCooldown && lastNetworkRefreshAttemptMs > 0L && (now - lastNetworkRefreshAttemptMs) < minCooldownMs) {
             return currentToken
         }
         lastNetworkRefreshAttemptMs = now
@@ -351,11 +383,12 @@ object TokenManager {
         httpStatusCode: Int? = null
     ): String = synchronized(blockingLock) {
         val now = System.currentTimeMillis()
-        if (lastNetworkRefreshAttemptMs > 0L && (now - lastNetworkRefreshAttemptMs) < 2_000L) {
+        if (lastAuthFailureRecoveryMs > 0L && (now - lastAuthFailureRecoveryMs) < 1_000L) {
             return currentToken
         }
-        // 1. Fetch fresh token from the primary token API endpoint
-        fetchLiveTokenBlocking(forceRefresh = true)
+        lastAuthFailureRecoveryMs = now
+        // 1. Fetch fresh token immediately bypassing cooldown
+        fetchLiveTokenBlocking(forceRefresh = true, bypassCooldown = true)
 
         // 2. Re-normalize all live channel URLs and update registered ExoPlayer HTTP factories
         ChannelRepository.refreshLiveChannels()
@@ -364,18 +397,93 @@ object TokenManager {
     }
 
     /**
-     * Returns true if the given HTTP status code or error message indicates a stream authentication failure
-     * that should trigger an automatic token refresh.
+     * Full automatic CDN key & token renewal routine:
+     * 1. Immediately fetches fresh CDN tokens from live token API (`streamzone.fun/api/cdn-token`) & Firebase RTDB.
+     * 2. Fetches fresh channel definitions & ClearKeys from backup channels API (`streamzone.fun/api/channels`).
+     * 3. Re-normalizes all live channel URLs, updates registered ExoPlayer HTTP factories, and returns the
+     *    freshest updated [LiveChannel] matching [failedChannel] (if provided) so playback heals automatically.
+     */
+    suspend fun renewCdnKeysAndChannels(
+        failedChannel: LiveChannel? = null,
+        httpStatusCode: Int? = null
+    ): LiveChannel? = withContext(Dispatchers.IO) {
+        renewCdnKeysAndChannelsBlocking(failedChannel = failedChannel, httpStatusCode = httpStatusCode)
+    }
+
+    fun renewCdnKeysAndChannelsBlocking(
+        failedChannel: LiveChannel? = null,
+        httpStatusCode: Int? = null
+    ): LiveChannel? = synchronized(blockingLock) {
+        val now = System.currentTimeMillis()
+        val canHitNetwork = lastAuthFailureRecoveryMs == 0L || (now - lastAuthFailureRecoveryMs) >= 1_000L
+        if (canHitNetwork) {
+            lastAuthFailureRecoveryMs = now
+            // 1. Force fresh CDN authorization token from primary token API + RTDB
+            fetchLiveTokenBlocking(forceRefresh = true, bypassCooldown = true)
+
+            // 2. Also refresh backup channels API so rotated ClearKeys & updated CDN hosts/manifests apply immediately
+            try {
+                val backupJson = executeHttpGet(ChannelRepository.CHANNELS_BACKUP_API_URL)
+                if (!backupJson.isNullOrBlank()) {
+                    ChannelRepository.parseBackupChannelsApiPayload(backupJson)
+                }
+            } catch (_: Exception) {
+            }
+
+            // 3. Re-normalize all live channels with the newly renewed CDN token and ClearKeys
+            ChannelRepository.refreshLiveChannels()
+            syncStateFromRepository()
+        }
+
+        if (failedChannel == null) return null
+
+        val refreshedFromRepo = ChannelRepository.getChannelById(failedChannel.id)
+        val backupMatch = ChannelRepository.findBackupChannelFor(failedChannel)
+        val mergedClearKeys = ChannelRepository.resolveClearKeysForChannel(
+            failedChannel.copy(
+                clearKeys = (backupMatch?.clearKeys ?: emptyMap()) +
+                    (refreshedFromRepo?.clearKeys ?: emptyMap()) +
+                    failedChannel.clearKeys
+            )
+        )
+        val freshPrimary = ChannelRepository.resolvePlayableAzamManifestUrl(
+            refreshedFromRepo?.streamUrl?.ifBlank { failedChannel.streamUrl } ?: failedChannel.streamUrl
+        )
+        val freshBackup = (
+            refreshedFromRepo?.backupStreamUrl?.ifBlank { null }
+                ?: failedChannel.backupStreamUrl.ifBlank { null }
+                ?: backupMatch?.streamUrl?.ifBlank { null }
+                ?: ""
+            ).let { raw ->
+                if (raw.isNotBlank()) ChannelRepository.resolvePlayableAzamManifestUrl(raw) else ""
+            }
+
+        return failedChannel.copy(
+            streamUrl = freshPrimary,
+            backupStreamUrl = freshBackup,
+            clearKeys = mergedClearKeys,
+            encryptionType = if (mergedClearKeys.isNotEmpty()) "clearkey" else failedChannel.encryptionType
+        )
+    }
+
+    /**
+     * Returns true if the given HTTP status code or error message indicates a stream authentication,
+     * expired CDN token, or decryption key failure that should trigger automatic CDN key renewal.
      */
     fun isAuthenticationFailure(httpStatusCode: Int?, errorMessage: String? = null): Boolean {
-        if (httpStatusCode == 401 || httpStatusCode == 403) return true
+        if (httpStatusCode == 401 || httpStatusCode == 403 || httpStatusCode == 410) return true
         val msg = errorMessage?.lowercase().orEmpty()
         return msg.contains("401") ||
             msg.contains("403") ||
+            msg.contains("410") ||
             msg.contains("unauthorized") ||
             msg.contains("forbidden") ||
             msg.contains("authorization") ||
-            msg.contains("token")
+            msg.contains("token") ||
+            msg.contains("expired") ||
+            msg.contains("clearkey") ||
+            msg.contains("decrypt") ||
+            msg.contains("drm")
     }
 
     private fun executeHttpGet(urlStr: String): String? {

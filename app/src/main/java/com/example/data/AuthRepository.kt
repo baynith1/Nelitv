@@ -54,7 +54,9 @@ object AuthRepository {
         dao: NeliMediaDao,
         email: String,
         displayName: String = "",
-        googleIdToken: String = ""
+        googleIdToken: String = "",
+        firebaseUidOverride: String = "",
+        authenticatedFirebaseIdToken: String = ""
     ): Result<UserAccountEntity> = withContext(Dispatchers.IO) {
         val rawEmail = email.trim().lowercase()
         if (rawEmail.isBlank()) {
@@ -74,6 +76,40 @@ object AuthRepository {
             ?: existingLocal?.realName?.takeIf { it.isNotBlank() }
             ?: deriveDisplayNameFromEmail(normalizedEmail)
 
+        // When FirebaseAuth.signInWithCredential(GoogleAuthProvider) already succeeded on device,
+        // persist that genuine Firebase UID & ID token directly and sync profile/presence best-effort.
+        val cleanFbUid = firebaseUidOverride.trim()
+        val cleanFbToken = authenticatedFirebaseIdToken.trim()
+        if (cleanFbUid.isNotBlank()) {
+            if (cleanFbToken.isNotBlank()) {
+                try {
+                    saveRemoteUserProfile(cleanFbUid, resolvedName, normalizedEmail, cleanFbToken)
+                    updateRealtimePresence(cleanFbUid, resolvedName, cleanFbToken)
+                } catch (_: Throwable) {
+                }
+            }
+            syncUserDirectoryToFirebaseRtdb(
+                uid = cleanFbUid,
+                username = resolvedName,
+                email = normalizedEmail,
+                idToken = cleanFbToken
+            )
+            val verifiedEntity = UserAccountEntity(
+                uid = cleanFbUid,
+                realName = resolvedName,
+                email = normalizedEmail,
+                passwordHash = existingLocal?.passwordHash?.takeIf { it.isNotBlank() } ?: "google_oauth_account",
+                idToken = cleanFbToken.ifBlank { googleIdToken.ifBlank { existingLocal?.idToken.orEmpty() } },
+                refreshToken = existingLocal?.refreshToken.orEmpty(),
+                isLoggedIn = true,
+                createdAt = existingLocal?.createdAt ?: System.currentTimeMillis(),
+                lastLoginAt = System.currentTimeMillis()
+            )
+            dao.logoutAllUsers()
+            dao.upsertUserAccount(verifiedEntity)
+            return@withContext Result.success(verifiedEntity)
+        }
+
         val apiKey = resolveApiKey(context)
         val deterministicGoogleSecret = "GglAuth_${sha256("neliplay_google_$normalizedEmail").take(20)}!"
 
@@ -84,8 +120,8 @@ object AuthRepository {
                 null
             }
             val remoteAccount = idpResult
-                ?: loginRemoteAccount(apiKey, normalizedEmail, deterministicGoogleSecret, resolvedName)
-                ?: registerRemoteAccount(apiKey, resolvedName, normalizedEmail, deterministicGoogleSecret)
+                ?: (loginRemoteAccount(apiKey, normalizedEmail, deterministicGoogleSecret, resolvedName) as? RemoteAuthOutcome.Success)?.account
+                ?: (registerRemoteAccount(apiKey, resolvedName, normalizedEmail, deterministicGoogleSecret) as? RemoteAuthOutcome.Success)?.account
 
             if (remoteAccount != null) {
                 val merged = remoteAccount.copy(
@@ -192,7 +228,7 @@ object AuthRepository {
         val cleanPassword = password.trim()
 
         if (cleanName.length < 2) {
-            return@withContext Result.failure(IllegalArgumentException("Please enter your full name."))
+            return@withContext Result.failure(IllegalArgumentException("Please enter a username (at least 2 characters)."))
         }
         if (!cleanEmail.contains("@") || !cleanEmail.contains(".")) {
             return@withContext Result.failure(IllegalArgumentException("Please enter a valid email address."))
@@ -214,20 +250,34 @@ object AuthRepository {
         val apiKey = resolveApiKey(context)
         val passwordHash = sha256(cleanPassword)
 
-        // Try remote registration if API key is available
-        if (apiKey.isNotBlank()) {
-            val remoteResult = registerRemoteAccount(apiKey, cleanName, cleanEmail, cleanPassword)
-            if (remoteResult != null) {
-                dao.logoutAllUsers()
-                val entity = remoteResult.copy(
-                    realName = cleanName,
-                    email = cleanEmail,
-                    passwordHash = passwordHash,
-                    isLoggedIn = true,
-                    lastLoginAt = System.currentTimeMillis()
-                )
-                dao.upsertUserAccount(entity)
-                return@withContext Result.success(entity)
+        // Try remote Firebase IdentityToolkit registration if API key is available
+        if (apiKey.isNotBlank() && !AuthenticationRepository.isRunningInRobolectricTest()) {
+            val remoteOutcome = registerRemoteAccount(apiKey, cleanName, cleanEmail, cleanPassword)
+            when (remoteOutcome) {
+                is RemoteAuthOutcome.Success -> {
+                    dao.logoutAllUsers()
+                    val entity = remoteOutcome.account.copy(
+                        realName = cleanName,
+                        email = cleanEmail,
+                        passwordHash = passwordHash,
+                        isLoggedIn = true,
+                        lastLoginAt = System.currentTimeMillis()
+                    )
+                    dao.upsertUserAccount(entity)
+                    syncUserDirectoryToFirebaseRtdb(
+                        uid = entity.uid,
+                        username = entity.realName,
+                        email = entity.email,
+                        idToken = entity.idToken
+                    )
+                    return@withContext Result.success(entity)
+                }
+                is RemoteAuthOutcome.AuthRejected -> {
+                    return@withContext Result.failure(IllegalArgumentException(remoteOutcome.userMessage))
+                }
+                RemoteAuthOutcome.Unavailable -> {
+                    // Fall through to local Room + Firebase RTDB sync when offline or provider unavailable
+                }
             }
         }
 
@@ -246,11 +296,55 @@ object AuthRepository {
             lastLoginAt = System.currentTimeMillis()
         )
         dao.upsertUserAccount(account)
+        syncUserDirectoryToFirebaseRtdb(
+            uid = account.uid,
+            username = account.realName,
+            email = account.email
+        )
         Result.success(account)
     }
 
     /**
-     * Signs in an existing user with Email and Password and restores their saved Real Name & profile data.
+     * Resolves a user-entered login identifier (either an email address OR a username)
+     * into the normalized email address using local Room + Firebase RTDB username index.
+     */
+    suspend fun resolveEmailForLoginIdentifier(
+        dao: NeliMediaDao,
+        identifier: String
+    ): String? = withContext(Dispatchers.IO) {
+        val raw = identifier.trim()
+        if (raw.isBlank()) return@withContext null
+        val lower = raw.lowercase()
+
+        // Direct email address
+        if (lower.contains("@") && lower.contains(".")) {
+            return@withContext lower
+        }
+
+        // Built-in Free Forever & Admin username shortcuts (user1..user5, admin)
+        if (lower in listOf("user1", "user2", "user3", "user4", "user5")) {
+            return@withContext "$lower@login.com"
+        }
+        if (lower == "admin") {
+            return@withContext NeliAdminManager.ADMIN_EMAIL.lowercase()
+        }
+
+        // Local Room lookup by saved username
+        val localMatch = try {
+            dao.getAccountByUsername(raw)
+        } catch (_: Throwable) {
+            null
+        }
+        if (localMatch != null && localMatch.email.isNotBlank()) {
+            return@withContext localMatch.email.trim().lowercase()
+        }
+
+        // Remote Firebase RTDB username -> email lookup so username login works across devices
+        fetchEmailByUsernameFromFirebaseRtdb(raw)
+    }
+
+    /**
+     * Signs in an existing user with Email OR Username and Password and restores their saved Username & profile data.
      */
     suspend fun signInWithEmailAndPassword(
         context: Context,
@@ -258,19 +352,25 @@ object AuthRepository {
         email: String,
         password: String
     ): Result<UserAccountEntity> = withContext(Dispatchers.IO) {
-        val cleanEmail = email.trim().lowercase()
+        val rawIdentifier = email.trim()
         val cleanPassword = password.trim()
 
-        if (!cleanEmail.contains("@") || !cleanEmail.contains(".")) {
-            return@withContext Result.failure(IllegalArgumentException("Please enter a valid email address."))
+        if (rawIdentifier.isBlank()) {
+            return@withContext Result.failure(IllegalArgumentException("Please enter your email or username."))
         }
         if (cleanPassword.isEmpty()) {
             return@withContext Result.failure(IllegalArgumentException("Please enter your password."))
         }
 
+        val cleanEmail = resolveEmailForLoginIdentifier(dao, rawIdentifier)
+            ?: return@withContext Result.failure(
+                IllegalArgumentException("Account not found for \"$rawIdentifier\". Please check your email/username or Sign Up.")
+            )
+
         // Dedicated Admin Login verification (Email: Admin@login.com, Password: 123456)
         if (NeliAdminManager.isAdminEmail(cleanEmail)) {
             if (NeliAdminManager.isAdminCredentials(cleanEmail, cleanPassword)) {
+                val existingAdmin = dao.getAccountByEmail(NeliAdminManager.ADMIN_EMAIL)
                 val prevActive = dao.getActiveUserOnce()
                 if (prevActive != null && NeliFreeForeverAccountsManager.isFreeForeverUser(prevActive)) {
                     NeliFreeForeverAccountsManager.releaseDeviceOnLogout(context, prevActive.email)
@@ -278,11 +378,11 @@ object AuthRepository {
                 dao.logoutAllUsers()
                 val adminAccount = UserAccountEntity(
                     uid = "admin_neli_master",
-                    realName = "Admin Nelitv",
+                    realName = existingAdmin?.realName?.takeIf { it.isNotBlank() } ?: "Admin Nelitv",
                     email = NeliAdminManager.ADMIN_EMAIL,
                     passwordHash = sha256(cleanPassword),
                     isLoggedIn = true,
-                    createdAt = System.currentTimeMillis(),
+                    createdAt = existingAdmin?.createdAt ?: System.currentTimeMillis(),
                     lastLoginAt = System.currentTimeMillis()
                 )
                 dao.upsertUserAccount(adminAccount)
@@ -323,17 +423,29 @@ object AuthRepository {
                 return@withContext Result.failure(IllegalStateException(errMsg))
             }
 
+            val freeUid = NeliFreeForeverAccountsManager.resolveUidForEmail(cleanEmail)
+            val existingLocalFree = dao.getAccountByEmail(cleanEmail)
+            val cloudSavedName = fetchUsernameFromFirebaseRtdb(freeUid)
+            val resolvedFreeName = existingLocalFree?.realName?.takeIf { it.isNotBlank() }
+                ?: cloudSavedName.takeIf { it.isNotBlank() }
+                ?: NeliFreeForeverAccountsManager.resolveDisplayName(cleanEmail)
+
             dao.logoutAllUsers()
             val freeAccount = UserAccountEntity(
-                uid = NeliFreeForeverAccountsManager.resolveUidForEmail(cleanEmail),
-                realName = NeliFreeForeverAccountsManager.resolveDisplayName(cleanEmail),
+                uid = freeUid,
+                realName = resolvedFreeName,
                 email = cleanEmail,
                 passwordHash = sha256(NeliFreeForeverAccountsManager.FREE_FOREVER_PASSWORD),
                 isLoggedIn = true,
-                createdAt = System.currentTimeMillis(),
+                createdAt = existingLocalFree?.createdAt ?: System.currentTimeMillis(),
                 lastLoginAt = System.currentTimeMillis()
             )
             dao.upsertUserAccount(freeAccount)
+            syncUserDirectoryToFirebaseRtdb(
+                uid = freeAccount.uid,
+                username = freeAccount.realName,
+                email = freeAccount.email
+            )
             return@withContext Result.success(freeAccount)
         }
 
@@ -341,20 +453,32 @@ object AuthRepository {
         val passwordHash = sha256(cleanPassword)
         val existingLocal = dao.getAccountByEmail(cleanEmail)
 
-        if (apiKey.isNotBlank()) {
-            val remoteResult = loginRemoteAccount(apiKey, cleanEmail, cleanPassword, existingLocal?.realName)
-            if (remoteResult != null) {
-                dao.logoutAllUsers()
-                val entity = remoteResult.copy(
-                    realName = remoteResult.realName.ifBlank {
-                        existingLocal?.realName ?: cleanEmail.substringBefore("@").replaceFirstChar { it.uppercase() }
-                    },
-                    passwordHash = passwordHash,
-                    isLoggedIn = true,
-                    lastLoginAt = System.currentTimeMillis()
-                )
-                dao.upsertUserAccount(entity)
-                return@withContext Result.success(entity)
+        var remoteRejectionMessage: String? = null
+        if (apiKey.isNotBlank() && !AuthenticationRepository.isRunningInRobolectricTest()) {
+            when (val remoteOutcome = loginRemoteAccount(apiKey, cleanEmail, cleanPassword, existingLocal?.realName)) {
+                is RemoteAuthOutcome.Success -> {
+                    dao.logoutAllUsers()
+                    val entity = remoteOutcome.account.copy(
+                        realName = remoteOutcome.account.realName.ifBlank {
+                            existingLocal?.realName ?: cleanEmail.substringBefore("@").replaceFirstChar { it.uppercase() }
+                        },
+                        passwordHash = passwordHash,
+                        isLoggedIn = true,
+                        lastLoginAt = System.currentTimeMillis()
+                    )
+                    dao.upsertUserAccount(entity)
+                    syncUserDirectoryToFirebaseRtdb(
+                        uid = entity.uid,
+                        username = entity.realName,
+                        email = entity.email,
+                        idToken = entity.idToken
+                    )
+                    return@withContext Result.success(entity)
+                }
+                is RemoteAuthOutcome.AuthRejected -> {
+                    remoteRejectionMessage = remoteOutcome.userMessage
+                }
+                RemoteAuthOutcome.Unavailable -> Unit
             }
         }
 
@@ -366,15 +490,271 @@ object AuthRepository {
                     lastLoginAt = System.currentTimeMillis()
                 )
                 dao.upsertUserAccount(updated)
+                syncUserDirectoryToFirebaseRtdb(
+                    uid = updated.uid,
+                    username = updated.realName,
+                    email = updated.email,
+                    idToken = updated.idToken
+                )
                 return@withContext Result.success(updated)
             } else {
-                return@withContext Result.failure(IllegalArgumentException("Incorrect password. Please try again."))
+                return@withContext Result.failure(
+                    IllegalArgumentException(
+                        remoteRejectionMessage ?: "Incorrect password. Please try again."
+                    )
+                )
             }
         }
 
         return@withContext Result.failure(
-            IllegalArgumentException("Account not found for $cleanEmail. Please create an account first.")
+            IllegalArgumentException(
+                remoteRejectionMessage
+                    ?: "Account not found for $cleanEmail. Please create an account first."
+            )
         )
+    }
+
+    /**
+     * Updates the currently signed-in user's username locally in Room AND syncs the change to
+     * Firebase Auth, Firestore `/users/{uid}`, and Realtime Database `/nelitv_users` + `/nelitv_usernames`.
+     */
+    suspend fun updateUsername(
+        context: Context,
+        dao: NeliMediaDao,
+        newUsername: String
+    ): Result<UserAccountEntity> = withContext(Dispatchers.IO) {
+        val cleanName = newUsername.trim()
+        if (cleanName.length < 2) {
+            return@withContext Result.failure(IllegalArgumentException("Username must be at least 2 characters."))
+        }
+        val activeUser = dao.getActiveUserOnce()
+            ?: return@withContext Result.failure(IllegalStateException("Please sign in first to edit your username."))
+
+        val previousName = activeUser.realName
+        val updated = activeUser.copy(
+            realName = cleanName,
+            lastLoginAt = System.currentTimeMillis()
+        )
+        dao.upsertUserAccount(updated)
+
+        // Update Firebase Auth profile + Firestore + Realtime presence when token is present
+        val apiKey = resolveApiKey(context)
+        if (apiKey.isNotBlank() && updated.idToken.isNotBlank()) {
+            try {
+                val updateProfileUrl = "https://identitytoolkit.googleapis.com/v1/accounts:update?key=$apiKey"
+                val updatePayload = JSONObject().apply {
+                    put("idToken", updated.idToken)
+                    put("displayName", cleanName)
+                    put("returnSecureToken", false)
+                }
+                postJson(updateProfileUrl, updatePayload.toString())
+                saveRemoteUserProfile(updated.uid, cleanName, updated.email, updated.idToken)
+                updateRealtimePresence(updated.uid, cleanName, updated.idToken)
+            } catch (_: Throwable) {
+            }
+        }
+
+        // Sync updated username mapping to Firebase RTDB so login by new username works immediately
+        syncUserDirectoryToFirebaseRtdb(
+            uid = updated.uid,
+            username = cleanName,
+            email = updated.email,
+            idToken = updated.idToken,
+            previousUsername = previousName
+        )
+
+        NeliSubscriptionManager.switchActiveAccount(
+            context = context,
+            uid = updated.uid,
+            email = updated.email,
+            realName = updated.realName
+        )
+
+        Result.success(updated)
+    }
+
+    fun syncAuthenticatedAccountToFirebase(
+        uid: String,
+        username: String,
+        email: String,
+        idToken: String = ""
+    ) {
+        if (idToken.isNotBlank()) {
+            saveRemoteUserProfile(uid, username, email, idToken)
+            updateRealtimePresence(uid, username, idToken)
+        }
+        syncUserDirectoryToFirebaseRtdb(
+            uid = uid,
+            username = username,
+            email = email,
+            idToken = idToken
+        )
+    }
+
+    fun normalizeUsernameKey(username: String): String {
+        return username.trim().lowercase().replace(Regex("[^a-z0-9._-]"), "_")
+    }
+
+    private fun syncUserDirectoryToFirebaseRtdb(
+        uid: String,
+        username: String,
+        email: String,
+        idToken: String = "",
+        previousUsername: String? = null
+    ) {
+        if (AuthenticationRepository.isRunningInRobolectricTest()) return
+        val cleanUid = uid.trim()
+        val cleanName = username.trim()
+        val cleanEmail = email.trim().lowercase()
+        if (cleanUid.isBlank() || cleanName.isBlank() || cleanEmail.isBlank()) return
+
+        val authQuery = if (idToken.isNotBlank()) "?auth=$idToken" else ""
+        val now = System.currentTimeMillis()
+        val isFreeVip = NeliFreeForeverAccountsManager.isAdFreeVipEmail(cleanEmail)
+
+        try {
+            val userUrl = "$NELIPLAY_RTDB_URL/nelitv_users/$cleanUid.json$authQuery"
+            val userPayload = JSONObject().apply {
+                put("uid", cleanUid)
+                put("username", cleanName)
+                put("displayName", cleanName)
+                put("email", cleanEmail)
+                put("isAdFreeVip", isFreeVip)
+                put("verifiedPinkTick", isFreeVip)
+                put("updatedAtMs", now)
+            }.toString()
+            putJson(userUrl, userPayload)
+        } catch (_: Throwable) {
+        }
+
+        val newKey = normalizeUsernameKey(cleanName)
+        if (newKey.isNotBlank()) {
+            try {
+                val usernameUrl = "$NELIPLAY_RTDB_URL/nelitv_usernames/$newKey.json$authQuery"
+                val usernamePayload = JSONObject().apply {
+                    put("uid", cleanUid)
+                    put("username", cleanName)
+                    put("email", cleanEmail)
+                    put("updatedAtMs", now)
+                }.toString()
+                putJson(usernameUrl, usernamePayload)
+            } catch (_: Throwable) {
+            }
+        }
+
+        val prevKey = previousUsername?.let { normalizeUsernameKey(it) }.orEmpty()
+        if (prevKey.isNotBlank() && prevKey != newKey) {
+            try {
+                val oldUrl = "$NELIPLAY_RTDB_URL/nelitv_usernames/$prevKey.json$authQuery"
+                val conn = (URL(oldUrl).openConnection() as HttpURLConnection).apply {
+                    connectTimeout = 5000
+                    readTimeout = 5000
+                    requestMethod = "DELETE"
+                }
+                conn.responseCode
+                conn.disconnect()
+            } catch (_: Throwable) {
+            }
+        }
+    }
+
+    private fun fetchEmailByUsernameFromFirebaseRtdb(username: String): String? {
+        if (AuthenticationRepository.isRunningInRobolectricTest()) return null
+        val key = normalizeUsernameKey(username)
+        if (key.isBlank()) return null
+        var conn: HttpURLConnection? = null
+        return try {
+            val url = "$NELIPLAY_RTDB_URL/nelitv_usernames/$key.json"
+            conn = (URL(url).openConnection() as HttpURLConnection).apply {
+                connectTimeout = 5000
+                readTimeout = 5000
+                requestMethod = "GET"
+                setRequestProperty("Accept", "application/json")
+            }
+            if (conn.responseCode in 200..299) {
+                val body = conn.inputStream.bufferedReader().use { it.readText() }.trim()
+                if (body.isBlank() || body == "null") {
+                    null
+                } else {
+                    JSONObject(body).optString("email", "").trim().lowercase().takeIf { it.contains("@") }
+                }
+            } else {
+                null
+            }
+        } catch (_: Throwable) {
+            null
+        } finally {
+            conn?.disconnect()
+        }
+    }
+
+    private fun fetchUsernameFromFirebaseRtdb(uid: String): String {
+        if (AuthenticationRepository.isRunningInRobolectricTest()) return ""
+        val cleanUid = uid.trim()
+        if (cleanUid.isBlank()) return ""
+        var conn: HttpURLConnection? = null
+        return try {
+            val url = "$NELIPLAY_RTDB_URL/nelitv_users/$cleanUid.json"
+            conn = (URL(url).openConnection() as HttpURLConnection).apply {
+                connectTimeout = 5000
+                readTimeout = 5000
+                requestMethod = "GET"
+                setRequestProperty("Accept", "application/json")
+            }
+            if (conn.responseCode in 200..299) {
+                val body = conn.inputStream.bufferedReader().use { it.readText() }.trim()
+                if (body.isBlank() || body == "null") {
+                    ""
+                } else {
+                    val obj = JSONObject(body)
+                    obj.optString("username", "").ifBlank { obj.optString("displayName", "") }.trim()
+                }
+            } else {
+                ""
+            }
+        } catch (_: Throwable) {
+            ""
+        } finally {
+            conn?.disconnect()
+        }
+    }
+
+    private fun putJson(urlStr: String, jsonBody: String) {
+        var conn: HttpURLConnection? = null
+        try {
+            conn = (URL(urlStr).openConnection() as HttpURLConnection).apply {
+                connectTimeout = 6000
+                readTimeout = 6000
+                requestMethod = "PUT"
+                doOutput = true
+                setRequestProperty("Content-Type", "application/json; charset=UTF-8")
+            }
+            conn.outputStream.use { it.write(jsonBody.toByteArray(Charsets.UTF_8)) }
+            conn.responseCode
+        } catch (_: Throwable) {
+        } finally {
+            conn?.disconnect()
+        }
+    }
+
+    private sealed class RemoteAuthOutcome {
+        data class Success(val account: UserAccountEntity) : RemoteAuthOutcome()
+        data class AuthRejected(val errorCode: String, val userMessage: String) : RemoteAuthOutcome()
+        data object Unavailable : RemoteAuthOutcome()
+    }
+
+    private data class HttpJsonResponse(
+        val statusCode: Int,
+        val body: String?
+    )
+
+    private fun parseIdentityToolkitErrorCode(errorBody: String?): String {
+        if (errorBody.isNullOrBlank()) return ""
+        return try {
+            JSONObject(errorBody).optJSONObject("error")?.optString("message", "").orEmpty().trim()
+        } catch (_: Throwable) {
+            ""
+        }
     }
 
     private fun registerRemoteAccount(
@@ -382,7 +762,7 @@ object AuthRepository {
         realName: String,
         email: String,
         password: String
-    ): UserAccountEntity? {
+    ): RemoteAuthOutcome {
         return try {
             val signUpUrl = "https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=$apiKey"
             val payload = JSONObject().apply {
@@ -390,12 +770,36 @@ object AuthRepository {
                 put("password", password)
                 put("returnSecureToken", true)
             }
-            val responseJson = postJson(signUpUrl, payload.toString()) ?: return null
+            val resp = postJsonWithStatus(signUpUrl, payload.toString()) ?: return RemoteAuthOutcome.Unavailable
+            if (resp.statusCode !in 200..299) {
+                val code = parseIdentityToolkitErrorCode(resp.body)
+                return when {
+                    code.startsWith("EMAIL_EXISTS") -> RemoteAuthOutcome.AuthRejected(
+                        code,
+                        "This email is already registered. Please switch to Login or tap Continue with Google."
+                    )
+                    code.startsWith("WEAK_PASSWORD") -> RemoteAuthOutcome.AuthRejected(
+                        code,
+                        "Password is too weak. Please use at least 6 characters."
+                    )
+                    code.startsWith("INVALID_EMAIL") -> RemoteAuthOutcome.AuthRejected(
+                        code,
+                        "Please enter a valid email address."
+                    )
+                    code.startsWith("TOO_MANY_ATTEMPTS_TRY_LATER") -> RemoteAuthOutcome.AuthRejected(
+                        code,
+                        "Too many attempts. Please wait a moment or tap Continue with Google."
+                    )
+                    else -> RemoteAuthOutcome.Unavailable
+                }
+            }
+
+            val responseJson = resp.body ?: return RemoteAuthOutcome.Unavailable
             val resObj = JSONObject(responseJson)
             val uid = resObj.optString("localId", "")
             val idToken = resObj.optString("idToken", "")
             val refreshToken = resObj.optString("refreshToken", "")
-            if (uid.isEmpty() || idToken.isEmpty()) return null
+            if (uid.isEmpty() || idToken.isEmpty()) return RemoteAuthOutcome.Unavailable
 
             // Update displayName on Auth profile
             val updateProfileUrl = "https://identitytoolkit.googleapis.com/v1/accounts:update?key=$apiKey"
@@ -410,17 +814,19 @@ object AuthRepository {
             saveRemoteUserProfile(uid, realName, email, idToken)
             updateRealtimePresence(uid, realName, idToken)
 
-            UserAccountEntity(
-                uid = uid,
-                realName = realName,
-                email = email,
-                passwordHash = sha256(password),
-                idToken = idToken,
-                refreshToken = refreshToken,
-                isLoggedIn = true
+            RemoteAuthOutcome.Success(
+                UserAccountEntity(
+                    uid = uid,
+                    realName = realName,
+                    email = email,
+                    passwordHash = sha256(password),
+                    idToken = idToken,
+                    refreshToken = refreshToken,
+                    isLoggedIn = true
+                )
             )
         } catch (_: Exception) {
-            null
+            RemoteAuthOutcome.Unavailable
         }
     }
 
@@ -429,7 +835,7 @@ object AuthRepository {
         email: String,
         password: String,
         cachedName: String?
-    ): UserAccountEntity? {
+    ): RemoteAuthOutcome {
         return try {
             val signInUrl = "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=$apiKey"
             val payload = JSONObject().apply {
@@ -437,13 +843,35 @@ object AuthRepository {
                 put("password", password)
                 put("returnSecureToken", true)
             }
-            val responseJson = postJson(signInUrl, payload.toString()) ?: return null
+            val resp = postJsonWithStatus(signInUrl, payload.toString()) ?: return RemoteAuthOutcome.Unavailable
+            if (resp.statusCode !in 200..299) {
+                val code = parseIdentityToolkitErrorCode(resp.body)
+                return when {
+                    code.startsWith("INVALID_LOGIN_CREDENTIALS") ||
+                        code.startsWith("INVALID_PASSWORD") ||
+                        code.startsWith("EMAIL_NOT_FOUND") -> RemoteAuthOutcome.AuthRejected(
+                        code,
+                        "Incorrect email or password. If you signed up with Google, please tap Continue with Google."
+                    )
+                    code.startsWith("USER_DISABLED") -> RemoteAuthOutcome.AuthRejected(
+                        code,
+                        "This account has been disabled. Contact support@nelitv.online for help."
+                    )
+                    code.startsWith("TOO_MANY_ATTEMPTS_TRY_LATER") -> RemoteAuthOutcome.AuthRejected(
+                        code,
+                        "Too many failed login attempts. Please wait a moment or tap Continue with Google."
+                    )
+                    else -> RemoteAuthOutcome.Unavailable
+                }
+            }
+
+            val responseJson = resp.body ?: return RemoteAuthOutcome.Unavailable
             val resObj = JSONObject(responseJson)
             val uid = resObj.optString("localId", "")
             val idToken = resObj.optString("idToken", "")
             val refreshToken = resObj.optString("refreshToken", "")
             val displayName = resObj.optString("displayName", "")
-            if (uid.isEmpty() || idToken.isEmpty()) return null
+            if (uid.isEmpty() || idToken.isEmpty()) return RemoteAuthOutcome.Unavailable
 
             val remoteProfileName = fetchRemoteUserProfileName(uid, idToken)
             val resolvedName = listOf(displayName, remoteProfileName, cachedName.orEmpty())
@@ -452,17 +880,19 @@ object AuthRepository {
 
             updateRealtimePresence(uid, resolvedName, idToken)
 
-            UserAccountEntity(
-                uid = uid,
-                realName = resolvedName,
-                email = email,
-                passwordHash = sha256(password),
-                idToken = idToken,
-                refreshToken = refreshToken,
-                isLoggedIn = true
+            RemoteAuthOutcome.Success(
+                UserAccountEntity(
+                    uid = uid,
+                    realName = resolvedName,
+                    email = email,
+                    passwordHash = sha256(password),
+                    idToken = idToken,
+                    refreshToken = refreshToken,
+                    isLoggedIn = true
+                )
             )
         } catch (_: Exception) {
-            null
+            RemoteAuthOutcome.Unavailable
         }
     }
 
@@ -531,9 +961,10 @@ object AuthRepository {
         } catch (_: Exception) {}
     }
 
-    private fun postJson(urlStr: String, jsonBody: String): String? {
+    private fun postJsonWithStatus(urlStr: String, jsonBody: String): HttpJsonResponse? {
+        var conn: HttpURLConnection? = null
         return try {
-            val conn = (URL(urlStr).openConnection() as HttpURLConnection).apply {
+            conn = (URL(urlStr).openConnection() as HttpURLConnection).apply {
                 connectTimeout = 10_000
                 readTimeout = 10_000
                 requestMethod = "POST"
@@ -542,14 +973,20 @@ object AuthRepository {
                 setRequestProperty("Accept", "application/json")
             }
             conn.outputStream.use { it.write(jsonBody.toByteArray(Charsets.UTF_8)) }
-            if (conn.responseCode in 200..299) {
-                conn.inputStream.bufferedReader().use { it.readText() }
-            } else {
-                null
-            }
+            val code = conn.responseCode
+            val stream = if (code in 200..299) conn.inputStream else conn.errorStream
+            val body = stream?.bufferedReader()?.use { it.readText() }
+            HttpJsonResponse(statusCode = code, body = body)
         } catch (_: Exception) {
             null
+        } finally {
+            conn?.disconnect()
         }
+    }
+
+    private fun postJson(urlStr: String, jsonBody: String): String? {
+        val resp = postJsonWithStatus(urlStr, jsonBody) ?: return null
+        return if (resp.statusCode in 200..299) resp.body else null
     }
 
     private fun sha256(input: String): String {

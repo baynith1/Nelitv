@@ -25,6 +25,10 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="com.google.android.gms.permission.AD_ID" />
+    <!-- Disable Privacy Sandbox AdServices measurement binding to prevent onNullBinding MEASUREMENT_SERVICE errors -->
+    <uses-permission android:name="android.permission.ACCESS_ADSERVICES_ATTRIBUTION" tools:node="remove" />
+    <uses-permission android:name="android.permission.ACCESS_ADSERVICES_TOPICS" tools:node="remove" />
+    <uses-permission android:name="android.permission.ACCESS_ADSERVICES_AD_ID" tools:node="remove" />
 
     <!-- Bluetooth & Nearby Casted Devices -->
     <uses-permission android:name="android.permission.BLUETOOTH" />
@@ -46,13 +50,20 @@
         android:networkSecurityConfig="@xml/network_security_config"
         android:theme="@style/Theme.MyApplication">
 
-        <!-- Start.io Official Ad Network SDK Configuration -->
+        <!-- Google AdMob Production App ID & Background Initialization Optimizations -->
         <meta-data
-            android:name="com.startapp.sdk.APPLICATION_ID"
-            android:value="209957114" />
+            android:name="com.google.android.gms.ads.APPLICATION_ID"
+            android:value="ca-app-pub-5204110379616479~8471497203" />
         <meta-data
-            android:name="com.startapp.sdk.RETURN_ADS_ENABLED"
-            android:value="false" />
+            android:name="com.google.android.gms.ads.flag.OPTIMIZE_INITIALIZATION"
+            android:value="true" />
+        <meta-data
+            android:name="com.google.android.gms.ads.flag.OPTIMIZE_AD_LOADING"
+            android:value="true" />
+        <property
+            android:name="android.adservices.AD_SERVICES_CONFIG"
+            tools:node="remove" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"

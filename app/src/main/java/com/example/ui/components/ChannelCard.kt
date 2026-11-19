@@ -87,13 +87,25 @@ fun ChannelCard(
     var isLogoLoaded by remember(channel.id, activeLogoUrl) {
         mutableStateOf(false)
     }
+    var isLogoFailed by remember(channel.id, activeLogoUrl) {
+        mutableStateOf(activeLogoUrl.isBlank())
+    }
     val channelInitials = remember(channel.name) {
-        channel.name.trim().take(2).uppercase()
+        val parts = channel.name.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
+        if (parts.size >= 2) {
+            "${parts[0].first()}${parts[1].first()}".uppercase()
+        } else {
+            channel.name.trim().take(3).uppercase()
+        }
     }
 
     val thumbRequest = remember(channel.id, activeLogoUrl) {
         ImageRequest.Builder(context)
-            .data(activeLogoUrl)
+            .data(activeLogoUrl.ifBlank { null })
+            .addHeader(
+                "User-Agent",
+                "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+            )
             .size(320, 180)
             .memoryCachePolicy(CachePolicy.ENABLED)
             .diskCachePolicy(CachePolicy.ENABLED)
@@ -141,20 +153,46 @@ fun ChannelCard(
                         .testTag("channel_logo_stage_${channel.id}"),
                     contentAlignment = Alignment.Center
                 ) {
-                    AsyncImage(
-                        model = thumbRequest,
-                        contentDescription = "${channel.name} logo",
-                        contentScale = ContentScale.Fit,
-                        onSuccess = { isLogoLoaded = true },
-                        onError = {
-                            if (activeLogoUrl != fallbackLogoUrl && fallbackLogoUrl.isNotBlank()) {
-                                activeLogoUrl = fallbackLogoUrl
-                            }
-                        },
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(4.dp)
-                    )
+                    if (activeLogoUrl.isBlank() || isLogoFailed) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Tv,
+                                contentDescription = "${channel.name} icon",
+                                tint = NeliMagenta.copy(alpha = 0.85f),
+                                modifier = Modifier.size(28.dp)
+                            )
+                            Text(
+                                text = channelInitials,
+                                color = Color.White,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                maxLines = 1
+                            )
+                        }
+                    } else {
+                        AsyncImage(
+                            model = thumbRequest,
+                            contentDescription = "${channel.name} logo",
+                            contentScale = ContentScale.Fit,
+                            onSuccess = {
+                                isLogoLoaded = true
+                                isLogoFailed = false
+                            },
+                            onError = {
+                                if (activeLogoUrl != fallbackLogoUrl && fallbackLogoUrl.isNotBlank()) {
+                                    activeLogoUrl = fallbackLogoUrl
+                                } else {
+                                    isLogoFailed = true
+                                }
+                            },
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(4.dp)
+                        )
+                    }
                 }
 
                 // Top-left Lock / VIP Unlocked badge when Admin locks channel

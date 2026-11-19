@@ -16,6 +16,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -181,38 +182,22 @@ fun PlayerScreen(
     val uiState by playerController.uiState.collectAsState()
     val playbackInfo by playerController.playbackInfo.collectAsState()
 
-    LaunchedEffect(activeChannel.id, activeChannel.name) {
+    val isOfflineSavedPlayback = remember(activeChannel.id, activeChannel.streamUrl) {
+        activeChannel.id.startsWith("dl_") || activeChannel.streamUrl.startsWith("file:", ignoreCase = true)
+    }
+    LaunchedEffect(activeChannel.id, activeChannel.streamUrl, activeChannel.name) {
         com.example.data.NeliRealtimeAnalyticsManager.updateCurrentDeviceWatching(context, activeChannel)
-        com.example.ads.NeliAdManager.onChannelPlaybackStarted(activeChannel.id)
+        com.example.ads.NeliAdManager.updateAgeRestrictedForKidsContent(
+            activeChannel.categories.any { it.contains("kid", ignoreCase = true) }
+        )
     }
 
-    // Scheduled 15-Minute Playback Ad Break for non-premium mobile users
-    LaunchedEffect(activeChannel.id, uiState) {
-        if (uiState is PlayerUiState.Ready && activity != null) {
-            while (true) {
-                delay(30_000L)
-                com.example.ads.NeliAdManager.checkAndTrigger15MinAdBreak(
-                    activity = activity,
-                    onBeforeAd = {
-                        if (!activeChannel.isLiveBroadcast) {
-                            playerController.pause()
-                        }
-                    },
-                    onAfterAd = {
-                        if (!activeChannel.isLiveBroadcast) {
-                            playerController.play()
-                        } else {
-                            playerController.syncToLiveEdge()
-                        }
-                    }
-                )
-            }
-        }
-    }
-
-    DisposableEffect(Unit) {
+    DisposableEffect(playerController, ownsController) {
         onDispose {
             com.example.data.NeliRealtimeAnalyticsManager.updateCurrentDeviceWatching(context, null)
+            if (ownsController) {
+                playerController.release()
+            }
         }
     }
 
@@ -254,12 +239,15 @@ fun PlayerScreen(
             ?: activeChannel.name.substringBefore(" •").trim()
     }
 
-    // Wire Auto-Next Episode when current Series episode finishes
-    LaunchedEffect(isSeriesVod, nextEpisode, seriesTitlePrefix) {
+    // Wire Auto-Next Episode on natural VOD completion (zero 15-min or end-roll ad interruptions)
+    LaunchedEffect(isSeriesVod, nextEpisode, seriesTitlePrefix, activeChannel.id) {
         playerController.onEpisodeEndedAutoNext = {
             if (isSeriesVod && nextEpisode != null) {
                 nextEpisode.toPlayableChannel(seriesTitlePrefix)
             } else null
+        }
+        playerController.onVodPlaybackCompletedNaturally = { proceedAfterCompletion ->
+            proceedAfterCompletion()
         }
     }
 
@@ -271,10 +259,6 @@ fun PlayerScreen(
             onEnterPipMode = onEnterPipMode ?: {}
         )
         return
-    }
-
-    val isOfflineSavedPlayback = remember(activeChannel.id, activeChannel.streamUrl) {
-        activeChannel.id.startsWith("dl_") || activeChannel.streamUrl.startsWith("file:", ignoreCase = true)
     }
 
     var areControlsVisible by remember { mutableStateOf(true) }
@@ -495,7 +479,13 @@ fun PlayerScreen(
     }
 
     val isTvDevice = com.example.ui.tv.NeliTvDetector.isTelevision(context)
-    DisposableEffect(playerController, orientationMode, isTvDevice) {
+    LaunchedEffect(orientationMode, isTvDevice) {
+        if (!isTvDevice) {
+            activity?.requestedOrientation = orientationMode.activityOrientationConstant
+        }
+    }
+
+    DisposableEffect(playerController, isTvDevice) {
         val window = activity?.window
         window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         if (!isTvDevice) {
@@ -506,8 +496,6 @@ fun PlayerScreen(
         insetsController?.systemBarsBehavior =
             WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         insetsController?.hide(WindowInsetsCompat.Type.systemBars())
-
-        playerController.initializePlayer()
 
         onDispose {
             if (ownsController) {
@@ -688,7 +676,10 @@ fun PlayerScreen(
 
             // Always-On Live Stream Freeze / Stall Auto-Fix Watchdog & Auto-Play on Smart TV / Mobile
             LaunchedEffect(activeChannel.id) {
-                if (!activeExoPlayer.isPlaying) {
+                if (!activeExoPlayer.isPlaying &&
+                    !playerController.isAdPausedForBreak() &&
+                    !com.example.ads.NeliAdManager.isAdCurrentlyDisplaying.value
+                ) {
                     activeExoPlayer.playWhenReady = true
                     activeExoPlayer.play()
                 }
@@ -696,8 +687,14 @@ fun PlayerScreen(
                 while (true) {
                     delay(900L)
                     watchdogIteration++
-                    // If stuck in loading or buffering for more than 3.6 seconds, force-resume playback
-                    if (watchdogIteration % 4 == 0 && !activeExoPlayer.isPlaying) {
+                    val adBlockingPlayback = playerController.isAdPausedForBreak() ||
+                        com.example.ads.NeliAdManager.isAdCurrentlyDisplaying.value
+                    // Only recover if player dropped into IDLE or lost playWhenReady unexpectedly (never interrupt active buffering)
+                    if (!adBlockingPlayback &&
+                        watchdogIteration % 4 == 0 &&
+                        !activeExoPlayer.isPlaying &&
+                        (!activeExoPlayer.playWhenReady || activeExoPlayer.playbackState == Player.STATE_IDLE)
+                    ) {
                         if (!activeExoPlayer.playWhenReady) {
                             activeExoPlayer.playWhenReady = true
                         }
@@ -707,7 +704,7 @@ fun PlayerScreen(
                         activeExoPlayer.play()
                     }
 
-                    if (activeChannel.isLiveBroadcast) {
+                    if (!adBlockingPlayback && activeChannel.isLiveBroadcast) {
                         playerController.checkAndAutoFixLiveStreamStall()
                     }
                     com.example.data.NeliSubscriptionManager.expireSubscriptionIfNeeded(context)
@@ -2369,9 +2366,16 @@ private fun formatDurationMs(ms: Long): String {
 }
 
 /**
- * Crash-safe Dedicated Embedded Player for Baynith Sport 1 & 2.
- * Handles [WebViewClient.onRenderProcessGone] returning true so Chromium renderer crashes (code -1)
- * never terminate the host application, and safely cleans up WebView resources upon disposal.
+ * Crash-safe Dedicated Embedded Player for Baynith Sport 1 & 2 and NeliPlay White-Label YouTube Embeds.
+ *
+ * - For YouTube-backed Studio movies (`isYoutubeEmbedded == true`):
+ *   * Loads `https://baynith-tv.base44.app/embed-neli/<VIDEO_ID>` in a strict 16:9 container on pure `#000000`
+ *     with zero YouTube branding/watermarks and zero NeliPlay logo overlays over the picture.
+ *   * Keeps video title & channel attribution cleanly above the player (never overlapping the video frame).
+ *   * Disables Picture-in-Picture completely and auto-pauses/stops playback whenever the user leaves or
+ *     backgrounds the app (`ON_PAUSE` / `ON_STOP`).
+ * - Handles [WebViewClient.onRenderProcessGone] returning true so Chromium renderer crashes (code -1)
+ *   never terminate the host application, supports HTML5 fullscreen custom views, and cleans up safely.
  */
 @Composable
 fun EmbeddedChannelWebViewPlayer(
@@ -2379,8 +2383,8 @@ fun EmbeddedChannelWebViewPlayer(
     onBack: () -> Unit,
     onEnterPipMode: () -> Unit = {}
 ) {
-    BackHandler { onBack() }
     val context = androidx.compose.ui.platform.LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val activity = remember(context) {
         var currentContext: android.content.Context? = context
         while (currentContext is android.content.ContextWrapper) {
@@ -2392,7 +2396,83 @@ fun EmbeddedChannelWebViewPlayer(
 
     var webViewRef by remember { mutableStateOf<android.webkit.WebView?>(null) }
     var isRendererCrashed by remember(channel.id) { mutableStateOf(false) }
+    var hasLoadError by remember(channel.id) { mutableStateOf(false) }
+    var isPageLoading by remember(channel.id) { mutableStateOf(true) }
     var reloadToken by remember { mutableIntStateOf(0) }
+    var customFullscreenView by remember { mutableStateOf<android.view.View?>(null) }
+    var customViewCallback by remember { mutableStateOf<android.webkit.WebChromeClient.CustomViewCallback?>(null) }
+
+    val isYoutubeEmbed = !channel.isPipAllowedForChannel || channel.isYoutubeEmbedded
+
+    val handleExitFullscreenOrBack: () -> Unit = {
+        val activeCallback = customViewCallback
+        if (customFullscreenView != null && activeCallback != null) {
+            try {
+                activeCallback.onCustomViewHidden()
+            } catch (_: Throwable) {
+            }
+            customFullscreenView = null
+            customViewCallback = null
+        } else {
+            onBack()
+        }
+    }
+
+    BackHandler(onBack = handleExitFullscreenOrBack)
+
+    // Auto-stop / pause embedded playback when backgrounded or leaving screen (especially critical when PiP is disabled for YT videos)
+    DisposableEffect(lifecycleOwner, channel.id, isYoutubeEmbed) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            val wv = webViewRef ?: return@LifecycleEventObserver
+            when (event) {
+                androidx.lifecycle.Lifecycle.Event.ON_PAUSE -> {
+                    if (isYoutubeEmbed) {
+                        try {
+                            wv.evaluateJavascript(
+                                "(function(){try{document.querySelectorAll('video,audio').forEach(function(m){m.pause();});var f=document.querySelector('iframe');if(f&&f.contentWindow){f.contentWindow.postMessage('{\"event\":\"command\",\"func\":\"pauseVideo\",\"args\":[]}','*');}}catch(e){}})();",
+                                null
+                            )
+                            wv.onPause()
+                        } catch (_: Throwable) {
+                        }
+                    }
+                }
+                androidx.lifecycle.Lifecycle.Event.ON_STOP -> {
+                    if (isYoutubeEmbed) {
+                        try {
+                            wv.evaluateJavascript(
+                                "(function(){try{document.querySelectorAll('video,audio').forEach(function(m){m.pause();});}catch(e){}})();",
+                                null
+                            )
+                            wv.onPause()
+                            wv.pauseTimers()
+                        } catch (_: Throwable) {
+                        }
+                    }
+                }
+                androidx.lifecycle.Lifecycle.Event.ON_RESUME -> {
+                    try {
+                        wv.resumeTimers()
+                        wv.onResume()
+                    } catch (_: Throwable) {
+                    }
+                }
+                else -> {}
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
+    // Timeout safety so loading spinner never blocks the picture while the remote embed player renders
+    LaunchedEffect(channel.id, reloadToken, isPageLoading) {
+        if (isPageLoading) {
+            delay(3_000L)
+            isPageLoading = false
+        }
+    }
 
     DisposableEffect(channel.id, reloadToken) {
         val originalOrientation = activity?.requestedOrientation
@@ -2407,6 +2487,12 @@ fun EmbeddedChannelWebViewPlayer(
         }
         onDispose {
             try {
+                customViewCallback?.onCustomViewHidden()
+            } catch (_: Throwable) {
+            }
+            customFullscreenView = null
+            customViewCallback = null
+            try {
                 if (originalOrientation != null) {
                     activity?.requestedOrientation = originalOrientation
                 }
@@ -2416,6 +2502,7 @@ fun EmbeddedChannelWebViewPlayer(
                 }
                 webViewRef?.let { wv ->
                     wv.stopLoading()
+                    wv.onPause()
                     wv.loadUrl("about:blank")
                     wv.clearHistory()
                     wv.removeAllViews()
@@ -2427,203 +2514,357 @@ fun EmbeddedChannelWebViewPlayer(
         }
     }
 
+    val resolvedTargetUrl = remember(channel.id, channel.streamUrl, channel.embeddedHtml) {
+        val raw = channel.streamUrl.trim()
+        if (isYoutubeEmbed) {
+            com.example.player.NeliEmbedPlayerHelper.resolveNeliEmbedUrl(streamUrl = raw)
+        } else {
+            raw
+        }
+    }
+
+    if (customFullscreenView != null) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black)
+                .testTag("embedded_player_html5_fullscreen")
+        ) {
+            AndroidView(
+                factory = { customFullscreenView!! },
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+        return
+    }
+
+    // Unified 100% Full-Screen Embedded Player covering the entire screen just like Super Sport & EPL League Tv
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
             .testTag("embedded_player_container")
     ) {
-        if (!isRendererCrashed) {
-            key(reloadToken) {
+        if (!isRendererCrashed && !hasLoadError) {
+            key(channel.id, reloadToken) {
                 AndroidView(
                     factory = { ctx ->
-                        android.webkit.WebView(ctx).apply {
-                            layoutParams = ViewGroup.LayoutParams(
-                                ViewGroup.LayoutParams.MATCH_PARENT,
-                                ViewGroup.LayoutParams.MATCH_PARENT
-                            )
-                            settings.apply {
-                                javaScriptEnabled = true
-                                domStorageEnabled = true
-                                mediaPlaybackRequiresUserGesture = false
-                                loadWithOverviewMode = true
-                                useWideViewPort = true
-                                builtInZoomControls = false
-                                displayZoomControls = false
-                                allowContentAccess = false
-                                allowFileAccess = false
-                                mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                                cacheMode = android.webkit.WebSettings.LOAD_DEFAULT
+                        createConfiguredEmbedWebView(
+                            ctx = ctx,
+                            channel = channel,
+                            resolvedTargetUrl = resolvedTargetUrl,
+                            isYoutubeEmbed = isYoutubeEmbed,
+                            onWebViewReady = { webViewRef = it },
+                            onPageStarted = { isPageLoading = true },
+                            onPageFinished = { isPageLoading = false },
+                            onLoadError = {
+                                isPageLoading = false
+                                hasLoadError = true
+                            },
+                            onRendererCrashed = {
+                                webViewRef = null
+                                isPageLoading = false
+                                isRendererCrashed = true
+                            },
+                            onShowCustomFullscreen = { view, cb ->
+                                customFullscreenView = view
+                                customViewCallback = cb
+                            },
+                            onHideCustomFullscreen = {
+                                customFullscreenView = null
+                                customViewCallback = null
                             }
-                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                                setRendererPriorityPolicy(android.webkit.WebView.RENDERER_PRIORITY_IMPORTANT, false)
-                            }
-                            setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
-                            webViewClient = object : android.webkit.WebViewClient() {
-                                override fun onRenderProcessGone(
-                                    view: android.webkit.WebView?,
-                                    detail: android.webkit.RenderProcessGoneDetail?
-                                ): Boolean {
-                                    // CRITICAL: Return true so Chromium aw_browser_terminator does NOT kill the app process!
-                                    android.util.Log.w("NeliTvPlayer", "WebView renderer process gone. Handled safely without crash.")
-                                    try {
-                                        view?.let { wv ->
-                                            (wv.parent as? ViewGroup)?.removeView(wv)
-                                            wv.destroy()
-                                        }
-                                    } catch (_: Throwable) {
-                                    }
-                                    webViewRef = null
-                                    isRendererCrashed = true
-                                    return true
-                                }
-
-                                override fun shouldOverrideUrlLoading(
-                                    view: android.webkit.WebView?,
-                                    request: android.webkit.WebResourceRequest?
-                                ): Boolean {
-                                    return false
-                                }
-                            }
-                            webChromeClient = object : android.webkit.WebChromeClient() {
-                                override fun onPermissionRequest(request: android.webkit.PermissionRequest?) {
-                                    try {
-                                        request?.grant(request.resources)
-                                    } catch (_: Throwable) {
-                                        super.onPermissionRequest(request)
-                                    }
-                                }
-                            }
-                            setBackgroundColor(android.graphics.Color.BLACK)
-                            webViewRef = this
-
-                            val directUrl = channel.streamUrl.trim()
-                            if (directUrl.startsWith("http://", ignoreCase = true) || directUrl.startsWith("https://", ignoreCase = true)) {
-                                // Load direct URL directly to avoid synthetic nested iframe memory and site-isolation overhead in Chromium
-                                loadUrl(directUrl)
-                            } else {
-                                val rawHtml = channel.embeddedHtml.trim()
-                                val iframeHtml = if (rawHtml.isNotBlank()) {
-                                    rawHtml
-                                } else {
-                                    """<iframe src="$directUrl" width="100%" height="100%" style="border:0;" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe>"""
-                                }
-                                val htmlContent = """
-                                    <!DOCTYPE html>
-                                    <html lang="en">
-                                    <head>
-                                        <meta charset="UTF-8">
-                                        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-                                        <style>
-                                            html, body {
-                                                margin: 0;
-                                                padding: 0;
-                                                width: 100%;
-                                                height: 100%;
-                                                background-color: #000000;
-                                                overflow: hidden;
-                                                display: flex;
-                                                align-items: center;
-                                                justify-content: center;
-                                            }
-                                            iframe {
-                                                width: 100vw;
-                                                height: 100vh;
-                                                border: none;
-                                                outline: none;
-                                            }
-                                        </style>
-                                    </head>
-                                    <body>
-                                        $iframeHtml
-                                    </body>
-                                    </html>
-                                """.trimIndent()
-                                loadDataWithBaseURL("https://baynith-tv.base44.app", htmlContent, "text/html", "UTF-8", null)
-                            }
-                        }
+                        )
                     },
                     modifier = Modifier.fillMaxSize()
                 )
             }
-        } else {
-            // Friendly error recovery UI if Chromium renderer was killed by OS low memory
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(24.dp),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Refresh,
-                    contentDescription = null,
-                    tint = NeliMagenta,
-                    modifier = Modifier.size(48.dp)
+            if (isPageLoading) {
+                CircularProgressIndicator(
+                    color = NeliMagenta,
+                    modifier = Modifier
+                        .size(38.dp)
+                        .align(Alignment.Center)
                 )
-                Spacer(modifier = Modifier.height(12.dp))
-                Text(
-                    text = "Player imeanza upya (Renderer Reset)",
-                    color = Color.White,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-                Button(
-                    onClick = {
-                        isRendererCrashed = false
-                        reloadToken++
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Text("Washa Player Tena", color = Color.White, fontWeight = FontWeight.Bold)
-                }
             }
+        } else {
+            EmbeddedPlayerRecoveryCard(
+                title = if (hasLoadError) "Imeshindwa kupakia video (Angalia intaneti)" else "Player imeanza upya (Renderer Reset)",
+                onRetry = {
+                    hasLoadError = false
+                    isRendererCrashed = false
+                    isPageLoading = true
+                    reloadToken++
+                }
+            )
         }
 
-        // Floating Top Bar with Back and PiP button
+        // Minimal corner Back button (PiP button removed for all embedded channels)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .statusBarsPadding()
-                .padding(16.dp)
+                .padding(14.dp)
                 .align(Alignment.TopStart),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            horizontalArrangement = Arrangement.Start,
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(
-                onClick = onBack,
+                onClick = handleExitFullscreenOrBack,
                 modifier = Modifier
-                    .size(46.dp)
-                    .background(Color.Black.copy(alpha = 0.65f), CircleShape)
-                    .border(1.dp, Color.White.copy(alpha = 0.2f), CircleShape)
+                    .size(48.dp)
+                    .background(Color.Black.copy(alpha = 0.55f), CircleShape)
+                    .border(1.dp, Color.White.copy(alpha = 0.18f), CircleShape)
                     .testTag("embedded_player_back_button")
             ) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = "Rudi nyuma",
                     tint = Color.White,
-                    modifier = Modifier.size(24.dp)
-                )
-            }
-
-            IconButton(
-                onClick = onEnterPipMode,
-                modifier = Modifier
-                    .size(46.dp)
-                    .background(Color.Black.copy(alpha = 0.65f), CircleShape)
-                    .border(1.dp, Color.White.copy(alpha = 0.2f), CircleShape)
-                    .testTag("embedded_player_pip_button")
-            ) {
-                Icon(
-                    imageVector = Icons.Default.PictureInPictureAlt,
-                    contentDescription = "Punguza Skrini (PiP)",
-                    tint = Color.White,
-                    modifier = Modifier.size(24.dp)
+                    modifier = Modifier.size(22.dp)
                 )
             }
         }
     }
 }
+
+private fun createConfiguredEmbedWebView(
+    ctx: android.content.Context,
+    channel: LiveChannel,
+    resolvedTargetUrl: String,
+    isYoutubeEmbed: Boolean,
+    onWebViewReady: (android.webkit.WebView) -> Unit,
+    onPageStarted: () -> Unit,
+    onPageFinished: () -> Unit,
+    onLoadError: () -> Unit,
+    onRendererCrashed: () -> Unit,
+    onShowCustomFullscreen: (android.view.View, android.webkit.WebChromeClient.CustomViewCallback) -> Unit,
+    onHideCustomFullscreen: () -> Unit
+): android.webkit.WebView {
+    return android.webkit.WebView(ctx).apply {
+        layoutParams = ViewGroup.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.MATCH_PARENT
+        )
+        settings.apply {
+            javaScriptEnabled = true
+            domStorageEnabled = true
+            @Suppress("DEPRECATION")
+            databaseEnabled = true
+            mediaPlaybackRequiresUserGesture = false
+            javaScriptCanOpenWindowsAutomatically = true
+            setSupportMultipleWindows(false)
+            loadWithOverviewMode = true
+            useWideViewPort = true
+            builtInZoomControls = false
+            displayZoomControls = false
+            allowContentAccess = true
+            allowFileAccess = true
+            mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+            cacheMode = android.webkit.WebSettings.LOAD_DEFAULT
+            // Strip "; wv)" from Android WebView UA so YouTube & embed players treat it as Chrome Mobile and allow autoplay
+            userAgentString = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36"
+        }
+        try {
+            android.webkit.CookieManager.getInstance().setAcceptCookie(true)
+            android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+        } catch (_: Throwable) {
+        }
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            setRendererPriorityPolicy(android.webkit.WebView.RENDERER_PRIORITY_IMPORTANT, false)
+        }
+        webViewClient = object : android.webkit.WebViewClient() {
+            override fun onRenderProcessGone(
+                view: android.webkit.WebView?,
+                detail: android.webkit.RenderProcessGoneDetail?
+            ): Boolean {
+                android.util.Log.w("NeliTvPlayer", "WebView renderer process gone. Handled safely without crash.")
+                try {
+                    view?.let { wv ->
+                        (wv.parent as? ViewGroup)?.removeView(wv)
+                        wv.destroy()
+                    }
+                } catch (_: Throwable) {
+                }
+                onRendererCrashed()
+                return true
+            }
+
+            override fun onPageStarted(
+                view: android.webkit.WebView?,
+                url: String?,
+                favicon: android.graphics.Bitmap?
+            ) {
+                super.onPageStarted(view, url, favicon)
+                onPageStarted()
+            }
+
+            override fun onPageFinished(view: android.webkit.WebView?, url: String?) {
+                super.onPageFinished(view, url)
+                onPageFinished()
+                if (isYoutubeEmbed && view != null) {
+                    try {
+                        view.resumeTimers()
+                        view.onResume()
+                        view.evaluateJavascript(
+                            "(function(){try{document.querySelectorAll('video').forEach(function(v){v.muted=false;var p=v.play();if(p&&p.catch){p.catch(function(){v.muted=true;v.play();});}});var f=document.getElementById('neli-player-frame')||document.querySelector('iframe');if(f&&f.contentWindow){f.focus();f.contentWindow.postMessage('{\"event\":\"command\",\"func\":\"playVideo\",\"args\":[]}','*');}}catch(e){}})();",
+                            null
+                        )
+                    } catch (_: Throwable) {
+                    }
+                }
+            }
+
+            override fun onReceivedError(
+                view: android.webkit.WebView?,
+                request: android.webkit.WebResourceRequest?,
+                error: android.webkit.WebResourceError?
+            ) {
+                super.onReceivedError(view, request, error)
+                if (request?.isForMainFrame == true) {
+                    onLoadError()
+                }
+            }
+
+            override fun shouldOverrideUrlLoading(
+                view: android.webkit.WebView?,
+                request: android.webkit.WebResourceRequest?
+            ): Boolean {
+                val targetUri = request?.url?.toString().orEmpty()
+                if (isYoutubeEmbed && request?.isForMainFrame == true && (
+                        targetUri.contains("youtube.com/watch", ignoreCase = true) ||
+                        targetUri.contains("youtu.be/", ignoreCase = true) ||
+                        targetUri.startsWith("intent://", ignoreCase = true) ||
+                        targetUri.startsWith("vnd.youtube:", ignoreCase = true)
+                    )
+                ) {
+                    // Never allow top-level escape to external YouTube app/site
+                    return true
+                }
+                return false
+            }
+        }
+        webChromeClient = object : android.webkit.WebChromeClient() {
+            override fun getDefaultVideoPoster(): android.graphics.Bitmap? {
+                return try {
+                    android.graphics.Bitmap.createBitmap(1, 1, android.graphics.Bitmap.Config.ARGB_8888).apply {
+                        eraseColor(android.graphics.Color.BLACK)
+                    }
+                } catch (_: Throwable) {
+                    null
+                }
+            }
+
+            override fun onPermissionRequest(request: android.webkit.PermissionRequest?) {
+                try {
+                    request?.grant(request.resources)
+                } catch (_: Throwable) {
+                    super.onPermissionRequest(request)
+                }
+            }
+
+            override fun onShowCustomView(view: android.view.View?, callback: CustomViewCallback?) {
+                if (view != null && callback != null) {
+                    onShowCustomFullscreen(view, callback)
+                } else {
+                    super.onShowCustomView(view, callback)
+                }
+            }
+
+            override fun onHideCustomView() {
+                onHideCustomFullscreen()
+                super.onHideCustomView()
+            }
+        }
+        setBackgroundColor(android.graphics.Color.BLACK)
+        onWebViewReady(this)
+
+        if (isYoutubeEmbed) {
+            // Frame inside a full-screen 100% viewport HTML wrapper with HTTPS baseUrl so origin/referer & allow="autoplay" work identically to live websites
+            val fullScreenHtml = com.example.player.NeliEmbedPlayerHelper.buildFullScreenNeliEmbedHtml(
+                resolvedTargetUrl.ifBlank { channel.streamUrl }
+            )
+            loadDataWithBaseURL(
+                "${com.example.player.NeliEmbedPlayerHelper.NELI_EMBED_ORIGIN}/",
+                fullScreenHtml,
+                "text/html",
+                "UTF-8",
+                null
+            )
+        } else if (resolvedTargetUrl.startsWith("http://", ignoreCase = true) ||
+            resolvedTargetUrl.startsWith("https://", ignoreCase = true)
+        ) {
+            loadUrl(resolvedTargetUrl)
+        } else {
+            val rawHtml = channel.embeddedHtml.trim()
+            val htmlContent = """
+                <!DOCTYPE html>
+                <html lang="en">
+                <head>
+                    <meta charset="UTF-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+                    <style>
+                        html, body {
+                            margin: 0;
+                            padding: 0;
+                            width: 100%;
+                            height: 100%;
+                            background-color: #000000;
+                            overflow: hidden;
+                        }
+                        iframe {
+                            width: 100%;
+                            height: 100%;
+                            border: 0;
+                            display: block;
+                        }
+                    </style>
+                </head>
+                <body>
+                    $rawHtml
+                </body>
+                </html>
+            """.trimIndent()
+            loadDataWithBaseURL("${com.example.player.NeliEmbedPlayerHelper.NELI_EMBED_ORIGIN}/", htmlContent, "text/html", "UTF-8", null)
+        }
+    }
+}
+
+@Composable
+private fun EmbeddedPlayerRecoveryCard(
+    title: String,
+    onRetry: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+            .padding(24.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Icon(
+            imageVector = Icons.Default.Refresh,
+            contentDescription = null,
+            tint = NeliMagenta,
+            modifier = Modifier.size(48.dp)
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        Text(
+            text = title,
+            color = Color.White,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Bold
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+        Button(
+            onClick = onRetry,
+            colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Text("Try again", color = Color.White, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
 

@@ -41,16 +41,32 @@ enum class DownloadQualityOption(
         estimatedEpisodeSize = "720 MB"
     );
 
-    fun resolveQualityStreamUrl(originalUrl: String): String {
+    fun resolveQualityStreamUrl(
+        originalUrl: String,
+        explicitQualityUrls: Map<String, String> = emptyMap()
+    ): String {
+        val explicitMatch = explicitQualityUrls.entries.firstOrNull { (k, v) ->
+            v.isNotBlank() && (
+                k.equals(qualityKey, ignoreCase = true) ||
+                    k.equals(qualityKey.removeSuffix("p"), ignoreCase = true)
+                )
+        }?.value?.trim()
+        if (!explicitMatch.isNullOrBlank()) {
+            return explicitMatch
+        }
+
         val clean = originalUrl.trim()
-        if (clean.contains("b-cdn.net", ignoreCase = true)) {
-            val baseDir = clean.substringBeforeLast("/")
+        val baseUrl = clean.substringBefore("?")
+        val querySuffix = clean.substringAfter("?", "").let { if (it.isNotEmpty()) "?$it" else "" }
+
+        if (baseUrl.contains("b-cdn.net", ignoreCase = true)) {
+            val baseDir = baseUrl.substringBeforeLast("/")
             if (baseDir.startsWith("http")) {
-                return "$baseDir/play_${qualityKey}.mp4"
+                return "$baseDir/play_${qualityKey}.mp4$querySuffix"
             }
         }
-        if (clean.contains("play_360p.mp4") || clean.contains("play_480p.mp4") ||
-            clean.contains("play_720p.mp4") || clean.contains("play_1080p.mp4")
+        if (baseUrl.contains("play_360p.mp4") || baseUrl.contains("play_480p.mp4") ||
+            baseUrl.contains("play_720p.mp4") || baseUrl.contains("play_1080p.mp4")
         ) {
             return clean.replace(Regex("play_\\d+p\\.mp4"), "play_${qualityKey}.mp4")
         }
@@ -123,7 +139,11 @@ data class EpisodeItem(
     val downloadUrl: String = streamUrl,
     val subtitleUrl: String = "",
     val allowStreaming: Boolean = true,
-    val allowDownload: Boolean = downloadEnabled
+    val allowDownload: Boolean = downloadEnabled,
+    val youtubeVideoId: String = "",
+    val youtubeUrl: String = "",
+    val channelName: String = "",
+    val qualityUrls: Map<String, String> = emptyMap()
 ) {
     val title: String
         get() = name
@@ -134,18 +154,46 @@ data class EpisodeItem(
     val durationLabel: String
         get() = if (runtime > 0) "${runtime}m" else "45m"
 
+    val isYoutubeSource: Boolean
+        get() = com.example.player.NeliEmbedPlayerHelper.isYoutubeOrEmbedNeliSource(
+            streamUrl = streamUrl.ifBlank { playbackUrl },
+            youtubeVideoId = youtubeVideoId,
+            youtubeUrl = youtubeUrl,
+            playbackType = playbackType
+        )
+
+    val isDownloadPermitted: Boolean
+        get() = downloadEnabled && allowDownload
+
     fun toPlayableChannel(seriesTitle: String = ""): LiveChannel {
-        val effectiveStreamUrl = streamUrl.ifBlank { playbackUrl }.ifBlank { downloadUrl }
+        val rawStreamUrl = streamUrl.ifBlank { playbackUrl }.ifBlank { downloadUrl }
         val displayTitle = if (seriesTitle.isNotBlank()) {
             "$seriesTitle • S${seasonNumber}E${episodeNumber}: $name"
         } else {
             "S${seasonNumber}E${episodeNumber} • $name"
         }
+        val isEmbedSource = isYoutubeSource ||
+            playbackType.equals("embedded", ignoreCase = true) ||
+            playbackType.equals("embed", ignoreCase = true) ||
+            rawStreamUrl.contains("baynith-tv.base44.app/embed", ignoreCase = true)
+
+        val resolvedEmbedUrl = if (isEmbedSource) {
+            com.example.player.NeliEmbedPlayerHelper.resolveNeliEmbedUrl(
+                streamUrl = rawStreamUrl,
+                youtubeVideoId = youtubeVideoId,
+                youtubeUrl = youtubeUrl
+            )
+        } else {
+            rawStreamUrl
+        }
+
         val format = when {
-            playbackType.equals("mp4", ignoreCase = true) || effectiveStreamUrl.substringBefore("?").endsWith(".mp4", ignoreCase = true) -> "mp4"
-            playbackType.equals("dash", ignoreCase = true) || effectiveStreamUrl.contains(".mpd", ignoreCase = true) -> "dash"
+            isEmbedSource -> "embedded"
+            playbackType.equals("mp4", ignoreCase = true) || rawStreamUrl.substringBefore("?").endsWith(".mp4", ignoreCase = true) -> "mp4"
+            playbackType.equals("dash", ignoreCase = true) || rawStreamUrl.contains(".mpd", ignoreCase = true) -> "dash"
             else -> "hls"
         }
+        val isYtEmbed = isYoutubeSource || resolvedEmbedUrl.contains("/embed-neli/", ignoreCase = true)
         return LiveChannel(
             id = "ep_$id",
             name = displayTitle,
@@ -154,7 +202,7 @@ data class EpisodeItem(
             } else {
                 durationLabel
             },
-            streamUrl = effectiveStreamUrl,
+            streamUrl = resolvedEmbedUrl,
             streamFormat = format,
             thumbnailUrl = stillPath,
             categories = listOf("Series", if (narrated) narrationLanguage else "Drama"),
@@ -166,7 +214,15 @@ data class EpisodeItem(
             seasonNumber = seasonNumber,
             episodeNumber = episodeNumber,
             isSwahiliNarratedMovie = false,
-            isAdultContent = false
+            isAdultContent = false,
+            embeddedHtml = if (isEmbedSource) {
+                com.example.player.NeliEmbedPlayerHelper.buildNeliEmbedHtml(
+                    youtubeVideoId.ifBlank { youtubeUrl }.ifBlank { resolvedEmbedUrl }
+                )
+            } else "",
+            allowPip = !isYtEmbed,
+            isYoutubeEmbedded = isYtEmbed,
+            channelAttribution = channelName
         )
     }
 }
@@ -224,8 +280,21 @@ data class MediaContent(
     val allowStreaming: Boolean = true,
     val allowDownload: Boolean = downloadEnabled,
     val youtubeVideoId: String = "",
-    val youtubeUrl: String = ""
+    val youtubeUrl: String = "",
+    val channelName: String = "",
+    val qualityUrls: Map<String, String> = emptyMap()
 ) {
+    val isYoutubeSource: Boolean
+        get() = com.example.player.NeliEmbedPlayerHelper.isYoutubeOrEmbedNeliSource(
+            streamUrl = streamUrl.ifBlank { playbackUrl },
+            youtubeVideoId = youtubeVideoId,
+            youtubeUrl = youtubeUrl,
+            playbackType = streamFormat
+        )
+
+    val isDownloadPermitted: Boolean
+        get() = downloadEnabled && allowDownload
+
     val isSeries: Boolean =
         type.equals("series", ignoreCase = true) ||
             type.equals("tv_show", ignoreCase = true) ||
@@ -280,13 +349,33 @@ data class MediaContent(
         get() = synopsis
 
     fun toPlayableChannel(): LiveChannel {
-        val effectiveStreamUrl = streamUrl.ifBlank { playbackUrl }.ifBlank { downloadUrl }
-        val cleanPath = effectiveStreamUrl.substringBefore("?").lowercase()
+        val rawStreamUrl = streamUrl.ifBlank { playbackUrl }.ifBlank { downloadUrl }
+        val cleanPath = rawStreamUrl.substringBefore("?").lowercase()
+        val isEmbedSource = isYoutubeSource ||
+            streamFormat.equals("embedded", ignoreCase = true) ||
+            streamFormat.equals("embed", ignoreCase = true) ||
+            rawStreamUrl.contains("baynith-tv.base44.app/embed", ignoreCase = true)
+
+        val effectiveStreamUrl = if (isEmbedSource) {
+            com.example.player.NeliEmbedPlayerHelper.resolveNeliEmbedUrl(
+                streamUrl = rawStreamUrl,
+                youtubeVideoId = youtubeVideoId,
+                youtubeUrl = youtubeUrl
+            )
+        } else {
+            rawStreamUrl
+        }
+
         val detectedFormat = when {
+            isEmbedSource -> "embedded"
             cleanPath.endsWith(".mp4") || cleanPath.endsWith(".ts") ||
                     streamFormat.equals("mp4", ignoreCase = true) -> "mp4"
             cleanPath.endsWith(".mpd") || streamFormat.equals("dash", ignoreCase = true) -> "dash"
             else -> "hls"
+        }
+        val isYtEmbed = isYoutubeSource || effectiveStreamUrl.contains("/embed-neli/", ignoreCase = true)
+        val attribution = channelName.ifBlank {
+            director.takeIf { it.isNotBlank() && !it.equals("Neli Studios", ignoreCase = true) }.orEmpty()
         }
         return LiveChannel(
             id = "vod_$id",
@@ -309,7 +398,15 @@ data class MediaContent(
             isLiveBroadcast = false,
             seriesId = if (isSeries) id else "",
             isSwahiliNarratedMovie = isSwahiliNarratedMovie,
-            isAdultContent = isAdult
+            isAdultContent = isAdult,
+            embeddedHtml = if (isEmbedSource) {
+                com.example.player.NeliEmbedPlayerHelper.buildNeliEmbedHtml(
+                    youtubeVideoId.ifBlank { youtubeUrl }.ifBlank { effectiveStreamUrl }
+                )
+            } else "",
+            allowPip = !isYtEmbed,
+            isYoutubeEmbedded = isYtEmbed,
+            channelAttribution = attribution
         )
     }
 }

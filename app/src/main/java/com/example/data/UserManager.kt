@@ -19,8 +19,12 @@ sealed interface GoogleAutoSignInResult {
         val savedAccounts: List<UserAccountEntity> = emptyList()
     ) : GoogleAutoSignInResult
 
+    data class Cancelled(
+        val reasonMessage: String = "Google Sign-In was cancelled."
+    ) : GoogleAutoSignInResult
+
     data class UseEmailFallback(
-        val reasonMessage: String = "Google Sign-In could not complete. Use email instead, or register a new account below."
+        val reasonMessage: String = "Google Sign-In could not complete. Please verify your Google account on this device and try again."
     ) : GoogleAutoSignInResult
 }
 

@@ -345,8 +345,8 @@ class LivePlayerController(
          * or stalls for >= 2,000 ms so the user never needs to manually click the bottom
          * "LIVE STREAM • CONTINUOUS REAL-TIME PLAYBACK" button.
          */
-        const val LIVE_STREAM_STALL_AUTO_FIX_THRESHOLD_MS = 15_000L
-        const val LIVE_STREAM_AUTO_FIX_COOLDOWN_MS = 8_000L
+        const val LIVE_STREAM_STALL_AUTO_FIX_THRESHOLD_MS = 8_000L
+        const val LIVE_STREAM_AUTO_FIX_COOLDOWN_MS = 6_000L
 
         /**
          * Computes the target [BatteryPowerProfile] based on real-time device battery level,
@@ -450,6 +450,8 @@ class LivePlayerController(
      * If it returns a non-null [LiveChannel], the controller automatically plays that next episode.
      */
     var onEpisodeEndedAutoNext: (() -> LiveChannel?)? = null
+    var onVodPlaybackCompletedNaturally: ((proceedAfterEndRoll: () -> Unit) -> Unit)? = null
+    private var adPausedForBreak: Boolean = false
 
     private var exoPlayer: ExoPlayer? = null
     private var trackSelector: DefaultTrackSelector? = null
@@ -620,6 +622,13 @@ class LivePlayerController(
     }
 
     private fun resolveActiveBatteryPowerProfile(forceRefreshBattery: Boolean = false): BatteryPowerProfile {
+        if (manualBatterySnapshotOverride == null &&
+            (com.example.ui.tv.NeliTvDetector.isHardwareTelevision(context) ||
+                com.example.ui.tv.NeliTvDetector.isTelevision(context))
+        ) {
+            currentBatteryProfile = BatteryPowerProfile.OPTIMAL_POWER
+            return BatteryPowerProfile.OPTIMAL_POWER
+        }
         val snap = readDeviceBatterySnapshot(forceRefresh = forceRefreshBattery)
         val profile = computeBatteryPowerProfile(
             batteryLevelPct = snap.batteryLevelPct,
@@ -793,11 +802,11 @@ class LivePlayerController(
                     bufferingEnteredAtRealtimeMs = now
                     healthyPlaybackSinceRealtimeMs = 0L
                     if (hasReachedReadyForCurrentStream) {
-                        // Mid-stream rebuffer detected: dynamically step down quality tier immediately
+                        // Mid-stream rebuffer detected: dynamically step down quality tier
                         consecutiveRebufferCount = (consecutiveRebufferCount + 1).coerceAtMost(4)
-                    }
-                    if (_playbackInfo.value.networkMode == NetworkQualityMode.AUTO_ADAPTIVE) {
-                        evaluateAndApplyAdaptiveTrackSelection(forceBufferingState = true)
+                        if (_playbackInfo.value.networkMode == NetworkQualityMode.AUTO_ADAPTIVE) {
+                            evaluateAndApplyAdaptiveTrackSelection(forceBufferingState = true)
+                        }
                     }
                     updatePlaybackInfo()
                     mainHandler.removeCallbacks(positionUpdateRunnable)
@@ -860,13 +869,21 @@ class LivePlayerController(
                         player.playWhenReady = true
                         player.play()
                     } else {
-                        // Check if there is a Next Episode in Series VOD to auto-advance to
-                        val nextEpChannel = onEpisodeEndedAutoNext?.invoke()
-                        if (nextEpChannel != null) {
-                            switchChannel(nextEpChannel)
+                        val proceedNext: () -> Unit = {
+                            // Check if there is a Next Episode in Series VOD to auto-advance to
+                            val nextEpChannel = onEpisodeEndedAutoNext?.invoke()
+                            if (nextEpChannel != null) {
+                                switchChannel(nextEpChannel)
+                            } else {
+                                _uiState.value = PlayerUiState.Ready
+                                updatePlaybackInfo()
+                            }
+                        }
+                        val endHook = onVodPlaybackCompletedNaturally
+                        if (endHook != null) {
+                            endHook.invoke(proceedNext)
                         } else {
-                            _uiState.value = PlayerUiState.Ready
-                            updatePlaybackInfo()
+                            proceedNext()
                         }
                     }
                 }
@@ -954,51 +971,93 @@ class LivePlayerController(
             }
 
             val httpCode = extractHttpErrorCode(error)
-            val maxReconnects = if (channel.isLiveBroadcast) 1 else 2
+            val maxReconnects = if (channel.isLiveBroadcast) 3 else 2
             if (autoReconnectAttempts < maxReconnects) {
                 autoReconnectAttempts++
+                val currentAttempt = autoReconnectAttempts
                 _uiState.value = PlayerUiState.Buffering
                 // Dynamically downscale on transient network errors to ensure seamless recovery
                 consecutiveRebufferCount = (consecutiveRebufferCount + 1).coerceAtMost(4)
                 if (_playbackInfo.value.networkMode == NetworkQualityMode.AUTO_ADAPTIVE) {
                     evaluateAndApplyAdaptiveTrackSelection(forceBufferingState = true)
-                } else if (autoReconnectAttempts >= 2) {
+                } else if (currentAttempt >= 2) {
                     applyNetworkQualityMode(NetworkQualityMode.ULTRA_LOW_BANDO_SAVER)
                 }
                 val resumePos = lastKnownVodPositionMs
                 if (channel.isLiveBroadcast) {
-                    Thread {
-                        try {
-                            TokenManager.handleAuthenticationFailureBlocking(
-                                failedUrl = channel.streamUrl,
-                                httpStatusCode = httpCode
-                            )
-                        } catch (_: Exception) {
-                        }
-                        mainHandler.post {
+                    val isAzamOrDashChannel = channel.isDash ||
+                        channel.isClearKey ||
+                        TokenManager.isAzamOrStreamzoneUrl(channel.streamUrl)
+                    if (isAzamOrDashChannel) {
+                        Thread {
+                            val renewedChannel = try {
+                                TokenManager.renewCdnKeysAndChannelsBlocking(
+                                    failedChannel = channel,
+                                    httpStatusCode = httpCode
+                                )
+                            } catch (_: Exception) {
+                                null
+                            }
+                            mainHandler.post {
+                                exoPlayer?.let { p ->
+                                    val baseChannel = renewedChannel ?: channel
+                                    val backupMatch = com.example.data.ChannelRepository.findBackupChannelFor(baseChannel)
+                                    val preferBackup = currentAttempt >= 2 && (
+                                        baseChannel.backupStreamUrl.isNotBlank() &&
+                                            baseChannel.backupStreamUrl != baseChannel.streamUrl ||
+                                            !backupMatch?.streamUrl.isNullOrBlank()
+                                        )
+                                    val candidateUrl = if (preferBackup) {
+                                        baseChannel.backupStreamUrl
+                                            .takeIf { it.isNotBlank() && it != baseChannel.streamUrl }
+                                            ?: backupMatch?.streamUrl?.ifBlank { null }
+                                            ?: baseChannel.streamUrl
+                                    } else {
+                                        baseChannel.streamUrl.ifBlank {
+                                            baseChannel.backupStreamUrl.ifBlank { backupMatch?.streamUrl.orEmpty() }
+                                        }
+                                    }
+                                    val mergedClearKeys = com.example.data.ChannelRepository.resolveClearKeysForChannel(
+                                        baseChannel.copy(clearKeys = (backupMatch?.clearKeys ?: emptyMap()) + baseChannel.clearKeys)
+                                    )
+                                    val normalizedStreamUrl = com.example.data.ChannelRepository.resolvePlayableAzamManifestUrl(candidateUrl)
+                                    val nextBackupUrl = if (normalizedStreamUrl != baseChannel.streamUrl && baseChannel.streamUrl.isNotBlank()) {
+                                        baseChannel.streamUrl
+                                    } else {
+                                        baseChannel.backupStreamUrl.ifBlank {
+                                            backupMatch?.streamUrl?.let { com.example.data.ChannelRepository.resolvePlayableAzamManifestUrl(it) }.orEmpty()
+                                        }
+                                    }
+                                    TokenManager.injectHeadersIntoFactory(sharedBaseHttpDataSourceFactory, normalizedStreamUrl)
+                                    channel = baseChannel.copy(
+                                        streamUrl = normalizedStreamUrl,
+                                        backupStreamUrl = nextBackupUrl,
+                                        clearKeys = mergedClearKeys,
+                                        encryptionType = if (mergedClearKeys.isNotEmpty()) "clearkey" else baseChannel.encryptionType
+                                    )
+                                    _currentChannel.value = channel
+                                    loadChannelStream(p, preserveVodPosition = false)
+                                }
+                            }
+                        }.start()
+                    } else {
+                        // Standard non-Azam HLS M3U8 channel: immediately fail over to its clean backupStreamUrl without Azam headers
+                        mainHandler.postDelayed({
                             exoPlayer?.let { p ->
-                                val backupMatch = com.example.data.ChannelRepository.findBackupChannelFor(channel)
-                                val candidateUrl = channel.backupStreamUrl
-                                    .ifBlank { backupMatch?.streamUrl.orEmpty() }
-                                    .ifBlank { channel.streamUrl }
-                                val mergedClearKeys = com.example.data.ChannelRepository.resolveClearKeysForChannel(
-                                    channel.copy(clearKeys = (backupMatch?.clearKeys ?: emptyMap()) + channel.clearKeys)
-                                )
-                                val normalizedStreamUrl = com.example.data.ChannelRepository.normalizeDashStreamUrl(candidateUrl)
-                                TokenManager.injectHeadersIntoFactory(sharedBaseHttpDataSourceFactory, normalizedStreamUrl)
-                                channel = channel.copy(
-                                    streamUrl = normalizedStreamUrl,
-                                    backupStreamUrl = channel.backupStreamUrl.ifBlank {
-                                        backupMatch?.streamUrl?.let { com.example.data.ChannelRepository.normalizeDashStreamUrl(it) }.orEmpty()
-                                    },
-                                    clearKeys = mergedClearKeys,
-                                    encryptionType = if (mergedClearKeys.isNotEmpty()) "clearkey" else channel.encryptionType
-                                )
-                                _currentChannel.value = channel
+                                val distinctBackup = channel.backupStreamUrl.trim()
+                                    .takeIf { it.isNotBlank() && it != channel.streamUrl }
+                                if (distinctBackup != null) {
+                                    val oldPrimary = channel.streamUrl
+                                    channel = channel.copy(
+                                        streamUrl = distinctBackup,
+                                        backupStreamUrl = oldPrimary
+                                    )
+                                    _currentChannel.value = channel
+                                }
                                 loadChannelStream(p, preserveVodPosition = false)
                             }
-                        }
-                    }.start()
+                        }, 250L)
+                    }
                 } else {
                     mainHandler.postDelayed({
                         exoPlayer?.let { p ->
@@ -1085,12 +1144,12 @@ class LivePlayerController(
     }
 
     /**
-     * Seeds the initial bandwidth estimate with a fast, lightweight estimate (350 kbps)
-     * so Live TV and video streams start playing immediately without long buffering delays ("low auto quality").
-     * As playback continues smoothly, Media3 AdaptiveTrackSelection automatically steps up to 720p/1080p.
+     * Seeds the initial bandwidth estimate with a healthy default (2.2 Mbps on Wi-Fi/4G, 450 kbps on
+     * constrained Low Bando networks) so HD/SD single-variant live streams select their video track cleanly
+     * without prematurely throttling down to 240p before the first frame arrives.
      */
     private fun detectInitialBitrateEstimate(): Long {
-        return 350_000L
+        return if (isLowBandoNetworkDetected()) 450_000L else 2_200_000L
     }
 
     /**
@@ -1104,12 +1163,9 @@ class LivePlayerController(
         isBackgroundLoadingActive = isBackgroundLoading
         isPictureInPictureActive = isPictureInPicture
         val profile = evaluateAndApplyBatteryAwareConfig()
-        if (isBackgroundLoading && !isPictureInPicture) {
-            exoPlayer?.setWakeMode(C.WAKE_MODE_NONE)
-        } else {
-            exoPlayer?.setWakeMode(
-                if (profile.isCpuSavingActive) C.WAKE_MODE_NONE else C.WAKE_MODE_NETWORK
-            )
+        // Keep PowerManager WakeLock disabled (C.WAKE_MODE_NONE); PlayerView.keepScreenOn keeps the screen awake safely without WakeLock leaks
+        exoPlayer?.setWakeMode(C.WAKE_MODE_NONE)
+        if (!isBackgroundLoading || isPictureInPicture) {
             mainHandler.removeCallbacks(positionUpdateRunnable)
             mainHandler.post(positionUpdateRunnable)
         }
@@ -1162,23 +1218,17 @@ class LivePlayerController(
             )
         } else {
             // Even in manual quality modes, enforce frame rate cap and off-screen background video track disabling
+            // strictly via DefaultTrackSelector so exceedVideoConstraintsIfNecessary stays enabled.
             trackSelector?.let { selector ->
                 selector.setParameters(
                     selector.buildUponParameters()
                         .setMaxVideoFrameRate(profile.maxFrameRate)
                         .setRendererDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
+                        .setExceedVideoConstraintsIfNecessary(true)
+                        .setExceedRendererCapabilitiesIfNecessary(true)
                 )
             }
-            exoPlayer?.let { player ->
-                player.trackSelectionParameters = player.trackSelectionParameters
-                    .buildUpon()
-                    .setMaxVideoFrameRate(profile.maxFrameRate)
-                    .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
-                    .build()
-                player.setWakeMode(
-                    if (profile.isCpuSavingActive || disableOffscreenVideoTrack) C.WAKE_MODE_NONE else C.WAKE_MODE_NETWORK
-                )
-            }
+            exoPlayer?.setWakeMode(C.WAKE_MODE_NONE)
             updatePlaybackInfo()
         }
         return profile
@@ -1251,21 +1301,7 @@ class LivePlayerController(
                             .setExceedRendererCapabilitiesIfNecessary(true)
                     )
                 }
-                exoPlayer?.let { player ->
-                    player.trackSelectionParameters = player.trackSelectionParameters
-                        .buildUpon()
-                        .setMaxVideoSize(maxW, maxH)
-                        .setMaxVideoBitrate(maxBr)
-                        .setMaxVideoFrameRate(activePowerProfile.maxFrameRate)
-                        .setMinVideoSize(minW, minH)
-                        .setMinVideoBitrate(minBr)
-                        .setForceLowestBitrate(forceLowest)
-                        .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
-                        .build()
-                    player.setWakeMode(
-                        if (activePowerProfile.isCpuSavingActive || disableOffscreenVideoTrack) C.WAKE_MODE_NONE else C.WAKE_MODE_NETWORK
-                    )
-                }
+                exoPlayer?.setWakeMode(C.WAKE_MODE_NONE)
             }
         }
 
@@ -1381,13 +1417,13 @@ class LivePlayerController(
 
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                /* minBufferMs = */ 15_000,
-                /* maxBufferMs = */ 45_000,
-                /* bufferForPlaybackMs = */ 2_500,
-                /* bufferForPlaybackAfterRebufferMs = */ 4_000
+                /* minBufferMs = */ 6_000,
+                /* maxBufferMs = */ 30_000,
+                /* bufferForPlaybackMs = */ 1_000,
+                /* bufferForPlaybackAfterRebufferMs = */ 2_000
             )
             .setBackBuffer(
-                /* backBufferDurationMs = */ 10_000,
+                /* backBufferDurationMs = */ 5_000,
                 /* retainBackBufferFromKeyframe = */ true
             )
             .setPrioritizeTimeOverSizeThresholds(true)
@@ -1404,25 +1440,23 @@ class LivePlayerController(
             .setLoadControl(loadControl)
             .setAudioAttributes(mediaAudioAttributes, /* handleAudioFocus = */ false)
             .setHandleAudioBecomingNoisy(false)
-            .setWakeMode(
-                if (initialBatteryProfile.isCpuSavingActive || disableOffscreenVideoTrack) {
-                    C.WAKE_MODE_NONE
-                } else {
-                    C.WAKE_MODE_NETWORK
-                }
-            )
+            .setWakeMode(C.WAKE_MODE_NONE)
             .setSeekParameters(SeekParameters.CLOSEST_SYNC)
             .build()
             .apply {
-                val isAdActive = com.example.ads.NeliAdManager.isAdCurrentlyDisplaying.value
+                val isTv = com.example.ui.tv.NeliTvDetector.isHardwareTelevision(context) ||
+                    com.example.ui.tv.NeliTvDetector.isTelevision(context)
+                val isAdActive = !isTv && com.example.ads.NeliAdManager.isAdCurrentlyDisplaying.value
                 volume = if (isAdActive) 0.0f else 1.0f
-                playWhenReady = !isPhoneCallActiveOrRinging() && !isAdActive
+                playWhenReady = isTv || (!isPhoneCallActiveOrRinging() && !isAdActive)
                 addListener(playerListener)
             }
 
+        val isTvNow = com.example.ui.tv.NeliTvDetector.isHardwareTelevision(context) ||
+            com.example.ui.tv.NeliTvDetector.isTelevision(context)
         _playbackInfo.value = _playbackInfo.value.copy(
             isMuted = false,
-            volume = if (com.example.ads.NeliAdManager.isAdCurrentlyDisplaying.value) 0.0f else 1.0f
+            volume = if (!isTvNow && com.example.ads.NeliAdManager.isAdCurrentlyDisplaying.value) 0.0f else 1.0f
         )
         exoPlayer = player
         loadChannelStream(player, preserveVodPosition = false)
@@ -1551,96 +1585,70 @@ class LivePlayerController(
             activeMaxFrameRate = activePowerProfile.maxFrameRate,
             connectionLabel = detectConnectionLabel()
         )
-        val player = exoPlayer ?: return
-        player.trackSelectionParameters = when (mode) {
+        val selector = trackSelector ?: return
+        val updatedParams = when (mode) {
             NetworkQualityMode.ULTRA_LOW_BANDO_SAVER -> {
-                player.trackSelectionParameters
-                    .buildUpon()
+                selector.buildUponParameters()
                     .setMaxVideoSize(426, 240)
                     .setMaxVideoBitrate(220_000)
                     .setMaxVideoFrameRate(activePowerProfile.maxFrameRate)
                     .setMinVideoSize(0, 0)
                     .setMinVideoBitrate(0)
                     .setForceLowestBitrate(true)
-                    .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
-                    .build()
+                    .setRendererDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
+                    .setExceedVideoConstraintsIfNecessary(true)
+                    .setExceedRendererCapabilitiesIfNecessary(true)
             }
             NetworkQualityMode.WEAK_NETWORK_SAVER -> {
-                player.trackSelectionParameters
-                    .buildUpon()
+                selector.buildUponParameters()
                     .setMaxVideoSize(640, 360)
                     .setMaxVideoBitrate(550_000)
                     .setMaxVideoFrameRate(activePowerProfile.maxFrameRate)
                     .setMinVideoSize(0, 0)
                     .setMinVideoBitrate(0)
                     .setForceLowestBitrate(true)
-                    .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
-                    .build()
+                    .setRendererDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
+                    .setExceedVideoConstraintsIfNecessary(true)
+                    .setExceedRendererCapabilitiesIfNecessary(true)
             }
             NetworkQualityMode.STANDARD_480P -> {
-                player.trackSelectionParameters
-                    .buildUpon()
+                selector.buildUponParameters()
                     .setMaxVideoSize(854, 480)
                     .setMaxVideoBitrate(1_100_000)
                     .setMaxVideoFrameRate(activePowerProfile.maxFrameRate)
-                    .setMinVideoSize(640, 360)
-                    .setMinVideoBitrate(400_000)
+                    .setMinVideoSize(0, 0)
+                    .setMinVideoBitrate(0)
                     .setForceLowestBitrate(false)
-                    .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
-                    .build()
+                    .setRendererDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
+                    .setExceedVideoConstraintsIfNecessary(true)
+                    .setExceedRendererCapabilitiesIfNecessary(true)
             }
             NetworkQualityMode.AUTO_ADAPTIVE -> {
-                trackSelector?.let { selector ->
-                    selector.setParameters(
-                        selector.buildUponParameters()
-                            .setMaxVideoSize(mappedTier.maxWidth, mappedTier.maxHeight)
-                            .setMaxVideoBitrate(mappedTier.maxBitrateBps)
-                            .setMaxVideoFrameRate(activePowerProfile.maxFrameRate)
-                            .setMinVideoSize(mappedTier.minPreferredWidth, mappedTier.minPreferredHeight)
-                            .setMinVideoBitrate(mappedTier.minPreferredBitrateBps)
-                            .setForceLowestBitrate(mappedTier.forceLowestBitrate)
-                            .setRendererDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
-                            .setExceedVideoConstraintsIfNecessary(true)
-                            .setExceedRendererCapabilitiesIfNecessary(true)
-                    )
-                }
-                player.trackSelectionParameters
-                    .buildUpon()
+                selector.buildUponParameters()
                     .setMaxVideoSize(mappedTier.maxWidth, mappedTier.maxHeight)
                     .setMaxVideoBitrate(mappedTier.maxBitrateBps)
                     .setMaxVideoFrameRate(activePowerProfile.maxFrameRate)
-                    .setMinVideoSize(mappedTier.minPreferredWidth, mappedTier.minPreferredHeight)
-                    .setMinVideoBitrate(mappedTier.minPreferredBitrateBps)
+                    .setMinVideoSize(0, 0)
+                    .setMinVideoBitrate(0)
                     .setForceLowestBitrate(mappedTier.forceLowestBitrate)
-                    .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
-                    .build()
+                    .setRendererDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
+                    .setExceedVideoConstraintsIfNecessary(true)
+                    .setExceedRendererCapabilitiesIfNecessary(true)
             }
             NetworkQualityMode.STRONG_NETWORK_HD -> {
-                trackSelector?.let { selector ->
-                    selector.setParameters(
-                        selector.buildUponParameters()
-                            .setMaxVideoSize(1920, 1080)
-                            .setMaxVideoBitrate(5_500_000)
-                            .setMaxVideoFrameRate(activePowerProfile.maxFrameRate)
-                            .setMinVideoSize(1280, 720)
-                            .setMinVideoBitrate(1_500_000)
-                            .setForceLowestBitrate(false)
-                            .setRendererDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
-                            .setExceedVideoConstraintsIfNecessary(true)
-                    )
-                }
-                player.trackSelectionParameters
-                    .buildUpon()
+                selector.buildUponParameters()
                     .setMaxVideoSize(1920, 1080)
                     .setMaxVideoBitrate(5_500_000)
                     .setMaxVideoFrameRate(activePowerProfile.maxFrameRate)
-                    .setMinVideoSize(1280, 720)
-                    .setMinVideoBitrate(1_500_000)
+                    .setMinVideoSize(0, 0)
+                    .setMinVideoBitrate(0)
                     .setForceLowestBitrate(false)
-                    .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
-                    .build()
+                    .setRendererDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
+                    .setExceedVideoConstraintsIfNecessary(true)
+                    .setExceedRendererCapabilitiesIfNecessary(true)
             }
         }
+        selector.setParameters(updatedParams)
     }
 
     fun cycleNetworkQualityMode() {
@@ -1652,6 +1660,56 @@ class LivePlayerController(
             NetworkQualityMode.STRONG_NETWORK_HD -> NetworkQualityMode.AUTO_ADAPTIVE
         }
         applyNetworkQualityMode(next)
+    }
+
+    fun isAdPausedForBreak(): Boolean = adPausedForBreak
+
+    fun pauseForAdBreak() {
+        adPausedForBreak = true
+        exoPlayer?.let { player ->
+            player.volume = 0f
+            player.playWhenReady = false
+            player.pause()
+        }
+    }
+
+    fun resumeVodFromPreRoll() {
+        adPausedForBreak = false
+        exoPlayer?.let { player ->
+            if (!pausedByCallOrExternalAudio) {
+                player.volume = if (_playbackInfo.value.isMuted) 0f else 1f
+                player.playWhenReady = true
+                player.play()
+            }
+        }
+    }
+
+    fun captureExactVodPositionMs(): Long {
+        return exoPlayer?.currentPosition?.coerceAtLeast(0L) ?: lastKnownVodPositionMs.coerceAtLeast(0L)
+    }
+
+    fun resumeVodAtExactPosition(savedPosMs: Long) {
+        adPausedForBreak = false
+        exoPlayer?.let { player ->
+            if (savedPosMs > 0L) {
+                player.seekTo(savedPosMs)
+            }
+            if (!pausedByCallOrExternalAudio) {
+                player.volume = if (_playbackInfo.value.isMuted) 0f else 1f
+                player.playWhenReady = true
+                player.play()
+            }
+        }
+    }
+
+    fun reconnectLiveEdgeBehind(behindEdgeMs: Long = 30_000L) {
+        adPausedForBreak = false
+        exoPlayer?.let { player ->
+            if (!pausedByCallOrExternalAudio) {
+                player.volume = if (_playbackInfo.value.isMuted) 0f else 1f
+            }
+        }
+        syncToLiveEdge(reason = "ad_break_live_edge_reconnect_${behindEdgeMs}ms")
     }
 
     /**
@@ -1756,9 +1814,42 @@ class LivePlayerController(
         val player = exoPlayer
         if (player != null) {
             if (consecutiveLiveStallAutoFixes >= 3) {
-                // Escalated self-healing: reload live stream manifest at live edge
+                // Escalated self-healing: refresh live CDN token off-main-thread, failover to backup URL if distinct, then reload live manifest
                 consecutiveLiveStallAutoFixes = 0
-                loadChannelStream(player, preserveVodPosition = false)
+                val currentCh = channel
+                val backupMatch = com.example.data.ChannelRepository.findBackupChannelFor(currentCh)
+                val distinctBackup = currentCh.backupStreamUrl.trim()
+                    .ifBlank { backupMatch?.streamUrl.orEmpty().trim() }
+                    .ifBlank { backupMatch?.backupStreamUrl.orEmpty().trim() }
+                    .takeIf { it.isNotBlank() && it != currentCh.streamUrl }
+                if (distinctBackup != null) {
+                    val oldPrimary = currentCh.streamUrl
+                    channel = currentCh.copy(
+                        streamUrl = distinctBackup,
+                        backupStreamUrl = oldPrimary
+                    )
+                    _currentChannel.value = channel
+                }
+                if (channel.streamUrl.contains("azamtvltd.co.tz", ignoreCase = true) ||
+                    channel.streamUrl.contains("cdntoken=", ignoreCase = true)
+                ) {
+                    Thread {
+                        try {
+                            TokenManager.handleAuthenticationFailureBlocking(
+                                failedUrl = channel.streamUrl,
+                                httpStatusCode = null
+                            )
+                        } catch (_: Exception) {
+                        }
+                        mainHandler.post {
+                            exoPlayer?.let { p ->
+                                loadChannelStream(p, preserveVodPosition = false)
+                            }
+                        }
+                    }.start()
+                } else {
+                    loadChannelStream(player, preserveVodPosition = false)
+                }
             } else {
                 syncToLiveEdge(reason = reason)
             }
@@ -1825,11 +1916,12 @@ class LivePlayerController(
             }
 
             player.prepare()
-            if (channel.isLiveBroadcast && !channel.isMp4) {
-                player.seekToDefaultPosition()
+            // Do NOT call seekToDefaultPosition() before the live manifest/timeline is ready,
+            // as doing so while STATE_BUFFERING on DASH/HLS streams can stall initial TV playback.
+            player.playWhenReady = !isPhoneCallActiveOrRinging()
+            if (player.playWhenReady) {
+                player.play()
             }
-            player.playWhenReady = true
-            player.play()
         } catch (e: Exception) {
             _uiState.value = PlayerUiState.Error(
                 userFriendlyMessage = "Kuna shida ya mtandao kwa sasa jaribu tena baadae",
@@ -1873,11 +1965,16 @@ class LivePlayerController(
             effectiveStreamUrl
         )
 
-        // Use ClearKeyDecryptingDataSource for all online DASH/MPD, ClearKey, or Azam cdntoken streams
+        // Use ClearKeyDecryptingDataSource for all online DASH/MPD, ClearKey, or Azam cdntoken streams.
+        // Place the active channel's ClearKeys FIRST so fallbackKeyBytes in Mp4CencDecryptor uses this channel's key.
         val resolvedChannelKeys = com.example.data.ChannelRepository.resolveClearKeysForChannel(channel)
-        val mergedClearKeys = com.example.data.ChannelRepository.getAllKnownClearKeys() +
-            resolvedChannelKeys +
-            channel.clearKeys
+        val mergedClearKeys = linkedMapOf<String, String>().apply {
+            putAll(channel.clearKeys)
+            putAll(resolvedChannelKeys)
+            com.example.data.ChannelRepository.getAllKnownClearKeys().forEach { (k, v) ->
+                putIfAbsent(k, v)
+            }
+        }
         val needsClearKeyOrTokenWrapper = !isLocalOfflineFile && (
             channel.isDash ||
                 effectiveStreamUrl.contains(".mpd", ignoreCase = true) ||
@@ -1909,9 +2006,9 @@ class LivePlayerController(
         val extractorsFactory = sharedExtractorsFactory
 
         val liveConfiguration = MediaItem.LiveConfiguration.Builder()
-            .setTargetOffsetMs(10_000L)
-            .setMinOffsetMs(5_000L)
-            .setMaxOffsetMs(30_000L)
+            .setTargetOffsetMs(4_000L)
+            .setMinOffsetMs(1_500L)
+            .setMaxOffsetMs(18_000L)
             .build()
 
         val isLocalHlsPlaylist = isLocalOfflineFile &&
@@ -1968,14 +2065,15 @@ class LivePlayerController(
                 }
 
                 HlsMediaSource.Factory(dataSourceFactory)
-                    .setAllowChunklessPreparation(true)
+                    .setAllowChunklessPreparation(false)
                     .setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
                     .createMediaSource(mediaItemBuilder.build())
             }
         }
 
-        // If channel specifies a separate synchronized audio stream (e.g. ESPN 7 Spanish audio), combine them in real-time
-        if (channel.audioStreamUrl.isNotBlank()) {
+        // Only merge a separate audio HLS playlist when playing a video-only variant (e.g. ESPN 7 fallback `-video=`)
+        // Master manifests (`.isml/.m3u8`) already bundle their own audio tracks and must NOT be double-merged.
+        if (channel.audioStreamUrl.isNotBlank() && effectiveStreamUrl.contains("-video=", ignoreCase = true)) {
             val audioUri = Uri.parse(channel.audioStreamUrl)
             val audioMediaItem = MediaItem.Builder()
                 .setUri(audioUri)
@@ -1989,11 +2087,16 @@ class LivePlayerController(
                 .build()
 
             val audioMediaSource = HlsMediaSource.Factory(dataSourceFactory)
-                .setAllowChunklessPreparation(true)
+                .setAllowChunklessPreparation(false)
                 .setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
                 .createMediaSource(audioMediaItem)
 
-            return MergingMediaSource(mainMediaSource, audioMediaSource)
+            return MergingMediaSource(
+                /* adjustPeriodTimeOffsets = */ true,
+                /* clipDurations = */ false,
+                mainMediaSource,
+                audioMediaSource
+            )
         }
 
         return mainMediaSource
@@ -2005,32 +2108,55 @@ class LivePlayerController(
         _uiState.value = PlayerUiState.Loading
         player.stop()
         if (channel.isLiveBroadcast) {
+            val isAzamOrDashChannel = TokenManager.isAzamOrStreamzoneUrl(channel.streamUrl) ||
+                channel.streamFormat.equals("dash", ignoreCase = true) ||
+                channel.clearKeys.isNotEmpty()
+            if (!isAzamOrDashChannel) {
+                val backupUrl = channel.backupStreamUrl.takeIf { it.isNotBlank() && it != channel.streamUrl }
+                if (backupUrl != null) {
+                    val prevPrimary = channel.streamUrl
+                    channel = channel.copy(
+                        streamUrl = backupUrl,
+                        backupStreamUrl = prevPrimary
+                    )
+                    _currentChannel.value = channel
+                }
+                TokenManager.injectHeadersIntoFactory(sharedBaseHttpDataSourceFactory, channel.streamUrl)
+                loadChannelStream(player, preserveVodPosition = false)
+                return
+            }
             Thread {
-                try {
-                    TokenManager.handleAuthenticationFailureBlocking(
-                        failedUrl = channel.streamUrl,
+                val renewedChannel = try {
+                    TokenManager.renewCdnKeysAndChannelsBlocking(
+                        failedChannel = channel,
                         httpStatusCode = null
                     )
                 } catch (_: Exception) {
+                    null
                 }
                 mainHandler.post {
                     val activePlayer = exoPlayer ?: return@post
-                    val backupMatch = com.example.data.ChannelRepository.findBackupChannelFor(channel)
-                    val failoverUrl = channel.backupStreamUrl
+                    val baseChannel = renewedChannel ?: channel
+                    val backupMatch = com.example.data.ChannelRepository.findBackupChannelFor(baseChannel)
+                    val failoverUrl = baseChannel.backupStreamUrl
                         .ifBlank { backupMatch?.streamUrl.orEmpty() }
-                        .ifBlank { channel.streamUrl }
+                        .ifBlank { baseChannel.streamUrl }
                     val mergedClearKeys = com.example.data.ChannelRepository.resolveClearKeysForChannel(
-                        channel.copy(clearKeys = (backupMatch?.clearKeys ?: emptyMap()) + channel.clearKeys)
+                        baseChannel.copy(clearKeys = (backupMatch?.clearKeys ?: emptyMap()) + baseChannel.clearKeys)
                     )
                     val normalizedStreamUrl = com.example.data.ChannelRepository.resolvePlayableAzamManifestUrl(failoverUrl)
                     TokenManager.injectHeadersIntoFactory(sharedBaseHttpDataSourceFactory, normalizedStreamUrl)
-                    channel = channel.copy(
+                    channel = baseChannel.copy(
                         streamUrl = normalizedStreamUrl,
-                        backupStreamUrl = channel.backupStreamUrl.ifBlank {
-                            backupMatch?.streamUrl?.let { com.example.data.ChannelRepository.resolvePlayableAzamManifestUrl(it) }.orEmpty()
+                        backupStreamUrl = if (normalizedStreamUrl != baseChannel.streamUrl && baseChannel.streamUrl.isNotBlank()) {
+                            baseChannel.streamUrl
+                        } else {
+                            baseChannel.backupStreamUrl.ifBlank {
+                                backupMatch?.streamUrl?.let { com.example.data.ChannelRepository.resolvePlayableAzamManifestUrl(it) }.orEmpty()
+                            }
                         },
                         clearKeys = mergedClearKeys,
-                        encryptionType = if (mergedClearKeys.isNotEmpty()) "clearkey" else channel.encryptionType
+                        encryptionType = if (mergedClearKeys.isNotEmpty()) "clearkey" else baseChannel.encryptionType
                     )
                     _currentChannel.value = channel
                     loadChannelStream(activePlayer, preserveVodPosition = false)
@@ -2239,10 +2365,19 @@ class LivePlayerController(
         bandwidthMeter = null
         trackSelector = null
         exoPlayer?.let { player ->
-            player.removeListener(playerListener)
-            player.clearVideoSurface()
-            player.stop()
-            player.release()
+            try {
+                player.setWakeMode(C.WAKE_MODE_NONE)
+                player.playWhenReady = false
+                player.removeListener(playerListener)
+                player.clearVideoSurface()
+                player.stop()
+            } catch (_: Exception) {
+            } finally {
+                try {
+                    player.release()
+                } catch (_: Exception) {
+                }
+            }
         }
         exoPlayer = null
     }

@@ -1,16 +1,20 @@
 package com.example.data
 
-import android.accounts.AccountManager
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import android.os.Build
 import android.util.Base64
+import android.util.Log
+import androidx.credentials.ClearCredentialStateRequest
 import androidx.credentials.Credential
 import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.GetCredentialResponse
+import androidx.credentials.exceptions.GetCredentialCancellationException
+import androidx.credentials.exceptions.GetCredentialException
+import androidx.credentials.exceptions.NoCredentialException
 import com.example.data.local.NeliDatabase
 import com.example.data.local.NeliMediaDao
 import com.example.data.local.UserAccountEntity
@@ -23,6 +27,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.auth.UserProfileChangeRequest
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -204,13 +209,20 @@ class AuthenticationRepository(
      * while preserving saved account records for quick re-login.
      * Also releases the active device slot if the user was logged into one of the 5 Free Forever accounts.
      */
-    suspend fun signOut() = withContext(Dispatchers.IO) {
+    suspend fun signOut() = withContext(NonCancellable + Dispatchers.IO) {
         try {
             val activeUser = dao.getActiveUserOnce()
             if (activeUser != null && NeliFreeForeverAccountsManager.isFreeForeverUser(activeUser)) {
                 NeliFreeForeverAccountsManager.releaseDeviceOnLogout(context, activeUser.email)
             }
         } catch (_: Throwable) {
+        }
+        if (!isRunningInRobolectricTest()) {
+            try {
+                CredentialManager.create(context).clearCredentialState(ClearCredentialStateRequest())
+            } catch (e: Throwable) {
+                Log.w("Auth", "Failed to clear credential state: ${e.message}")
+            }
         }
         try {
             getFirebaseAuthOrNull()?.signOut()
@@ -243,7 +255,7 @@ class AuthenticationRepository(
         val cleanPassword = password.trim()
 
         if (cleanName.length < 2) {
-            return@withContext Result.failure(IllegalArgumentException("Please enter your full name."))
+            return@withContext Result.failure(IllegalArgumentException("Please enter a username (at least 2 characters)."))
         }
         if (!cleanEmail.contains("@") || !cleanEmail.contains(".")) {
             return@withContext Result.failure(IllegalArgumentException("Please enter a valid email address."))
@@ -261,15 +273,7 @@ class AuthenticationRepository(
             )
         }
 
-        // 1. Try FirebaseAuth SDK registration if available
-        val firebaseAccount = tryFirebaseSdkSignUp(cleanName, cleanEmail, cleanPassword)
-        if (firebaseAccount != null) {
-            dao.logoutAllUsers()
-            dao.upsertUserAccount(firebaseAccount)
-            return@withContext Result.success(firebaseAccount)
-        }
-
-        // 2. Delegate to Firebase IdentityToolkit REST + local Room persistence
+        // Authenticate & register via Firebase IdentityToolkit REST + Firestore/RTDB sync + Room persistence
         AuthRepository.signUpWithEmailAndPassword(
             context = context,
             dao = dao,
@@ -293,22 +297,27 @@ class AuthenticationRepository(
     )
 
     /**
-     * Authenticates an existing user with [email] and [password] via Firebase Auth / IdentityToolkit
-     * or local credentials, restoring their display name and session.
+     * Authenticates an existing user with [email] (which may be an Email address OR a Username)
+     * and [password] via Firebase Auth / IdentityToolkit or local credentials, restoring their username & session.
      */
     suspend fun signInWithEmailAndPassword(
         email: String,
         password: String
     ): Result<UserAccountEntity> = withContext(Dispatchers.IO) {
-        val cleanEmail = email.trim().lowercase()
+        val rawIdentifier = email.trim()
         val cleanPassword = password.trim()
 
-        if (!cleanEmail.contains("@") || !cleanEmail.contains(".")) {
-            return@withContext Result.failure(IllegalArgumentException("Please enter a valid email address."))
+        if (rawIdentifier.isBlank()) {
+            return@withContext Result.failure(IllegalArgumentException("Please enter your email or username."))
         }
         if (cleanPassword.isEmpty()) {
             return@withContext Result.failure(IllegalArgumentException("Please enter your password."))
         }
+
+        val cleanEmail = AuthRepository.resolveEmailForLoginIdentifier(dao, rawIdentifier)
+            ?: return@withContext Result.failure(
+                IllegalArgumentException("Account not found for \"$rawIdentifier\". Please check your email/username or Sign Up.")
+            )
 
         if (NeliAdminManager.isAdminEmail(cleanEmail) || NeliFreeForeverAccountsManager.isFreeForeverEmail(cleanEmail)) {
             return@withContext AuthRepository.signInWithEmailAndPassword(
@@ -319,19 +328,36 @@ class AuthenticationRepository(
             )
         }
 
-        val existingLocal = dao.getAccountByEmail(cleanEmail)
-        val firebaseAccount = tryFirebaseSdkSignIn(cleanEmail, cleanPassword, existingLocal?.realName)
-        if (firebaseAccount != null) {
-            dao.logoutAllUsers()
-            dao.upsertUserAccount(firebaseAccount)
-            return@withContext Result.success(firebaseAccount)
-        }
-
         AuthRepository.signInWithEmailAndPassword(
             context = context,
             dao = dao,
             email = cleanEmail,
             password = cleanPassword
+        )
+    }
+
+    /**
+     * Updates the signed-in user's username in Room, FirebaseAuth profile, Firestore, and Firebase RTDB.
+     */
+    suspend fun updateUsername(newUsername: String): Result<UserAccountEntity> = withContext(Dispatchers.IO) {
+        val cleanName = newUsername.trim()
+        if (cleanName.length < 2) {
+            return@withContext Result.failure(IllegalArgumentException("Username must be at least 2 characters."))
+        }
+        try {
+            val fbUser = getFirebaseAuthOrNull()?.currentUser
+            if (fbUser != null) {
+                val profileUpdates = UserProfileChangeRequest.Builder()
+                    .setDisplayName(cleanName)
+                    .build()
+                fbUser.updateProfile(profileUpdates)
+            }
+        } catch (_: Throwable) {
+        }
+        AuthRepository.updateUsername(
+            context = context,
+            dao = dao,
+            newUsername = cleanName
         )
     }
 
@@ -434,9 +460,9 @@ class AuthenticationRepository(
     // =========================================================================
 
     /**
-     * Performs Google Sign-In using active Firebase session, visible device Google accounts,
-     * or Android `CredentialManager` (`GetSignInWithGoogleOption` & `GetGoogleIdOption`),
-     * falling back to `PromptGoogleAccountSelection` when interactive selection is needed.
+     * Performs real Google Sign-In via Jetpack `CredentialManager` (`GetSignInWithGoogleOption`
+     * for interactive sign-in, `GetGoogleIdOption` for silent startup auto-sign-in) and Firebase Auth.
+     * Never bypasses authentication via raw `AccountManager` email lists.
      */
     suspend fun signInWithGoogle(
         uiContext: Context = context,
@@ -451,84 +477,55 @@ class AuthenticationRepository(
                         autoSelectedPrimaryGoogleAccount = false
                     )
                 }
-            }
 
-            // 1. Check active FirebaseAuth user if already authenticated
-            val currentFbUser = getFirebaseAuthOrNull()?.currentUser
-            if (currentFbUser != null && !currentFbUser.email.isNullOrBlank()) {
-                val email = currentFbUser.email!!.trim().lowercase()
-                val name = currentFbUser.displayName?.takeIf { it.isNotBlank() }
-                    ?: AuthRepository.deriveDisplayNameFromEmail(email)
-                val synced = AuthRepository.signInWithGoogleAccount(
-                    context = context,
-                    dao = dao,
-                    email = email,
-                    displayName = name
-                ).getOrNull()
-                if (synced != null) {
-                    return@withContext GoogleAutoSignInResult.Success(
-                        account = synced,
-                        autoSelectedPrimaryGoogleAccount = true
-                    )
+                // Silent session restore from already-authenticated FirebaseAuth user (only when non-interactive)
+                val currentFbUser = getFirebaseAuthOrNull()?.currentUser
+                if (currentFbUser != null && !currentFbUser.email.isNullOrBlank()) {
+                    val email = currentFbUser.email!!.trim().lowercase()
+                    val name = currentFbUser.displayName?.takeIf { it.isNotBlank() }
+                        ?: AuthRepository.deriveDisplayNameFromEmail(email)
+                    val idToken = fetchFirebaseUserIdToken(currentFbUser, forceRefresh = false).orEmpty()
+                    val synced = AuthRepository.signInWithGoogleAccount(
+                        context = context,
+                        dao = dao,
+                        email = email,
+                        displayName = name,
+                        googleIdToken = idToken
+                    ).getOrNull()
+                    if (synced != null) {
+                        return@withContext GoogleAutoSignInResult.Success(
+                            account = synced,
+                            autoSelectedPrimaryGoogleAccount = true
+                        )
+                    }
                 }
             }
 
-            // 2. Check device Google accounts visible via AccountManager
-            val deviceGoogleAccount = findFirstDeviceGoogleAccount(uiContext)
-            if (deviceGoogleAccount != null) {
-                val synced = AuthRepository.signInWithGoogleAccount(
-                    context = context,
-                    dao = dao,
-                    email = deviceGoogleAccount.email,
-                    displayName = deviceGoogleAccount.displayName
-                ).getOrNull()
-                if (synced != null) {
-                    return@withContext GoogleAutoSignInResult.Success(
-                        account = synced,
-                        autoSelectedPrimaryGoogleAccount = true
-                    )
-                }
-            }
-
-            // 3. Query Android CredentialManager using the Activity context on Dispatchers.Main
+            // Query Android CredentialManager using the Activity context
             val activity = findActivity(uiContext)
-            if (activity != null && (!isRunningOnEmulator() || forceInteractive)) {
-                val credResult = tryCredentialManagerGoogleSignIn(activity, forceInteractive)
-                if (credResult != null) {
-                    return@withContext GoogleAutoSignInResult.Success(
-                        account = credResult,
+            if (activity != null) {
+                return@withContext when (val outcome = tryCredentialManagerGoogleSignIn(activity, forceInteractive)) {
+                    is CredentialManagerOutcome.Success -> GoogleAutoSignInResult.Success(
+                        account = outcome.account,
                         autoSelectedPrimaryGoogleAccount = true
                     )
+                    is CredentialManagerOutcome.Cancelled -> GoogleAutoSignInResult.Cancelled()
+                    is CredentialManagerOutcome.Failed -> GoogleAutoSignInResult.UseEmailFallback(outcome.message)
                 }
-            }
-
-            val savedAccounts = getSavedAccounts()
-            if (forceInteractive) {
-                val firstSaved = savedAccounts.firstOrNull()
-                return@withContext GoogleAutoSignInResult.PromptGoogleAccountSelection(
-                    suggestedEmail = firstSaved?.email.orEmpty(),
-                    suggestedName = firstSaved?.realName.orEmpty(),
-                    savedAccounts = savedAccounts
-                )
             }
 
             GoogleAutoSignInResult.UseEmailFallback(
-                "No Google account responded on this device. Use email instead, or register a new account below."
+                if (forceInteractive) {
+                    "Google Sign-In requires an active screen (Activity) context."
+                } else {
+                    "No active Google session found."
+                }
             )
-        } catch (_: Throwable) {
-            val savedAccounts = getSavedAccounts()
-            if (forceInteractive) {
-                val firstSaved = savedAccounts.firstOrNull()
-                GoogleAutoSignInResult.PromptGoogleAccountSelection(
-                    suggestedEmail = firstSaved?.email.orEmpty(),
-                    suggestedName = firstSaved?.realName.orEmpty(),
-                    savedAccounts = savedAccounts
-                )
-            } else {
-                GoogleAutoSignInResult.UseEmailFallback(
-                    "Google Sign-In is unavailable on this device. Use email instead, or register a new account below."
-                )
-            }
+        } catch (e: Throwable) {
+            Log.e("Auth", "Google Sign-In error: ${e.message}", e)
+            GoogleAutoSignInResult.UseEmailFallback(
+                e.localizedMessage ?: "Google Sign-In failed. Please check Google Play Services and your internet connection."
+            )
         }
     }
 
@@ -578,11 +575,19 @@ class AuthenticationRepository(
                 if (resolvedEmail.isNotBlank()) AuthRepository.deriveDisplayNameFromEmail(resolvedEmail) else ""
             }
 
-        if (cleanToken.isNotBlank()) {
-            signInFirebaseWithGoogleIdToken(cleanToken)
+        val fbUidFromSignIn = if (cleanToken.isNotBlank()) {
+            signInFirebaseWithGoogleIdToken(cleanToken).orEmpty()
+        } else {
+            ""
         }
 
         val fbUser = getFirebaseAuthOrNull()?.currentUser
+        val resolvedFbUid = fbUidFromSignIn.ifBlank { fbUser?.uid.orEmpty() }
+        val resolvedFbToken = if (fbUser != null && resolvedFbUid.isNotBlank()) {
+            fetchFirebaseUserIdToken(fbUser, forceRefresh = false).orEmpty()
+        } else {
+            ""
+        }
         val finalEmail = resolvedEmail.ifBlank { fbUser?.email?.trim()?.lowercase().orEmpty() }
         val finalName = resolvedName.ifBlank { fbUser?.displayName?.trim().orEmpty() }
 
@@ -591,7 +596,9 @@ class AuthenticationRepository(
             dao = dao,
             email = finalEmail,
             displayName = finalName,
-            googleIdToken = cleanToken
+            googleIdToken = cleanToken,
+            firebaseUidOverride = resolvedFbUid,
+            authenticatedFirebaseIdToken = resolvedFbToken
         )
     }
 
@@ -604,15 +611,25 @@ class AuthenticationRepository(
         displayName: String = "",
         idToken: String = ""
     ): Result<UserAccountEntity> = withContext(Dispatchers.IO) {
-        if (idToken.isNotBlank()) {
-            signInFirebaseWithGoogleIdToken(idToken)
+        val fbUid = if (idToken.isNotBlank()) {
+            signInFirebaseWithGoogleIdToken(idToken).orEmpty()
+        } else {
+            ""
+        }
+        val fbUser = getFirebaseAuthOrNull()?.currentUser
+        val fbToken = if (fbUser != null && fbUid.isNotBlank()) {
+            fetchFirebaseUserIdToken(fbUser, forceRefresh = false).orEmpty()
+        } else {
+            ""
         }
         AuthRepository.signInWithGoogleAccount(
             context = context,
             dao = dao,
             email = email,
             displayName = displayName,
-            googleIdToken = idToken
+            googleIdToken = idToken,
+            firebaseUidOverride = fbUid,
+            authenticatedFirebaseIdToken = fbToken
         )
     }
 
@@ -620,36 +637,64 @@ class AuthenticationRepository(
     // 4. INTERNAL FIREBASE SDK & CREDENTIAL MANAGER HELPERS
     // =========================================================================
 
+    private sealed interface CredentialManagerOutcome {
+        data class Success(val account: UserAccountEntity) : CredentialManagerOutcome
+        data object Cancelled : CredentialManagerOutcome
+        data class Failed(val message: String) : CredentialManagerOutcome
+    }
+
     private suspend fun tryCredentialManagerGoogleSignIn(
         activity: Activity,
         forceInteractive: Boolean
-    ): UserAccountEntity? {
+    ): CredentialManagerOutcome {
         val credentialManager = CredentialManager.create(activity)
         val webClientId = resolveWebClientId(activity)
 
-        val requests = buildList {
-            if (forceInteractive) {
+        val requests: List<GetCredentialRequest> = if (forceInteractive) {
+            // Supplying one option per GetCredentialRequest keeps the Credential Manager bottom sheet responsive.
+            buildList {
                 try {
                     val signInOption = GetSignInWithGoogleOption.Builder(webClientId).build()
                     add(GetCredentialRequest.Builder().addCredentialOption(signInOption).build())
-                } catch (_: Throwable) {
+                } catch (e: Throwable) {
+                    Log.w("Auth", "Failed to build GetSignInWithGoogleOption: ${e.message}")
+                }
+                try {
+                    val googleIdOption = GetGoogleIdOption.Builder()
+                        .setFilterByAuthorizedAccounts(false)
+                        .setAutoSelectEnabled(false)
+                        .setServerClientId(webClientId)
+                        .build()
+                    add(GetCredentialRequest.Builder().addCredentialOption(googleIdOption).build())
+                } catch (e: Throwable) {
+                    Log.w("Auth", "Failed to build interactive GetGoogleIdOption: ${e.message}")
                 }
             }
-            try {
-                val googleIdOption = GetGoogleIdOption.Builder()
-                    .setFilterByAuthorizedAccounts(false)
-                    .setAutoSelectEnabled(true)
-                    .setServerClientId(webClientId)
-                    .build()
-                add(GetCredentialRequest.Builder().addCredentialOption(googleIdOption).build())
-            } catch (_: Throwable) {
+        } else {
+            buildList {
+                try {
+                    val silentGoogleIdOption = GetGoogleIdOption.Builder()
+                        .setFilterByAuthorizedAccounts(true)
+                        .setAutoSelectEnabled(true)
+                        .setServerClientId(webClientId)
+                        .build()
+                    add(GetCredentialRequest.Builder().addCredentialOption(silentGoogleIdOption).build())
+                } catch (e: Throwable) {
+                    Log.w("Auth", "Failed to build silent GetGoogleIdOption: ${e.message}")
+                }
             }
         }
 
+        if (requests.isEmpty()) {
+            return CredentialManagerOutcome.Failed("Google Sign-In configuration is unavailable on this device.")
+        }
+
+        var lastErrorMessage: String? = null
+        val timeoutMs = if (forceInteractive) 60_000L else 6_000L
+
         for (request in requests) {
-            val timeoutMs = if (forceInteractive) 60_000L else 6_000L
-            val response: GetCredentialResponse? = try {
-                withTimeoutOrNull(timeoutMs) {
+            try {
+                val response: GetCredentialResponse? = withTimeoutOrNull(timeoutMs) {
                     withContext(Dispatchers.Main) {
                         credentialManager.getCredential(
                             context = activity,
@@ -657,17 +702,35 @@ class AuthenticationRepository(
                         )
                     }
                 }
-            } catch (_: Throwable) {
-                null
-            }
-
-            val credential = response?.credential ?: continue
-            val synced = signInWithGoogleCredential(credential).getOrNull()
-            if (synced != null) {
-                return synced
+                val credential = response?.credential
+                if (credential != null) {
+                    val signInResult = signInWithGoogleCredential(credential)
+                    val synced = signInResult.getOrNull()
+                    if (synced != null) {
+                        return CredentialManagerOutcome.Success(synced)
+                    } else {
+                        lastErrorMessage = signInResult.exceptionOrNull()?.localizedMessage
+                            ?: "Google authentication could not complete with Firebase."
+                    }
+                }
+            } catch (e: GetCredentialCancellationException) {
+                Log.w("Auth", "Google Sign-In cancelled or dismissed: ${e.message}", e)
+                return CredentialManagerOutcome.Cancelled
+            } catch (e: NoCredentialException) {
+                Log.w("Auth", "No Google credentials found for request: ${e.message}")
+                lastErrorMessage = "No Google account found on this device. Add a Google account in Settings and try again."
+            } catch (e: GetCredentialException) {
+                Log.e("Auth", "CredentialManager GetCredentialException (${e.type}): ${e.message}", e)
+                lastErrorMessage = e.localizedMessage ?: "Google Sign-In failed (${e.type})."
+            } catch (e: Throwable) {
+                Log.e("Auth", "CredentialManager unexpected failure: ${e.message}", e)
+                lastErrorMessage = e.localizedMessage ?: "Google Sign-In failed."
             }
         }
-        return null
+
+        return CredentialManagerOutcome.Failed(
+            lastErrorMessage ?: "Google Sign-In could not complete. Please try again."
+        )
     }
 
     data class DeviceGoogleProfile(
@@ -675,131 +738,25 @@ class AuthenticationRepository(
         val displayName: String
     )
 
-    fun getAllDeviceGoogleAccounts(ctx: Context): List<DeviceGoogleProfile> {
-        return try {
-            val accountManager = AccountManager.get(ctx)
-            val googleAccounts = accountManager.getAccountsByType("com.google")
-            googleAccounts.mapNotNull { acc ->
-                val name = acc.name?.trim()?.lowercase().orEmpty()
-                if (name.contains("@")) {
-                    DeviceGoogleProfile(
-                        email = name,
-                        displayName = AuthRepository.deriveDisplayNameFromEmail(name)
-                    )
-                } else null
-            }
-        } catch (_: Throwable) {
-            emptyList()
-        }
-    }
-
-    private fun findFirstDeviceGoogleAccount(ctx: Context): DeviceGoogleProfile? {
-        return try {
-            val accountManager = AccountManager.get(ctx)
-            val googleAccounts = accountManager.getAccountsByType("com.google")
-            val firstAccount = googleAccounts.firstOrNull { it.name.contains("@") } ?: return null
-            val email = firstAccount.name.trim().lowercase()
-            DeviceGoogleProfile(
-                email = email,
-                displayName = AuthRepository.deriveDisplayNameFromEmail(email)
-            )
-        } catch (_: Throwable) {
-            null
-        }
-    }
-
-    private suspend fun tryFirebaseSdkSignUp(
-        realName: String,
-        email: String,
-        password: String
-    ): UserAccountEntity? {
-        val auth = getFirebaseAuthOrNull() ?: return null
-        return try {
-            withTimeoutOrNull(5_000L) {
-                suspendCancellableCoroutine { cont ->
-                    auth.createUserWithEmailAndPassword(email, password)
-                        .addOnCompleteListener { task ->
-                            if (!cont.isActive) return@addOnCompleteListener
-                            val user = if (task.isSuccessful) task.result?.user else null
-                            if (user != null) {
-                                val profileUpdates = UserProfileChangeRequest.Builder()
-                                    .setDisplayName(realName)
-                                    .build()
-                                user.updateProfile(profileUpdates)
-                                cont.resume(
-                                    UserAccountEntity(
-                                        uid = user.uid,
-                                        realName = realName,
-                                        email = email,
-                                        passwordHash = "firebase_sdk_auth",
-                                        isLoggedIn = true,
-                                        lastLoginAt = System.currentTimeMillis()
-                                    )
-                                )
-                            } else {
-                                cont.resume(null)
-                            }
-                        }
-                }
-            }
-        } catch (_: Throwable) {
-            null
-        }
-    }
-
-    private suspend fun tryFirebaseSdkSignIn(
-        email: String,
-        password: String,
-        cachedName: String?
-    ): UserAccountEntity? {
-        val auth = getFirebaseAuthOrNull() ?: return null
-        return try {
-            withTimeoutOrNull(5_000L) {
-                suspendCancellableCoroutine { cont ->
-                    auth.signInWithEmailAndPassword(email, password)
-                        .addOnCompleteListener { task ->
-                            if (!cont.isActive) return@addOnCompleteListener
-                            val user = if (task.isSuccessful) task.result?.user else null
-                            if (user != null) {
-                                val resolvedName = user.displayName?.takeIf { it.isNotBlank() }
-                                    ?: cachedName?.takeIf { it.isNotBlank() }
-                                    ?: AuthRepository.deriveDisplayNameFromEmail(email)
-                                cont.resume(
-                                    UserAccountEntity(
-                                        uid = user.uid,
-                                        realName = resolvedName,
-                                        email = email,
-                                        passwordHash = "firebase_sdk_auth",
-                                        isLoggedIn = true,
-                                        lastLoginAt = System.currentTimeMillis()
-                                    )
-                                )
-                            } else {
-                                cont.resume(null)
-                            }
-                        }
-                }
-            }
-        } catch (_: Throwable) {
-            null
-        }
-    }
-
     private suspend fun signInFirebaseWithGoogleIdToken(idToken: String): String? {
         val auth = getFirebaseAuthOrNull() ?: return null
         return try {
-            withTimeoutOrNull(5_000L) {
+            withTimeoutOrNull(15_000L) {
                 suspendCancellableCoroutine<String?> { cont ->
                     val credential = GoogleAuthProvider.getCredential(idToken, null)
                     auth.signInWithCredential(credential)
                         .addOnCompleteListener { task ->
+                            if (!task.isSuccessful) {
+                                Log.w("Auth", "Firebase signInWithCredential failed: ${task.exception?.message}", task.exception)
+                            }
                             if (cont.isActive) {
                                 cont.resume(if (task.isSuccessful) task.result?.user?.uid else null)
                             }
                         }
                 }
             }
-        } catch (_: Throwable) {
+        } catch (e: Throwable) {
+            Log.w("Auth", "Firebase signInWithCredential error: ${e.message}", e)
             null
         }
     }
@@ -900,23 +857,7 @@ class AuthenticationRepository(
             }
         }
 
-        fun getAllDeviceGoogleAccounts(ctx: Context): List<DeviceGoogleProfile> {
-            return try {
-                val accountManager = AccountManager.get(ctx)
-                val googleAccounts = accountManager.getAccountsByType("com.google")
-                googleAccounts.mapNotNull { acc ->
-                    val name = acc.name?.trim()?.lowercase().orEmpty()
-                    if (name.contains("@")) {
-                        DeviceGoogleProfile(
-                            email = name,
-                            displayName = AuthRepository.deriveDisplayNameFromEmail(name)
-                        )
-                    } else null
-                }
-            } catch (_: Throwable) {
-                emptyList()
-            }
-        }
+        fun getAllDeviceGoogleAccounts(ctx: Context): List<DeviceGoogleProfile> = emptyList()
 
         tailrec fun findActivity(context: Context?): Activity? {
             return when (context) {

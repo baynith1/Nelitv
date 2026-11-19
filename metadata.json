@@ -1,6 +1,6 @@
 {
   "name": "Nelitv",
-  "description": "Nelitv (by Neliplay) - Official Live TV, Azam TV Sports, Swahili Cinema, and Offline Streaming App.",
+  "description": "NeliTV by Nairobi Broadcast Company - Official Live TV, Azam TV Sports, Swahili Cinema, and Offline Streaming App for Tanzania and Kenya.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

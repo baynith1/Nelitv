@@ -70,6 +70,14 @@ object NeliFreeForeverAccountsManager {
         "user5@login.com"
     )
 
+    /**
+     * Special VIP Sign-Up / Google Sign-In emails that receive permanent ad-free streaming
+     * and a Pink Verification Check Mark without requiring a hardcoded password or 2-device cap.
+     */
+    val SPECIAL_AD_FREE_EMAILS: List<String> = listOf(
+        "alexbaineth@gmail.com"
+    )
+
     private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private val _accountsStatusFlow = MutableStateFlow<List<FreeForeverAccountStatus>>(
@@ -86,6 +94,16 @@ object NeliFreeForeverAccountsManager {
     @Volatile
     private var isInitialized = false
 
+    fun isSpecialAdFreeEmail(email: String?): Boolean {
+        val clean = email?.trim()?.lowercase() ?: return false
+        return SPECIAL_AD_FREE_EMAILS.any { it.equals(clean, ignoreCase = true) }
+    }
+
+    fun isSpecialAdFreeUser(user: UserAccountEntity?): Boolean {
+        if (user == null) return false
+        return isSpecialAdFreeEmail(user.email)
+    }
+
     fun isFreeForeverEmail(email: String?): Boolean {
         val clean = email?.trim()?.lowercase() ?: return false
         return FREE_FOREVER_EMAILS.any { it.equals(clean, ignoreCase = true) } ||
@@ -95,6 +113,15 @@ object NeliFreeForeverAccountsManager {
     fun isFreeForeverUser(user: UserAccountEntity?): Boolean {
         if (user == null) return false
         return isFreeForeverEmail(user.email)
+    }
+
+    fun isAdFreeVipEmail(email: String?): Boolean {
+        return isFreeForeverEmail(email) || isSpecialAdFreeEmail(email)
+    }
+
+    fun isAdFreeVipUser(user: UserAccountEntity?): Boolean {
+        if (user == null) return false
+        return isAdFreeVipEmail(user.email)
     }
 
     fun isValidFreeForeverPassword(password: String): Boolean {

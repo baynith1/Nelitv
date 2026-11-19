@@ -163,7 +163,7 @@ fun TopNavBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            // Left: Brand Logo (Neliplay from Reference Image)
+            // Left: Brand Logo (NeliTV)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -175,7 +175,7 @@ fun TopNavBar(
             ) {
                 Image(
                     painter = painterResource(id = R.drawable.neli_logo),
-                    contentDescription = "Neliplay Logo",
+                    contentDescription = "NeliTV Logo",
                     contentScale = ContentScale.Fit,
                     modifier = Modifier
                         .size(36.dp)

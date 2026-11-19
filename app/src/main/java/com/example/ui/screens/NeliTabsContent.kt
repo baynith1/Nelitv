@@ -1,9 +1,6 @@
 package com.example.ui.screens
 
-import android.accounts.AccountManager
 import android.app.Activity
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -22,6 +19,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -45,6 +43,7 @@ import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.HighQuality
@@ -546,6 +545,7 @@ fun DiscoveryTabContent(
     onRotateMovies: () -> Unit = { MediaContentRepository.rotateMovieCatalogOrder() }
 ) {
     val context = LocalContext.current
+    val screenProfile = rememberNeliScreenProfile()
     val discoverySections = listOf("All", "Movies", "Series", "Adults")
     val liveRotationSeed by MediaContentRepository.catalogRotationSeed.collectAsState()
     val hasSyncedRealMovies by MediaContentRepository.hasSyncedRealFirebaseMovies.collectAsState()
@@ -768,11 +768,19 @@ fun DiscoveryTabContent(
                                 )
                             }
                         }
+
+                        // Google AdMob Banner Ad below Spotlight
+                        com.example.ads.AdMobBannerAd(
+                            adTag = "discovery_spotlight_banner",
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 6.dp, bottom = 2.dp)
+                        )
                     }
                 }
             }
 
-        // 3. MOVIES SECTION (Grouped by First Genre) + Banner after a content genre section
+        // 3. MOVIES SECTION (Grouped by First Genre) + Google AdMob Banner after EVERY category & Native Ads inside movie rows
         if (selectedFilter.equals("All", true) || selectedFilter.equals("Movies", true)) {
             itemsIndexed(
                 items = moviesByFirstGenre,
@@ -787,16 +795,21 @@ fun DiscoveryTabContent(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                            .padding(horizontal = screenProfile.horizontalPadding, vertical = 4.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
                             text = firstGenreName,
                             color = NeliTextPrimary,
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold
+                            fontSize = if (screenProfile.isSmallPhone) 15.sp else 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
                         )
+
+                        Spacer(modifier = Modifier.width(8.dp))
 
                         Text(
                             text = "${genreMovies.size}",
@@ -806,8 +819,8 @@ fun DiscoveryTabContent(
                     }
 
                     LazyRow(
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        contentPadding = PaddingValues(horizontal = screenProfile.horizontalPadding, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(screenProfile.cardSpacing)
                     ) {
                         items(genreMovies, key = { "movie_${firstGenreName}_${it.id}" }) { movie ->
                             MediaPosterCard(
@@ -816,13 +829,31 @@ fun DiscoveryTabContent(
                             )
                         }
                     }
+
+                    // Google AdMob Banner Ad after every Movie category
+                    com.example.ads.AdMobBannerAd(
+                        adTag = "discovery_movie_cat_$index",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 6.dp, bottom = 2.dp)
+                    )
+
+                    // Google AdMob Native Advanced Ad interleaved in movie rows
+                    if (index % 2 == 0) {
+                        com.example.ads.AdMobNativeCardAd(
+                            adTag = "discovery_movie_native_$index",
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = screenProfile.horizontalPadding, vertical = 6.dp)
+                        )
+                    }
                 }
             }
         }
 
-        // Start.io Banner Ad between Movies and Series content sections
+        // Google AdMob Banner Ad between Movies and Series content sections
         item(key = "discovery_banner_between_movies_and_series") {
-            com.example.ads.StartIoBannerAd(
+            com.example.ads.AdMobBannerAd(
                 adTag = "discovery_movies_series",
                 modifier = Modifier
                     .fillMaxWidth()
@@ -842,27 +873,33 @@ fun DiscoveryTabContent(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 6.dp),
+                            .padding(horizontal = screenProfile.horizontalPadding, vertical = 6.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
                             text = "Series & Episodes",
                             color = NeliTextPrimary,
-                            fontSize = 17.sp,
-                            fontWeight = FontWeight.ExtraBold
+                            fontSize = if (screenProfile.isSmallPhone) 15.sp else 17.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
                         )
+                        Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "${seriesList.size} Series • ${episodesCatalog.size} Episodes",
+                            text = "${seriesList.size} Series • ${episodesCatalog.size} Eps",
                             color = NeliGenreCyan,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
 
                     LazyRow(
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        contentPadding = PaddingValues(horizontal = screenProfile.horizontalPadding, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(screenProfile.cardSpacing)
                     ) {
                         items(seriesList, key = { "disc_series_${it.id}" }) { series ->
                             MediaPosterCard(
@@ -875,9 +912,9 @@ fun DiscoveryTabContent(
             }
         }
 
-        // Start.io Banner Ad between Series and Adults
+        // Google AdMob Banner Ad after Series section
         item(key = "discovery_banner_between_series_and_adults") {
-            com.example.ads.StartIoBannerAd(
+            com.example.ads.AdMobBannerAd(
                 adTag = "discovery_series_adults",
                 modifier = Modifier
                     .fillMaxWidth()
@@ -897,13 +934,14 @@ fun DiscoveryTabContent(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 6.dp),
+                            .padding(horizontal = screenProfile.horizontalPadding, vertical = 6.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.weight(1f)
                         ) {
                             Box(
                                 modifier = Modifier
@@ -915,14 +953,17 @@ fun DiscoveryTabContent(
                                     text = "18+ ADULTS",
                                     color = Color.White,
                                     fontSize = 10.sp,
-                                    fontWeight = FontWeight.ExtraBold
+                                    fontWeight = FontWeight.ExtraBold,
+                                    maxLines = 1
                                 )
                             }
                             Text(
-                                text = "Adults • Genres & Categories",
+                                text = "Adults • Genres",
                                 color = NeliTextPrimary,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold
+                                fontSize = if (screenProfile.isSmallPhone) 14.sp else 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                         Text(
@@ -934,7 +975,7 @@ fun DiscoveryTabContent(
 
                     // Adult Genre & Category Filter Bar (All | X Video | XXX | Porn | Erotic Romance | Firebase Categories...)
                     LazyRow(
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+                        contentPadding = PaddingValues(horizontal = screenProfile.horizontalPadding, vertical = 6.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier
                             .fillMaxWidth()
@@ -956,7 +997,8 @@ fun DiscoveryTabContent(
                                     text = cat,
                                     color = if (isCatSelected) Color.White else NeliTextPrimary,
                                     fontSize = 12.sp,
-                                    fontWeight = if (isCatSelected) FontWeight.Bold else FontWeight.Medium
+                                    fontWeight = if (isCatSelected) FontWeight.Bold else FontWeight.Medium,
+                                    maxLines = 1
                                 )
                             }
                         }
@@ -964,11 +1006,11 @@ fun DiscoveryTabContent(
                 }
             }
 
-            // Organized Adult Genre & Category Rows
-            items(
+            // Organized Adult Genre & Category Rows + Banner after each category
+            itemsIndexed(
                 items = adultsByGenreAndCategory,
-                key = { "adult_genre_section_${it.first}" }
-            ) { (adultCategoryName, categoryItems) ->
+                key = { _, pair -> "adult_genre_section_${pair.first}" }
+            ) { idx, (adultCategoryName, categoryItems) ->
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -978,13 +1020,14 @@ fun DiscoveryTabContent(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                            .padding(horizontal = screenProfile.horizontalPadding, vertical = 4.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.weight(1f)
                         ) {
                             Box(
                                 modifier = Modifier
@@ -1003,7 +1046,9 @@ fun DiscoveryTabContent(
                                 text = adultCategoryName,
                                 color = NeliTextPrimary,
                                 fontSize = 15.sp,
-                                fontWeight = FontWeight.Bold
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                         Text(
@@ -1014,8 +1059,8 @@ fun DiscoveryTabContent(
                     }
 
                     LazyRow(
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        contentPadding = PaddingValues(horizontal = screenProfile.horizontalPadding, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(screenProfile.cardSpacing)
                     ) {
                         items(categoryItems, key = { "disc_adult_${adultCategoryName}_${it.id}" }) { adultMedia ->
                             AdultMediaPosterThumbnailCard(
@@ -1025,6 +1070,13 @@ fun DiscoveryTabContent(
                             )
                         }
                     }
+
+                    com.example.ads.AdMobBannerAd(
+                        adTag = "discovery_adult_cat_$idx",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 6.dp, bottom = 2.dp)
+                    )
                 }
             }
         }
@@ -1301,590 +1353,548 @@ fun DownloadTabContent(
     onDeleteDownload: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val screenProfile = rememberNeliScreenProfile()
     val rotationSeed by MediaContentRepository.catalogRotationSeed.collectAsState()
     val downloadableCatalog = remember(mediaCatalog, downloadedIds, rotationSeed) {
-        val raw = mediaCatalog.filter { it.published && it.downloadEnabled && !it.isAdultContent }
+        val raw = mediaCatalog.filter { it.published && it.isDownloadPermitted && !it.isAdultContent }
         MediaContentRepository.rotateMediaListForSeed(raw, rotationSeed, "downloadable_catalog")
     }
 
-    LazyColumn(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp)
-            .testTag("download_tab_screen"),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-        contentPadding = PaddingValues(top = 12.dp, bottom = 100.dp)
+    Box(
+        modifier = modifier.fillMaxSize(),
+        contentAlignment = Alignment.TopCenter
     ) {
-        if (isOfflineMode) {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .widthIn(max = screenProfile.maxFormWidth)
+                .padding(horizontal = screenProfile.horizontalPadding)
+                .testTag("download_tab_screen"),
+            verticalArrangement = Arrangement.spacedBy(screenProfile.cardSpacing),
+            contentPadding = PaddingValues(top = 12.dp, bottom = 100.dp)
+        ) {
+            if (isOfflineMode) {
+                item {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(NeliCardPurple)
+                            .border(1.dp, Color(0xFFFF2E7E), RoundedCornerShape(14.dp))
+                            .padding(12.dp)
+                            .testTag("offline_mode_auto_redirect_banner"),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.DownloadDone,
+                            contentDescription = null,
+                            tint = Color(0xFFFF4DA6),
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Offline mode",
+                                color = NeliTextPrimary,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = "Watch your downloaded videos without internet",
+                                color = NeliTextSecondary,
+                                fontSize = 11.sp,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Clean Header (No jittery overall progress bar or bulky storage banner)
             item {
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(NeliCardPurple)
-                        .border(1.dp, Color(0xFF10B981), RoundedCornerShape(14.dp))
-                        .padding(12.dp)
-                        .testTag("offline_mode_auto_redirect_banner"),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.DownloadDone,
-                        contentDescription = null,
-                        tint = Color(0xFF10B981),
-                        modifier = Modifier.size(22.dp)
+                    Text(
+                        text = "Downloads",
+                        color = NeliTextPrimary,
+                        fontSize = if (screenProfile.isSmallPhone) 18.sp else 20.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        maxLines = 1
                     )
-                    Column(modifier = Modifier.weight(1f)) {
+
+                    if (downloads.isNotEmpty()) {
                         Text(
-                            text = "Offline mode",
-                            color = NeliTextPrimary,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "Watch your downloaded videos without internet",
+                            text = "${downloads.size} ${if (downloads.size == 1) "video" else "videos"}",
                             color = NeliTextSecondary,
-                            fontSize = 11.sp
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1
                         )
                     }
                 }
             }
-        }
 
-        // Special Mobile Device Folder Info Banner (Movies/NeliPlay)
-        item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Color(0xFF160B2E))
-                    .border(1.dp, NeliGenreCyan.copy(alpha = 0.45f), RoundedCornerShape(12.dp))
-                    .padding(horizontal = 12.dp, vertical = 10.dp)
-                    .testTag("device_storage_folder_banner"),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Folder,
-                    contentDescription = null,
-                    tint = NeliGenreCyan,
-                    modifier = Modifier.size(20.dp)
-                )
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "In-App Storage: ${com.example.data.OfflineDownloadManager.SPECIAL_DEVICE_FOLDER_DISPLAY_PATH}",
-                        color = Color.White,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.ExtraBold
-                    )
-                    Text(
-                        text = "All downloaded movies, videos & series stay strictly inside the app without going to external phone folders, saving your device storage.",
-                        color = NeliTextSecondary,
-                        fontSize = 10.sp
-                    )
+            if (downloads.isEmpty()) {
+                item {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(NeliSurface)
+                            .border(0.5.dp, Color(0xFF252D40), RoundedCornerShape(16.dp))
+                            .padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.DownloadDone,
+                            contentDescription = null,
+                            tint = NeliTextSecondary,
+                            modifier = Modifier.size(40.dp)
+                        )
+                        Text(
+                            text = "No downloads yet",
+                            color = NeliTextPrimary,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp
+                        )
+                        Text(
+                            text = "Downloaded movies & series appear here so you can watch offline anytime.",
+                            color = NeliTextSecondary,
+                            fontSize = 12.sp
+                        )
+                    }
                 }
-            }
-        }
+            } else {
+                items(downloads, key = { it.id }) { item ->
+                    val isCompleted = item.downloadStatus == "COMPLETED" && item.localFilePath.isNotBlank()
+                    val activePct = downloadProgress[item.id]
+                    val isDownloading = !isCompleted && (
+                        activePct != null ||
+                            item.downloadStatus == "DOWNLOADING" ||
+                            downloadingIds.contains(item.id)
+                        )
+                    val isPausedError = !isCompleted && !isDownloading && item.downloadStatus == "PAUSED_ERROR"
+                    val displayPct = if (isCompleted) {
+                        100
+                    } else {
+                        (activePct ?: item.progressPercent).coerceIn(0, 99)
+                    }
+                    // Prioritize movie poster first for a clean vertical movie poster look
+                    val posterUrl = MediaContentRepository.resolveGuaranteedMediaImageUrl(
+                        item.posterUrl,
+                        item.backdropUrl,
+                        item.streamUrl
+                    )
+                    val posterWidth = if (screenProfile.isSmallPhone) 64.dp else 74.dp
 
-        if (!downloadBannerMessage.isNullOrBlank()) {
-            item {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Color(0xFF1E1038))
-                        .border(1.dp, NeliMagenta.copy(alpha = 0.6f), RoundedCornerShape(12.dp))
-                        .clickable { onDismissBanner() }
-                        .padding(horizontal = 14.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Download,
-                        contentDescription = null,
-                        tint = NeliGenreCyan,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Text(
-                        text = downloadBannerMessage,
-                        color = Color.White,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-            }
-        }
-
-        // Header Card
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Downloads",
-                    color = NeliTextPrimary,
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold
-                )
-
-                if (downloads.isNotEmpty()) {
-                    Text(
-                        text = "${downloads.size} videos",
-                        color = NeliTextSecondary,
-                        fontSize = 12.sp
-                    )
-                }
-            }
-        }
-
-        if (downloads.isEmpty()) {
-            item {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(NeliSurface)
-                        .border(0.5.dp, Color(0xFF252D40), RoundedCornerShape(14.dp))
-                        .padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.DownloadDone,
-                        contentDescription = null,
-                        tint = NeliTextSecondary,
-                        modifier = Modifier.size(40.dp)
-                    )
-                    Text(
-                        text = "No downloads yet",
-                        color = NeliTextPrimary,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp
-                    )
-                    Text(
-                        text = "Videos, movies, and series you download stay inside the app only to save your phone storage.",
-                        color = NeliTextSecondary,
-                        fontSize = 12.sp
-                    )
-                }
-            }
-        } else {
-            items(downloads, key = { it.id }) { item ->
-                val isCompleted = item.downloadStatus == "COMPLETED" && item.localFilePath.isNotBlank()
-                val activePct = downloadProgress[item.id]
-                val isDownloading = !isCompleted && (
-                    activePct != null ||
-                        item.downloadStatus == "DOWNLOADING" ||
-                        downloadingIds.contains(item.id)
-                    )
-                val isPausedError = !isCompleted && !isDownloading && item.downloadStatus == "PAUSED_ERROR"
-                val displayPct = if (isCompleted) {
-                    100
-                } else {
-                    (activePct ?: item.progressPercent).coerceIn(1, 99)
-                }
-                val imageUrl = MediaContentRepository.resolveGuaranteedMediaImageUrl(
-                    item.backdropUrl,
-                    item.posterUrl,
-                    item.streamUrl
-                )
-
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .tvCardGrow(
-                            shape = RoundedCornerShape(16.dp),
-                            onClick = {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .tvCardGrow(
+                                shape = RoundedCornerShape(16.dp),
+                                onClick = {
+                                    when {
+                                        isCompleted -> onPlayDownloaded(item)
+                                        isPausedError -> onRetryDownload(item)
+                                    }
+                                }
+                            )
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(NeliSurface)
+                            .border(
+                                width = 1.dp,
+                                color = when {
+                                    isCompleted -> Color(0xFFFF2E7E).copy(alpha = 0.55f)
+                                    isDownloading -> NeliGenreCyan.copy(alpha = 0.55f)
+                                    isPausedError -> Color(0xFFF59E0B).copy(alpha = 0.65f)
+                                    else -> Color(0x33A855F7)
+                                },
+                                shape = RoundedCornerShape(16.dp)
+                            )
+                            .clickable(enabled = isCompleted || isPausedError) {
                                 when {
                                     isCompleted -> onPlayDownloaded(item)
                                     isPausedError -> onRetryDownload(item)
                                 }
                             }
-                        )
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(NeliSurface)
-                        .border(
-                            width = 1.dp,
-                            color = when {
-                                isCompleted -> Color(0xFF10B981).copy(alpha = 0.65f)
-                                isDownloading -> NeliGenreCyan.copy(alpha = 0.7f)
-                                isPausedError -> Color(0xFFF59E0B).copy(alpha = 0.7f)
-                                else -> Color(0x33A855F7)
-                            },
-                            shape = RoundedCornerShape(16.dp)
-                        )
-                        .clickable {
-                            when {
-                                isCompleted -> onPlayDownloaded(item)
-                                isPausedError -> onRetryDownload(item)
+                            .padding(if (screenProfile.isSmallPhone) 10.dp else 12.dp)
+                            .testTag("download_item_${item.id}"),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        // Top Row: Clean Movie Poster (no overlapping progress circle) + Movie Details & MB Size
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            val dlContext = LocalContext.current
+                            val dlPosterReq = remember(item.id, posterUrl) {
+                                ImageRequest.Builder(dlContext)
+                                    .data(posterUrl)
+                                    .size(220, 330)
+                                    .crossfade(false)
+                                    .build()
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .width(posterWidth)
+                                    .aspectRatio(2f / 3f)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(NeliSurfaceVariant)
+                            ) {
+                                AsyncImage(
+                                    model = dlPosterReq,
+                                    contentDescription = item.title,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
+
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(
+                                    text = item.title.replace("\n", " "),
+                                    color = NeliTextPrimary,
+                                    fontSize = if (screenProfile.isSmallPhone) 14.sp else 15.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+
+                                Text(
+                                    text = "${item.genre} • ${item.duration}",
+                                    color = NeliTextSecondary,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+
+                                // Current downloading MB / Total movie MB + Percentage status
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = when {
+                                            isDownloading -> item.fileSizeLabel.ifBlank { "Starting download..." }
+                                            isPausedError -> item.fileSizeLabel.ifBlank { "Paused" }
+                                            else -> item.fileSizeLabel.ifBlank { "Ready Offline" }
+                                        },
+                                        color = when {
+                                            isDownloading -> NeliGenreCyan
+                                            isPausedError -> Color(0xFFF59E0B)
+                                            else -> Color(0xFFFF4DA6)
+                                        },
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f)
+                                    )
+
+                                    Spacer(modifier = Modifier.width(6.dp))
+
+                                    Text(
+                                        text = when {
+                                            isCompleted -> "Ready"
+                                            isPausedError -> "Paused • $displayPct%"
+                                            else -> "$displayPct%"
+                                        },
+                                        color = when {
+                                            isCompleted -> Color(0xFFFF4DA6)
+                                            isPausedError -> Color(0xFFF59E0B)
+                                            else -> Color.White
+                                        },
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        maxLines = 1
+                                    )
+                                }
                             }
                         }
-                        .padding(12.dp)
-                        .testTag("download_item_${item.id}")
-                ) {
+
+                        // Smooth Download Timeline Progress Bar until complete
+                        if (isDownloading || isPausedError) {
+                            LinearProgressIndicator(
+                                progress = { (displayPct / 100f).coerceIn(0f, 1f) },
+                                color = if (isPausedError) Color(0xFFF59E0B) else NeliMagenta,
+                                trackColor = NeliSurfaceVariant,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(6.dp)
+                                    .clip(RoundedCornerShape(4.dp))
+                            )
+                        }
+
+                        // Dedicated Action Row: Pause / Resume / Play + Delete (never cramped!)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            when {
+                                isCompleted -> {
+                                    Button(
+                                        onClick = { onPlayDownloaded(item) },
+                                        colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta),
+                                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                                        shape = RoundedCornerShape(10.dp),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .tvButtonGrow(shape = RoundedCornerShape(10.dp))
+                                            .height(40.dp)
+                                            .testTag("play_offline_btn_${item.id}")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.PlayArrow,
+                                            contentDescription = null,
+                                            tint = Color.White,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = "Play Offline",
+                                            color = Color.White,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            maxLines = 1
+                                        )
+                                    }
+                                }
+                                isDownloading -> {
+                                    OutlinedButton(
+                                        onClick = { onPauseDownload(item.id) },
+                                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                                        shape = RoundedCornerShape(10.dp),
+                                        border = BorderStroke(1.dp, NeliGenreCyan.copy(alpha = 0.7f)),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .tvButtonGrow(shape = RoundedCornerShape(10.dp))
+                                            .height(40.dp)
+                                            .testTag("pause_download_btn_${item.id}")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Pause,
+                                            contentDescription = "Pause Download",
+                                            tint = NeliGenreCyan,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = "Pause",
+                                            color = NeliTextPrimary,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 1
+                                        )
+                                    }
+                                }
+                                isPausedError -> {
+                                    Button(
+                                        onClick = { onRetryDownload(item) },
+                                        colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta),
+                                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                                        shape = RoundedCornerShape(10.dp),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .tvButtonGrow(shape = RoundedCornerShape(10.dp))
+                                            .height(40.dp)
+                                            .testTag("resume_download_btn_${item.id}")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Refresh,
+                                            contentDescription = "Resume Download",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = "Resume",
+                                            color = Color.White,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            maxLines = 1
+                                        )
+                                    }
+                                }
+                            }
+
+                            OutlinedButton(
+                                onClick = {
+                                    if (isDownloading) {
+                                        onCancelDownload(item.id)
+                                    } else {
+                                        onDeleteDownload(item.id)
+                                    }
+                                },
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                shape = RoundedCornerShape(10.dp),
+                                border = BorderStroke(1.dp, NeliMagenta.copy(alpha = 0.65f)),
+                                modifier = Modifier
+                                    .height(40.dp)
+                                    .testTag("delete_download_btn_${item.id}")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.DeleteOutline,
+                                    contentDescription = "Delete Download",
+                                    tint = NeliMagenta,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "Delete",
+                                    color = NeliMagenta,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Recommended Downloads inside the Download tab
+            if (downloadableCatalog.isNotEmpty()) {
+                item {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "Available to Download",
+                        color = NeliTextPrimary,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1
+                    )
+                }
+
+                items(downloadableCatalog.take(12), key = { "quick_dl_${it.id}" }) { media ->
+                    val isAlreadyDownloaded = downloadedIds.contains(media.id)
+                    val isCurrentlyDownloading = downloadingIds.contains(media.id) || downloadProgress.containsKey(media.id)
+                    val livePct = downloadProgress[media.id] ?: 0
+                    val thumbUrl = MediaContentRepository.resolveGuaranteedMediaImageUrl(
+                        media.posterUrl,
+                        media.backdropUrl,
+                        media.streamUrl
+                    )
+
                     Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(NeliSurface)
+                            .border(1.dp, Color(0xFF252D40), RoundedCornerShape(14.dp))
+                            .padding(10.dp)
+                            .testTag("quick_download_row_${media.id}"),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        val dlContext = LocalContext.current
-                        val dlThumbReq = remember(item.id, imageUrl) {
-                            ImageRequest.Builder(dlContext)
-                                .data(imageUrl)
-                                .size(300, 188)
+                        val quickContext = LocalContext.current
+                        val quickThumbReq = remember(media.id, thumbUrl) {
+                            ImageRequest.Builder(quickContext)
+                                .data(thumbUrl)
+                                .size(168, 222)
                                 .crossfade(false)
                                 .build()
                         }
                         Box(
                             modifier = Modifier
-                                .width(108.dp)
-                                .aspectRatio(16f / 10f)
-                                .clip(RoundedCornerShape(12.dp))
+                                .size(width = 52.dp, height = 72.dp)
+                                .clip(RoundedCornerShape(10.dp))
                                 .background(NeliSurfaceVariant)
-                                .clickable(enabled = isCompleted || isPausedError) {
-                                    if (isCompleted) onPlayDownloaded(item) else onRetryDownload(item)
-                                },
-                            contentAlignment = Alignment.Center
                         ) {
                             AsyncImage(
-                                model = dlThumbReq,
-                                contentDescription = item.title,
+                                model = quickThumbReq,
+                                contentDescription = media.title,
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier.fillMaxSize()
                             )
-                            Box(
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .clip(CircleShape)
-                                    .background(
-                                        when {
-                                            isDownloading -> NeliGenreCyan
-                                            isPausedError -> Color(0xFFF59E0B)
-                                            else -> NeliMagenta
-                                        }
-                                    ),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                when {
-                                    isDownloading -> {
-                                        Text(
-                                            text = "$displayPct%",
-                                            color = Color.Black,
-                                            fontSize = 9.sp,
-                                            fontWeight = FontWeight.Black
-                                        )
-                                    }
-                                    isPausedError -> {
-                                        Icon(
-                                            imageVector = Icons.Default.Refresh,
-                                            contentDescription = "Resume Download",
-                                            tint = Color.Black,
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                    }
-                                    else -> {
-                                        Icon(
-                                            imageVector = Icons.Default.PlayArrow,
-                                            contentDescription = "Play Offline",
-                                            tint = Color.White,
-                                            modifier = Modifier.size(22.dp)
-                                        )
-                                    }
-                                }
-                            }
                         }
 
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = item.title.replace("\n", " "),
+                                text = media.title,
                                 color = NeliTextPrimary,
-                                fontSize = 14.sp,
+                                fontSize = if (screenProfile.isSmallPhone) 13.sp else 14.sp,
                                 fontWeight = FontWeight.Bold,
-                                maxLines = 2,
+                                maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
-                            Spacer(modifier = Modifier.height(3.dp))
                             Text(
-                                text = "${item.genre} • ${item.duration}",
+                                text = "${media.primaryGenre} • ${media.duration}",
                                 color = NeliGenreCyan,
                                 fontSize = 11.sp,
-                                fontWeight = FontWeight.SemiBold
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
-                            Spacer(modifier = Modifier.height(3.dp))
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Icon(
-                                    imageVector = when {
-                                        isDownloading -> Icons.Default.Download
-                                        isPausedError -> Icons.Default.Refresh
-                                        else -> Icons.Default.CheckCircle
-                                    },
-                                    contentDescription = null,
-                                    tint = when {
-                                        isDownloading -> NeliGenreCyan
-                                        isPausedError -> Color(0xFFF59E0B)
-                                        else -> Color(0xFF10B981)
-                                    },
-                                    modifier = Modifier.size(13.dp)
-                                )
+                            if (isCurrentlyDownloading) {
                                 Text(
-                                    text = when {
-                                        isDownloading -> item.fileSizeLabel.ifBlank {
-                                            "Downloading • $displayPct%"
-                                        }
-                                        isPausedError -> item.fileSizeLabel.ifBlank {
-                                            "Paused at $displayPct% • Tap Resume"
-                                        }
-                                        else -> item.fileSizeLabel.ifBlank {
-                                            "Offline Ready • Saved Inside App"
-                                        }
-                                    },
-                                    color = when {
-                                        isDownloading -> NeliGenreCyan
-                                        isPausedError -> Color(0xFFF59E0B)
-                                        else -> Color(0xFF10B981)
-                                    },
+                                    text = "Downloading ($livePct%)...",
+                                    color = NeliMagenta,
                                     fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold
+                                    fontWeight = FontWeight.ExtraBold,
+                                    maxLines = 1
                                 )
                             }
                         }
 
-                        when {
-                            isCompleted -> {
-                                Button(
-                                    onClick = { onPlayDownloaded(item) },
-                                    colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta),
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                                    shape = RoundedCornerShape(10.dp),
-                                    modifier = Modifier
-                                        .tvButtonGrow(shape = RoundedCornerShape(10.dp))
-                                        .height(38.dp)
-                                        .testTag("play_offline_btn_${item.id}")
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.PlayArrow,
-                                        contentDescription = null,
-                                        tint = Color.White,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(
-                                        text = "Play",
-                                        color = Color.White,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.ExtraBold
-                                    )
-                                }
-                            }
-                            isDownloading -> {
-                                OutlinedButton(
-                                    onClick = { onPauseDownload(item.id) },
-                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                                    shape = RoundedCornerShape(10.dp),
-                                    modifier = Modifier
-                                        .tvButtonGrow(shape = RoundedCornerShape(10.dp))
-                                        .height(36.dp)
-                                        .testTag("pause_download_btn_${item.id}")
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Pause,
-                                        contentDescription = "Pause Download",
-                                        tint = NeliGenreCyan,
-                                        modifier = Modifier.size(15.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(3.dp))
-                                    Text(
-                                        text = "Pause",
-                                        color = NeliTextPrimary,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            }
-                            isPausedError -> {
-                                Button(
-                                    onClick = { onRetryDownload(item) },
-                                    colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta),
-                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                                    shape = RoundedCornerShape(10.dp),
-                                    modifier = Modifier
-                                        .tvButtonGrow(shape = RoundedCornerShape(10.dp))
-                                        .height(36.dp)
-                                        .testTag("resume_download_btn_${item.id}")
-                                ) {
-                                    Text(
-                                        text = "Resume",
-                                        color = Color.White,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.ExtraBold
-                                    )
-                                }
-                            }
-                        }
-
-                        IconButton(
+                        Button(
                             onClick = {
-                                if (isDownloading) {
-                                    onCancelDownload(item.id)
-                                } else {
-                                    onDeleteDownload(item.id)
+                                if (isAlreadyDownloaded) {
+                                    val matchingEntity = downloads.find { it.id == media.id }
+                                    if (matchingEntity != null) {
+                                        onPlayDownloaded(matchingEntity)
+                                    } else {
+                                        onPlayQuickMediaOffline(media)
+                                    }
+                                } else if (!isCurrentlyDownloading) {
+                                    onStartQuickDownload(media)
                                 }
                             },
-                            modifier = Modifier.size(42.dp)
+                            enabled = !isCurrentlyDownloading,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = when {
+                                    isAlreadyDownloaded -> Color(0xFFFF2E7E)
+                                    isCurrentlyDownloading -> NeliSurfaceVariant
+                                    else -> NeliMagenta
+                                }
+                            ),
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                            modifier = Modifier
+                                .height(38.dp)
+                                .testTag("quick_download_btn_${media.id}")
                         ) {
                             Icon(
-                                imageVector = Icons.Default.DeleteOutline,
-                                contentDescription = "Remove Download",
-                                tint = NeliMagenta
+                                imageVector = if (isAlreadyDownloaded) Icons.Default.PlayArrow else Icons.Default.Download,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(15.dp)
                             )
-                        }
-                    }
-
-                    if (isDownloading || isPausedError) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        LinearProgressIndicator(
-                            progress = { displayPct / 100f },
-                            color = if (isPausedError) Color(0xFFF59E0B) else NeliMagenta,
-                            trackColor = NeliSurfaceVariant,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(6.dp)
-                                .clip(RoundedCornerShape(4.dp))
-                        )
-                    }
-                }
-            }
-        }
-
-        // Recommended Downloads inside the Download tab
-        if (downloadableCatalog.isNotEmpty()) {
-            item {
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = "Available to Download",
-                    color = NeliTextPrimary,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-
-            items(downloadableCatalog.take(12), key = { "quick_dl_${it.id}" }) { media ->
-                val isAlreadyDownloaded = downloadedIds.contains(media.id)
-                val isCurrentlyDownloading = downloadingIds.contains(media.id) || downloadProgress.containsKey(media.id)
-                val livePct = downloadProgress[media.id] ?: 0
-                val thumbUrl = MediaContentRepository.resolveGuaranteedMediaImageUrl(
-                    media.posterUrl,
-                    media.backdropUrl,
-                    media.streamUrl
-                )
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(NeliSurface)
-                        .border(1.dp, Color(0xFF252D40), RoundedCornerShape(14.dp))
-                        .padding(10.dp)
-                        .testTag("quick_download_row_${media.id}"),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    val quickContext = LocalContext.current
-                    val quickThumbReq = remember(media.id, thumbUrl) {
-                        ImageRequest.Builder(quickContext)
-                            .data(thumbUrl)
-                            .size(168, 222)
-                            .crossfade(false)
-                            .build()
-                    }
-                    Box(
-                        modifier = Modifier
-                            .size(width = 56.dp, height = 74.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(NeliSurfaceVariant)
-                    ) {
-                        AsyncImage(
-                            model = quickThumbReq,
-                            contentDescription = media.title,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    }
-
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = media.title,
-                            color = NeliTextPrimary,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Text(
-                            text = "${media.primaryGenre} • ${media.duration} • ${if (media.narrated) media.narrationLanguage else "HD"}",
-                            color = NeliGenreCyan,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        if (isCurrentlyDownloading) {
+                            Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = "Downloading in background ($livePct%)...",
-                                color = NeliMagenta,
+                                text = when {
+                                    isAlreadyDownloaded -> "Play"
+                                    isCurrentlyDownloading -> "$livePct%"
+                                    else -> "Download"
+                                },
+                                color = Color.White,
                                 fontSize = 11.sp,
-                                fontWeight = FontWeight.ExtraBold
+                                fontWeight = FontWeight.ExtraBold,
+                                maxLines = 1
                             )
                         }
-                    }
-
-                    Button(
-                        onClick = {
-                            if (isAlreadyDownloaded) {
-                                val matchingEntity = downloads.find { it.id == media.id }
-                                if (matchingEntity != null) {
-                                    onPlayDownloaded(matchingEntity)
-                                } else {
-                                    onPlayQuickMediaOffline(media)
-                                }
-                            } else if (!isCurrentlyDownloading) {
-                                onStartQuickDownload(media)
-                            }
-                        },
-                        enabled = !isCurrentlyDownloading,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = when {
-                                isAlreadyDownloaded -> Color(0xFF10B981)
-                                isCurrentlyDownloading -> NeliSurfaceVariant
-                                else -> NeliMagenta
-                            }
-                        ),
-                        shape = RoundedCornerShape(10.dp),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                        modifier = Modifier
-                            .height(40.dp)
-                            .testTag("quick_download_btn_${media.id}")
-                    ) {
-                        Icon(
-                            imageVector = if (isAlreadyDownloaded) Icons.Default.PlayArrow else Icons.Default.Download,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = when {
-                                isAlreadyDownloaded -> "Play Offline"
-                                isCurrentlyDownloading -> "$livePct%"
-                                else -> "Download"
-                            },
-                            color = Color.White,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.ExtraBold
-                        )
                     }
                 }
             }
@@ -1920,9 +1930,16 @@ fun AccountTabContent(
     onClearAuthError: () -> Unit,
     onUpdateNetworkPreferences: (networkMode: String, allowMobileData: Boolean) -> Unit,
     onPlayWatchlistItem: (WatchlistItemEntity) -> Unit,
+    usernameUpdateMessage: String? = null,
+    onUpdateUsername: (String) -> Unit = {},
+    onClearUsernameUpdateMessage: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var activeInfoPage by rememberSaveable { mutableStateOf<AccountInfoPageType?>(null) }
+    var showEditUsernameDialog by rememberSaveable { mutableStateOf(false) }
+    var editUsernameDraft by rememberSaveable(currentUser?.uid, showEditUsernameDialog) {
+        mutableStateOf(currentUser?.realName.orEmpty())
+    }
     var selectedAuthMethod by rememberSaveable { mutableStateOf(AccountAuthMethodType.PHONE) }
     var phoneAuthIsRegister by rememberSaveable { mutableStateOf(false) }
     var phoneAuthNumber by rememberSaveable { mutableStateOf("") }
@@ -1947,20 +1964,6 @@ fun AccountTabContent(
             savedGoogleAccounts.firstOrNull()?.realName
                 ?: realName
         )
-    }
-
-    val deviceGoogleAccountPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            val pickedEmail = result.data
-                ?.getStringExtra(AccountManager.KEY_ACCOUNT_NAME)
-                ?.trim()
-                .orEmpty()
-            if (pickedEmail.isNotBlank()) {
-                onCompleteGoogleSignIn(pickedEmail, googleSheetName)
-            }
-        }
     }
 
     var selectedQualityMode by remember(firebaseConfig.networkMode) {
@@ -2003,7 +2006,7 @@ fun AccountTabContent(
                             fontWeight = FontWeight.ExtraBold
                         )
                         Text(
-                            text = "Continue to Nelitv (neliplay)",
+                            text = "Continue to NeliTV",
                             color = NeliGenreCyan,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.SemiBold
@@ -2020,19 +2023,8 @@ fun AccountTabContent(
                 ) {
                     OutlinedButton(
                         onClick = {
-                            try {
-                                val intent = AccountManager.newChooseAccountIntent(
-                                    null,
-                                    null,
-                                    arrayOf("com.google"),
-                                    null,
-                                    null,
-                                    null,
-                                    null
-                                )
-                                deviceGoogleAccountPickerLauncher.launch(intent)
-                            } catch (_: Throwable) {
-                            }
+                            onDismissGoogleSignInSheet()
+                            onSignInWithGoogle()
                         },
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier
@@ -2219,9 +2211,10 @@ fun AccountTabContent(
     val accountContext = LocalContext.current
     val isCurrentUserAdmin = NeliAdminManager.isAdminUser(currentUser)
     val isFreeForeverVipUser = com.example.data.NeliFreeForeverAccountsManager.isFreeForeverUser(currentUser)
+    val isSpecialAdFreeUser = com.example.data.NeliFreeForeverAccountsManager.isSpecialAdFreeUser(currentUser)
     val subState by NeliSubscriptionManager.subscriptionState.collectAsState()
     var accountCurrentTimeMs by remember { androidx.compose.runtime.mutableLongStateOf(System.currentTimeMillis()) }
-    val isVerifiedPremiumMember = subState.isActiveAt(accountCurrentTimeMs) || isFreeForeverVipUser
+    val isVerifiedPremiumMember = subState.isActiveAt(accountCurrentTimeMs) || isFreeForeverVipUser || isSpecialAdFreeUser
 
     // Auto-Ready Device IP & real-time 1-second subscription countdown / expiry check
     LaunchedEffect(subState.isVerified, subState.expiresAtMs) {
@@ -2230,7 +2223,7 @@ fun AccountTabContent(
         while (true) {
             val now = System.currentTimeMillis()
             accountCurrentTimeMs = now
-            if (subState.isVerified && !subState.isFreeForeverAccount && subState.expiresAtMs in 1..now) {
+            if (subState.isVerified && !subState.isFreeForeverAccount && !subState.isSpecialAdFreeAccount && subState.expiresAtMs in 1..now) {
                 NeliSubscriptionManager.expireSubscriptionIfNeeded(accountContext, now)
             }
             kotlinx.coroutines.delay(1000L)
@@ -2298,7 +2291,7 @@ fun AccountTabContent(
                             )
                         )
                         .border(1.dp, NeliMagenta.copy(alpha = 0.6f), RoundedCornerShape(22.dp))
-                        .padding(18.dp),
+                        .padding(if (screenProfile.isSmallPhone) 14.dp else 18.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
                     Row(
@@ -2308,7 +2301,7 @@ fun AccountTabContent(
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(60.dp)
+                                .size(if (screenProfile.isSmallPhone) 52.dp else 60.dp)
                                 .clip(CircleShape)
                                 .background(NeliMagenta),
                             contentAlignment = Alignment.Center
@@ -2316,7 +2309,7 @@ fun AccountTabContent(
                             Text(
                                 text = currentUser.realName.trim().take(1).uppercase().ifEmpty { "N" },
                                 color = Color.White,
-                                fontSize = 24.sp,
+                                fontSize = if (screenProfile.isSmallPhone) 20.sp else 24.sp,
                                 fontWeight = FontWeight.Black
                             )
                         }
@@ -2329,14 +2322,19 @@ fun AccountTabContent(
                                 Text(
                                     text = currentUser.realName,
                                     color = Color.White,
-                                    fontSize = 19.sp,
-                                    fontWeight = FontWeight.ExtraBold
+                                    fontSize = if (screenProfile.isSmallPhone) 16.sp else 19.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f, fill = false)
                                 )
                                 Icon(
                                     imageVector = if (isVerifiedPremiumMember) Icons.Default.Verified else Icons.Default.CheckCircle,
-                                    contentDescription = if (isVerifiedPremiumMember) "Verified Premium Member Tick" else "Active Member",
-                                    tint = if (isVerifiedPremiumMember) Color(0xFF34D399) else Color(0xFF10B981),
-                                    modifier = Modifier.size(18.dp)
+                                    contentDescription = if (isVerifiedPremiumMember) "Verified Pink Tick" else "Active Member",
+                                    tint = Color(0xFFFF2E7E),
+                                    modifier = Modifier
+                                        .size(19.dp)
+                                        .testTag("account_pink_verification_tick")
                                 )
                             }
                             if (isVerifiedPremiumMember) {
@@ -2344,8 +2342,8 @@ fun AccountTabContent(
                                     modifier = Modifier
                                         .padding(top = 4.dp, bottom = 2.dp)
                                         .clip(RoundedCornerShape(8.dp))
-                                        .background(Color(0x3310B981))
-                                        .border(1.dp, Color(0xFF34D399), RoundedCornerShape(8.dp))
+                                        .background(Color(0x33FF2E7E))
+                                        .border(1.dp, Color(0xFFFF4DA6), RoundedCornerShape(8.dp))
                                         .padding(horizontal = 8.dp, vertical = 3.dp)
                                         .testTag("account_premium_verified_badge"),
                                     verticalAlignment = Alignment.CenterVertically,
@@ -2353,19 +2351,21 @@ fun AccountTabContent(
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.Verified,
-                                        contentDescription = "Verified Tick",
-                                        tint = Color(0xFF34D399),
+                                        contentDescription = "Verified Pink Tick",
+                                        tint = Color(0xFFFF4DA6),
                                         modifier = Modifier.size(14.dp)
                                     )
                                     Text(
-                                        text = if (isFreeForeverVipUser) {
-                                            "Free Forever VIP ✓ (Max 2 Devices)"
-                                        } else {
-                                            "Premium Member ✓ (${subState.planTitle.ifBlank { "VIP" }})"
+                                        text = when {
+                                            isSpecialAdFreeUser -> "VIP Ad-Free ✓ (No Ads)"
+                                            isFreeForeverVipUser -> "Free VIP Ad-Free ✓ (No Ads)"
+                                            else -> "Premium Member ✓ (${subState.planTitle.ifBlank { "VIP" }})"
                                         },
-                                        color = Color(0xFFFBBF24),
+                                        color = Color(0xFFFFB3D9),
                                         fontSize = 11.sp,
-                                        fontWeight = FontWeight.Black
+                                        fontWeight = FontWeight.Black,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                 }
                             }
@@ -2373,19 +2373,177 @@ fun AccountTabContent(
                                 text = currentUser.email,
                                 color = NeliGenreCyan,
                                 fontSize = 13.sp,
-                                fontWeight = FontWeight.Medium
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                             Text(
                                 text = when {
-                                    isFreeForeverVipUser -> "Free Forever VIP (Max 2 Devices)"
+                                    isSpecialAdFreeUser -> "Special VIP Ad-Free Account (Bila Matangazo)"
+                                    isFreeForeverVipUser -> "Free Forever VIP • No Ads (Max 2 Devices)"
                                     isVerifiedPremiumMember -> "Muda Uliobaki: ${subState.formatLiveCountdown(accountCurrentTimeMs)}"
                                     else -> "Free User • Account Synced"
                                 },
-                                color = if (isVerifiedPremiumMember) Color(0xFF34D399) else NeliTextSecondary,
+                                color = if (isVerifiedPremiumMember) Color(0xFFFF4DA6) else NeliTextSecondary,
                                 fontSize = 11.sp,
-                                fontWeight = if (isVerifiedPremiumMember) FontWeight.Bold else FontWeight.Normal
+                                fontWeight = if (isVerifiedPremiumMember) FontWeight.Bold else FontWeight.Normal,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
+
+                        // Quick Edit Username Icon Button
+                        IconButton(
+                            onClick = {
+                                editUsernameDraft = currentUser.realName
+                                onClearUsernameUpdateMessage()
+                                onClearAuthError()
+                                showEditUsernameDialog = true
+                            },
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(Color(0x26FF2E7E))
+                                .border(1.dp, Color(0x66FF4DA6), CircleShape)
+                                .testTag("edit_username_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Edit,
+                                contentDescription = "Edit Username",
+                                tint = Color(0xFFFF4DA6),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+
+                    // Inline confirmation banner when username is saved & synced
+                    if (!usernameUpdateMessage.isNullOrBlank()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color(0x26FF2E7E))
+                                .border(1.dp, Color(0xFFFF4DA6), RoundedCornerShape(10.dp))
+                                .clickable { onClearUsernameUpdateMessage() }
+                                .padding(horizontal = 12.dp, vertical = 8.dp)
+                                .testTag("username_updated_banner"),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Verified,
+                                contentDescription = null,
+                                tint = Color(0xFFFF4DA6),
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                text = usernameUpdateMessage,
+                                color = Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+
+                    // Edit Username Dialog
+                    if (showEditUsernameDialog) {
+                        AlertDialog(
+                            onDismissRequest = { showEditUsernameDialog = false },
+                            containerColor = NeliSurface,
+                            titleContentColor = NeliTextPrimary,
+                            textContentColor = NeliTextSecondary,
+                            title = {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Edit,
+                                        contentDescription = null,
+                                        tint = Color(0xFFFF4DA6),
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Text(
+                                        text = "Edit Username",
+                                        color = NeliTextPrimary,
+                                        fontSize = 17.sp,
+                                        fontWeight = FontWeight.ExtraBold
+                                    )
+                                }
+                            },
+                            text = {
+                                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Text(
+                                        text = "Change your display username. You can also use this username to log in anytime.",
+                                        color = NeliTextSecondary,
+                                        fontSize = 12.sp
+                                    )
+                                    OutlinedTextField(
+                                        value = editUsernameDraft,
+                                        onValueChange = { editUsernameDraft = it },
+                                        label = { Text("Username") },
+                                        placeholder = { Text("Enter new username") },
+                                        leadingIcon = {
+                                            Icon(
+                                                imageVector = Icons.Default.Person,
+                                                contentDescription = null,
+                                                tint = NeliGenreCyan
+                                            )
+                                        },
+                                        singleLine = true,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .testTag("edit_username_input"),
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = OutlinedTextFieldDefaults.colors(
+                                            focusedBorderColor = NeliMagenta,
+                                            unfocusedBorderColor = Color(0x44A855F7),
+                                            focusedTextColor = NeliTextPrimary,
+                                            unfocusedTextColor = NeliTextPrimary
+                                        )
+                                    )
+                                    if (!authError.isNullOrBlank()) {
+                                        Text(
+                                            text = authError,
+                                            color = Color(0xFFFCA5A5),
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    }
+                                }
+                            },
+                            confirmButton = {
+                                Button(
+                                    onClick = {
+                                        val clean = editUsernameDraft.trim()
+                                        if (clean.length >= 2) {
+                                            onUpdateUsername(clean)
+                                            showEditUsernameDialog = false
+                                        }
+                                    },
+                                    enabled = !isAuthLoading && editUsernameDraft.trim().length >= 2,
+                                    colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta),
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier.testTag("save_username_button")
+                                ) {
+                                    Text(
+                                        text = "Save",
+                                        color = Color.White,
+                                        fontWeight = FontWeight.ExtraBold
+                                    )
+                                }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = { showEditUsernameDialog = false }) {
+                                    Text(
+                                        text = "Cancel",
+                                        color = NeliTextSecondary,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        )
                     }
 
                     // Admin-Only Full Real-Time Admin Panel & Mini Admin Panel Buttons (Strictly visible ONLY when logged in with Admin@login.com)
@@ -2443,20 +2601,7 @@ fun AccountTabContent(
                     ) {
                         OutlinedButton(
                             onClick = {
-                                try {
-                                    val intent = android.accounts.AccountManager.newChooseAccountIntent(
-                                        null,
-                                        null,
-                                        arrayOf("com.google"),
-                                        null,
-                                        null,
-                                        null,
-                                        null
-                                    )
-                                    deviceGoogleAccountPickerLauncher.launch(intent)
-                                } catch (_: Throwable) {
-                                    onChooseGoogleAccount()
-                                }
+                                onSignInWithGoogle()
                             },
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier
@@ -2509,7 +2654,7 @@ fun AccountTabContent(
                 }
             }
         } else {
-            // When user is logged out, show 100% Google Account Sign In (Free Forever With Ads)
+            // When user is logged out, show Google Account Sign In AND By Email (Login / Sign Up)
             item {
                 NeliGoogleAccountAuthSection(
                     authError = authError,
@@ -2518,7 +2663,9 @@ fun AccountTabContent(
                     onSignInWithGoogle = onSignInWithGoogle,
                     onChooseGoogleAccount = onChooseGoogleAccount,
                     onCompleteGoogleSignIn = onCompleteGoogleSignIn,
-                    deviceGoogleAccountPickerLauncher = deviceGoogleAccountPickerLauncher
+                    onSignInByEmail = onSignIn,
+                    onSignUpByEmail = onSignUp,
+                    onClearAuthError = onClearAuthError
                 )
             }
         }
@@ -2989,13 +3136,17 @@ fun NeliGoogleAccountAuthSection(
     onSignInWithGoogle: () -> Unit,
     onChooseGoogleAccount: () -> Unit,
     onCompleteGoogleSignIn: (email: String, displayName: String) -> Unit,
-    deviceGoogleAccountPickerLauncher: androidx.activity.result.ActivityResultLauncher<android.content.Intent>,
+    onSignInByEmail: (emailOrUsername: String, password: String) -> Unit = { _, _ -> },
+    onSignUpByEmail: (username: String, email: String, password: String) -> Unit = { _, _, _ -> },
+    onClearAuthError: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val context = LocalContext.current
-    val deviceGoogleAccounts = remember(context) {
-        com.example.data.AuthenticationRepository.getAllDeviceGoogleAccounts(context)
-    }
+    var selectedTab by rememberSaveable { mutableStateOf("GOOGLE") } // "GOOGLE" or "EMAIL"
+    var isEmailSignUp by rememberSaveable { mutableStateOf(false) }
+    var emailSignUpUsername by rememberSaveable { mutableStateOf("") }
+    var emailOrUsernameInput by rememberSaveable { mutableStateOf("") }
+    var emailPasswordInput by rememberSaveable { mutableStateOf("") }
+    var isEmailPasswordVisible by rememberSaveable { mutableStateOf(false) }
 
     Column(
         modifier = modifier
@@ -3011,7 +3162,7 @@ fun NeliGoogleAccountAuthSection(
             .padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Top Header: Sign Up with Google
+        // Top Header: Sign In / Sign Up
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(14.dp)
@@ -3027,26 +3178,83 @@ fun NeliGoogleAccountAuthSection(
                     ),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = "G",
-                    color = Color.White,
-                    fontWeight = FontWeight.Black,
-                    fontSize = 24.sp
+                Icon(
+                    imageVector = if (selectedTab == "EMAIL") Icons.Default.Email else Icons.Default.Person,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(24.dp)
                 )
             }
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Sign Up with Google",
+                    text = "Sign In / Sign Up",
                     color = Color.White,
                     fontSize = 18.sp,
-                    fontWeight = FontWeight.Black
+                    fontWeight = FontWeight.Black,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = "Fast and secure sign in with your Google account",
+                    text = "Choose Google Account or Email (Synced with Firebase)",
                     color = NeliGenreCyan,
                     fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+
+        // Method Selector: Google | By Email
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(NeliSurfaceVariant)
+                .padding(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(if (selectedTab == "GOOGLE") NeliMagenta else Color.Transparent)
+                    .clickable {
+                        selectedTab = "GOOGLE"
+                        onClearAuthError()
+                    }
+                    .padding(vertical = 10.dp)
+                    .testTag("auth_method_google_tab"),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "Google",
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    maxLines = 1
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(if (selectedTab == "EMAIL") NeliMagenta else Color.Transparent)
+                    .clickable {
+                        selectedTab = "EMAIL"
+                        onClearAuthError()
+                    }
+                    .padding(vertical = 10.dp)
+                    .testTag("auth_method_email_tab"),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "By Email",
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    maxLines = 1
                 )
             }
         }
@@ -3069,171 +3277,349 @@ fun NeliGoogleAccountAuthSection(
             }
         }
 
-        // BIG GOOGLE BUTTON (Styled with colors matching NeliTv logo)
-        Button(
-            onClick = {
-                try {
-                    val intent = android.accounts.AccountManager.newChooseAccountIntent(
-                        null,
-                        null,
-                        arrayOf("com.google"),
-                        null,
-                        null,
-                        null,
-                        null
-                    )
-                    deviceGoogleAccountPickerLauncher.launch(intent)
-                } catch (_: Throwable) {
+        if (selectedTab == "GOOGLE") {
+            // BIG GOOGLE BUTTON (Real Jetpack Credential Manager Google Sign-In)
+            Button(
+                onClick = {
                     onSignInWithGoogle()
-                }
-            },
-            enabled = !isAuthLoading,
-            colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
-            contentPadding = PaddingValues(0.dp),
-            shape = RoundedCornerShape(14.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(54.dp)
-                .background(
-                    Brush.horizontalGradient(
-                        listOf(Color(0xFF9333EA), Color(0xFF00E5FF), Color(0xFFEC4899))
-                    ),
-                    RoundedCornerShape(14.dp)
-                )
-                .testTag("big_google_signup_login_button")
-        ) {
-            if (isAuthLoading) {
-                CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp), strokeWidth = 2.5.dp)
-            } else {
-                Row(
-                    modifier = Modifier.fillMaxSize(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(32.dp)
-                            .clip(CircleShape)
-                            .background(Color.White),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "G",
-                            color = Color(0xFF4285F4),
-                            fontWeight = FontWeight.Black,
-                            fontSize = 18.sp
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Text(
-                        text = "Sign Up / Login with Google",
-                        color = Color.White,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Black,
-                        letterSpacing = 0.5.sp
+                },
+                enabled = !isAuthLoading,
+                colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
+                contentPadding = PaddingValues(0.dp),
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(54.dp)
+                    .background(
+                        Brush.horizontalGradient(
+                            listOf(Color(0xFF9333EA), Color(0xFF00E5FF), Color(0xFFEC4899))
+                        ),
+                        RoundedCornerShape(14.dp)
                     )
-                }
-            }
-        }
-
-        // Saved Accounts & Previous Accounts (Free accounts or previous Google accounts for quick re-login)
-        val accountsToShow = remember(deviceGoogleAccounts, savedGoogleAccounts) {
-            val list = mutableListOf<Pair<String, String>>()
-            for (acc in deviceGoogleAccounts) {
-                list.add(Pair(acc.email, acc.displayName))
-            }
-            for (saved in savedGoogleAccounts) {
-                list.add(Pair(saved.email, saved.realName))
-            }
-            list.distinctBy { it.first.lowercase() }
-        }
-
-        if (accountsToShow.isNotEmpty()) {
-            Text(
-                text = "Akaunti Zilizohifadhiwa (Saved Accounts):",
-                color = Color(0xFFCBD5E1),
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold
-            )
-
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                    .testTag("big_google_signup_login_button")
             ) {
-                accountsToShow.take(5).forEach { pair ->
-                    val accEmail = pair.first
-                    val accName = pair.second
-                    val cleanName = if (accName.isNotBlank()) accName else accEmail.substringBefore("@")
+                if (isAuthLoading) {
+                    CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp), strokeWidth = 2.5.dp)
+                } else {
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(NeliSurfaceVariant)
-                            .border(1.dp, Color(0x33A855F7), RoundedCornerShape(12.dp))
-                            .clickable(enabled = !isAuthLoading) {
-                                onCompleteGoogleSignIn(accEmail, cleanName)
-                            }
-                            .padding(horizontal = 12.dp, vertical = 10.dp)
-                            .testTag("saved_account_item_${accEmail}"),
+                        modifier = Modifier.fillMaxSize(),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        horizontalArrangement = Arrangement.Center
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0xFF1E293B))
-                                    .border(1.5.dp, Color(0xFF00E5FF), CircleShape),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = cleanName.take(1).uppercase().ifEmpty { "G" },
-                                    color = Color(0xFF00E5FF),
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 15.sp
-                                )
-                            }
-                            Column {
-                                Text(
-                                    text = cleanName,
-                                    color = Color.White,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    text = accEmail,
-                                    color = Color(0xFF94A3B8),
-                                    fontSize = 11.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
-
                         Box(
                             modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(
-                                    Brush.horizontalGradient(
-                                        listOf(Color(0xFF9333EA), Color(0xFFEC4899))
-                                    )
-                                )
-                                .padding(horizontal = 12.dp, vertical = 6.dp)
+                                .size(32.dp)
+                                .clip(CircleShape)
+                                .background(Color.White),
+                            contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = "Login",
-                                color = Color.White,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold
+                                text = "G",
+                                color = Color(0xFF4285F4),
+                                fontWeight = FontWeight.Black,
+                                fontSize = 18.sp
                             )
                         }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = "Sign Up / Login with Google",
+                            color = Color.White,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 0.5.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+
+            // Saved Accounts from previous authenticated sessions
+            val accountsToShow = remember(savedGoogleAccounts) {
+                savedGoogleAccounts.distinctBy { it.email.lowercase() }
+            }
+
+            if (accountsToShow.isNotEmpty()) {
+                Text(
+                    text = "Saved Accounts:",
+                    color = Color(0xFFCBD5E1),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    accountsToShow.take(5).forEach { saved ->
+                        val accEmail = saved.email
+                        val accName = saved.realName
+                        val cleanName = if (accName.isNotBlank()) accName else accEmail.substringBefore("@")
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(NeliSurfaceVariant)
+                                .border(1.dp, Color(0x33A855F7), RoundedCornerShape(12.dp))
+                                .clickable(enabled = !isAuthLoading) {
+                                    onSignInWithGoogle()
+                                }
+                                .padding(horizontal = 12.dp, vertical = 10.dp)
+                                .testTag("saved_account_item_${accEmail}"),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF1E293B))
+                                        .border(1.5.dp, Color(0xFF00E5FF), CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = cleanName.take(1).uppercase().ifEmpty { "G" },
+                                        color = Color(0xFF00E5FF),
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 15.sp
+                                    )
+                                }
+                                Column {
+                                    Text(
+                                        text = cleanName,
+                                        color = Color.White,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        text = accEmail,
+                                        color = Color(0xFF94A3B8),
+                                        fontSize = 11.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(
+                                        Brush.horizontalGradient(
+                                            listOf(Color(0xFF9333EA), Color(0xFFEC4899))
+                                        )
+                                    )
+                                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                            ) {
+                                Text(
+                                    text = "Login",
+                                    color = Color.White,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            // BY EMAIL SECTION: Login (Email or Username + Password) OR Sign Up (Username + Email + Password)
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("account_email_auth_section"),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            isEmailSignUp = false
+                            onClearAuthError()
+                        },
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(
+                            1.dp,
+                            if (!isEmailSignUp) NeliGenreCyan else Color(0x44A855F7)
+                        ),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = if (!isEmailSignUp) Color(0x2600E5FF) else Color.Transparent
+                        ),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(42.dp)
+                            .testTag("account_email_login_mode_btn")
+                    ) {
+                        Text(
+                            text = "Login",
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            isEmailSignUp = true
+                            onClearAuthError()
+                        },
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(
+                            1.dp,
+                            if (isEmailSignUp) NeliGenreCyan else Color(0x44A855F7)
+                        ),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = if (isEmailSignUp) Color(0x2600E5FF) else Color.Transparent
+                        ),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(42.dp)
+                            .testTag("account_email_signup_mode_btn")
+                    ) {
+                        Text(
+                            text = "Sign Up",
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                if (isEmailSignUp) {
+                    OutlinedTextField(
+                        value = emailSignUpUsername,
+                        onValueChange = {
+                            emailSignUpUsername = it
+                            onClearAuthError()
+                        },
+                        label = { Text("Username") },
+                        placeholder = { Text("Choose a username") },
+                        leadingIcon = {
+                            Icon(Icons.Default.Person, contentDescription = null, tint = NeliGenreCyan)
+                        },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = NeliMagenta,
+                            unfocusedBorderColor = Color(0x44A855F7),
+                            focusedTextColor = NeliTextPrimary,
+                            unfocusedTextColor = NeliTextPrimary
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("account_email_username_input")
+                    )
+                }
+
+                OutlinedTextField(
+                    value = emailOrUsernameInput,
+                    onValueChange = {
+                        emailOrUsernameInput = it
+                        onClearAuthError()
+                    },
+                    label = { Text(if (isEmailSignUp) "Email Address" else "Email or Username") },
+                    placeholder = { Text(if (isEmailSignUp) "name@email.com" else "Email or Username") },
+                    leadingIcon = {
+                        Icon(Icons.Default.Email, contentDescription = null, tint = NeliGenreCyan)
+                    },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = if (isEmailSignUp) KeyboardType.Email else KeyboardType.Text,
+                        imeAction = ImeAction.Next
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = NeliMagenta,
+                        unfocusedBorderColor = Color(0x44A855F7),
+                        focusedTextColor = NeliTextPrimary,
+                        unfocusedTextColor = NeliTextPrimary
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("account_email_identifier_input")
+                )
+
+                OutlinedTextField(
+                    value = emailPasswordInput,
+                    onValueChange = {
+                        emailPasswordInput = it
+                        onClearAuthError()
+                    },
+                    label = { Text("Password") },
+                    leadingIcon = {
+                        Icon(Icons.Default.Lock, contentDescription = null, tint = NeliGenreCyan)
+                    },
+                    trailingIcon = {
+                        IconButton(onClick = { isEmailPasswordVisible = !isEmailPasswordVisible }) {
+                            Icon(
+                                imageVector = if (isEmailPasswordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                contentDescription = if (isEmailPasswordVisible) "Hide Password" else "Show Password",
+                                tint = NeliTextSecondary
+                            )
+                        }
+                    },
+                    visualTransformation = if (isEmailPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Password,
+                        imeAction = ImeAction.Done
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = NeliMagenta,
+                        unfocusedBorderColor = Color(0x44A855F7),
+                        focusedTextColor = NeliTextPrimary,
+                        unfocusedTextColor = NeliTextPrimary
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("account_email_password_input")
+                )
+
+                Button(
+                    onClick = {
+                        if (!isAuthLoading) {
+                            if (isEmailSignUp) {
+                                onSignUpByEmail(
+                                    emailSignUpUsername.trim(),
+                                    emailOrUsernameInput.trim(),
+                                    emailPasswordInput
+                                )
+                            } else {
+                                onSignInByEmail(emailOrUsernameInput.trim(), emailPasswordInput)
+                            }
+                        }
+                    },
+                    enabled = !isAuthLoading,
+                    colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp)
+                        .testTag("account_email_submit_button")
+                ) {
+                    if (isAuthLoading) {
+                        CircularProgressIndicator(
+                            color = Color.White,
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        Text(
+                            text = if (isEmailSignUp) "Sign Up with Email" else "Login with Email",
+                            color = Color.White,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.ExtraBold
+                        )
                     }
                 }
             }

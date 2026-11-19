@@ -2,39 +2,32 @@ package com.example.ads
 
 import android.app.Activity
 import android.content.Context
+import android.graphics.Color as AndroidColor
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.text.TextUtils
 import android.util.Log
+import android.util.TypedValue
 import android.view.Gravity
-import android.view.View
 import android.view.ViewGroup
+import android.widget.Button
 import android.widget.FrameLayout
-import androidx.compose.animation.AnimatedVisibility
+import android.widget.ImageView
+import android.widget.LinearLayout
+import android.widget.TextView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.defaultMinSize
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.OpenInNew
-import androidx.compose.material.icons.filled.OpenInNew
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -46,703 +39,926 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import coil.compose.AsyncImage
+import com.example.data.NeliAdminManager
+import com.example.data.NeliFreeForeverAccountsManager
 import com.example.data.NeliSubscriptionManager
+import com.example.ui.theme.NeliThemeManager
 import com.example.ui.tv.NeliTvDetector
-import com.startapp.sdk.ads.banner.Banner
-import com.startapp.sdk.ads.banner.BannerListener
-import com.startapp.sdk.ads.nativead.NativeAdDetails
-import com.startapp.sdk.ads.nativead.NativeAdPreferences
-import com.startapp.sdk.ads.nativead.StartAppNativeAd
-import com.startapp.sdk.adsbase.Ad
-import com.startapp.sdk.adsbase.StartAppAd
-import com.startapp.sdk.adsbase.StartAppSDK
-import com.startapp.sdk.adsbase.adlisteners.AdDisplayListener
-import com.startapp.sdk.adsbase.adlisteners.AdEventListener
-import com.startapp.sdk.adsbase.adlisteners.VideoListener
+import com.google.android.gms.ads.AdError
+import com.google.android.gms.ads.AdListener
+import com.google.android.gms.ads.AdLoader
+import com.google.android.gms.ads.AdRequest
+import com.google.android.gms.ads.AdSize
+import com.google.android.gms.ads.AdView
+import com.google.android.gms.ads.FullScreenContentCallback
+import com.google.android.gms.ads.LoadAdError
+import com.google.android.gms.ads.MobileAds
+import com.google.android.gms.ads.RequestConfiguration
+import com.google.android.gms.ads.appopen.AppOpenAd
+import com.google.android.gms.ads.nativead.NativeAd
+import com.google.android.gms.ads.nativead.NativeAdOptions
+import com.google.android.gms.ads.nativead.NativeAdView
+import com.google.android.gms.ads.rewardedinterstitial.RewardedInterstitialAd
+import com.google.android.gms.ads.rewardedinterstitial.RewardedInterstitialAdLoadCallback
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Centralized Start.io Ad Manager for NeliTv 2.5:
+ * Production Google AdMob Monetization Manager for NeliTV.
  *
- * App ID: 209957114
+ * Strictly Production Mode (`IS_TEST_MODE_ENABLED = false`):
+ * - App ID: `ca-app-pub-5204110379616479~8471497203`
+ * - Banner: `ca-app-pub-5204110379616479/4528382767`
+ * - Rewarded Interstitial: `ca-app-pub-5204110379616479/8561454550`
+ * - Native Advanced: `ca-app-pub-5204110379616479/4267373368`
+ * - App Open: `ca-app-pub-5204110379616479/4953382032`
+ * - app-ads.txt: `google.com, pub-5204110379616479, DIRECT, f08c47fec0942fa0`
  *
- * Features:
- * 1. Automatic suppression when valid Premium subscription is active (100% ad-free, no blank gaps).
- * 2. Mobile and Smart TV separation (Smart TV hardware or forced TV mode has ZERO ads).
- * 3. Preloads and manages Interstitial, Rewarded Video, Banner, and Native ads.
- * 4. Channel opening ad integration with timeout safety (never blocks live streams if ad fails).
- * 5. 15-Minute intelligent playback ad-break scheduler.
- * 6. Detailed diagnostic logging under tag [NeliTvAds].
+ * Placements:
+ * - App Open Ad on app launch / foreground resume.
+ * - Banner Ads below Home hero slider, after every category in Discovery & Movies, and in Movie Details.
+ * - Native Advanced Ads in Live TV on Home and inside Movie rows.
+ * - Rewarded Interstitial Ads when user plays a movie, plays any channel, or downloads a movie/episode.
+ * - Zero 15-minute playback interruptions; zero ads for VIP/Ad-Free emails (e.g. Alexbaineth@gmail.com),
+ *   Admin, active Premium members, or Smart TV mode.
  */
 object NeliAdManager {
-    private const val TAG = "NeliTvAds"
-    const val START_IO_APP_ID = "209957114"
 
-    // 15-Minute playback ad interval in milliseconds (15 * 60 * 1000)
-    const val AD_BREAK_INTERVAL_MS = 15 * 60 * 1000L
+    private const val TAG = "NeliAdMob"
+
+    const val IS_TEST_MODE_ENABLED: Boolean = false
+    const val ADMOB_APP_ID: String = "ca-app-pub-5204110379616479~8471497203"
+    const val BANNER_AD_UNIT_ID: String = "ca-app-pub-5204110379616479/4528382767"
+    const val REWARDED_INTERSTITIAL_AD_UNIT_ID: String = "ca-app-pub-5204110379616479/8561454550"
+    const val NATIVE_ADVANCED_AD_UNIT_ID: String = "ca-app-pub-5204110379616479/4267373368"
+    const val APP_OPEN_AD_UNIT_ID: String = "ca-app-pub-5204110379616479/4953382032"
+    const val APP_ADS_TXT_LINE: String = "google.com, pub-5204110379616479, DIRECT, f08c47fec0942fa0"
+
+    private const val APP_OPEN_CACHE_VALIDITY_MS: Long = 4L * 60L * 60L * 1000L // 4 hours
+    private const val APP_OPEN_MIN_INTERVAL_MS: Long = 30_000L // avoid double-triggering on quick activity resume
+    private const val REWARDED_INTERSTITIAL_COOLDOWN_MS: Long = 20_000L // smooth UX while monetizing every action
+    private const val NATIVE_RELOAD_INTERVAL_MS: Long = 90_000L
 
     private val mainHandler = Handler(Looper.getMainLooper())
-    private var isInitialized = false
+    private val sdkInitialized = AtomicBoolean(false)
+    private val isAppOpenLoading = AtomicBoolean(false)
+    private val isRewardedInterstitialLoading = AtomicBoolean(false)
+    private val isNativeLoading = AtomicBoolean(false)
 
-    private var interstitialAd: StartAppAd? = null
-    private var rewardedAd: StartAppAd? = null
-    private var isInterstitialLoaded = false
-    private var isRewardedLoaded = false
-    private var isPreloadingInterstitial = false
-    private var isPreloadingRewarded = false
-
-    // Playback ad-break timer tracking
-    private var currentChannelId: String? = null
-    private var lastAdBreakTimeMs: Long = 0L
-    private var playbackSessionStartMs: Long = 0L
-
-    private val _nativeCardAdState = MutableStateFlow<NativeAdDetails?>(null)
-    val nativeCardAdState: StateFlow<NativeAdDetails?> = _nativeCardAdState.asStateFlow()
+    private val _isSdkReady = MutableStateFlow(false)
+    val isSdkReady: StateFlow<Boolean> = _isSdkReady.asStateFlow()
 
     private val _isAdCurrentlyDisplaying = MutableStateFlow(false)
     val isAdCurrentlyDisplaying: StateFlow<Boolean> = _isAdCurrentlyDisplaying.asStateFlow()
 
-    /**
-     * Initializes Start.io SDK on application launch.
-     */
-    fun initialize(context: Context) {
-        if (isInitialized) return
-        val appContext = context.applicationContext
+    private val _nativeAdState = MutableStateFlow<NativeAd?>(null)
+    val nativeAdState: StateFlow<NativeAd?> = _nativeAdState.asStateFlow()
 
-        // Rule: Smart TV has zero ads
-        if (NeliTvDetector.isTelevision(appContext)) {
-            Log.i(TAG, "Smart TV device detected. Start.io ads permanently disabled.")
+    @Volatile
+    private var cachedAppOpenAd: AppOpenAd? = null
+
+    @Volatile
+    private var appOpenLoadedAtMs: Long = 0L
+
+    @Volatile
+    private var lastAppOpenShownAtMs: Long = 0L
+
+    @Volatile
+    private var cachedRewardedInterstitialAd: RewardedInterstitialAd? = null
+
+    @Volatile
+    private var lastRewardedInterstitialShownAtMs: Long = 0L
+
+    @Volatile
+    private var lastNativeLoadedAtMs: Long = 0L
+
+    @Volatile
+    private var isKidsContentActive: Boolean = false
+
+    @Volatile
+    private var appOpenRetryCount: Int = 0
+
+    @Volatile
+    private var rewardedRetryCount: Int = 0
+
+    @Volatile
+    private var nativeRetryCount: Int = 0
+
+    private const val MAX_AD_RETRY_ATTEMPTS: Int = 3
+    private const val AD_SHOW_WATCHDOG_MS: Long = 2_500L
+
+    fun initialize(context: Context) {
+        val appContext = context.applicationContext
+        if (NeliTvDetector.isHardwareTelevision(appContext) || NeliTvDetector.isTelevision(appContext)) {
             return
         }
-
-        try {
-            Log.i(TAG, "Initializing Start.io SDK strictly with App ID $START_IO_APP_ID...")
-            StartAppSDK.initParams(appContext, START_IO_APP_ID)
-                .setReturnAdsEnabled(false) // Disable intrusive return/splash ads
-                .setCallback {
-                    isInitialized = true
-                    Log.i(TAG, "Start.io SDK initialized successfully with App ID $START_IO_APP_ID!")
-                    preloadInterstitialAd(appContext)
-                    preloadRewardedAd(appContext)
-                    preloadNativeAd(appContext)
+        if (isRunningInRobolectricTest()) {
+            sdkInitialized.set(true)
+            _isSdkReady.value = true
+            return
+        }
+        if (sdkInitialized.compareAndSet(false, true)) {
+            Thread({
+                try {
+                    // Initialize Google Mobile Ads SDK off the main thread per AdMob best practices
+                    // to avoid blocking MainActivity's initial SurfaceSyncGroup frame transaction.
+                    val prodConfig = RequestConfiguration.Builder()
+                        .setTestDeviceIds(emptyList())
+                        .build()
+                    MobileAds.setRequestConfiguration(prodConfig)
+                    MobileAds.initialize(appContext) {
+                        _isSdkReady.value = true
+                        mainHandler.post {
+                            if (isAdsAllowed(appContext) && isDeviceOnline(appContext)) {
+                                preloadAppOpenAd(appContext)
+                                preloadRewardedInterstitialAd(appContext)
+                                preloadNativeAd(appContext)
+                            }
+                        }
+                    }
+                } catch (e: Throwable) {
+                    Log.w(TAG, "AdMob init error: ${e.message}")
+                    sdkInitialized.set(false)
                 }
-                .init()
-            isInitialized = true
-        } catch (e: Exception) {
-            Log.e(TAG, "Start.io initialization failed: ${e.message}", e)
+            }, "NeliAdMobInit").start()
+        } else if (_isSdkReady.value && isAdsAllowed(appContext) && isDeviceOnline(appContext)) {
+            mainHandler.post {
+                if (cachedAppOpenAd == null) preloadAppOpenAd(appContext)
+                if (cachedRewardedInterstitialAd == null) preloadRewardedInterstitialAd(appContext)
+                if (_nativeAdState.value == null) preloadNativeAd(appContext)
+            }
         }
     }
 
-    /**
-     * Centralized ad gate: Returns true ONLY if user is on Mobile AND does not have an active Premium plan.
-     */
+    fun onNetworkRestored(context: Context) {
+        val appContext = context.applicationContext
+        if (isRunningInRobolectricTest()) return
+        if (!isAdsAllowed(appContext) || !isDeviceOnline(appContext)) return
+        appOpenRetryCount = 0
+        rewardedRetryCount = 0
+        nativeRetryCount = 0
+        if (!sdkInitialized.get()) {
+            initialize(appContext)
+        } else if (_isSdkReady.value) {
+            preloadAppOpenAd(appContext)
+            preloadRewardedInterstitialAd(appContext)
+            preloadNativeAd(appContext)
+        }
+    }
+
+    fun updateAgeRestrictedForKidsContent(isKids: Boolean) {
+        isKidsContentActive = isKids
+    }
+
     fun isAdsAllowed(context: Context): Boolean {
-        // 1. Smart TV devices are 100% ad-free
-        if (NeliTvDetector.isTelevision(context)) {
-            return false
-        }
-        // 2. Active Premium subscription users are 100% ad-free
-        if (NeliSubscriptionManager.subscriptionState.value.isActiveNow) {
-            return false
-        }
+        val subState = NeliSubscriptionManager.subscriptionState.value
+        val activeEmail = subState.linkedUserEmail
+        if (subState.isActiveNow) return false
+        if (NeliFreeForeverAccountsManager.isAdFreeVipEmail(activeEmail)) return false
+        if (NeliAdminManager.isAdminSessionActive.value) return false
+        if (NeliTvDetector.isHardwareTelevision(context) || NeliTvDetector.isTelevision(context)) return false
         return true
     }
 
-    /**
-     * Preloads the next interstitial ad in background.
-     */
-    fun preloadInterstitialAd(context: Context) {
-        if (!isAdsAllowed(context) || isPreloadingInterstitial) return
-        isPreloadingInterstitial = true
-
-        mainHandler.post {
-            try {
-                if (interstitialAd == null) {
-                    interstitialAd = StartAppAd(context.applicationContext)
-                }
-                Log.d(TAG, "Requesting preloaded Interstitial ad from Start.io...")
-                interstitialAd?.loadAd(StartAppAd.AdMode.AUTOMATIC, object : AdEventListener {
-                    override fun onReceiveAd(ad: Ad) {
-                        isInterstitialLoaded = true
-                        isPreloadingInterstitial = false
-                        Log.i(TAG, "Start.io Interstitial preloaded successfully!")
-                    }
-
-                    override fun onFailedToReceiveAd(ad: Ad?) {
-                        isInterstitialLoaded = false
-                        isPreloadingInterstitial = false
-                        Log.w(TAG, "Start.io Interstitial preload failed: ${ad?.errorMessage}")
-                    }
-                })
-            } catch (e: Exception) {
-                isPreloadingInterstitial = false
-                Log.e(TAG, "Error preloading interstitial: ${e.message}")
-            }
+    fun isDeviceOnline(context: Context): Boolean {
+        return try {
+            val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+                ?: return true
+            val network = cm.activeNetwork ?: return false
+            val caps = cm.getNetworkCapabilities(network) ?: return false
+            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        } catch (_: Throwable) {
+            true
         }
     }
 
-    /**
-     * Preloads the next rewarded video ad in background.
-     */
-    fun preloadRewardedAd(context: Context) {
-        if (!isAdsAllowed(context) || isPreloadingRewarded) return
-        isPreloadingRewarded = true
-
-        mainHandler.post {
-            try {
-                if (rewardedAd == null) {
-                    rewardedAd = StartAppAd(context.applicationContext)
-                }
-                Log.d(TAG, "Requesting preloaded Rewarded Video ad from Start.io...")
-                rewardedAd?.loadAd(StartAppAd.AdMode.REWARDED_VIDEO, object : AdEventListener {
-                    override fun onReceiveAd(ad: Ad) {
-                        isRewardedLoaded = true
-                        isPreloadingRewarded = false
-                        Log.i(TAG, "Start.io Rewarded Video preloaded successfully!")
-                    }
-
-                    override fun onFailedToReceiveAd(ad: Ad?) {
-                        isRewardedLoaded = false
-                        isPreloadingRewarded = false
-                        Log.w(TAG, "Start.io Rewarded Video preload failed: ${ad?.errorMessage}")
-                    }
-                })
-            } catch (e: Exception) {
-                isPreloadingRewarded = false
-                Log.e(TAG, "Error preloading rewarded video: ${e.message}")
-            }
-        }
+    fun buildProductionAdRequest(): AdRequest {
+        return AdRequest.Builder().build()
     }
 
-    /**
-     * Preloads a native ad matching NeliTv's channel card layout.
-     */
-    fun preloadNativeAd(context: Context) {
-        if (!isAdsAllowed(context)) {
-            _nativeCardAdState.value = null
-            return
-        }
+    // =========================================================================
+    // 1. APP OPEN AD (ca-app-pub-5204110379616479/4953382032)
+    // =========================================================================
+
+    fun preloadAppOpenAd(context: Context) {
+        val appContext = context.applicationContext
+        if (isRunningInRobolectricTest()) return
+        if (!isAdsAllowed(appContext) || !isDeviceOnline(appContext)) return
+        if (isAppOpenAdAvailable()) return
+        if (!isAppOpenLoading.compareAndSet(false, true)) return
+
         mainHandler.post {
             try {
-                val startAppNative = StartAppNativeAd(context.applicationContext)
-                val pref = NativeAdPreferences()
-                    .setAdsNumber(1)
-                    .setAutoBitmapDownload(true)
-                    .setPrimaryImageSize(2)
+                AppOpenAd.load(
+                    appContext,
+                    APP_OPEN_AD_UNIT_ID,
+                    buildProductionAdRequest(),
+                    object : AppOpenAd.AppOpenAdLoadCallback() {
+                        override fun onAdLoaded(ad: AppOpenAd) {
+                            cachedAppOpenAd = ad
+                            appOpenLoadedAtMs = System.currentTimeMillis()
+                            appOpenRetryCount = 0
+                            isAppOpenLoading.set(false)
+                        }
 
-                startAppNative.loadAd(pref, object : AdEventListener {
-                    override fun onReceiveAd(ad: Ad) {
-                        val ads = startAppNative.nativeAds
-                        if (!ads.isNullOrEmpty()) {
-                            _nativeCardAdState.value = ads[0]
-                            Log.i(TAG, "Start.io Native Ad loaded: ${ads[0].title}")
+                        override fun onAdFailedToLoad(error: LoadAdError) {
+                            cachedAppOpenAd = null
+                            isAppOpenLoading.set(false)
+                            Log.w(TAG, "AppOpen failed to load: ${error.code} ${error.message}")
+                            if (appOpenRetryCount < MAX_AD_RETRY_ATTEMPTS && isAdsAllowed(appContext) && isDeviceOnline(appContext)) {
+                                val delayMs = 30_000L * (1L shl appOpenRetryCount)
+                                appOpenRetryCount++
+                                mainHandler.postDelayed({ preloadAppOpenAd(appContext) }, delayMs)
+                            }
                         }
                     }
+                )
+            } catch (e: Throwable) {
+                isAppOpenLoading.set(false)
+                Log.w(TAG, "AppOpen load exception: ${e.message}")
+            }
+        }
+    }
 
-                    override fun onFailedToReceiveAd(ad: Ad?) {
-                        Log.d(TAG, "Start.io Native Ad no-fill / failed: ${ad?.errorMessage}")
+    private fun isAppOpenAdAvailable(): Boolean {
+        val ad = cachedAppOpenAd ?: return false
+        val age = System.currentTimeMillis() - appOpenLoadedAtMs
+        return age in 0 until APP_OPEN_CACHE_VALIDITY_MS
+    }
+
+    fun showAppOpenAdIfAvailable(activity: Activity, onComplete: () -> Unit = {}) {
+        if (isRunningInRobolectricTest() || activity.isFinishing || activity.isDestroyed) {
+            onComplete()
+            return
+        }
+        if (!isAdsAllowed(activity) || !isDeviceOnline(activity)) {
+            onComplete()
+            return
+        }
+        if (_isAdCurrentlyDisplaying.value) {
+            onComplete()
+            return
+        }
+        val now = System.currentTimeMillis()
+        if (now - lastAppOpenShownAtMs < APP_OPEN_MIN_INTERVAL_MS) {
+            onComplete()
+            return
+        }
+        val ad = cachedAppOpenAd
+        if (ad == null || !isAppOpenAdAvailable()) {
+            preloadAppOpenAd(activity)
+            onComplete()
+            return
+        }
+
+        val completed = AtomicBoolean(false)
+        val safeComplete = {
+            if (completed.compareAndSet(false, true)) {
+                _isAdCurrentlyDisplaying.value = false
+                mainHandler.post { onComplete() }
+            }
+        }
+
+        mainHandler.post {
+            if (activity.isFinishing || activity.isDestroyed) {
+                safeComplete()
+                return@post
+            }
+            cachedAppOpenAd = null
+            _isAdCurrentlyDisplaying.value = true
+            lastAppOpenShownAtMs = System.currentTimeMillis()
+            val didShow = AtomicBoolean(false)
+            val watchdog = Runnable {
+                if (!didShow.get()) {
+                    Log.w(TAG, "AppOpen show watchdog triggered; continuing app flow seamlessly")
+                    safeComplete()
+                }
+            }
+            mainHandler.postDelayed(watchdog, AD_SHOW_WATCHDOG_MS)
+            ad.fullScreenContentCallback = object : FullScreenContentCallback() {
+                override fun onAdDismissedFullScreenContent() {
+                    mainHandler.removeCallbacks(watchdog)
+                    preloadAppOpenAd(activity.applicationContext)
+                    safeComplete()
+                }
+
+                override fun onAdFailedToShowFullScreenContent(adError: AdError) {
+                    mainHandler.removeCallbacks(watchdog)
+                    preloadAppOpenAd(activity.applicationContext)
+                    safeComplete()
+                }
+
+                override fun onAdShowedFullScreenContent() {
+                    didShow.set(true)
+                    mainHandler.removeCallbacks(watchdog)
+                    _isAdCurrentlyDisplaying.value = true
+                }
+            }
+            try {
+                ad.show(activity)
+            } catch (e: Throwable) {
+                mainHandler.removeCallbacks(watchdog)
+                Log.w(TAG, "AppOpen show error: ${e.message}")
+                preloadAppOpenAd(activity.applicationContext)
+                safeComplete()
+            }
+        }
+    }
+
+    // =========================================================================
+    // 2. REWARDED INTERSTITIAL AD (ca-app-pub-5204110379616479/8561454550)
+    //    Triggers when user plays a movie, plays any channel, or downloads.
+    // =========================================================================
+
+    fun preloadRewardedInterstitialAd(context: Context) {
+        val appContext = context.applicationContext
+        if (isRunningInRobolectricTest()) return
+        if (!isAdsAllowed(appContext) || !isDeviceOnline(appContext)) return
+        if (cachedRewardedInterstitialAd != null) return
+        if (!isRewardedInterstitialLoading.compareAndSet(false, true)) return
+
+        mainHandler.post {
+            try {
+                RewardedInterstitialAd.load(
+                    appContext,
+                    REWARDED_INTERSTITIAL_AD_UNIT_ID,
+                    buildProductionAdRequest(),
+                    object : RewardedInterstitialAdLoadCallback() {
+                        override fun onAdLoaded(ad: RewardedInterstitialAd) {
+                            cachedRewardedInterstitialAd = ad
+                            rewardedRetryCount = 0
+                            isRewardedInterstitialLoading.set(false)
+                        }
+
+                        override fun onAdFailedToLoad(error: LoadAdError) {
+                            cachedRewardedInterstitialAd = null
+                            isRewardedInterstitialLoading.set(false)
+                            Log.w(TAG, "RewardedInterstitial failed to load: ${error.code} ${error.message}")
+                            if (rewardedRetryCount < MAX_AD_RETRY_ATTEMPTS && isAdsAllowed(appContext) && isDeviceOnline(appContext)) {
+                                val delayMs = 30_000L * (1L shl rewardedRetryCount)
+                                rewardedRetryCount++
+                                mainHandler.postDelayed({ preloadRewardedInterstitialAd(appContext) }, delayMs)
+                            }
+                        }
                     }
-                })
-            } catch (e: Exception) {
-                Log.e(TAG, "Error loading native ad: ${e.message}")
+                )
+            } catch (e: Throwable) {
+                isRewardedInterstitialLoading.set(false)
+                Log.w(TAG, "RewardedInterstitial load exception: ${e.message}")
+            }
+        }
+    }
+
+    fun showRewardedInterstitialAd(
+        activity: Activity?,
+        placementTag: String,
+        enforceCooldown: Boolean = true,
+        onProceed: () -> Unit
+    ) {
+        if (activity == null || isRunningInRobolectricTest() || activity.isFinishing || activity.isDestroyed) {
+            onProceed()
+            return
+        }
+        if (!isAdsAllowed(activity) || !isDeviceOnline(activity)) {
+            onProceed()
+            return
+        }
+        if (_isAdCurrentlyDisplaying.value) {
+            onProceed()
+            return
+        }
+        val now = System.currentTimeMillis()
+        if (enforceCooldown && (now - lastRewardedInterstitialShownAtMs < REWARDED_INTERSTITIAL_COOLDOWN_MS)) {
+            if (cachedRewardedInterstitialAd == null) {
+                preloadRewardedInterstitialAd(activity)
+            }
+            onProceed()
+            return
+        }
+
+        val ad = cachedRewardedInterstitialAd
+        if (ad == null) {
+            preloadRewardedInterstitialAd(activity)
+            onProceed()
+            return
+        }
+
+        val proceeded = AtomicBoolean(false)
+        val safeProceed = {
+            if (proceeded.compareAndSet(false, true)) {
+                _isAdCurrentlyDisplaying.value = false
+                mainHandler.post { onProceed() }
+            }
+        }
+
+        mainHandler.post {
+            if (activity.isFinishing || activity.isDestroyed) {
+                safeProceed()
+                return@post
+            }
+            cachedRewardedInterstitialAd = null
+            _isAdCurrentlyDisplaying.value = true
+            lastRewardedInterstitialShownAtMs = System.currentTimeMillis()
+            val didShow = AtomicBoolean(false)
+            val watchdog = Runnable {
+                if (!didShow.get()) {
+                    Log.w(TAG, "RewardedInterstitial ($placementTag) show watchdog triggered; proceeding without blocking")
+                    preloadRewardedInterstitialAd(activity.applicationContext)
+                    safeProceed()
+                }
+            }
+            mainHandler.postDelayed(watchdog, AD_SHOW_WATCHDOG_MS)
+
+            ad.fullScreenContentCallback = object : FullScreenContentCallback() {
+                override fun onAdDismissedFullScreenContent() {
+                    mainHandler.removeCallbacks(watchdog)
+                    preloadRewardedInterstitialAd(activity.applicationContext)
+                    safeProceed()
+                }
+
+                override fun onAdFailedToShowFullScreenContent(adError: AdError) {
+                    mainHandler.removeCallbacks(watchdog)
+                    Log.w(TAG, "RewardedInterstitial ($placementTag) show failed: ${adError.message}")
+                    preloadRewardedInterstitialAd(activity.applicationContext)
+                    safeProceed()
+                }
+
+                override fun onAdShowedFullScreenContent() {
+                    didShow.set(true)
+                    mainHandler.removeCallbacks(watchdog)
+                    _isAdCurrentlyDisplaying.value = true
+                }
+            }
+
+            try {
+                ad.show(activity) { _ ->
+                    // User earned reward; proceed once ad closes in onAdDismissedFullScreenContent
+                }
+            } catch (e: Throwable) {
+                mainHandler.removeCallbacks(watchdog)
+                Log.w(TAG, "RewardedInterstitial ($placementTag) exception: ${e.message}")
+                preloadRewardedInterstitialAd(activity.applicationContext)
+                safeProceed()
             }
         }
     }
 
     /**
-     * Channel Opening Ad:
-     * When user taps a channel on "Watch with Ads":
-     * - Checks if an Interstitial ad is ready.
-     * - If ready, displays it and invokes [onPlaybackResume] upon dismissal.
-     * - If no ad is ready, or if ad fails/times out, IMMEDIATELY invokes [onPlaybackResume]
-     *   without stalling or blocking player loading.
+     * Shows a Rewarded Interstitial ad when opening any Live TV channel or Movie.
      */
     fun showChannelOpeningAd(
-        activity: Activity,
+        activity: Activity?,
         channelName: String,
-        onPlaybackResume: () -> Unit
+        channelId: String,
+        onProceed: () -> Unit
     ) {
-        if (!isAdsAllowed(activity)) {
-            Log.d(TAG, "Ad skipped for $channelName: User has Premium or is on TV.")
-            onPlaybackResume()
-            return
-        }
-
-        val ad = interstitialAd
-        if (ad != null && isInterstitialLoaded) {
-            Log.i(TAG, "Showing Start.io Interstitial for channel opening ($channelName)...")
-            var hasResumed = false
-            val safeResume = {
-                if (!hasResumed) {
-                    hasResumed = true
-                    _isAdCurrentlyDisplaying.value = false
-                    isInterstitialLoaded = false
-                    preloadInterstitialAd(activity)
-                    onPlaybackResume()
-                }
-            }
-
-            // Safety watchdog timeout: If ad UI doesn't return within 8s, resume playback
-            mainHandler.postDelayed({
-                if (!hasResumed) {
-                    Log.w(TAG, "Ad watchdog timeout triggered, resuming playback.")
-                    safeResume()
-                }
-            }, 8000L)
-
-            ad.showAd(object : AdDisplayListener {
-                override fun adHidden(ad: Ad?) {
-                    Log.d(TAG, "Interstitial closed by user, starting clean video playback.")
-                    safeResume()
-                }
-
-                override fun adDisplayed(ad: Ad?) {
-                    _isAdCurrentlyDisplaying.value = true
-                    Log.i(TAG, "Interstitial impression logged successfully.")
-                }
-
-                override fun adClicked(ad: Ad?) {
-                    Log.i(TAG, "User clicked Interstitial ad.")
-                }
-
-                override fun adNotDisplayed(ad: Ad?) {
-                    Log.w(TAG, "Interstitial could not be displayed: ${ad?.errorMessage}")
-                    safeResume()
-                }
-            })
-        } else {
-            Log.d(TAG, "No preloaded ad ready for $channelName. Opening channel immediately.")
-            _isAdCurrentlyDisplaying.value = false
-            preloadInterstitialAd(activity)
-            onPlaybackResume()
-        }
+        showRewardedInterstitialAd(
+            activity = activity,
+            placementTag = "play_$channelId",
+            enforceCooldown = true,
+            onProceed = onProceed
+        )
     }
 
     /**
-     * Registers playback session start or channel change to track the 15-minute ad break.
+     * Shows a Rewarded Interstitial ad when starting a movie or episode download.
      */
-    fun onChannelPlaybackStarted(channelId: String) {
-        currentChannelId = channelId
-        playbackSessionStartMs = System.currentTimeMillis()
-        lastAdBreakTimeMs = System.currentTimeMillis()
-        Log.d(TAG, "Ad timer initialized for channel $channelId. Next break in 15 minutes.")
+    fun showDownloadRewardedAd(
+        activity: Activity?,
+        onProceed: () -> Unit
+    ) {
+        showRewardedInterstitialAd(
+            activity = activity,
+            placementTag = "download_action",
+            enforceCooldown = false,
+            onProceed = onProceed
+        )
     }
 
-    /**
-     * Evaluates whether 15 minutes of uninterrupted playback have elapsed.
-     * If ready, triggers ad break safely without corrupting stream playback.
-     */
-    fun checkAndTrigger15MinAdBreak(
-        activity: Activity,
-        onBeforeAd: () -> Unit,
-        onAfterAd: () -> Unit
-    ): Boolean {
-        if (!isAdsAllowed(activity)) return false
+    // =========================================================================
+    // 3. NATIVE ADVANCED AD (ca-app-pub-5204110379616479/4267373368)
+    // =========================================================================
 
+    fun preloadNativeAd(context: Context, forceReload: Boolean = false) {
+        val appContext = context.applicationContext
+        if (isRunningInRobolectricTest()) return
+        if (!isAdsAllowed(appContext) || !isDeviceOnline(appContext)) return
         val now = System.currentTimeMillis()
-        val elapsed = now - lastAdBreakTimeMs
-
-        if (elapsed >= AD_BREAK_INTERVAL_MS) {
-            val ad = interstitialAd
-            if (ad != null && isInterstitialLoaded) {
-                Log.i(TAG, "15-minute ad break interval reached ($elapsed ms). Showing scheduled ad break...")
-                lastAdBreakTimeMs = now
-                onBeforeAd()
-
-                ad.showAd(object : AdDisplayListener {
-                    override fun adHidden(ad: Ad?) {
-                        Log.d(TAG, "15-minute ad break dismissed, resuming stream.")
-                        isInterstitialLoaded = false
-                        preloadInterstitialAd(activity)
-                        onAfterAd()
-                    }
-
-                    override fun adDisplayed(ad: Ad?) {
-                        Log.i(TAG, "15-minute ad break displayed.")
-                    }
-
-                    override fun adClicked(ad: Ad?) {
-                        Log.i(TAG, "15-minute ad break clicked.")
-                    }
-
-                    override fun adNotDisplayed(ad: Ad?) {
-                        Log.w(TAG, "15-minute ad could not display, resuming stream directly.")
-                        isInterstitialLoaded = false
-                        preloadInterstitialAd(activity)
-                        onAfterAd()
-                    }
-                })
-                return true
-            } else {
-                Log.d(TAG, "15-minute interval reached but no ad preloaded. Postponing break cleanly.")
-                lastAdBreakTimeMs = now - (AD_BREAK_INTERVAL_MS - 60_000L) // Retry in 1 minute
-                preloadInterstitialAd(activity)
-            }
-        }
-        return false
-    }
-
-    /**
-     * Shows an ad when user taps "Download Movie".
-     * Download starts in background and user is never blocked if ad fails or is dismissed.
-     */
-    fun showDownloadMovieAd(
-        activity: Activity,
-        onContinueDownload: () -> Unit
-    ) {
-        if (!isAdsAllowed(activity)) {
-            onContinueDownload()
+        if (!forceReload && _nativeAdState.value != null && (now - lastNativeLoadedAtMs < NATIVE_RELOAD_INTERVAL_MS)) {
             return
         }
+        if (!isNativeLoading.compareAndSet(false, true)) return
 
-        val ad = interstitialAd
-        if (ad != null && isInterstitialLoaded) {
-            Log.i(TAG, "Showing Start.io ad for movie download...")
-            var continued = false
-            fun continueOnce() {
-                if (!continued) {
-                    continued = true
-                    isInterstitialLoaded = false
-                    preloadInterstitialAd(activity)
-                    onContinueDownload()
-                }
+        mainHandler.post {
+            try {
+                val adLoader = AdLoader.Builder(appContext, NATIVE_ADVANCED_AD_UNIT_ID)
+                    .forNativeAd { loadedAd ->
+                        val previous = _nativeAdState.value
+                        _nativeAdState.value = loadedAd
+                        lastNativeLoadedAtMs = System.currentTimeMillis()
+                        nativeRetryCount = 0
+                        isNativeLoading.set(false)
+                        if (previous != null && previous !== loadedAd) {
+                            mainHandler.postDelayed({
+                                try {
+                                    previous.destroy()
+                                } catch (_: Throwable) {
+                                }
+                            }, 2_000L)
+                        }
+                    }
+                    .withAdListener(object : AdListener() {
+                        override fun onAdFailedToLoad(error: LoadAdError) {
+                            isNativeLoading.set(false)
+                            Log.w(TAG, "NativeAd failed to load: ${error.code} ${error.message}")
+                            if (nativeRetryCount < MAX_AD_RETRY_ATTEMPTS && isAdsAllowed(appContext) && isDeviceOnline(appContext)) {
+                                val delayMs = 30_000L * (1L shl nativeRetryCount)
+                                nativeRetryCount++
+                                mainHandler.postDelayed({ preloadNativeAd(appContext) }, delayMs)
+                            }
+                        }
+                    })
+                    .withNativeAdOptions(
+                        NativeAdOptions.Builder()
+                            .setAdChoicesPlacement(NativeAdOptions.ADCHOICES_TOP_RIGHT)
+                            .build()
+                    )
+                    .build()
+
+                adLoader.loadAd(buildProductionAdRequest())
+            } catch (e: Throwable) {
+                isNativeLoading.set(false)
+                Log.w(TAG, "NativeAd load exception: ${e.message}")
             }
-
-            ad.showAd(object : AdDisplayListener {
-                override fun adHidden(ad: Ad?) {
-                    Log.i(TAG, "Download ad dismissed by user, starting download now.")
-                    continueOnce()
-                }
-
-                override fun adDisplayed(ad: Ad?) {
-                    Log.i(TAG, "Download ad displayed.")
-                }
-
-                override fun adClicked(ad: Ad?) {
-                    Log.i(TAG, "Download ad clicked.")
-                }
-
-                override fun adNotDisplayed(ad: Ad?) {
-                    Log.w(TAG, "Download ad not displayed, continuing download.")
-                    continueOnce()
-                }
-            })
-        } else {
-            Log.d(TAG, "No preloaded ad for download, proceeding immediately.")
-            preloadInterstitialAd(activity)
-            onContinueDownload()
         }
     }
 
-    /**
-     * Shows Start.io App Open / Splash ad on app launch for mobile users.
-     */
-    fun showAppOpenSplashAd(activity: Activity) {
-        if (!isAdsAllowed(activity)) return
-        try {
-            StartAppAd.showSplash(activity, null)
-        } catch (e: Throwable) {
-            Log.d(TAG, "App open splash ad skipped: ${e.message}")
-        }
+    fun isRunningInRobolectricTest(): Boolean {
+        return Build.FINGERPRINT.equals("robolectric", ignoreCase = true) ||
+            Build.HARDWARE.equals("robolectric", ignoreCase = true) ||
+            System.getProperty("robolectric.logging") != null
     }
 }
 
 /**
- * Responsive Start.io Banner Ad Composable.
- *
- * If Premium is active or Smart TV is detected:
- * - Completely hides and collapses container (0dp space, no blank gap).
- *
- * If Ads are enabled:
- * - Embeds native Start.io Banner inside AndroidView.
- * - Auto-handles ad load errors and collapse without jitter.
+ * Production Google AdMob Adaptive Banner Composable (`ca-app-pub-5204110379616479/4528382767`).
+ * Collapses completely to 0dp when user is VIP/Ad-Free, offline, TV, or if ad does not fill.
  */
 @Composable
-fun StartIoBannerAd(
-    modifier: Modifier = Modifier,
-    adTag: String = "inline_banner"
+fun AdMobBannerAd(
+    adTag: String = "banner_default",
+    modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val subState by NeliSubscriptionManager.subscriptionState.collectAsState()
-    val isPremiumActive = subState.isActiveNow
+    val isAdminSession by NeliAdminManager.isAdminSessionActive.collectAsState()
+    val isSdkReady by NeliAdManager.isSdkReady.collectAsState()
 
-    if (!NeliAdManager.isAdsAllowed(context) || isPremiumActive) {
-        // Zero height, zero blank space when Premium is active
+    val isVipAdFree = subState.isActiveNow ||
+        NeliFreeForeverAccountsManager.isAdFreeVipEmail(subState.linkedUserEmail) ||
+        isAdminSession
+
+    if (isVipAdFree ||
+        !NeliAdManager.isAdsAllowed(context) ||
+        !NeliAdManager.isDeviceOnline(context) ||
+        NeliAdManager.isRunningInRobolectricTest()
+    ) {
         return
     }
 
-    var isFailed by remember { mutableStateOf(false) }
-
-    if (!isFailed) {
-        Box(
-            modifier = modifier
-                .fillMaxWidth()
-                .height(60.dp)
-                .testTag("startio_banner_ad_$adTag"),
-            contentAlignment = Alignment.Center
-        ) {
-            AndroidView(
-                factory = { ctx ->
-                    val frameLayout = FrameLayout(ctx).apply {
-                        layoutParams = ViewGroup.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.MATCH_PARENT
-                        )
-                        clipChildren = false
-                        clipToPadding = false
-                    }
-                    try {
-                        var act: Activity? = null
-                        var c = ctx
-                        while (c is android.content.ContextWrapper) {
-                            if (c is Activity) {
-                                act = c
-                                break
-                            }
-                            c = c.baseContext
-                        }
-                        val bannerContext = act ?: ctx
-
-                        val banner = Banner(bannerContext, object : BannerListener {
-                            override fun onReceiveAd(bannerView: View?) {
-                                isFailed = false
-                                Log.i("NeliTvAds", "Start.io Banner ($adTag) received successfully.")
-                            }
-
-                            override fun onFailedToReceiveAd(bannerView: View?) {
-                                isFailed = true
-                                Log.d("NeliTvAds", "Start.io Banner ($adTag) failed to receive ad. Collapsing.")
-                            }
-
-                            override fun onClick(bannerView: View?) {
-                                Log.d("NeliTvAds", "Start.io Banner ($adTag) clicked.")
-                            }
-
-                            override fun onImpression(bannerView: View?) {
-                                Log.d("NeliTvAds", "Start.io Banner ($adTag) impression recorded.")
-                            }
-                        }).apply {
-                            layoutParams = FrameLayout.LayoutParams(
-                                FrameLayout.LayoutParams.WRAP_CONTENT,
-                                FrameLayout.LayoutParams.WRAP_CONTENT,
-                                Gravity.CENTER
-                            )
-                        }
-                        frameLayout.addView(banner)
-                    } catch (e: Exception) {
-                        isFailed = true
-                        Log.e("NeliTvAds", "Error inflating Start.io Banner ($adTag): ${e.message}")
-                    }
-                    frameLayout
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(60.dp)
-            )
-        }
-    }
-}
-
-/**
- * Visually integrated Native Ad Card that resembles a channel card on the Home Page,
- * with clear and transparent "AD" badge per Google Play policy.
- */
-@Composable
-fun StartIoNativeCardAd(
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit = {}
-) {
-    val context = LocalContext.current
-    val subState by NeliSubscriptionManager.subscriptionState.collectAsState()
-    val isPremiumActive = subState.isActiveNow
-
-    if (!NeliAdManager.isAdsAllowed(context) || isPremiumActive) {
-        return
-    }
-
-    val nativeDetails by NeliAdManager.nativeCardAdState.collectAsState()
+    var isLoaded by remember(adTag) { mutableStateOf(false) }
+    var isFailed by remember(adTag) { mutableStateOf(false) }
+    var hasRequestedLoad by remember(adTag) { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
-        if (nativeDetails == null) {
-            NeliAdManager.preloadNativeAd(context)
+        NeliAdManager.initialize(context.applicationContext)
+    }
+
+    // If a banner fails transiently (e.g., temporary no-fill), keep height 0dp and retry silently once after 45s
+    LaunchedEffect(isFailed, isSdkReady) {
+        if (isFailed && isSdkReady) {
+            kotlinx.coroutines.delay(45_000L)
+            if (NeliAdManager.isAdsAllowed(context) && NeliAdManager.isDeviceOnline(context)) {
+                isFailed = false
+                hasRequestedLoad = false
+            }
         }
     }
 
-    val ad = nativeDetails ?: return
+    if (!isSdkReady || isFailed) return
 
-    var interactionView by remember { mutableStateOf<View?>(null) }
-    DisposableEffect(ad) {
+    val adViewHolder = remember(adTag) { arrayOfNulls<AdView>(1) }
+    DisposableEffect(adTag) {
         onDispose {
             try {
-                ad.unregisterView()
-            } catch (_: Exception) {}
+                adViewHolder[0]?.destroy()
+                adViewHolder[0] = null
+            } catch (_: Throwable) {
+            }
         }
     }
 
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .heightIn(min = 180.dp)
-    ) {
-        // Real-sized view layer measured across the full card so StartApp impression validation succeeds
-        AndroidView(
-            factory = { ctx ->
-                FrameLayout(ctx).apply {
-                    layoutParams = ViewGroup.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.MATCH_PARENT
-                    )
-                    interactionView = this
-                    try {
-                        ad.registerViewForInteraction(this)
-                    } catch (e: Exception) {
-                        Log.e("NeliTvAds", "Error registering native ad: ${e.message}")
-                    }
+            .then(
+                if (isLoaded) {
+                    Modifier.padding(vertical = 4.dp)
+                } else {
+                    Modifier
                 }
-            },
-            modifier = Modifier.matchParentSize()
-        )
-
-        Card(
+            )
+            .testTag("admob_banner_$adTag"),
+        contentAlignment = Alignment.Center
+    ) {
+        AndroidView(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(18.dp))
-                .clickable {
-                    try {
-                        interactionView?.performClick()
-                        onClick()
-                    } catch (e: Exception) {
-                        Log.e("NeliTvAds", "Error clicking native ad: ${e.message}")
+                .widthIn(max = 720.dp)
+                .then(if (isLoaded) Modifier.heightIn(min = 50.dp) else Modifier.heightIn(max = 0.dp)),
+            factory = { ctx ->
+                val container = FrameLayout(ctx).apply {
+                    layoutParams = ViewGroup.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    )
+                }
+                try {
+                    val density = ctx.resources.displayMetrics.density.coerceAtLeast(1f)
+                    val widthDp = ((ctx.resources.displayMetrics.widthPixels / density).toInt() - 16)
+                        .coerceIn(320, 720)
+                    val adView = AdView(ctx).apply {
+                        adUnitId = NeliAdManager.BANNER_AD_UNIT_ID
+                        setAdSize(AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(ctx, widthDp))
+                        adListener = object : AdListener() {
+                            override fun onAdLoaded() {
+                                isLoaded = true
+                                isFailed = false
+                            }
+
+                            override fun onAdFailedToLoad(error: LoadAdError) {
+                                isLoaded = false
+                                isFailed = true
+                            }
+                        }
+                    }
+                    adViewHolder[0] = adView
+                    container.addView(
+                        adView,
+                        FrameLayout.LayoutParams(
+                            FrameLayout.LayoutParams.MATCH_PARENT,
+                            FrameLayout.LayoutParams.WRAP_CONTENT,
+                            Gravity.CENTER
+                        )
+                    )
+                    hasRequestedLoad = true
+                    adView.loadAd(NeliAdManager.buildProductionAdRequest())
+                } catch (_: Throwable) {
+                    isFailed = true
+                }
+                container
+            },
+            update = { _ ->
+                if (isSdkReady && !isLoaded && !isFailed && !hasRequestedLoad) {
+                    adViewHolder[0]?.let { existing ->
+                        hasRequestedLoad = true
+                        try {
+                            existing.loadAd(NeliAdManager.buildProductionAdRequest())
+                        } catch (_: Throwable) {
+                            isFailed = true
+                        }
                     }
                 }
-                .border(1.dp, Color(0x55F59E0B), RoundedCornerShape(18.dp))
-                .testTag("startio_native_channel_card"),
-            shape = RoundedCornerShape(18.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF0F1738)),
-            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
-        ) {
-        Column(modifier = Modifier.fillMaxWidth()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(16f / 10f)
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(Color(0xFF1D264A), Color(0xFF101738))
-                        )
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                AsyncImage(
-                    model = ad.imageUrl,
-                    contentDescription = ad.title,
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(10.dp)
-                )
-
-                // Prominent and compliant AD badge
-                Row(
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .padding(8.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(Color(0xFFF59E0B))
-                        .padding(horizontal = 6.dp, vertical = 2.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(3.dp)
-                ) {
-                    Text(
-                        text = "SPONSORED",
-                        color = Color.Black,
-                        fontSize = 8.sp,
-                        fontWeight = FontWeight.Black
-                    )
-                }
-
-                Row(
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(8.dp)
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(Color(0xFF0055FF))
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    Text(
-                        text = "INSTALL",
-                        color = Color.White,
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.OpenInNew,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(10.dp)
-                    )
-                }
             }
-
-            // Info row matching channel card
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(34.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFF241B0D))
-                        .border(1.dp, Color(0xFFF59E0B), CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "AD",
-                        color = Color(0xFFFBBF24),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.ExtraBold
-                    )
-                }
-
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = ad.title.ifBlank { "Sponsored Recommendation" },
-                        color = Color.White,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = ad.description.ifBlank { "Featured app on NeliTv" },
-                        color = Color(0xFF8E9BAE),
-                        fontSize = 11.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-        }
+        )
     }
 }
+
+/**
+ * Production Google AdMob Native Advanced Ad Card (`ca-app-pub-5204110379616479/4267373368`).
+ * Renders inside a genuine `NativeAdView` with icon, headline, body, "Ad" badge, and CTA button.
+ * Collapses completely to 0dp when no ad is available or for VIP/Ad-Free users.
+ */
+@Composable
+fun AdMobNativeCardAd(
+    adTag: String = "native_default",
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val subState by NeliSubscriptionManager.subscriptionState.collectAsState()
+    val isAdminSession by NeliAdminManager.isAdminSessionActive.collectAsState()
+    val nativeAd by NeliAdManager.nativeAdState.collectAsState()
+    val isLightMode = NeliThemeManager.isLightMode
+
+    val isVipAdFree = subState.isActiveNow ||
+        NeliFreeForeverAccountsManager.isAdFreeVipEmail(subState.linkedUserEmail) ||
+        isAdminSession
+
+    if (isVipAdFree ||
+        !NeliAdManager.isAdsAllowed(context) ||
+        !NeliAdManager.isDeviceOnline(context) ||
+        NeliAdManager.isRunningInRobolectricTest()
+    ) {
+        return
+    }
+
+    LaunchedEffect(adTag) {
+        NeliAdManager.initialize(context.applicationContext)
+        NeliAdManager.preloadNativeAd(context.applicationContext)
+    }
+
+    val activeAd = nativeAd ?: return
+
+    val cardBg = if (isLightMode) Color(0xFFFDF2F6) else Color(0xFF10152B)
+    val cardBorder = if (isLightMode) Color(0x44FF2E7E) else Color(0x44FF2E7E)
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .widthIn(max = 760.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(cardBg)
+            .border(1.dp, cardBorder, RoundedCornerShape(14.dp))
+            .padding(2.dp)
+            .testTag("admob_native_$adTag")
+    ) {
+        AndroidView(
+            modifier = Modifier.fillMaxWidth(),
+            factory = { ctx ->
+                buildStyledNativeAdView(ctx, isLightMode)
+            },
+            update = { nativeAdView ->
+                bindNativeAdToView(nativeAdView, activeAd, isLightMode)
+            }
+        )
+    }
+}
+
+private fun dpToPx(context: Context, dp: Float): Int {
+    return TypedValue.applyDimension(
+        TypedValue.COMPLEX_UNIT_DIP,
+        dp,
+        context.resources.displayMetrics
+    ).toInt()
+}
+
+private fun buildStyledNativeAdView(context: Context, isLightMode: Boolean): NativeAdView {
+    val pad = dpToPx(context, 12f)
+    val nativeAdView = NativeAdView(context).apply {
+        layoutParams = ViewGroup.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        )
+    }
+
+    val rootRow = LinearLayout(context).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        setPadding(pad, pad, pad, pad)
+        layoutParams = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT
+        )
+    }
+
+    val iconSize = dpToPx(context, 48f)
+    val iconView = ImageView(context).apply {
+        id = android.R.id.icon
+        scaleType = ImageView.ScaleType.CENTER_CROP
+        layoutParams = LinearLayout.LayoutParams(iconSize, iconSize).apply {
+            marginEnd = dpToPx(context, 10f)
+        }
+    }
+
+    val textCol = LinearLayout(context).apply {
+        orientation = LinearLayout.VERTICAL
+        layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+            marginEnd = dpToPx(context, 10f)
+        }
+    }
+
+    val headerRow = LinearLayout(context).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+    }
+
+    val badgeView = TextView(context).apply {
+        text = "Ad"
+        textSize = 9f
+        setTypeface(null, Typeface.BOLD)
+        setTextColor(AndroidColor.WHITE)
+        val badgeBg = GradientDrawable().apply {
+            cornerRadius = dpToPx(context, 4f).toFloat()
+            setColor(AndroidColor.parseColor("#FF2E7E"))
+        }
+        background = badgeBg
+        setPadding(dpToPx(context, 5f), dpToPx(context, 1f), dpToPx(context, 5f), dpToPx(context, 1f))
+        layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply {
+            marginEnd = dpToPx(context, 6f)
+        }
+    }
+
+    val headlineView = TextView(context).apply {
+        id = android.R.id.text1
+        textSize = 13.5f
+        setTypeface(null, Typeface.BOLD)
+        maxLines = 1
+        ellipsize = TextUtils.TruncateAt.END
+        setTextColor(if (isLightMode) AndroidColor.parseColor("#111827") else AndroidColor.WHITE)
+        layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        )
+    }
+
+    headerRow.addView(badgeView)
+    headerRow.addView(headlineView)
+
+    val bodyView = TextView(context).apply {
+        id = android.R.id.text2
+        textSize = 11.5f
+        maxLines = 2
+        ellipsize = TextUtils.TruncateAt.END
+        setTextColor(if (isLightMode) AndroidColor.parseColor("#4B5563") else AndroidColor.parseColor("#B8C3D9"))
+        layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply {
+            topMargin = dpToPx(context, 3f)
+        }
+    }
+
+    textCol.addView(headerRow)
+    textCol.addView(bodyView)
+
+    val ctaButton = Button(context).apply {
+        id = android.R.id.button1
+        textSize = 11.5f
+        isAllCaps = false
+        setTypeface(null, Typeface.BOLD)
+        setTextColor(AndroidColor.WHITE)
+        minHeight = dpToPx(context, 38f)
+        minimumHeight = dpToPx(context, 38f)
+        minWidth = dpToPx(context, 78f)
+        val btnBg = GradientDrawable().apply {
+            cornerRadius = dpToPx(context, 10f).toFloat()
+            setColor(AndroidColor.parseColor("#FF2E7E"))
+        }
+        background = btnBg
+        setPadding(dpToPx(context, 12f), dpToPx(context, 6f), dpToPx(context, 12f), dpToPx(context, 6f))
+        layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        )
+    }
+
+    rootRow.addView(iconView)
+    rootRow.addView(textCol)
+    rootRow.addView(ctaButton)
+    nativeAdView.addView(rootRow)
+
+    nativeAdView.iconView = iconView
+    nativeAdView.headlineView = headlineView
+    nativeAdView.bodyView = bodyView
+    nativeAdView.callToActionView = ctaButton
+
+    return nativeAdView
+}
+
+private fun bindNativeAdToView(nativeAdView: NativeAdView, ad: NativeAd, isLightMode: Boolean) {
+    (nativeAdView.headlineView as? TextView)?.apply {
+        text = ad.headline ?: "Sponsored"
+        setTextColor(if (isLightMode) AndroidColor.parseColor("#111827") else AndroidColor.WHITE)
+    }
+    (nativeAdView.bodyView as? TextView)?.apply {
+        val bodyText = ad.body?.takeIf { it.isNotBlank() } ?: ad.advertiser.orEmpty()
+        text = bodyText
+        visibility = if (bodyText.isNotBlank()) android.view.View.VISIBLE else android.view.View.GONE
+        setTextColor(if (isLightMode) AndroidColor.parseColor("#4B5563") else AndroidColor.parseColor("#B8C3D9"))
+    }
+    (nativeAdView.iconView as? ImageView)?.apply {
+        val iconDrawable = ad.icon?.drawable
+        if (iconDrawable != null) {
+            setImageDrawable(iconDrawable)
+            visibility = android.view.View.VISIBLE
+        } else {
+            visibility = android.view.View.GONE
+        }
+    }
+    (nativeAdView.callToActionView as? Button)?.apply {
+        val cta = ad.callToAction?.takeIf { it.isNotBlank() } ?: "Open"
+        text = cta
+        visibility = android.view.View.VISIBLE
+    }
+    nativeAdView.setNativeAd(ad)
 }

@@ -50,7 +50,21 @@ class ClearKeyDecryptingDataSource(
     override fun open(dataSpec: DataSpec): Long {
         transferInitializing(dataSpec)
 
-        var effectiveDataSpec = resolveDataSpecToken(dataSpec, forceLatestRepoToken = false)
+        val rawUriCheck = dataSpec.uri.toString()
+        val isAzamUrl = rawUriCheck.contains("azamtvltd.co.tz", ignoreCase = true) ||
+            rawUriCheck.contains("/live/eds/", ignoreCase = true)
+        if (isAzamUrl && com.example.data.ChannelRepository.isActiveTokenExpiringSoon(leadSeconds = 300L)) {
+            try {
+                TokenManager.renewCdnKeysAndChannelsBlocking()
+            } catch (_: Exception) {
+            }
+        }
+
+        val useLatestToken = isAzamUrl && (
+            com.example.data.ChannelRepository.hasAuthoritativeLiveToken ||
+                com.example.data.ChannelRepository.isActiveTokenExpiringSoon(leadSeconds = 300L)
+            )
+        var effectiveDataSpec = resolveDataSpecToken(dataSpec, forceLatestRepoToken = useLatestToken)
         val uriString = effectiveDataSpec.uri.toString()
         val pathPart = uriString.substringBefore("?").lowercase()
 
@@ -119,64 +133,19 @@ class ClearKeyDecryptingDataSource(
             attemptSpec to len
         } catch (e: HttpDataSource.InvalidResponseCodeException) {
             val attemptUriStr = attemptSpec.uri.toString()
+            val isAuthError = TokenManager.isAuthenticationFailure(e.responseCode, e.message)
             val isAzamStream = attemptUriStr.contains("azamtvltd.co.tz", ignoreCase = true) ||
                 attemptUriStr.contains("/live/eds/", ignoreCase = true)
 
-            if (isAzamStream) {
-                val base = attemptUriStr.substringBefore("?")
-                val query = attemptUriStr.substringAfter("?", "")
-                val alternateUris = mutableListOf<String>()
+            val shouldAutoRenewCdnKeys = isAuthError || (isAzamStream && (e.responseCode == 404 || e.responseCode == 410))
 
-                val channelToken = com.example.data.ChannelRepository.resolveChannelSpecificToken(base)
-                    .ifBlank { TokenManager.currentToken }
-
-                if (base.contains("/tok_", ignoreCase = true)) {
-                    // 1. Pure /tok_<JWT>/live/eds/... without query string
-                    if (query.isNotEmpty()) {
-                        alternateUris.add(base)
-                    }
-                    // 2. Strip /tok_<JWT> from path and use ?cdntoken=<JWT>
-                    val beforeTok = base.substringBefore("/tok_")
-                    val tokInPath = base.substringAfter("/tok_").substringBefore("/")
-                    val afterTok = base.substringAfter("/tok_").substringAfter("/", "")
-                    if (afterTok.isNotEmpty()) {
-                        val tokenToUse = tokInPath.ifBlank { channelToken }
-                        alternateUris.add("$beforeTok/$afterTok?cdntoken=$tokenToUse")
-                    }
-                } else if (base.contains("/live/eds/", ignoreCase = true)) {
-                    // Inject /tok_<JWT>/ into path before /live/eds/
-                    val edsIdx = base.indexOf("/live/eds/", ignoreCase = true)
-                    val hostPrefix = base.substring(0, edsIdx)
-                    val pathAfterHost = base.substring(edsIdx)
-                    alternateUris.add("$hostPrefix/tok_$channelToken$pathAfterHost")
-                    alternateUris.add("$hostPrefix/tok_$channelToken$pathAfterHost?cdntoken=$channelToken")
-                }
-
-                for (altUrl in alternateUris) {
-                    try {
-                        upstream.close()
-                    } catch (_: Exception) {
-                    }
-                    try {
-                        val altSpec = attemptSpec.buildUpon()
-                            .setUri(Uri.parse(altUrl))
-                            .setPosition(attemptSpec.position)
-                            .setLength(attemptSpec.length)
-                            .build()
-                        val altLen = upstream.open(altSpec)
-                        return altSpec to altLen
-                    } catch (_: Exception) {
-                    }
-                }
-            }
-
-            if (TokenManager.isAuthenticationFailure(e.responseCode, e.message)) {
+            if (shouldAutoRenewCdnKeys) {
                 try {
                     upstream.close()
                 } catch (_: Exception) {
                 }
-                TokenManager.handleAuthenticationFailureBlocking(
-                    failedUrl = attemptSpec.uri.toString(),
+                TokenManager.renewCdnKeysAndChannelsBlocking(
+                    failedChannel = null,
                     httpStatusCode = e.responseCode
                 )
                 val refreshedBaseSpec = resolveDataSpecToken(originalSpec, forceLatestRepoToken = true)
@@ -184,12 +153,77 @@ class ClearKeyDecryptingDataSource(
                     .setPosition(attemptSpec.position)
                     .setLength(attemptSpec.length)
                     .build()
-                val retryLen = upstream.open(retrySpec)
-                retrySpec to retryLen
-            } else {
-                throw e
+                try {
+                    val retryLen = upstream.open(retrySpec)
+                    return retrySpec to retryLen
+                } catch (_: HttpDataSource.InvalidResponseCodeException) {
+                    if (isAzamStream) {
+                        val openedAlt = tryOpenAzamAlternates(retrySpec, TokenManager.currentToken)
+                        if (openedAlt != null) return openedAlt
+                    }
+                    throw e
+                }
+            }
+
+            if (isAzamStream) {
+                val base = attemptUriStr.substringBefore("?")
+                val channelToken = com.example.data.ChannelRepository.resolveChannelSpecificToken(base)
+                    .ifBlank { TokenManager.currentToken }
+                val openedAlt = tryOpenAzamAlternates(attemptSpec, channelToken)
+                if (openedAlt != null) return openedAlt
+            }
+
+            throw e
+        }
+    }
+
+    private fun tryOpenAzamAlternates(
+        referenceSpec: DataSpec,
+        tokenToUse: String
+    ): Pair<DataSpec, Long>? {
+        val uriStr = referenceSpec.uri.toString()
+        val base = uriStr.substringBefore("?")
+        val query = uriStr.substringAfter("?", "")
+        val alternateUris = mutableListOf<String>()
+
+        if (base.contains("/tok_", ignoreCase = true)) {
+            if (query.isNotEmpty()) {
+                alternateUris.add(base)
+            }
+            val beforeTok = base.substringBefore("/tok_")
+            val tokInPath = base.substringAfter("/tok_").substringBefore("/")
+            val afterTok = base.substringAfter("/tok_").substringAfter("/", "")
+            if (afterTok.isNotEmpty()) {
+                val effectiveTok = tokenToUse.ifBlank { tokInPath }
+                alternateUris.add("$beforeTok/$afterTok?cdntoken=$effectiveTok")
+                alternateUris.add("$beforeTok/tok_$effectiveTok/$afterTok?cdntoken=$effectiveTok")
+            }
+        } else if (base.contains("/live/eds/", ignoreCase = true)) {
+            val edsIdx = base.indexOf("/live/eds/", ignoreCase = true)
+            val hostPrefix = base.substring(0, edsIdx)
+            val pathAfterHost = base.substring(edsIdx)
+            alternateUris.add("$hostPrefix/tok_$tokenToUse$pathAfterHost")
+            alternateUris.add("$hostPrefix/tok_$tokenToUse$pathAfterHost?cdntoken=$tokenToUse")
+        }
+
+        for (altUrl in alternateUris.distinct()) {
+            if (altUrl == uriStr) continue
+            try {
+                upstream.close()
+            } catch (_: Exception) {
+            }
+            try {
+                val altSpec = referenceSpec.buildUpon()
+                    .setUri(Uri.parse(altUrl))
+                    .setPosition(referenceSpec.position)
+                    .setLength(referenceSpec.length)
+                    .build()
+                val altLen = upstream.open(altSpec)
+                return altSpec to altLen
+            } catch (_: Exception) {
             }
         }
+        return null
     }
 
     override fun read(buffer: ByteArray, offset: Int, length: Int): Int {

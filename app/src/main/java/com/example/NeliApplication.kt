@@ -23,11 +23,22 @@ class NeliApplication : Application(), ImageLoaderFactory {
     override fun onCreate() {
         NativeLogSuppressor.suppressNonFatalNativeLogs()
         super.onCreate()
+        ensureWebViewCacheDir()
         NeliThemeManager.initialize(this)
         com.example.data.NeliSubscriptionManager.initialize(this)
         com.example.data.NeliAdminManager.initialize(this)
         com.example.data.NeliAppUpdateManager.initialize(this)
         com.example.ads.NeliAdManager.initialize(this)
+    }
+
+    private fun ensureWebViewCacheDir() {
+        try {
+            val webViewCacheDir = java.io.File(cacheDir, "WebView/Default/HTTP Cache/Code Cache/js")
+            if (!webViewCacheDir.exists()) {
+                webViewCacheDir.mkdirs()
+            }
+        } catch (_: Throwable) {
+        }
     }
 
     override fun newImageLoader(): ImageLoader {

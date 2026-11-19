@@ -68,9 +68,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.example.ads.AdMobBannerAd
+import com.example.ads.AdMobNativeCardAd
 import com.example.ads.NeliAdManager
-import com.example.ads.StartIoBannerAd
-import com.example.ads.StartIoNativeCardAd
 import com.example.model.LiveChannel
 import com.example.model.MediaContent
 import com.example.ui.theme.NeliGenreCyan
@@ -356,7 +356,7 @@ fun SearchScreen(
                                 channel = channel,
                                 onClick = {
                                     (context as? Activity)?.let { act ->
-                                        NeliAdManager.showChannelOpeningAd(act, channel.name) {
+                                        NeliAdManager.showChannelOpeningAd(act, channel.name, channel.id) {
                                             onChannelSelected(channel)
                                         }
                                     } ?: onChannelSelected(channel)
@@ -365,9 +365,19 @@ fun SearchScreen(
                         }
                     }
 
-                    // Native Ad Placement in Search
+                    // Google AdMob Banner & Native Ad Placements in Search Results
                     item(span = { GridItemSpan(maxLineSpan) }) {
-                        StartIoNativeCardAd(
+                        AdMobBannerAd(
+                            adTag = "search_active_banner",
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp)
+                        )
+                    }
+
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        AdMobNativeCardAd(
+                            adTag = "search_results",
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(vertical = 4.dp)
@@ -429,7 +439,7 @@ fun SearchScreen(
                                     modifier = Modifier.width(140.dp),
                                     onClick = {
                                         (context as? Activity)?.let { act ->
-                                            NeliAdManager.showChannelOpeningAd(act, channel.name) {
+                                            NeliAdManager.showChannelOpeningAd(act, channel.name, channel.id) {
                                                 onChannelSelected(channel)
                                             }
                                         } ?: onChannelSelected(channel)
@@ -440,9 +450,9 @@ fun SearchScreen(
                     }
                 }
 
-                // 2. Start.io Banner Ad in Search
+                // 2. Google AdMob Banner Ad in Search
                 item {
-                    StartIoBannerAd(
+                    AdMobBannerAd(
                         adTag = "search_results_banner",
                         modifier = Modifier
                             .fillMaxWidth()
@@ -482,9 +492,10 @@ fun SearchScreen(
                     }
                 }
 
-                // 4. Start.io Native Ad in Search
+                // 4. Google AdMob Native Advanced Ad in Search
                 item {
-                    StartIoNativeCardAd(
+                    AdMobNativeCardAd(
+                        adTag = "search_default",
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp)

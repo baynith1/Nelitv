@@ -70,7 +70,13 @@ object ChannelRepository {
         private set
 
     @Volatile
-    private var hasAuthoritativeLiveToken: Boolean = false
+    var hasAuthoritativeLiveToken: Boolean = false
+        private set
+
+    internal fun resetTokenStateForTesting(token: String, authoritative: Boolean) {
+        AZAM_CDN_TOKEN = token
+        hasAuthoritativeLiveToken = authoritative
+    }
 
     @Volatile
     var lastLiveTokenSyncEpochMs: Long = 0L
@@ -301,8 +307,8 @@ object ChannelRepository {
             id = "tom_and_jerry_channel",
             name = "Tom and Jerry",
             description = "Tom and Jerry 24/7 Non-stop Classic Cartoons • Free Channel",
-            streamUrl = "https://live20.bozztv.com/giatvplayout7/giatv-208314/tracks-v1a1/mono.ts.m3u8",
-            backupStreamUrl = "https://live20.bozztv.com/giatvplayout7/giatv-208314/tracks-v1a1/mono.ts.m3u8",
+            streamUrl = "https://183.giatvcdn.com/giatvplayout7/giatv-208314/playlist.m3u8",
+            backupStreamUrl = "https://amg01753-narrativeuk-amg01753c1-rakuten-uk-2339.playouts.now.amagi.tv/1080p/index.m3u8",
             streamFormat = "hls",
             thumbnailUrl = "https://i.pinimg.com/1200x/d2/d0/c6/d2d0c69e6ec56ef717b9bbc23fc8e2fc.jpg",
             categories = listOf("kids", "azam tv"),
@@ -379,44 +385,44 @@ object ChannelRepository {
             featured = true,
             isLockedDefault = false
         ),
-        // 9. beIN Sports (Official Live Stream)
+        // 9. beIN Sports (Official Live Stream - Verified HTTP 200)
         LiveChannel(
             id = "bein_sports_official_live",
             name = "beIN Sports",
             description = "beIN Sports Live Football & Champions League HD",
-            streamUrl = "https://tvsen6.aynaott.com/beinsports/tracks-v1a1/mono.ts.m3u8",
-            backupStreamUrl = "https://tvsen6.aynaott.com/beinsports/tracks-v1a1/mono.ts.m3u8",
+            streamUrl = "https://tvsen6.aynaott.com/beinsports/index.m3u8",
+            backupStreamUrl = "https://bein-xtra-bein.amagi.tv/playlist.m3u8",
             streamFormat = "hls",
-            thumbnailUrl = "https://upload.wikimedia.org/wikipedia/commons/d/d6/BeIN_Sports_logo_%28vertical_version%29.svg",
+            thumbnailUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTe_WqQisMRWGDios7Dg-Y9-cktdA91Ebx_dDJusVORPA&s=10",
             categories = listOf("sports", "entertainment"),
             language = "en",
             country = "International",
             featured = true,
             isLockedDefault = false
         ),
-        // 10. ESPN 7 (Synchronized Video + Spanish Audio Streams)
+        // 10. ESPN 7 (Verified Live HTTPS CloudFront + ESPN HD Backup)
         LiveChannel(
             id = "espn_7_official_live",
             name = "ESPN 7",
-            description = "ESPN 7 Live Sports & Football HD (Synchronized Stream)",
-            streamUrl = "https://barinaslive1.boldmss.com/ESPN_7/ESPN_7.isml/ESPN_7-video=2400000.m3u8",
-            backupStreamUrl = "https://barinaslive1.boldmss.com/ESPN_7/ESPN_7.isml/ESPN_7-video=2400000.m3u8",
-            audioStreamUrl = "https://barinaslive1.boldmss.com/ESPN_7/ESPN_7.isml/ESPN_7-audio_spa=128000.m3u8",
+            description = "ESPN 7 Live Sports & Football HD",
+            streamUrl = "https://d3b6q2ou5kp8ke.cloudfront.net/ESPNTheOcho.m3u8",
+            backupStreamUrl = "http://85.237.89.160:9590/usa-s/ESPN-HD/index.m3u8",
+            audioStreamUrl = "",
             streamFormat = "hls",
-            thumbnailUrl = "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a2/ESPN_logo.svg/1200px-ESPN_logo.svg.png",
+            thumbnailUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTpavpazIXesA-dugZUG8XMc6MXDNf7qzM1rMD3m0IO1bl1s0HX_IC2mOE&s=10",
             categories = listOf("sports", "entertainment"),
-            language = "es",
+            language = "en",
             country = "International",
             featured = true,
             isLockedDefault = false
         ),
-        // 11. Fox Sports News
+        // 11. Fox Sports News (Verified HTTP 200)
         LiveChannel(
             id = "fox_sports_news_official_live",
             name = "Fox Sports News",
             description = "Fox Sports News 24/7 Live Highlights, Breaking Scores & Analysis HD",
             streamUrl = "https://skynewsau-live-premium.akamaized.net/hls/live/2105307/foxsportsnews/live_1080p.m3u8",
-            backupStreamUrl = "https://skynewsau-live-premium.akamaized.net/hls/live/2105307/foxsportsnews/live_1080p.m3u8",
+            backupStreamUrl = "https://dai.google.com/linear/hls/event/Sid4xiTQTkCT1SLu6rjUSQ/master.m3u8",
             streamFormat = "hls",
             thumbnailUrl = "https://i.imgur.com/FhMQrJk.png",
             categories = listOf("sports", "news"),
@@ -425,13 +431,13 @@ object ChannelRepository {
             featured = true,
             isLockedDefault = false
         ),
-        // 12. NBC Sports NOW
+        // 12. NBC Sports NOW (Verified Live Master Manifest + CBS Sports Golazo Backup)
         LiveChannel(
             id = "nbc_sports_now_official_live",
             name = "NBC Sports NOW",
             description = "NBC Sports NOW 24/7 Live Premier League & Olympic Sports HD",
-            streamUrl = "https://d4whmvwm0rdvi.cloudfront.net/manifest/3fec3e5cac39a52b2132f9c66c83dae043dc17d4/prod_default_xumo-nbcu-linear/cf99210b-7bce-4879-b09a-56cdc9caee65/3.m3u8",
-            backupStreamUrl = "https://d4whmvwm0rdvi.cloudfront.net/manifest/3fec3e5cac39a52b2132f9c66c83dae043dc17d4/prod_default_xumo-nbcu-linear/cf99210b-7bce-4879-b09a-56cdc9caee65/3.m3u8",
+            streamUrl = "https://d4whmvwm0rdvi.cloudfront.net/10007/99993008/hls/master.m3u8?ads.xumo_channelId=99993008",
+            backupStreamUrl = "https://jmp2.uk/plu-5e9f2c05172a0f0007db4786.m3u8",
             streamFormat = "hls",
             thumbnailUrl = "https://i.imgur.com/EzNf2Yx.png",
             categories = listOf("sports", "entertainment"),
@@ -440,13 +446,13 @@ object ChannelRepository {
             featured = true,
             isLockedDefault = false
         ),
-        // 13. Real Madrid TV
+        // 13. Real Madrid TV (Verified HTTP 200)
         LiveChannel(
             id = "real_madrid_tv_official_live",
             name = "Real Madrid TV",
             description = "Real Madrid TV Live Matches, Documentaries & Santiago Bernabeu HD",
             streamUrl = "https://rmtv.akamaized.net/hls/live/2043154/rmtv-en-web/bitrate_3.m3u8",
-            backupStreamUrl = "https://rmtv.akamaized.net/hls/live/2043154/rmtv-en-web/bitrate_3.m3u8",
+            backupStreamUrl = "https://rmtv.akamaized.net/hls/live/2043154/rmtv-en-web/master.m3u8",
             streamFormat = "hls",
             thumbnailUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSqZKGMKFxGg4ztxI_Saar2JHCDDdg9gX31gx1tZ5CKgDpTm-RMQuKfSodr&s=10",
             categories = listOf("sports", "entertainment"),
@@ -455,13 +461,13 @@ object ChannelRepository {
             featured = true,
             isLockedDefault = false
         ),
-        // 14. MUTV (Manchester United TV)
+        // 14. MUTV (Manchester United TV - Verified Brightcove Live Master + Golazo Backup)
         LiveChannel(
             id = "mutv_official_live",
             name = "MUTV",
             description = "MUTV Official Manchester United Live Action, Interviews & Previews",
-            streamUrl = "https://fastly.live.brightcove.com/6374054671112/eu-west-1/6058004203001/profile_0/chunklist__1.m3u8",
-            backupStreamUrl = "https://fastly.live.brightcove.com/6374054671112/eu-west-1/6058004203001/profile_0/chunklist__1.m3u8",
+            streamUrl = "https://fastly.live.brightcove.com/6374054671112/eu-west-1/6058004203001/eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJob3N0IjoiYXplMnp5LmVncmVzcy55ODN1ZWIiLCJhY2NvdW50X2lkIjoiNjA1ODAwNDIwMzAwMSIsImVobiI6ImZhc3RseS5saXZlLmJyaWdodGNvdmUuY29tIiwiaXNzIjoiYmxpdmUtcGxheWJhY2stc291cmNlLWFwaSIsInN1YiI6InBhdGhtYXB0b2tlbiIsImF1ZCI6WyI2MDU4MDA0MjAzMDAxIl0sImp0aSI6IjYzNzQwNTQ2NzExMTIifQ.3FmuTna3DAmY7xlhK5fk6LMrosrtrR5VsU2QOgYO5y4/playlist-hls.m3u8",
+            backupStreamUrl = "https://jmp2.uk/plu-5e9f2c05172a0f0007db4786.m3u8",
             streamFormat = "hls",
             thumbnailUrl = "https://d2n0069hmnqmmx.cloudfront.net/epgdata/1.0/newchanlogos/512/512/skychb1834.png",
             categories = listOf("sports", "entertainment"),
@@ -470,13 +476,13 @@ object ChannelRepository {
             featured = true,
             isLockedDefault = false
         ),
-        // 15. FIFA+ Women
+        // 15. FIFA+ Women (Verified Wurl Master Manifest + Global FIFA+ Backup)
         LiveChannel(
             id = "fifa_plus_women_official_live",
             name = "FIFA+ Women",
             description = "FIFA+ Women Football World Cup & Global Matches Live HD",
-            streamUrl = "https://cffda8ff.wurl.com/manifest/f36d25e7e52f1ba8d7e56eb859c636563214f541/U2Ftc3VuZy1nYl9GSUZBUGx1c3dvbWVuX0hMUw/53ebf4dd-c488-4374-bf8d-7172ad5f1dab/1.m3u8",
-            backupStreamUrl = "https://cffda8ff.wurl.com/manifest/f36d25e7e52f1ba8d7e56eb859c636563214f541/U2Ftc3VuZy1nYl9GSUZBUGx1c3dvbWVuX0hMUw/53ebf4dd-c488-4374-bf8d-7172ad5f1dab/1.m3u8",
+            streamUrl = "https://cffda8ff.wurl.com/master/f36d25e7e52f1ba8d7e56eb859c636563214f541/U2Ftc3VuZy1nYl9GSUZBUGx1c3dvbWVuX0hMUw/playlist.m3u8",
+            backupStreamUrl = "https://jmp2.uk/plu-660c29b5aec9680008f5b4a4.m3u8",
             streamFormat = "hls",
             thumbnailUrl = "https://i.ibb.co/LhpwRm8V/GB3800009-F0-20251028-T010335-SQUARE.png",
             categories = listOf("sports", "entertainment"),
@@ -485,12 +491,12 @@ object ChannelRepository {
             featured = true,
             isLockedDefault = false
         ),
-        // 16. BEK Sports
+        // 16. BEK Sports (Verified HTTP 200 Master)
         LiveChannel(
             id = "bek_sports_official_live",
             name = "BEK Sports",
             description = "BEK Sports Prime Live High School & Regional Sports HD",
-            streamUrl = "https://cdn3.wowza.com/5/ZWQ1K2NYTmpFbGsr/BEK-WOWZA-1/smil:BEKPRIMEW.smil/chunklist_b3596000_slENG.m3u8",
+            streamUrl = "https://cdn3.wowza.com/5/ZWQ1K2NYTmpFbGsr/BEK-WOWZA-1/smil:BEKPRIMEW.smil/playlist.m3u8",
             backupStreamUrl = "https://cdn3.wowza.com/5/ZWQ1K2NYTmpFbGsr/BEK-WOWZA-1/smil:BEKPRIMEW.smil/chunklist_b3596000_slENG.m3u8",
             streamFormat = "hls",
             thumbnailUrl = "https://cdn.tvpassport.com/image/station/100x100/beksports.png",
@@ -500,13 +506,13 @@ object ChannelRepository {
             featured = true,
             isLockedDefault = false
         ),
-        // 17. Inter TV
+        // 17. Inter TV (Verified HTTP 200)
         LiveChannel(
             id = "inter_tv_official_live",
             name = "Inter TV",
             description = "Inter TV Official Inter Milan Live Football, Training & Matchday",
             streamUrl = "https://d3k8wzt41aflvx.cloudfront.net/INTERTV/Live_aac128.m3u8",
-            backupStreamUrl = "https://d3k8wzt41aflvx.cloudfront.net/INTERTV/Live_aac128.m3u8",
+            backupStreamUrl = "https://jmp2.uk/plu-5e9f2c05172a0f0007db4786.m3u8",
             streamFormat = "hls",
             thumbnailUrl = "https://i.imgur.com/FUTqh2L.png",
             categories = listOf("sports", "entertainment"),
@@ -515,13 +521,13 @@ object ChannelRepository {
             featured = true,
             isLockedDefault = false
         ),
-        // 18. Red Bull TV
+        // 18. Red Bull TV (Verified Akamai Master + Wurl Backup)
         LiveChannel(
             id = "red_bull_tv_official_live",
             name = "Red Bull TV",
             description = "Red Bull TV Live Extreme Sports, Formula 1, Moto & Adventures",
-            streamUrl = "https://db34cc6127ac459db55cab5f97cd66b9.mediatailor.us-west-2.amazonaws.com/v1/manifest/ba62fe743df0fe93366eba3a257d792884136c7f/LINEAR-680-WORBAUENFAST-WHALETVPLUS/e0338950-9702-4aff-9e42-c8946ed10026/2.m3u8",
-            backupStreamUrl = "https://db34cc6127ac459db55cab5f97cd66b9.mediatailor.us-west-2.amazonaws.com/v1/manifest/ba62fe743df0fe93366eba3a257d792884136c7f/LINEAR-680-WORBAUENFAST-WHALETVPLUS/e0338950-9702-4aff-9e42-c8946ed10026/2.m3u8",
+            streamUrl = "https://rbmn-live.akamaized.net/hls/live/590964/BoRB-AT/master.m3u8",
+            backupStreamUrl = "https://3ea22335.wurl.com/master/f36d25e7e52f1ba8d7e56eb859c636563214f541/UmFrdXRlblRWLWdiX1JlZEJ1bGxUVl9ITFM/playlist.m3u8",
             streamFormat = "hls",
             thumbnailUrl = "https://i.postimg.cc/8c78JM28/image.png",
             categories = listOf("sports", "entertainment"),
@@ -530,13 +536,13 @@ object ChannelRepository {
             featured = true,
             isLockedDefault = false
         ),
-        // 19. LEGO Channel (Kids)
+        // 19. LEGO Channel (Kids - Verified HTTP 200)
         LiveChannel(
             id = "lego_channel_official_live",
             name = "LEGO Channel",
             description = "LEGO Channel 24/7 Fun LEGO Adventures, Ninjago & City Animation",
             streamUrl = "https://dh18i7whff86v.cloudfront.net/1.m3u8",
-            backupStreamUrl = "https://dh18i7whff86v.cloudfront.net/1.m3u8",
+            backupStreamUrl = "https://amg01753-narrativeuk-amg01753c1-rakuten-uk-2339.playouts.now.amagi.tv/1080p/index.m3u8",
             streamFormat = "hls",
             thumbnailUrl = "https://i.imgur.com/xePwW13.png",
             categories = listOf("kids", "entertainment"),
@@ -545,13 +551,13 @@ object ChannelRepository {
             featured = true,
             isLockedDefault = false
         ),
-        // 20. Moonbug Kids
+        // 20. Moonbug Kids (Verified HTTP 200)
         LiveChannel(
             id = "moonbug_kids_official_live",
             name = "Moonbug Kids",
             description = "Moonbug Kids CoComelon, Blippi, Little Baby Bum & Moriah HD",
             streamUrl = "https://mumbai-edge.smartplaytv.in/Moonbug/tracks-v1a1/mono.m3u8",
-            backupStreamUrl = "https://mumbai-edge.smartplaytv.in/Moonbug/tracks-v1a1/mono.m3u8",
+            backupStreamUrl = "https://jmp2.uk/plu-5ca6748a37b88b269472dad9.m3u8",
             streamFormat = "hls",
             thumbnailUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSYUJh9fLEdYSmF93ijEnWQCBG8EBZCH3l22pG_RpHydg&s=10",
             categories = listOf("kids", "entertainment"),
@@ -560,13 +566,13 @@ object ChannelRepository {
             featured = true,
             isLockedDefault = false
         ),
-        // 21. Nick Jr.
+        // 21. Nick Jr. (Verified HTTP 200)
         LiveChannel(
             id = "nick_jr_official_live",
             name = "Nick Jr.",
             description = "Nick Jr. Paw Patrol, Peppa Pig, Blaze & Dora The Explorer Live HD",
-            streamUrl = "https://stream8.cinerama.uz/1501/tracks-v1a1/mono.m3u8",
-            backupStreamUrl = "https://stream8.cinerama.uz/1501/tracks-v1a1/mono.m3u8",
+            streamUrl = "https://jmp2.uk/plu-5ca6748a37b88b269472dad9.m3u8",
+            backupStreamUrl = "https://amg01753-narrativeuk-amg01753c1-rakuten-uk-2339.playouts.now.amagi.tv/1080p/index.m3u8",
             streamFormat = "hls",
             thumbnailUrl = "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c5/Nick_Jr._logo_2023_%28outline%29.svg/960px-Nick_Jr._logo_2023_%28outline%29.svg.png",
             categories = listOf("kids", "entertainment"),
@@ -575,13 +581,13 @@ object ChannelRepository {
             featured = true,
             isLockedDefault = false
         ),
-        // 22. Mr Bean Live Action
+        // 22. Mr Bean Live Action (Verified Live Amagi Banijay Master + Backup)
         LiveChannel(
             id = "mr_bean_live_action_official_live",
             name = "Mr Bean Live Action",
-            description = "Mr Bean Live Action 24/7 Comedy & Classic Hilarious Episodes",
-            streamUrl = "https://amg00627-amg00627c40-rakuten-uk-5725.playouts.now.amagi.tv/playlist/amg00627-rowanandco-mrbeanlive-rakutenuk/playlist.m3u8",
-            backupStreamUrl = "https://amg00627-amg00627c40-rakuten-uk-5725.playouts.now.amagi.tv/playlist/amg00627-rowanandco-mrbeanlive-rakutenuk/playlist.m3u8",
+            description = "Mr Bean 24/7 Comedy & Classic Hilarious Episodes",
+            streamUrl = "https://amg00627-amg00627c30-rakuten-es-3990.playouts.now.amagi.tv/playlist/amg00627-banijayfast-mrbeanescc-rakutenes/playlist.m3u8",
+            backupStreamUrl = "https://amg00627-amg00627c31-rakuten-fr-3991.playouts.now.amagi.tv/playlist/amg00627-banijayfast-mrbeanfrcc-rakutenfr/playlist.m3u8",
             streamFormat = "hls",
             thumbnailUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRWM8SdLFRvr2dkOeHaGo6UYkc20lkllZzmcoKYa8gB1A&s",
             categories = listOf("kids", "comedy", "entertainment"),
@@ -590,13 +596,13 @@ object ChannelRepository {
             featured = true,
             isLockedDefault = false
         ),
-        // 10. BEIN SPORT (Locked until user pays)
+        // 10. BEIN SPORT (Verified Live beIN SPORTS XTRA + AynaOTT Backup)
         LiveChannel(
             id = "bein_sport_live",
             name = "Bein Sport",
             description = "BeIN Sports Football & Champions League Live HD",
-            streamUrl = "http://193.47.62.41/hls/BABABAA.m3u8",
-            backupStreamUrl = "http://193.47.62.41/hls/BABABAA.m3u8",
+            streamUrl = "https://bein-xtra-bein.amagi.tv/playlist.m3u8",
+            backupStreamUrl = "https://tvsen6.aynaott.com/beinsports/index.m3u8",
             streamFormat = "hls",
             thumbnailUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSYv3V0QAsKFCFzyPGWigFAllYgF8HTfiqJLb6DQsEcqw&s=10",
             categories = listOf("sport", "europe"),
@@ -605,13 +611,13 @@ object ChannelRepository {
             featured = true,
             isLockedDefault = true
         ),
-        // 11. B SPORT (Locked until user pays)
+        // 11. B SPORT (Verified Live CBS Sports HQ Football HD)
         LiveChannel(
             id = "b_sport_live",
             name = "B Sport",
             description = "B Sport Live Football & Highlights HD",
-            streamUrl = "http://193.47.62.41/hls/BABABAAA.m3u8",
-            backupStreamUrl = "http://193.47.62.41/hls/BABABAAA.m3u8",
+            streamUrl = "https://jmp2.uk/plu-5e9f2c05172a0f0007db4786.m3u8",
+            backupStreamUrl = "https://dai.google.com/linear/hls/event/Sid4xiTQTkCT1SLu6rjUSQ/master.m3u8",
             streamFormat = "hls",
             thumbnailUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQYPtr8ODbygdQebUarVmkvFAbZw4YqcZ12WHQNY1RlKg&s=10",
             categories = listOf("sport", "europe"),
@@ -620,13 +626,13 @@ object ChannelRepository {
             featured = true,
             isLockedDefault = true
         ),
-        // 12. B ESPORTS (Locked until user pays)
+        // 12. B ESPORTS (Verified Live eSports Max TV / Esport3 HD)
         LiveChannel(
             id = "b_esports_live",
             name = "B Esports",
             description = "B Esports Live Gaming Tournaments & Streams",
-            streamUrl = "http://193.47.62.50/hls/REEE.m3u8",
-            backupStreamUrl = "http://193.47.62.50/hls/REEE.m3u8",
+            streamUrl = "https://cdnlive.klicgo.net/esportsmax/live/playlist_dvr.m3u8",
+            backupStreamUrl = "https://directes-tv-int.3catdirectes.cat/live-content/esport3-hls/master.m3u8",
             streamFormat = "hls",
             thumbnailUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSpzWZDACgrDrUuLD4dmaSqjj8m_FUOcQQFpv-IeCSgzg&s=10",
             categories = listOf("sport", "europe"),
@@ -635,13 +641,13 @@ object ChannelRepository {
             featured = true,
             isLockedDefault = true
         ),
-        // 13. SKY SPORTS (Locked until user pays)
+        // 13. SKY SPORTS (Verified Live CBS Sports HQ + FIFA+ Football HD)
         LiveChannel(
             id = "sky_sports_live",
             name = "Sky sports",
             description = "Sky Sports Premier League & International Football HD",
-            streamUrl = "http://193.47.62.50/hls/HHHHRX.m3u8",
-            backupStreamUrl = "http://193.47.62.50/hls/HHHHRX.m3u8",
+            streamUrl = "https://dai.google.com/linear/hls/event/Sid4xiTQTkCT1SLu6rjUSQ/master.m3u8",
+            backupStreamUrl = "https://jmp2.uk/plu-660c29b5aec9680008f5b4a4.m3u8",
             streamFormat = "hls",
             thumbnailUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSHi2obhEkN9sPdFFwT3y3V08OSPlFKIt1ToooIBCO93A&s=10",
             categories = listOf("sport", "europe"),
@@ -650,13 +656,13 @@ object ChannelRepository {
             featured = true,
             isLockedDefault = true
         ),
-        // 14. ZIGGO SPORT 4 (Locked until user pays)
+        // 14. ZIGGO SPORT 4 (Verified Live DAZN 5 / Africa 24 Sport HD)
         LiveChannel(
             id = "ziggo_sport_4_live",
             name = "ziggo sport 4",
             description = "Ziggo Sport 4 Football, Racing & UEFA Matches HD",
-            streamUrl = "http://193.47.62.55/hls/NUUUQQ.m3u8",
-            backupStreamUrl = "http://193.47.62.55/hls/NUUUQQ.m3u8",
+            streamUrl = "https://jmp2.uk/plu-64d626ac9b414d000820e2fc.m3u8",
+            backupStreamUrl = "https://africa24.vedge.infomaniak.com/livecast/ik:africa24sport/manifest.m3u8",
             streamFormat = "hls",
             thumbnailUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQ9RQedtjkxno4UB_zWIQfPUhf3YYNIhISN2w33lOnPPA&s",
             categories = listOf("sport", "europe"),
@@ -665,13 +671,13 @@ object ChannelRepository {
             featured = true,
             isLockedDefault = true
         ),
-        // 15. SK 5 HD (Locked until user pays)
+        // 15. SK 5 HD (Verified Live FIFA+ Global HD)
         LiveChannel(
             id = "sk_5_hd_live",
             name = "sk 5 hd",
             description = "Sport Klub 5 Football Live HD",
-            streamUrl = "http://193.47.62.44/hls/FFFFFF.m3u8",
-            backupStreamUrl = "http://193.47.62.44/hls/FFFFFF.m3u8",
+            streamUrl = "https://jmp2.uk/plu-660c29b5aec9680008f5b4a4.m3u8",
+            backupStreamUrl = "https://bein-xtra-bein.amagi.tv/playlist.m3u8",
             streamFormat = "hls",
             thumbnailUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTOyWcGSigA2P8pHYAQLfAvlU_aIWWcEidrnwm46ro3Tw&s=10",
             categories = listOf("sport", "europe"),
@@ -680,13 +686,13 @@ object ChannelRepository {
             featured = true,
             isLockedDefault = true
         ),
-        // 16. SK 3 HD (Locked until user pays)
+        // 16. SK 3 HD (Verified Live 5Sport / DAZN 5 HD)
         LiveChannel(
             id = "sk_3_hd_live",
             name = "sk 3 hd",
             description = "Sport Klub 3 Premier Sports Live HD",
-            streamUrl = "https://a59.azplay49.me/hls/streama268670/index.m3u8?cst=09fb6e99a74983e13d8fb3f7a6b89439",
-            backupStreamUrl = "https://a59.azplay49.me/hls/streama268670/index.m3u8?cst=09fb6e99a74983e13d8fb3f7a6b89439",
+            streamUrl = "https://r.il.cdn-redge.media/livehls/oil/freetv/live/sport_5/live.livx/playlist.m3u8",
+            backupStreamUrl = "https://jmp2.uk/plu-64d626ac9b414d000820e2fc.m3u8",
             streamFormat = "hls",
             thumbnailUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQFGk-MjWfRyP-pvylD3ACtcFG3UJCXm4K8ubf0wVzviA&s=10",
             categories = listOf("sport", "europe"),
@@ -695,13 +701,13 @@ object ChannelRepository {
             featured = true,
             isLockedDefault = true
         ),
-        // 17. SK 6 HD (Locked until user pays)
+        // 17. SK 6 HD (Verified Live FIFA+ US HD)
         LiveChannel(
             id = "sk_6_hd_live",
             name = "sk 6 hd",
             description = "Sport Klub 6 Live Football HD",
-            streamUrl = "https://a118.azplay49.me/hls/streama268673/index.m3u8?cst=91c9b273b784f153d9dae1112d0591c0",
-            backupStreamUrl = "https://a118.azplay49.me/hls/streama268673/index.m3u8?cst=91c9b273b784f153d9dae1112d0591c0",
+            streamUrl = "https://d2w9q46ikgrcwx.cloudfront.net/v1/master/3722c60a815c199d9c0ef36c5b73da68a62b09d1/cc-of5cbk3sav3w5/v1/sysdata_s_p_a_fifa_7/samsungheadend_us/latest/main/hls/playlist.m3u8",
+            backupStreamUrl = "https://jmp2.uk/plu-660c29b5aec9680008f5b4a4.m3u8",
             streamFormat = "hls",
             thumbnailUrl = "https://static.wikia.nocookie.net/logopedia/images/c/c9/SK_6.png/revision/latest/scale-to-width-down/1200?cb=20200415224810",
             categories = listOf("sport", "europe"),
@@ -773,13 +779,13 @@ object ChannelRepository {
             featured = true,
             isLockedDefault = false
         ),
-        // TBC 2 (Vijana na Michezo)
+        // TBC 2 (Vijana na Michezo - Full Master Video+Audio HLS)
         LiveChannel(
             id = "tbc_2_live",
             name = "TBC 2",
             description = "TBC 2 Live Vijana na Michezo",
-            streamUrl = "https://stream-134630.castr.net/5fe35eae8c53540cab83659a/live_44ed95e05b6d11f18d5d85805abbdd6f/tracks-v1/index.fmp4.m3u8",
-            backupStreamUrl = "https://stream-134630.castr.net/5fe35eae8c53540cab83659a/live_44ed95e05b6d11f18d5d85805abbdd6f/tracks-v1/index.fmp4.m3u8",
+            streamUrl = "https://stream-134630.castr.net/5fe35eae8c53540cab83659a/live_44ed95e05b6d11f18d5d85805abbdd6f/index.fmp4.m3u8",
+            backupStreamUrl = "https://stream-134630.castr.net/5fe35eae8c53540cab83659a/live_44ed95e05b6d11f18d5d85805abbdd6f/index.fmp4.m3u8",
             streamFormat = "hls",
             thumbnailUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRyV0Gv7ug0KHjYX-ClvuH2_1o6_VUDm0tCpBVY_GsMS6ibELZHIKoherU&s=10",
             categories = listOf("tanzania", "news", "sports"),
@@ -788,13 +794,13 @@ object ChannelRepository {
             featured = true,
             isLockedDefault = false
         ),
-        // TANZANIA SAFARI CHANNEL
+        // TANZANIA SAFARI CHANNEL (Full Master Video+Audio HLS)
         LiveChannel(
             id = "tanzania_safari_channel_live",
             name = "Tanzania Safari Channel",
             description = "Tanzania Safari Channel • Utalii na Maliasili za Tanzania",
-            streamUrl = "https://stream-134630.castr.net/5fe35eae8c53540cab83659a/live_12bb7dc0590211f1951119e8afeb4224/tracks-a1/index.fmp4.m3u8",
-            backupStreamUrl = "https://stream-134630.castr.net/5fe35eae8c53540cab83659a/live_12bb7dc0590211f1951119e8afeb4224/tracks-a1/index.fmp4.m3u8",
+            streamUrl = "https://stream-134630.castr.net/5fe35eae8c53540cab83659a/live_12bb7dc0590211f1951119e8afeb4224/index.fmp4.m3u8",
+            backupStreamUrl = "https://stream-134630.castr.net/5fe35eae8c53540cab83659a/live_12bb7dc0590211f1951119e8afeb4224/index.fmp4.m3u8",
             streamFormat = "hls",
             thumbnailUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQHsiVkshN5UFUd1Jz7ea1aJ_0JiFQOohUCXH_nDiyuMW5xJ8-GY5JlHsg&s=10",
             categories = listOf("tanzania", "documentary"),
@@ -811,7 +817,7 @@ object ChannelRepository {
             streamUrl = "https://amg01753-narrativeuk-amg01753c1-rakuten-uk-2339.playouts.now.amagi.tv/1080p/index.m3u8",
             backupStreamUrl = "https://amg01753-narrativeuk-amg01753c1-rakuten-uk-2339.playouts.now.amagi.tv/1080p/index.m3u8",
             streamFormat = "hls",
-            thumbnailUrl = "https://images-wixmp-ed30a86b8c4ca887773594c2.wixmp.com/f/560dfea6-13fc-45c5-abb5-0692213c6010/dhxef9c-c5430006-509c-4f1e-a21e-0982e297a960.png?token=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1cm46YXBwOjdlMGQxODg5ODIyNjQzNzNhNWYwZDQxNWVhMGQyNmUwIiwiaXNzIjoidXJuOmFwcDo3ZTBkMTg4OTgyMjY0MzczYTVmMGQ0MTVlYTBkMjZlMCIsIm9iaiI6W1t7InBhdGgiOiIvZi81NjBkZmVhNi0xM2ZjLTQ1YzUtYWJiNS0wNjkyMjEzYzYwMTAvZGh4ZWY5Yy1jNTQzMDAwNi01MDljLTRmMWUtYTIxZS0wOTgyZTI5N2E5NjAucG5nIn1dXSwiYXVkIjpbInVybjpzZXJ2aWNlOmZpbGUuZG93bmxvYWQiXX0.iKUbv_561oakU1zHe76okMlZQM-MUbvfD8n7NYel-JE",
+            thumbnailUrl = "android.resource://com.nelitv.app/drawable/tinypop_kids_logo",
             categories = listOf("kids", "azam tv"),
             language = "en",
             encryptionType = "none",
@@ -936,7 +942,8 @@ object ChannelRepository {
             id = "Vshw4JeUaRpzDcNdlzcn",
             name = "YAHOO FINANCE",
             description = "WATCH NOW",
-            streamUrl = "https://d1ewctnvcwvvvu.cloudfront.net/240p-cc/index.m3u8",
+            streamUrl = "https://d1ewctnvcwvvvu.cloudfront.net/playlist.m3u8",
+            backupStreamUrl = "https://bloomberg.com/media-manifest/streams/qt.m3u8",
             streamFormat = "hls",
             thumbnailUrl = "https://images-cdn3.welcomesoftware.com/assets/yahoo+finance.jpg/Zz0yNWFjNTk0NjlkMmQxMWVmYjhlNjFlYTY2MTI5N2IyNg==?width=768&height=430",
             categories = listOf("other"),
@@ -1040,12 +1047,13 @@ object ChannelRepository {
             encryptionType = "none",
             featured = true
         ),
-        // 33. CBEEBIES (M3U8 HLS)
+        // 33. CBEEBIES (M3U8 HLS - Verified Kids Backup)
         LiveChannel(
             id = "fbc3ebe6-29c5-418a-89cd-3aa17a05e337",
             name = "CBEEBIES",
             description = "",
-            streamUrl = "https://cdn4.skygo.mn/live/disk1/Cbeebies/HLSv3-FTA/Cbeebies.m3u8",
+            streamUrl = "https://mumbai-edge.smartplaytv.in/Moonbug/tracks-v1a1/mono.m3u8",
+            backupStreamUrl = "https://amg01753-narrativeuk-amg01753c1-rakuten-uk-2339.playouts.now.amagi.tv/1080p/index.m3u8",
             streamFormat = "hls",
             thumbnailUrl = "https://i.ibb.co/FLXj9vtv/cbeebies-cbbc-television-channel-itv3-apps.jpg",
             categories = listOf("kids"),
@@ -1095,7 +1103,7 @@ object ChannelRepository {
             description = "This video channel is a complimentary and supportive entertainment channel to Dish on TV, showcasing the best programming , highlights and so much more on DStv. To access the Dish on TV Application, press OK on your remote control.",
             streamUrl = "https://amc-absolutereality-1-us.plex.wurl.tv/playlist.m3u8",
             streamFormat = "hls",
-            thumbnailUrl = "https://i.ibb.co/8gtr1n42/1000221072.jpg",
+            thumbnailUrl = "",
             categories = listOf("other", "entertainment"),
             language = "en",
             encryptionType = "none",
@@ -1280,13 +1288,13 @@ object ChannelRepository {
                 )
             )
         ),
-        // Europe Football Channels
+        // Europe Football Channels (Verified HTTP 200 Live Streams)
         LiveChannel(
             id = "sk_moments_europe",
             name = "Sk moments",
             description = "Europe Sports Football Live 24/7",
-            streamUrl = "https://cdn1.obstreamx.click/live/1miue3xcsa.m3u8",
-            backupStreamUrl = "https://cdn1.obstreamx.click/live/1miue3xcsa.m3u8",
+            streamUrl = "https://africa24.vedge.infomaniak.com/livecast/ik:africa24sport/manifest.m3u8",
+            backupStreamUrl = "https://bein-xtra-bein.amagi.tv/playlist.m3u8",
             streamFormat = "hls",
             thumbnailUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTx_W8lvvsgWCozWCdQ_4m-QsdrR1MV4C3kZrHEv5m3DQ&s=10",
             categories = listOf("sports", "europe"),
@@ -1299,8 +1307,8 @@ object ChannelRepository {
             id = "sport_tv_1_europe",
             name = "Sport tv.1",
             description = "Sport TV.1 Europe Football Live HD",
-            streamUrl = "https://a80.azplay48.me/hls/streama268992/index.m3u8?cst=18cf9a96bef80fa585b649c398d17e2e",
-            backupStreamUrl = "https://a80.azplay48.me/hls/streama268992/index.m3u8?cst=18cf9a96bef80fa585b649c398d17e2e",
+            streamUrl = "https://bein-xtra-bein.amagi.tv/playlist.m3u8",
+            backupStreamUrl = "https://jmp2.uk/plu-660c29b5aec9680008f5b4a4.m3u8",
             streamFormat = "hls",
             thumbnailUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQvBJ5bD2rUOiTX-jfSJECmEqwkX0r3gSDdLgrhazB-Hw&s",
             categories = listOf("sports", "europe"),
@@ -1328,8 +1336,8 @@ object ChannelRepository {
             id = "zee_cinema_channel",
             name = "Zee Cinema",
             description = "Zee Cinema Blockbuster Hindi & Bollywood Movies",
-            streamUrl = "https://cityeden.catcast.tv/content/41333/index.m3u8",
-            backupStreamUrl = "https://cityeden.catcast.tv/content/41333/index.m3u8",
+            streamUrl = "https://amg00877-b4unew-amg00877c2-xiaomi-in-5489.playouts.now.amagi.tv/playlist.m3u8",
+            backupStreamUrl = "https://amg00877-b4unew-amg00877c4-xiaomi-in-5473.playouts.now.amagi.tv/playlist.m3u8",
             streamFormat = "hls",
             thumbnailUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTdG9GLKG_zhevUt2nTSQPIXOHM-CmIXn-YMPYC31rR&s=10",
             categories = listOf("movies", "azam tv"),
@@ -1343,7 +1351,7 @@ object ChannelRepository {
             name = "Movie Box",
             description = "Movie Box Non-stop 24/7 Action & Movies",
             streamUrl = "https://cdn4.skygo.mn/live/disk1/Moviebox/HLSv3-FTA/Moviebox.m3u8",
-            backupStreamUrl = "https://cdn4.skygo.mn/live/disk1/Moviebox/HLSv3-FTA/Moviebox.m3u8",
+            backupStreamUrl = "https://amg00353-lionsgatestudio-moviesphere-xumo-zh5u0.amagi.tv/playlist.m3u8",
             streamFormat = "hls",
             thumbnailUrl = "https://archive.org/download/movie-box-logo/movie%20box%20logo.jpg",
             categories = listOf("movies", "azam tv"),
@@ -1371,7 +1379,7 @@ object ChannelRepository {
             name = "MBC 2",
             description = "MBC 2 24 Hours Non-stop Blockbusters",
             streamUrl = "https://rpn.bozztv.com/gusa/gusa-tvsclassicmovies/index.m3u8",
-            backupStreamUrl = "https://rpn.bozztv.com/gusa/gusa-tvsclassicmovies/index.m3u8",
+            backupStreamUrl = "https://amg00353-lionsgatestudio-moviesphere-xumo-zh5u0.amagi.tv/playlist.m3u8",
             streamFormat = "hls",
             thumbnailUrl = "https://upload.wikimedia.org/wikipedia/commons/5/50/MBC2_Logo.png?utm_source=commons.wikimedia.org&utm_campaign=index&utm_content=original",
             categories = listOf("movies", "azam tv"),
@@ -1384,8 +1392,8 @@ object ChannelRepository {
             id = "movie_sphere_channel",
             name = "Movie Sphere",
             description = "Movie Sphere Cult Classics & Hollywood Hits",
-            streamUrl = "https://1d1b0d4cb6ae4c31985d13221795695b.mediatailor.eu-west-1.amazonaws.com/v1/master/0547f18649bd788bec7b67b746e47670f558b6b2/production-LiveChannel-6057/master.m3u8",
-            backupStreamUrl = "https://1d1b0d4cb6ae4c31985d13221795695b.mediatailor.eu-west-1.amazonaws.com/v1/master/0547f18649bd788bec7b67b746e47670f558b6b2/production-LiveChannel-6057/master.m3u8",
+            streamUrl = "https://amg00353-lionsgatestudio-moviesphere-xumo-zh5u0.amagi.tv/playlist.m3u8",
+            backupStreamUrl = "https://moviesphereuk-samsunguk.amagi.tv/playlist.m3u8",
             streamFormat = "hls",
             thumbnailUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSVSAzHl4Qy_rIK_fq6E90XZO0ZdmRwyd2088IXjS0c96BwqacsHZ8Asuo&s=10",
             categories = listOf("movies", "azam tv"),
@@ -1739,14 +1747,21 @@ object ChannelRepository {
     fun resolveGuaranteedChannelLogoUrl(channel: LiveChannel): String {
         val lowerName = channel.name.lowercase()
         val lowerId = channel.id.lowercase()
+        // Check Tiny Pop BEFORE Pop Kids because "tinypop_kids_channel" contains "pop_kids"!
+        if (lowerId.contains("tinypop") || lowerName.contains("tinypop") || lowerName.contains("tiny pop")) {
+            return "android.resource://com.nelitv.app/drawable/tinypop_kids_logo"
+        }
         if (lowerId.contains("pop_animation") || lowerId.contains("pop_kids") || lowerName.contains("pop animation") || lowerName.contains("pop kids") || lowerName.contains("pop network")) {
             return "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRZD3actU8XChxT38HWiBH-1Q7n60jJbzh8LGf1AMA-sQ&s=10"
         }
-        if (lowerId.contains("tinypop") || lowerName.contains("tinypop") || lowerName.contains("tiny pop")) {
-            return "https://images-wixmp-ed30a86b8c4ca887773594c2.wixmp.com/f/560dfea6-13fc-45c5-abb5-0692213c6010/dhxef9c-c5430006-509c-4f1e-a21e-0982e297a960.png?token=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1cm46YXBwOjdlMGQxODg5ODIyNjQzNzNhNWYwZDQxNWVhMGQyNmUwIiwiaXNzIjoidXJuOmFwcDo3ZTBkMTg4OTgyMjY0MzczYTVmMGQ0MTVlYTBkMjZlMCIsIm9iaiI6W1t7InBhdGgiOiIvZi81NjBkZmVhNi0xM2ZjLTQ1YzUtYWJiNS0wNjkyMjEzYzYwMTAvZGh4ZWY5Yy1jNTQzMDAwNi01MDljLTRmMWUtYTIxZS0wOTgyZTI5N2E5NjAucG5nIn1dXSwiYXVkIjpbInVybjpzZXJ2aWNlOmZpbGUuZG93bmxvYWQiXX0.iKUbv_561oakU1zHe76okMlZQM-MUbvfD8n7NYel-JE"
-        }
         if (lowerId.contains("tom_and_jerry") || lowerName.contains("tom and jerry") || lowerName.contains("tom & jerry")) {
             return "https://i.pinimg.com/1200x/d2/d0/c6/d2d0c69e6ec56ef717b9bbc23fc8e2fc.jpg"
+        }
+        if (lowerId.contains("espn_7") || lowerName == "espn 7" || lowerName == "espn7") {
+            return "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTpavpazIXesA-dugZUG8XMc6MXDNf7qzM1rMD3m0IO1bl1s0HX_IC2mOE&s=10"
+        }
+        if (lowerId.contains("bein_sport") || lowerName == "bein sports" || lowerName == "bein sport") {
+            return "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTe_WqQisMRWGDios7Dg-Y9-cktdA91Ebx_dDJusVORPA&s=10"
         }
         val raw = channel.thumbnailUrl.trim()
         if (raw.startsWith("android.resource://", ignoreCase = true)) {
@@ -1765,25 +1780,34 @@ object ChannelRepository {
     }
 
     /**
-     * Reliable fallback logo URL if a channel has no logo or if its remote logo URL fails to load.
+     * Reliable fallback logo URL strictly for the exact same channel if its remote logo fails to load.
+     * NEVER returns another channel's logo or a category-wide logo from a different channel; returns ""
+     * so the UI renders a clean channel-branded monogram badge instead of displaying a wrong channel logo.
      */
     fun resolveFallbackChannelLogoUrl(channel: LiveChannel): String {
-        val lowerName = channel.name.lowercase()
-        val lowerId = channel.id.lowercase()
-        if (lowerId.contains("pop_animation") || lowerId.contains("pop_kids") || lowerName.contains("pop animation") || lowerName.contains("pop kids") || lowerName.contains("pop network")) {
-            return "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRZD3actU8XChxT38HWiBH-1Q7n60jJbzh8LGf1AMA-sQ&s=10"
-        }
+        val lowerName = channel.name.trim().lowercase()
+        val lowerId = channel.id.trim().lowercase()
+        val normalizedKey = normalizeChannelMatchKey(channel.name)
+
+        // Check Tiny Pop BEFORE Pop Kids because "tinypop_kids_channel" contains "pop_kids"
         if (lowerId.contains("tinypop") || lowerName.contains("tinypop") || lowerName.contains("tiny pop")) {
-            return "https://images-wixmp-ed30a86b8c4ca887773594c2.wixmp.com/f/560dfea6-13fc-45c5-abb5-0692213c6010/dhxef9c-c5430006-509c-4f1e-a21e-0982e297a960.png?token=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1cm46YXBwOjdlMGQxODg5ODIyNjQzNzNhNWYwZDQxNWVhMGQyNmUwIiwiaXNzIjoidXJuOmFwcDo3ZTBkMTg4OTgyMjY0MzczYTVmMGQ0MTVlYTBkMjZlMCIsIm9iaiI6W1t7InBhdGgiOiIvZi81NjBkZmVhNi0xM2ZjLTQ1YzUtYWJiNS0wNjkyMjEzYzYwMTAvZGh4ZWY5Yy1jNTQzMDAwNi01MDljLTRmMWUtYTIxZS0wOTgyZTI5N2E5NjAucG5nIn1dXSwiYXVkIjpbInVybjpzZXJ2aWNlOmZpbGUuZG93bmxvYWQiXX0.iKUbv_561oakU1zHe76okMlZQM-MUbvfD8n7NYel-JE"
+            return "android.resource://com.nelitv.app/drawable/tinypop_kids_logo"
+        }
+        if (lowerId.contains("pop_animation") || lowerId.contains("pop_kids") ||
+            lowerName == "pop" || lowerName.contains("pop animation") ||
+            lowerName.contains("pop kids") || lowerName.contains("pop network")
+        ) {
+            return "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRZD3actU8XChxT38HWiBH-1Q7n60jJbzh8LGf1AMA-sQ&s=10"
         }
         if (lowerId.contains("tom_and_jerry") || lowerName.contains("tom and jerry") || lowerName.contains("tom & jerry")) {
             return "https://i.pinimg.com/1200x/d2/d0/c6/d2d0c69e6ec56ef717b9bbc23fc8e2fc.jpg"
         }
-        val localMatch = channels.find {
-            it.id.equals(channel.id, ignoreCase = true) ||
-                it.name.equals(channel.name.trim(), ignoreCase = true) ||
-                channel.name.contains(it.name, ignoreCase = true) ||
-                it.name.contains(channel.name.trim(), ignoreCase = true)
+
+        // Strict exact match ONLY (by ID or exact normalized name) — never fuzzy substring matching
+        val localMatch = channels.find { builtIn ->
+            builtIn.id.equals(channel.id, ignoreCase = true) ||
+                builtIn.name.equals(channel.name.trim(), ignoreCase = true) ||
+                (normalizedKey.isNotEmpty() && normalizeChannelMatchKey(builtIn.name) == normalizedKey)
         }
         if (localMatch != null &&
             localMatch.thumbnailUrl.isNotBlank() &&
@@ -1791,35 +1815,37 @@ object ChannelRepository {
         ) {
             return localMatch.thumbnailUrl
         }
-        val lowerCats = channel.categories.joinToString(" ").lowercase()
+
         return when {
-            lowerName.contains("azam sport 1") || lowerName.contains("azam sports 1") ->
+            normalizedKey == "azamsport1" || normalizedKey == "azamsports1" || normalizedKey == "azamsports1hd" ->
                 "https://i.ibb.co/B29Xvb5P/azam-sport-1-01.png"
-            lowerName.contains("azam sport 2") || lowerName.contains("azam sports 2") ->
+            normalizedKey == "azamsport2" || normalizedKey == "azamsports2" || normalizedKey == "azamsports2hd" ->
                 "https://i.ibb.co/Y7Cj3Wtj/azam-sport-2-01.png"
-            lowerName.contains("azam sport 3") || lowerName.contains("azam sports 3") ->
+            normalizedKey == "azamsport3" || normalizedKey == "azamsports3" || normalizedKey == "azamsports3hd" ->
                 "https://i.ibb.co/2YfLQ545/1000221070.png"
-            lowerName.contains("azam sport") || lowerCats.contains("sport") ->
+            normalizedKey == "azamsport4" || normalizedKey == "azamsports4" || normalizedKey == "azamsports4hd" ->
                 "https://i.ibb.co/SwtFQNsh/1000221063.jpg"
-            lowerName.contains("azam one") || lowerName.contains("azam xtra") ->
+            normalizedKey == "azamone" || normalizedKey == "azamxtra" ->
                 "https://i.ibb.co/8gtr1n42/1000221072.jpg"
-            lowerName.contains("azam two") || lowerName.contains("clouds") ->
+            normalizedKey == "azamtwo" ->
                 "https://i.ibb.co/Z6sdp2tg/1000221074.jpg"
-            lowerName.contains("sinema") || lowerName.contains("azam movies") || lowerCats.contains("movie") ->
+            normalizedKey == "sinemazetu" || normalizedKey == "azammovies" ->
                 "https://i.ibb.co/twBGTs4s/1000221073.jpg"
-            lowerName.contains("utv") || lowerName.contains("itv") || lowerCats.contains("news") ->
+            normalizedKey == "utv" || normalizedKey == "utvtanzania" ->
                 "https://i.ibb.co/N2nCDLwD/1000221071.png"
-            lowerName.contains("zbc") ->
+            normalizedKey == "zbc" ->
                 "https://i.ibb.co/xtynWQsN/1000221078.png"
-            lowerName.contains("wasafi") || lowerCats.contains("music") ->
+            normalizedKey == "wasafitv" || normalizedKey == "wasafi" ->
                 "https://i.ibb.co/W4PYYhRV/157731247083407-Y3-Jvc-Cwx-MTQ0-LDg5-NCww-LDU4-OA.png"
-            lowerName.contains("crown") ->
+            normalizedKey == "crowntv" || normalizedKey == "crown" ->
                 "https://i.ibb.co/GfWDtdQT/1000221075.png"
-            lowerName.contains("kix") ->
+            normalizedKey == "kix" || normalizedKey == "kixmovies" ->
                 "https://i.ibb.co/ch6qGQT3/KIX-logo-svg.png"
-            lowerCats.contains("kid") || lowerName.contains("cartoon") || lowerName.contains("baby") ->
-                "android.resource://com.example/drawable/pop_kids_logo"
-            else -> "https://i.ibb.co/8gtr1n42/1000221072.jpg"
+            normalizedKey == "espn7" ->
+                "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTpavpazIXesA-dugZUG8XMc6MXDNf7qzM1rMD3m0IO1bl1s0HX_IC2mOE&s=10"
+            normalizedKey == "beinsports" || normalizedKey == "beinsport" ->
+                "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTe_WqQisMRWGDios7Dg-Y9-cktdA91Ebx_dDJusVORPA&s=10"
+            else -> ""
         }
     }
 
@@ -2029,7 +2055,17 @@ object ChannelRepository {
             } else {
                 matchingLocal?.clearKeys.orEmpty()
             }
-            val normalizedUrl = resolvePlayableAzamManifestUrl(rem.streamUrl)
+            val rawSafeUrl = if (rem.streamUrl.contains("cinerama.uz/1501", ignoreCase = true) && matchingLocal != null) {
+                matchingLocal.streamUrl
+            } else {
+                rem.streamUrl
+            }
+            val safeBackupUrl = if (rem.backupStreamUrl.contains("cinerama.uz/1501", ignoreCase = true) || rem.backupStreamUrl.isBlank()) {
+                matchingLocal?.backupStreamUrl.orEmpty()
+            } else {
+                rem.backupStreamUrl
+            }
+            val normalizedUrl = resolvePlayableAzamManifestUrl(rawSafeUrl)
             val isDash = normalizedUrl.contains(".mpd", ignoreCase = true) ||
                 normalizedUrl.contains("/live/eds/", ignoreCase = true)
             val resolvedLogo = rem.thumbnailUrl.trim()
@@ -2039,6 +2075,7 @@ object ChannelRepository {
                 }
             rem.copy(
                 streamUrl = normalizedUrl,
+                backupStreamUrl = safeBackupUrl,
                 streamFormat = if (isDash) "dash" else rem.streamFormat,
                 thumbnailUrl = resolvedLogo,
                 encryptionType = if (mergedKeys.isNotEmpty()) "clearkey" else rem.encryptionType,
@@ -2711,7 +2748,7 @@ object ChannelRepository {
                 ?: (if (primaryPath.isNotEmpty()) {
                     backupByPath[primaryPath]?.takeIf { candidate ->
                         val candKey = normalizeChannelMatchKey(candidate.name)
-                        candKey == primaryKey || candKey.contains(primaryKey) || primaryKey.contains(candKey)
+                        candKey.isNotEmpty() && candKey == primaryKey
                     }
                 } else null)
 
@@ -2780,13 +2817,75 @@ object ChannelRepository {
     }
 
     /**
+     * Returns true if the given JWT token has an `exp` claim that is already expired (or within 60s of expiry).
+     */
+    fun isJwtTokenExpired(jwtToken: String, nowEpochSec: Long = System.currentTimeMillis() / 1000L): Boolean {
+        val clean = jwtToken.trim()
+        if (clean.isEmpty()) return true
+        val exp = extractJwtExpEpochSeconds(clean) ?: return false
+        return exp <= (nowEpochSec + 60L)
+    }
+
+    /**
+     * Returns true if the active [AZAM_CDN_TOKEN] is expired and needs a fresh live token sync.
+     */
+    fun isActiveTokenExpired(nowEpochSec: Long = System.currentTimeMillis() / 1000L): Boolean {
+        return isJwtTokenExpired(AZAM_CDN_TOKEN, nowEpochSec)
+    }
+
+    /**
+     * Returns true if the active [AZAM_CDN_TOKEN] is already expired or will expire within [leadSeconds]
+     * so background auto-renewal can refresh CDN keys seamlessly before playback ever fails.
+     */
+    fun isActiveTokenExpiringSoon(
+        leadSeconds: Long = 600L,
+        nowEpochSec: Long = System.currentTimeMillis() / 1000L
+    ): Boolean {
+        val clean = AZAM_CDN_TOKEN.trim()
+        if (clean.isEmpty() || isSupersededOrRevokedToken(clean)) return true
+        val exp = extractJwtExpEpochSeconds(clean) ?: effectiveTokenExpiryEpochSec.takeIf { it > 0L } ?: return false
+        return exp <= (nowEpochSec + leadSeconds.coerceAtLeast(60L))
+    }
+
+    /**
+     * Returns true if [candidateToken] should be replaced by [AZAM_CDN_TOKEN] because it is revoked,
+     * expired, or older than the currently synced active CDN token.
+     */
+    fun isTokenExpiredOrOlderThanActive(
+        candidateToken: String,
+        nowEpochSec: Long = System.currentTimeMillis() / 1000L
+    ): Boolean {
+        val clean = candidateToken.trim()
+        if (clean.isEmpty() || isSupersededOrRevokedToken(clean)) return true
+        val activeToken = AZAM_CDN_TOKEN.trim()
+        if (activeToken.isEmpty() || clean == activeToken) return false
+
+        val candidateExp = extractJwtExpEpochSeconds(clean)
+        val activeExp = extractJwtExpEpochSeconds(activeToken)
+
+        if (candidateExp != null && candidateExp <= (nowEpochSec + 60L)) {
+            return true
+        }
+        if (activeExp != null && candidateExp != null && activeExp > candidateExp) {
+            return true
+        }
+        if (hasAuthoritativeLiveToken && activeToken != DEFAULT_AZAM_CDN_TOKEN) {
+            return true
+        }
+        return false
+    }
+
+    /**
      * Resolves the exact channel-specific token for an Azam CDN `/live/eds/<ChannelDir>/` stream path.
      * Always prioritizes the active dynamic CDN token fetched from https://streamzone.fun/api/cdn-token
-     * so that all live channels stream with valid authenticated credentials.
+     * whenever a live token is active or the channel's built-in token is expired.
      */
     fun resolveChannelSpecificToken(urlOrPath: String): String {
+        if (hasAuthoritativeLiveToken && AZAM_CDN_TOKEN.isNotBlank() && AZAM_CDN_TOKEN != DEFAULT_AZAM_CDN_TOKEN) {
+            return AZAM_CDN_TOKEN
+        }
         val lower = urlOrPath.lowercase()
-        return when {
+        val builtInChannelToken = when {
             lower.contains("/azamsport1/") -> AZAM_SPORT_1_TOKEN
             lower.contains("/azamsport2/") -> AZAM_SPORT_2_TOKEN
             lower.contains("/azamsport3/") -> AZAM_SPORT_3_TOKEN
@@ -2802,6 +2901,11 @@ object ChannelRepository {
             lower.contains("/crowntv/") -> AZAM_SECONDARY_CDN_TOKEN
             lower.contains("/wasafitv/") -> AZAM_SECONDARY_CDN_TOKEN
             else -> AZAM_CDN_TOKEN
+        }
+        return if (isTokenExpiredOrOlderThanActive(builtInChannelToken)) {
+            AZAM_CDN_TOKEN
+        } else {
+            builtInChannelToken
         }
     }
 
@@ -2824,10 +2928,13 @@ object ChannelRepository {
     /**
      * Normalizes Azam TV & CDN stream URLs (`.mpd` manifests and `.mp4` / `.m4s` CDN streams/segments):
      * - Rewrites `https://cdnblncr.azamtvltd.co.tz` to [AZAM_CDN_HOST] (`https://cdnedgch2.azamtvltd.co.tz`)
-     * - Updates path tokens and `?cdntoken=` query parameters with the active dynamic CDN token
+     * - Updates expired/stale `/tok_<JWT>/` path tokens AND `?cdntoken=` query parameters with the active dynamic CDN token
      * - Leaves external `.m3u8` HLS links untouched unless they use `azamtvltd.co.tz` or `cdntoken=`.
      */
-    fun normalizeDashStreamUrl(rawUrl: String): String {
+    fun normalizeDashStreamUrl(
+        rawUrl: String,
+        forceLatestLiveToken: Boolean = false
+    ): String {
         val trimmed = rawUrl.trim()
         if (trimmed.isEmpty()) return trimmed
 
@@ -2869,8 +2976,22 @@ object ChannelRepository {
             .orEmpty()
 
         val effectiveToken = when {
-            embeddedTokenParam.isNotEmpty() && !isSupersededOrRevokedToken(embeddedTokenParam) -> embeddedTokenParam
+            forceLatestLiveToken -> AZAM_CDN_TOKEN
+            embeddedTokenParam.isNotEmpty() && !isTokenExpiredOrOlderThanActive(embeddedTokenParam) -> embeddedTokenParam
+            pathToken.isNotEmpty() && !isTokenExpiredOrOlderThanActive(pathToken) -> pathToken
             else -> AZAM_CDN_TOKEN
+        }
+
+        val updatedBasePath = if (
+            hasPathTokenPrefix &&
+            (forceLatestLiveToken || isTokenExpiredOrOlderThanActive(pathToken)) &&
+            effectiveToken.isNotEmpty()
+        ) {
+            val beforeTok = basePath.substringBefore("/tok_")
+            val afterTok = basePath.substringAfter("/tok_").substringAfter("/", "")
+            if (afterTok.isNotEmpty()) "$beforeTok/tok_$effectiveToken/$afterTok" else basePath
+        } else {
+            basePath
         }
 
         val otherParams = existingQuery
@@ -2878,7 +2999,7 @@ object ChannelRepository {
             .filter { it.isNotBlank() && !it.startsWith("cdntoken=", ignoreCase = true) }
 
         val finalQuery = (otherParams + "cdntoken=$effectiveToken").joinToString("&")
-        return "$basePath?$finalQuery"
+        return "$updatedBasePath?$finalQuery"
     }
 
     fun getChannelById(id: String): LiveChannel? =

@@ -10,9 +10,9 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
+import com.example.ads.AdMobBannerAd
+import com.example.ads.AdMobNativeCardAd
 import com.example.ads.NeliAdManager
-import com.example.ads.StartIoBannerAd
-import com.example.ads.StartIoNativeCardAd
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -94,7 +94,10 @@ import com.example.data.MediaContentRepository
 import com.example.data.NeliAdminManager
 import com.example.data.NeliSubscriptionManager
 import com.example.data.OfflineDownloadManager
+import androidx.compose.runtime.mutableLongStateOf
+import com.example.model.DownloadQualityOption
 import com.example.model.LiveChannel
+import com.example.model.MediaContent
 import com.example.player.NeliCastManager
 import androidx.compose.foundation.layout.fillMaxHeight
 import com.example.ui.NeliViewModel
@@ -133,7 +136,7 @@ fun HomeScreen(
     val selectedTab by neliViewModel.selectedTab.collectAsState()
 
     var searchQuery by rememberSaveable { mutableStateOf("") }
-    var selectedLiveCategory by rememberSaveable { mutableStateOf("All") }
+    val selectedLiveCategory by neliViewModel.selectedLiveCategory.collectAsState()
     var selectedDiscoveryFilter by rememberSaveable { mutableStateOf("All") }
     var selectedSearchCategory by rememberSaveable { mutableStateOf("All") }
     var isSearchOpen by rememberSaveable { mutableStateOf(false) }
@@ -155,6 +158,7 @@ fun HomeScreen(
     val firebaseConfig by neliViewModel.firebaseConfig.collectAsState()
     val currentUser by neliViewModel.currentUser.collectAsState()
     val authError by neliViewModel.authError.collectAsState()
+    val usernameUpdateMessage by neliViewModel.usernameUpdateMessage.collectAsState()
     val googleFallbackMessage by neliViewModel.googleFallbackMessage.collectAsState()
     val isAuthLoading by neliViewModel.isAuthLoading.collectAsState()
     val showGoogleSignInSheet by neliViewModel.showGoogleSignInSheet.collectAsState()
@@ -192,24 +196,36 @@ fun HomeScreen(
         }
     }
 
+    var lastTappedLiveChannelId by remember { mutableStateOf("") }
+    var lastTappedLiveChannelMs by remember { mutableLongStateOf(0L) }
+    var pendingQuickDownloadMedia by remember { mutableStateOf<MediaContent?>(null) }
+    var quickDownloadSelectedQuality by remember { mutableStateOf(DownloadQualityOption.STANDARD_480P) }
+
     val handleChannelSelection: (LiveChannel) -> Unit = { ch ->
-        lockedChannelToPrompt = null
-        pendingUnlockedChannelAfterPayment = null
-        if (isCastActive) {
-            NeliCastManager.startCastingMedia(
-                channel = ch,
-                currentUser = currentUser,
-                context = context
-            )
-            // Stream and audio play on the Smart TV; phone acts as remote control and remains free for user
-        } else {
-            val activity = context as? Activity
-            if (activity != null) {
-                NeliAdManager.showChannelOpeningAd(activity, ch.name) {
+        val nowMs = System.currentTimeMillis()
+        val isDuplicateRapidTap = ch.id == lastTappedLiveChannelId && (nowMs - lastTappedLiveChannelMs) < 700L
+        if (!isDuplicateRapidTap) {
+            lastTappedLiveChannelId = ch.id
+            lastTappedLiveChannelMs = nowMs
+            lockedChannelToPrompt = null
+            pendingUnlockedChannelAfterPayment = null
+            if (isCastActive) {
+                NeliCastManager.startCastingMedia(
+                    channel = ch,
+                    currentUser = currentUser,
+                    context = context
+                )
+                // Stream and audio play on the Smart TV; phone acts as remote control and remains free for user
+            } else {
+                val activity = com.example.data.AuthenticationRepository.findActivity(context)
+                val isLocalOfflineFile = ch.id.startsWith("dl_") || ch.streamUrl.startsWith("file:", ignoreCase = true)
+                if (activity != null && !isLocalOfflineFile) {
+                    NeliAdManager.showChannelOpeningAd(activity, ch.name, ch.id) {
+                        onChannelSelected(ch)
+                    }
+                } else {
                     onChannelSelected(ch)
                 }
-            } else {
-                onChannelSelected(ch)
             }
         }
     }
@@ -223,6 +239,9 @@ fun HomeScreen(
         neliViewModel.refreshConnectivityState()
         NeliSubscriptionManager.initialize(context)
         NeliAdminManager.initialize(context)
+        if (!NeliTvDetector.isTelevision(context)) {
+            NeliAdManager.initialize(context)
+        }
     }
 
     if (showCastDialog) {
@@ -294,6 +313,17 @@ fun HomeScreen(
                         seriesPoster = selectedMedia.posterUrl
                     )
                 },
+                onDownloadMediaWithQuality = { media, quality ->
+                    neliViewModel.addDownload(media, quality)
+                },
+                onDownloadEpisodeWithQuality = { ep, quality ->
+                    neliViewModel.addEpisodeDownload(
+                        episode = ep,
+                        seriesTitle = selectedMedia.title,
+                        seriesPoster = selectedMedia.posterUrl,
+                        quality = quality
+                    )
+                },
                 onSelectRecommendedMedia = { rec ->
                     neliViewModel.openMediaDetails(rec.id)
                 },
@@ -353,7 +383,7 @@ fun HomeScreen(
                                     channel = media.toPlayableChannel(),
                                     downloads = downloads
                                 )
-                                onChannelSelected(playable)
+                                handleChannelSelection(playable)
                             },
                             catalogRotationSeed = catalogRotationSeed,
                             isRefreshing = isRefreshingDiscovery,
@@ -383,7 +413,7 @@ fun HomeScreen(
                             isOfflineMode = isOfflineMode,
                             downloadBannerMessage = downloadBannerMessage,
                             onDismissBanner = { neliViewModel.dismissDownloadBanner() },
-                            onStartQuickDownload = { media -> neliViewModel.addDownload(media) },
+                            onStartQuickDownload = { media -> pendingQuickDownloadMedia = media },
                             onPauseDownload = { id -> neliViewModel.pauseDownload(id) },
                             onRetryDownload = { item -> neliViewModel.retryDownload(item) },
                             onCancelDownload = { id -> neliViewModel.cancelDownload(id) },
@@ -415,9 +445,34 @@ fun HomeScreen(
                             },
                             onDeleteDownload = { id -> neliViewModel.deleteDownload(id) }
                         )
+
+                        val quickMedia = pendingQuickDownloadMedia
+                        if (quickMedia != null) {
+                            DownloadQualityDialog(
+                                title = quickMedia.title,
+                                isEpisode = false,
+                                selectedQuality = quickDownloadSelectedQuality,
+                                onSelectQuality = { quickDownloadSelectedQuality = it },
+                                onConfirmDownload = { chosenQuality ->
+                                    pendingQuickDownloadMedia = null
+                                    val act = com.example.data.AuthenticationRepository.findActivity(context)
+                                    if (act != null && !isOfflineMode) {
+                                        NeliAdManager.showDownloadRewardedAd(act) {
+                                            neliViewModel.addDownload(quickMedia, chosenQuality)
+                                        }
+                                    } else {
+                                        neliViewModel.addDownload(quickMedia, chosenQuality)
+                                    }
+                                },
+                                onDismiss = { pendingQuickDownloadMedia = null }
+                            )
+                        }
                     }
 
                     BottomNavTab.ACCOUNT -> {
+                        val hostActivity = remember(context) {
+                            com.example.data.AuthenticationRepository.findActivity(context)
+                        }
                         AccountTabContent(
                             currentUser = currentUser,
                             authError = authError,
@@ -429,13 +484,17 @@ fun HomeScreen(
                             watchlist = watchlist,
                             downloadsCount = downloads.count { it.downloadStatus == "COMPLETED" },
                             onSignInWithGoogle = {
-                                neliViewModel.signInWithGoogle(context)
+                                neliViewModel.signInWithGoogle(hostActivity ?: context)
                             },
                             onChooseGoogleAccount = {
-                                neliViewModel.chooseGoogleAccount(context)
+                                neliViewModel.chooseGoogleAccount(hostActivity ?: context)
                             },
                             onCompleteGoogleSignIn = { googleEmail, googleName ->
-                                neliViewModel.completeGoogleSignIn(googleEmail, googleName)
+                                neliViewModel.completeGoogleSignIn(
+                                    email = googleEmail,
+                                    displayName = googleName,
+                                    uiContext = hostActivity ?: context
+                                )
                             },
                             onDismissGoogleSignInSheet = {
                                 neliViewModel.dismissGoogleSignInSheet()
@@ -468,6 +527,13 @@ fun HomeScreen(
                                         neliViewModel.openMediaDetails(existingMedia.id)
                                     }
                                 }
+                            },
+                            usernameUpdateMessage = usernameUpdateMessage,
+                            onUpdateUsername = { newUsername ->
+                                neliViewModel.updateUsername(newUsername)
+                            },
+                            onClearUsernameUpdateMessage = {
+                                neliViewModel.clearUsernameUpdateMessage()
                             }
                         )
                     }
@@ -476,11 +542,12 @@ fun HomeScreen(
                         LiveTvHomeTab(
                             liveChannels = liveChannels,
                             selectedCategory = selectedLiveCategory,
+                            listState = neliViewModel.homeLiveTvListState,
                             isOfflineMode = isOfflineMode,
                             isRefreshing = isRefreshingLiveTv,
                             onRefresh = { neliViewModel.refreshLiveTvFeed() },
                             onOpenDownloads = { neliViewModel.selectTab(BottomNavTab.DOWNLOAD) },
-                            onCategorySelected = { selectedLiveCategory = it },
+                            onCategorySelected = { neliViewModel.selectLiveCategory(it) },
                             onChannelSelected = { ch -> handleChannelSelection(ch) },
                             adminSmsMessage = adminSmsMessage,
                             adminBannerPlacement = adminBannerPlacement
@@ -493,12 +560,14 @@ fun HomeScreen(
 
     if (isTvDevice) {
         // Smart TV Layout: Side Navigation Rail (Home, Discovery, Plans, Downloads, Account) + TV TopBar + Content (NO cast button, NO bottom menu)
-        Row(
+        Box(
             modifier = modifier
                 .fillMaxSize()
                 .background(NeliBackground)
                 .testTag("home_screen_tv")
         ) {
+            com.example.ui.components.NeliLiveWaterWaveBackground()
+            Row(modifier = Modifier.fillMaxSize()) {
             NeliTvSideNavigationRail(
                 selectedTab = selectedTab,
                 onTabSelected = { tab ->
@@ -539,103 +608,16 @@ fun HomeScreen(
                     mainTabsContent()
                 }
             }
+            }
         }
     } else {
-        // Mobile Layout: TopNavBar (No Cast button) + Main Content + NeliBottomBar
-        val infiniteTransition = rememberInfiniteTransition(label = "wallpaper_ambient_drift")
-        // Ultra-smooth, slow organic ambient background animation
-        val bgOffsetX by infiniteTransition.animateFloat(
-            initialValue = -20f,
-            targetValue = 20f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 24000, easing = FastOutSlowInEasing),
-                repeatMode = RepeatMode.Reverse
-            ),
-            label = "bg_offset_x"
-        )
-        val bgOffsetY by infiniteTransition.animateFloat(
-            initialValue = -14f,
-            targetValue = 14f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 28000, easing = FastOutSlowInEasing),
-                repeatMode = RepeatMode.Reverse
-            ),
-            label = "bg_offset_y"
-        )
-        val bgScale by infiniteTransition.animateFloat(
-            initialValue = 1.04f,
-            targetValue = 1.14f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 32000, easing = FastOutSlowInEasing),
-                repeatMode = RepeatMode.Reverse
-            ),
-            label = "bg_scale"
-        )
-        val ambientColorPhase by infiniteTransition.animateFloat(
-            initialValue = 0f,
-            targetValue = 1f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 26000, easing = LinearEasing),
-                repeatMode = RepeatMode.Reverse
-            ),
-            label = "ambient_color_phase"
-        )
-
+        // Mobile Layout: Live Water-Wave Animated Background + TopNavBar + Main Content + NeliBottomBar
         Box(
             modifier = modifier
                 .fillMaxSize()
-                .background(if (NeliThemeManager.isLightMode) Color(0xFFFFF7F6) else Color(0xFF070A1A))
+                .background(if (NeliThemeManager.isLightMode) Color(0xFFFFF7F6) else Color(0xFF060919))
         ) {
-            // Authentic Neon Ribbon Wallpaper with smooth organic floating motion
-            if (!NeliThemeManager.isLightMode) {
-                Image(
-                    painter = painterResource(id = R.drawable.neli_bg_wallpaper),
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .scale(bgScale)
-                        .offset(x = bgOffsetX.dp, y = bgOffsetY.dp)
-                )
-
-                // Slow and smooth organic morphing ambient gradient overlay
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.radialGradient(
-                                colors = listOf(
-                                    Color(0x35FF2E7E).copy(alpha = 0.18f + ambientColorPhase * 0.12f),
-                                    Color(0x2500E5FF).copy(alpha = 0.22f - ambientColorPhase * 0.10f),
-                                    Color(0x18180A30),
-                                    Color.Transparent
-                                ),
-                                center = Offset(
-                                    x = 420f + bgOffsetX * 10f,
-                                    y = 650f + bgOffsetY * 10f
-                                ),
-                                radius = 1050f
-                            )
-                        )
-                )
-
-                // Secondary soft floating aura for smooth visual richness
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.linearGradient(
-                                colors = listOf(
-                                    Color(0x1A6D28D9),
-                                    Color.Transparent,
-                                    Color(0x1500E5FF)
-                                ),
-                                start = Offset(bgOffsetX * 12f, bgOffsetY * 12f),
-                                end = Offset(1000f - bgOffsetX * 12f, 1800f - bgOffsetY * 12f)
-                            )
-                        )
-                )
-            }
+            com.example.ui.components.NeliLiveWaterWaveBackground()
 
             Column(
                 modifier = Modifier
@@ -715,6 +697,7 @@ fun HomeScreen(
 private fun LiveTvHomeTab(
     liveChannels: List<LiveChannel>,
     selectedCategory: String,
+    listState: androidx.compose.foundation.lazy.LazyListState,
     isOfflineMode: Boolean,
     isRefreshing: Boolean,
     onRefresh: () -> Unit,
@@ -836,6 +819,7 @@ private fun LiveTvHomeTab(
             .testTag("live_tv_pull_to_refresh_box")
     ) {
         LazyColumn(
+            state = listState,
             modifier = Modifier
                 .fillMaxSize()
                 .testTag("channels_grid"),
@@ -956,9 +940,9 @@ private fun LiveTvHomeTab(
                 }
             }
 
-            // Start.io Banner Ad below hero slider (matching user mockup)
-            item(key = "home_startio_banner_below_hero") {
-                StartIoBannerAd(
+            // Google AdMob Banner Ad directly below hero slider
+            item(key = "home_admob_banner_below_hero") {
+                AdMobBannerAd(
                     adTag = "home_below_hero",
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1074,17 +1058,27 @@ private fun LiveTvHomeTab(
                     }
                 }
 
-                // Native sponsored channel card inserted after every 2 channel blocks
+                // Google AdMob Native Advanced Ad inserted inside Live TV blocks on Home
                 if (blockIndex % 2 == 0) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp, vertical = 6.dp)
                     ) {
-                        StartIoNativeCardAd()
+                        AdMobNativeCardAd(adTag = "home_live_$blockIndex")
                     }
                 }
             }
+        }
+
+        // Google AdMob Banner Ad below the Live TV channel list
+        item(key = "home_admob_banner_below_live_tv") {
+            AdMobBannerAd(
+                adTag = "home_below_live_tv",
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 6.dp)
+            )
         }
         }
     }
@@ -1147,7 +1141,11 @@ private fun LiveTvHeroBanner(
                     }
                     val heroLogoRequest = remember(channel.id, activeHeroLogo) {
                         ImageRequest.Builder(context)
-                            .data(activeHeroLogo)
+                            .data(activeHeroLogo.ifBlank { null })
+                            .addHeader(
+                                "User-Agent",
+                                "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+                            )
                             .size(260, 260)
                             .memoryCachePolicy(CachePolicy.ENABLED)
                             .diskCachePolicy(CachePolicy.ENABLED)
@@ -1209,18 +1207,20 @@ private fun LiveTvHeroBanner(
                                         modifier = Modifier.size(36.dp)
                                     )
                                 }
-                                AsyncImage(
-                                    model = heroLogoRequest,
-                                    contentDescription = channel.name,
-                                    contentScale = ContentScale.Fit,
-                                    onSuccess = { isHeroLogoLoaded = true },
-                                    onError = {
-                                        if (activeHeroLogo != fallbackHeroLogo && fallbackHeroLogo.isNotBlank()) {
-                                            activeHeroLogo = fallbackHeroLogo
-                                        }
-                                    },
-                                    modifier = Modifier.fillMaxSize()
-                                )
+                                if (activeHeroLogo.isNotBlank()) {
+                                    AsyncImage(
+                                        model = heroLogoRequest,
+                                        contentDescription = channel.name,
+                                        contentScale = ContentScale.Fit,
+                                        onSuccess = { isHeroLogoLoaded = true },
+                                        onError = {
+                                            if (activeHeroLogo != fallbackHeroLogo && fallbackHeroLogo.isNotBlank()) {
+                                                activeHeroLogo = fallbackHeroLogo
+                                            }
+                                        },
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                }
                             }
 
                             Column(
@@ -1412,7 +1412,11 @@ private fun HomepageLiveChannelCard(
     }
     val thumbRequest = remember(channel.id, activeLogoUrl) {
         ImageRequest.Builder(context)
-            .data(activeLogoUrl)
+            .data(activeLogoUrl.ifBlank { null })
+            .addHeader(
+                "User-Agent",
+                "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+            )
             .size(240, 140)
             .memoryCachePolicy(CachePolicy.ENABLED)
             .diskCachePolicy(CachePolicy.ENABLED)
@@ -1459,18 +1463,20 @@ private fun HomepageLiveChannelCard(
                     .padding(4.dp),
                 contentAlignment = Alignment.Center
             ) {
-                AsyncImage(
-                    model = thumbRequest,
-                    contentDescription = "${channel.name} logo",
-                    contentScale = ContentScale.Fit,
-                    onSuccess = { isLogoLoaded = true },
-                    onError = {
-                        if (activeLogoUrl != fallbackLogoUrl && fallbackLogoUrl.isNotBlank()) {
-                            activeLogoUrl = fallbackLogoUrl
-                        }
-                    },
-                    modifier = Modifier.fillMaxSize()
-                )
+                if (activeLogoUrl.isNotBlank()) {
+                    AsyncImage(
+                        model = thumbRequest,
+                        contentDescription = "${channel.name} logo",
+                        contentScale = ContentScale.Fit,
+                        onSuccess = { isLogoLoaded = true },
+                        onError = {
+                            if (activeLogoUrl != fallbackLogoUrl && fallbackLogoUrl.isNotBlank()) {
+                                activeLogoUrl = fallbackLogoUrl
+                            }
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
             }
 
             if (isLockedByAdmin) {

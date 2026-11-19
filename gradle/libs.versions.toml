@@ -44,6 +44,8 @@ googleServices = "4.5.0"
 credentials = "1.5.0"
 googleid = "1.1.1"
 jna = "5.14.0"
+inmobiAds = "11.5.1"
+inmobiOmsdk = "1.5.7.0"
 
 
 [libraries]
@@ -77,6 +79,7 @@ androidx-media3-exoplayer-dash = { group = "androidx.media3", name = "media3-exo
 androidx-media3-exoplayer-hls = { group = "androidx.media3", name = "media3-exoplayer-hls", version.ref = "media3" }
 androidx-media3-ui = { group = "androidx.media3", name = "media3-ui", version.ref = "media3" }
 androidx-media3-common = { group = "androidx.media3", name = "media3-common", version.ref = "media3" }
+androidx-media3-exoplayer-ima = { group = "androidx.media3", name = "media3-exoplayer-ima", version.ref = "media3" }
 coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coilCompose" }
 retrofit = { group = "com.squareup.retrofit2", name = "retrofit", version.ref = "retrofit" }
 converter-moshi = { group = "com.squareup.retrofit2", name = "converter-moshi", version.ref = "converterMoshi" }
@@ -107,6 +110,8 @@ androidx-credentials = { group = "androidx.credentials", name = "credentials", v
 androidx-credentials-play-services = { group = "androidx.credentials", name = "credentials-play-services-auth", version.ref = "credentials" }
 googleid = { group = "com.google.android.libraries.identity.googleid", name = "googleid", version.ref = "googleid" }
 jna = { group = "net.java.dev.jna", name = "jna", version.ref = "jna" }
+inmobi-ads-kotlin = { group = "com.inmobi.monetization", name = "inmobi-ads-kotlin", version.ref = "inmobiAds" }
+inmobi-omsdk = { group = "com.inmobi.omsdk", name = "inmobi-omsdk", version.ref = "inmobiOmsdk" }
 
 
 [plugins]

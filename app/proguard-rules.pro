@@ -44,3 +44,10 @@
 -keep class com.google.android.gms.ads.** { *; }
 -dontwarn com.google.errorprone.annotations.**
 
+# Keep Start.io Ads SDK classes, interfaces, and WebView JS bridges
+-keep class com.startapp.** { *; }
+-keep interface com.startapp.** { *; }
+-keepattributes Exceptions,InnerClasses,Signature,Deprecated,SourceFile,LineNumberTable,*Annotation*,EnclosingMethod
+-dontwarn com.startapp.**
+
+

@@ -49,8 +49,8 @@ import kotlin.coroutines.coroutineContext
 
 object OfflineDownloadManager {
 
-    const val SPECIAL_DEVICE_FOLDER_NAME = "NeliPlay"
-    const val SPECIAL_DEVICE_FOLDER_DISPLAY_PATH = "In-App Private Storage (Nelitv Only)"
+    const val SPECIAL_DEVICE_FOLDER_NAME = "NeliTV"
+    const val SPECIAL_DEVICE_FOLDER_DISPLAY_PATH = "In-App Private Storage (NeliTV Only)"
 
     private const val NOTIFICATION_CHANNEL_ID = "neli_offline_downloads_channel"
     private const val NOTIFICATION_CHANNEL_NAME = "Nelitv Background Downloads"
@@ -152,7 +152,7 @@ object OfflineDownloadManager {
             .replace(Regex("[^a-zA-Z0-9_.-]"), "")
             .trim('_')
             .take(56)
-            .ifBlank { "NeliPlay_Video" }
+            .ifBlank { "NeliTV_Video" }
         val safeId = id.replace(Regex("[^a-zA-Z0-9_-]"), "_").take(24)
         return "${cleanTitle}_${safeId}.$cleanExt"
     }
@@ -575,18 +575,11 @@ object OfflineDownloadManager {
                     add(rawStreamUrl)
                 } else if (rawStreamUrl.contains("b-cdn.net", ignoreCase = true)) {
                     val baseDir = rawStreamUrl.substringBefore("?").substringBeforeLast("/")
-                    if (rawStreamUrl.substringBefore("?").endsWith(".mp4", ignoreCase = true)) {
-                        add(rawStreamUrl)
-                        add("$baseDir/play_480p.mp4$querySuffix")
-                        add("$baseDir/play_360p.mp4$querySuffix")
-                        add("$baseDir/play_720p.mp4$querySuffix")
-                        add("$baseDir/playlist.m3u8$querySuffix")
-                    } else {
-                        add("$baseDir/play_480p.mp4$querySuffix")
-                        add("$baseDir/play_360p.mp4$querySuffix")
-                        add("$baseDir/play_720p.mp4$querySuffix")
-                        add(rawStreamUrl)
-                    }
+                    add(rawStreamUrl)
+                    add("$baseDir/play_480p.mp4$querySuffix")
+                    add("$baseDir/play_360p.mp4$querySuffix")
+                    add("$baseDir/play_720p.mp4$querySuffix")
+                    add("$baseDir/playlist.m3u8$querySuffix")
                 } else {
                     add(rawStreamUrl)
                 }
@@ -958,7 +951,8 @@ object OfflineDownloadManager {
                                     initialEntity = initialEntity,
                                     localPath = "",
                                     pct = pct,
-                                    downloadedBytes = downloadedBytes
+                                    downloadedBytes = downloadedBytes,
+                                    expectedTotalBytes = expectedTotalBytes
                                 )
                             }
                         }
@@ -1222,13 +1216,19 @@ object OfflineDownloadManager {
                                         if (pct > lastReportedPct || (recheckNow - lastReportTimeMs >= 600L && currentTotalBytes > 0L)) {
                                             lastReportedPct = maxOf(lastReportedPct, pct)
                                             lastReportTimeMs = recheckNow
+                                            val estimatedHlsTotalBytes = if (doneCount > 0 && currentTotalBytes > 0L) {
+                                                (currentTotalBytes * totalSegmentCount.toLong()) / doneCount.toLong()
+                                            } else {
+                                                0L
+                                            }
                                             reportProgressUpdate(
                                                 appContext = appContext,
                                                 dao = dao,
                                                 initialEntity = initialEntity,
                                                 localPath = "",
                                                 pct = lastReportedPct,
-                                                downloadedBytes = currentTotalBytes
+                                                downloadedBytes = currentTotalBytes,
+                                                expectedTotalBytes = estimatedHlsTotalBytes
                                             )
                                         }
                                     }
@@ -1356,7 +1356,8 @@ object OfflineDownloadManager {
         initialEntity: DownloadedItemEntity,
         localPath: String,
         pct: Int,
-        downloadedBytes: Long
+        downloadedBytes: Long,
+        expectedTotalBytes: Long = 0L
     ) {
         val now = System.currentTimeMillis()
         val startMs = downloadStartTimestamps[initialEntity.id] ?: (now - 1000L)
@@ -1364,13 +1365,27 @@ object OfflineDownloadManager {
         val mbSoFar = downloadedBytes.toDouble() / (1024.0 * 1024.0)
         val speedMbPerSec = (mbSoFar / elapsedSec).coerceAtLeast(0.2)
         val safePct = pct.coerceIn(1, 99)
-        val sizeProgressLabel = String.format(
-            Locale.US,
-            "Downloading • %d%% (%.1f MB • %.1f MB/s)",
-            safePct,
-            mbSoFar,
-            speedMbPerSec
-        )
+        val totalMb = if (expectedTotalBytes > 0L) {
+            (expectedTotalBytes.toDouble() / (1024.0 * 1024.0)).coerceAtLeast(mbSoFar)
+        } else if (safePct >= 2 && mbSoFar > 0.1) {
+            ((mbSoFar * 100.0) / safePct.toDouble()).coerceAtLeast(mbSoFar)
+        } else {
+            0.0
+        }
+        val sizeProgressLabel = if (totalMb > 0.0) {
+            String.format(
+                Locale.US,
+                "%.1f MB / %.1f MB",
+                mbSoFar,
+                totalMb
+            )
+        } else {
+            String.format(
+                Locale.US,
+                "%.1f MB",
+                mbSoFar
+            )
+        }
         updateProgress(initialEntity.id, safePct)
         val updatedEntity = initialEntity.copy(
             localFilePath = localPath,
@@ -1595,6 +1610,10 @@ object OfflineDownloadManager {
         removeActiveEntity(id)
         removeActiveTitle(id)
         clearProgress(id)
+        if (context != null) {
+            cancelDownloadNotification(context.applicationContext, id)
+            syncForegroundServiceState(context.applicationContext)
+        }
     }
 
     /**

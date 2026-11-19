@@ -97,8 +97,8 @@ import com.example.ui.theme.NeliSurface
 import com.example.ui.theme.NeliSurfaceVariant
 import com.example.ui.theme.NeliTextPrimary
 import com.example.ui.theme.NeliTextSecondary
-import com.example.ads.StartIoBannerAd
-import com.example.ads.StartIoNativeCardAd
+import com.example.ads.AdMobBannerAd
+import com.example.ads.AdMobNativeCardAd
 import com.example.ads.NeliAdManager
 
 @Composable
@@ -116,12 +116,18 @@ fun MediaDetailScreen(
     onToggleWatchlist: (MediaContent) -> Unit,
     onDownloadMedia: (MediaContent) -> Unit,
     onDownloadEpisode: (EpisodeItem) -> Unit,
+    onDownloadMediaWithQuality: (MediaContent, DownloadQualityOption) -> Unit = { m, _ -> onDownloadMedia(m) },
+    onDownloadEpisodeWithQuality: (EpisodeItem, DownloadQualityOption) -> Unit = { ep, _ -> onDownloadEpisode(ep) },
     onSelectRecommendedMedia: (MediaContent) -> Unit = {},
     onOpenDownloadsTab: () -> Unit = {},
     onDismissDownloadBanner: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     BackHandler(onBack = onBack)
+
+    var showQualityDialogForMedia by remember { mutableStateOf(false) }
+    var pendingEpisodeForQualityDialog by remember { mutableStateOf<EpisodeItem?>(null) }
+    var selectedQualityOption by remember { mutableStateOf(DownloadQualityOption.HIGH_720P) }
 
     var tmdbEnrichedMedia by remember(media) { mutableStateOf(media) }
     LaunchedEffect(media.id) {
@@ -338,92 +344,7 @@ fun MediaDetailScreen(
                 }
             }
 
-        // Live Download Confirmation / Progress Banner
-        if (!downloadBannerMessage.isNullOrBlank() || mediaDownloadingPct != null) {
-            item {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 6.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(NeliCardPurple)
-                        .border(1.dp, NeliGenreCyan.copy(alpha = 0.6f), RoundedCornerShape(14.dp))
-                        .padding(12.dp)
-                        .testTag("download_status_banner"),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Icon(
-                                imageVector = if (mediaDownloadingPct != null && mediaDownloadingPct < 100) {
-                                    Icons.Default.Downloading
-                                } else {
-                                    Icons.Default.DownloadDone
-                                },
-                                contentDescription = null,
-                                tint = Color(0xFF10B981),
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Text(
-                                text = downloadBannerMessage
-                                    ?: "Downloading ${media.title} (${mediaDownloadingPct ?: 0}%)...",
-                                color = NeliTextPrimary,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Text(
-                                text = "View Downloads →",
-                                color = NeliGenreCyan,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .clickable { onOpenDownloadsTab() }
-                                    .padding(horizontal = 8.dp, vertical = 4.dp)
-                                    .testTag("view_downloads_shortcut")
-                            )
-                            IconButton(
-                                onClick = onDismissDownloadBanner,
-                                modifier = Modifier.size(24.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Close,
-                                    contentDescription = "Dismiss",
-                                    tint = NeliTextSecondary,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            }
-                        }
-                    }
-
-                    if (mediaDownloadingPct != null) {
-                        LinearProgressIndicator(
-                            progress = { (mediaDownloadingPct.coerceIn(0, 100)) / 100f },
-                            color = NeliMagenta,
-                            trackColor = NeliSurfaceVariant,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(5.dp)
-                                .clip(RoundedCornerShape(4.dp))
-                        )
-                    }
-                }
-            }
-        }
+            // Download progress stays strictly inside the Downloads tab (never cluttering other movie pages)
 
         // Title, Badges & Action Buttons
         item {
@@ -538,20 +459,10 @@ fun MediaDetailScreen(
                 ) {
                     Button(
                         onClick = {
-                            val playAction = {
-                                if (media.isSeries && currentVodEpisode != null) {
-                                    onPlayChannel(currentVodEpisode.toPlayableChannel(media.title))
-                                } else {
-                                    onPlayChannel(media.toPlayableChannel())
-                                }
-                            }
-                            val act = detailContext as? android.app.Activity
-                            if (act != null) {
-                                NeliAdManager.showChannelOpeningAd(act, media.title) {
-                                    playAction()
-                                }
+                            if (media.isSeries && currentVodEpisode != null) {
+                                onPlayChannel(currentVodEpisode.toPlayableChannel(media.title))
                             } else {
-                                playAction()
+                                onPlayChannel(media.toPlayableChannel())
                             }
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta),
@@ -576,11 +487,13 @@ fun MediaDetailScreen(
                             },
                             color = Color.White,
                             fontWeight = FontWeight.Bold,
-                            fontSize = 15.sp
+                            fontSize = 14.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
 
-                    if (media.downloadEnabled) {
+                    if (media.isDownloadPermitted) {
                         val isActivelyDownloadingThis = !isMediaAlreadyDownloaded && mediaDownloadingPct != null && mediaDownloadingPct < 100
                         OutlinedButton(
                             onClick = {
@@ -591,25 +504,16 @@ fun MediaDetailScreen(
                                         onPlayChannel(media.toPlayableChannel())
                                     }
                                 } else if (!isActivelyDownloadingThis) {
-                                    val startDownload = {
-                                        if (media.isSeries && currentVodEpisode != null) {
-                                            onDownloadEpisode(currentVodEpisode)
-                                        } else {
-                                            onDownloadMedia(media)
-                                        }
-                                    }
-                                    val act = detailContext as? android.app.Activity
-                                    if (act != null) {
-                                        com.example.ads.NeliAdManager.showDownloadMovieAd(act) {
-                                            startDownload()
-                                        }
+                                    if (media.isSeries && currentVodEpisode != null) {
+                                        pendingEpisodeForQualityDialog = currentVodEpisode
                                     } else {
-                                        startDownload()
+                                        showQualityDialogForMedia = true
                                     }
                                 }
                             },
                             enabled = !isActivelyDownloadingThis,
                             shape = RoundedCornerShape(14.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                             modifier = Modifier
                                 .height(50.dp)
                                 .testTag("detail_download_button")
@@ -621,24 +525,28 @@ fun MediaDetailScreen(
                                     else -> Icons.Default.Download
                                 },
                                 contentDescription = null,
-                                tint = if (isMediaAlreadyDownloaded) Color(0xFF10B981) else NeliGenreCyan
+                                tint = if (isMediaAlreadyDownloaded) Color(0xFFFF4DA6) else NeliGenreCyan,
+                                modifier = Modifier.size(18.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
                                 text = when {
-                                    isActivelyDownloadingThis -> "Downloading $mediaDownloadingPct%"
-                                    isMediaAlreadyDownloaded -> "Downloaded • Play"
+                                    isActivelyDownloadingThis -> "$mediaDownloadingPct%"
+                                    isMediaAlreadyDownloaded -> "Offline"
                                     else -> "Download"
                                 },
                                 color = NeliTextPrimary,
-                                fontWeight = FontWeight.SemiBold
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }
                 }
 
-                // Start.io Banner Ad below action buttons
-                StartIoBannerAd(
+                // Google AdMob Banner Ad in Movie Details page
+                AdMobBannerAd(
                     adTag = "detail_page_banner",
                     modifier = Modifier
                         .fillMaxWidth()
@@ -673,14 +581,15 @@ fun MediaDetailScreen(
             }
         }
 
-        // Start.io Native Sponsored Card in Media Details
+        // Google AdMob Native Advanced Ad Card in Media Details
         item(key = "detail_native_sponsored_card") {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
-                StartIoNativeCardAd(
+                AdMobNativeCardAd(
+                    adTag = "detail_page",
                     modifier = Modifier.fillMaxWidth()
                 )
             }
@@ -752,15 +661,26 @@ fun MediaDetailScreen(
                             fontWeight = FontWeight.ExtraBold
                         )
 
-                        if (filteredEpisodes.size > 1) {
+                        val downloadableEpisodes = filteredEpisodes.filter { it.isDownloadPermitted }
+                        if (downloadableEpisodes.size > 1) {
                             Row(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(10.dp))
                                     .background(NeliCardPurple)
                                     .border(1.dp, NeliGenreCyan.copy(alpha = 0.6f), RoundedCornerShape(10.dp))
                                     .clickable {
-                                        filteredEpisodes.forEach { ep ->
-                                            onDownloadEpisode(ep)
+                                        val act = detailContext as? android.app.Activity
+                                        val batchAction = {
+                                            downloadableEpisodes.forEach { ep ->
+                                                onDownloadEpisode(ep)
+                                            }
+                                        }
+                                        if (act != null) {
+                                            NeliAdManager.showDownloadRewardedAd(act) {
+                                                batchAction()
+                                            }
+                                        } else {
+                                            batchAction()
                                         }
                                     }
                                     .padding(horizontal = 10.dp, vertical = 6.dp)
@@ -930,7 +850,7 @@ fun MediaDetailScreen(
                         }
                     }
 
-                    if (ep.downloadEnabled) {
+                    if (ep.isDownloadPermitted) {
                         val isEpActivelyDownloading = !isEpDownloaded && epProgress != null && epProgress < 100
                         IconButton(
                             onClick = {
@@ -939,7 +859,7 @@ fun MediaDetailScreen(
                                     if (idx >= 0) activeEpisodeIndex = idx
                                     onPlayChannel(ep.toPlayableChannel(media.title))
                                 } else if (!isEpActivelyDownloading) {
-                                    onDownloadEpisode(ep)
+                                    pendingEpisodeForQualityDialog = ep
                                 }
                             },
                             enabled = !isEpActivelyDownloading,
@@ -1010,6 +930,55 @@ fun MediaDetailScreen(
         }
         }
     }
+
+    if (showQualityDialogForMedia) {
+        DownloadQualityDialog(
+            title = media.title,
+            isEpisode = false,
+            selectedQuality = selectedQualityOption,
+            onSelectQuality = { selectedQualityOption = it },
+            onConfirmDownload = { quality ->
+                showQualityDialogForMedia = false
+                val startDownload = {
+                    onDownloadMediaWithQuality(media, quality)
+                }
+                val act = detailContext as? android.app.Activity
+                if (act != null) {
+                    NeliAdManager.showDownloadRewardedAd(act) {
+                        startDownload()
+                    }
+                } else {
+                    startDownload()
+                }
+            },
+            onDismiss = { showQualityDialogForMedia = false }
+        )
+    }
+
+    val epToDownload = pendingEpisodeForQualityDialog
+    if (epToDownload != null) {
+        DownloadQualityDialog(
+            title = "${media.title} • S${epToDownload.seasonNumber}E${epToDownload.episodeNumber}",
+            isEpisode = true,
+            selectedQuality = selectedQualityOption,
+            onSelectQuality = { selectedQualityOption = it },
+            onConfirmDownload = { quality ->
+                pendingEpisodeForQualityDialog = null
+                val startDownload = {
+                    onDownloadEpisodeWithQuality(epToDownload, quality)
+                }
+                val act = detailContext as? android.app.Activity
+                if (act != null) {
+                    NeliAdManager.showDownloadRewardedAd(act) {
+                        startDownload()
+                    }
+                } else {
+                    startDownload()
+                }
+            },
+            onDismiss = { pendingEpisodeForQualityDialog = null }
+        )
+    }
 }
 
 @Composable
@@ -1079,7 +1048,7 @@ private fun CastMemberCard(member: CastMember) {
 }
 
 @Composable
-private fun DownloadQualityDialog(
+fun DownloadQualityDialog(
     title: String,
     isEpisode: Boolean,
     selectedQuality: DownloadQualityOption,

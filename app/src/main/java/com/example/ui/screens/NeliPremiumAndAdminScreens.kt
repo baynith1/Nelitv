@@ -462,20 +462,20 @@ fun PremiumTabContent(
                                 modifier = Modifier
                                     .size(36.dp)
                                     .clip(CircleShape)
-                                    .background(Color(0x3310B981)),
+                                    .background(Color(0x33FF2E7E)),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Verified,
                                     contentDescription = "Verified Premium Tick",
-                                    tint = Color(0xFF34D399),
+                                    tint = Color(0xFFFF4DA6),
                                     modifier = Modifier.size(24.dp)
                                 )
                             }
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = "✓ VERIFIED PREMIUM MEMBER",
-                                    color = Color(0xFF34D399),
+                                    color = Color(0xFFFF4DA6),
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Black
                                 )
@@ -1354,12 +1354,12 @@ fun PremiumTabContent(
                                 .fillMaxWidth()
                                 .testTag("premium_verified_success_card"),
                             shape = RoundedCornerShape(18.dp),
-                            colors = CardDefaults.cardColors(containerColor = Color(0xFF0E2923))
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFF280D22))
                         ) {
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .border(1.5.dp, Color(0xFF10B981), RoundedCornerShape(18.dp))
+                                    .border(1.5.dp, Color(0xFFFF2E7E), RoundedCornerShape(18.dp))
                                     .padding(20.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -1367,12 +1367,12 @@ fun PremiumTabContent(
                                 Icon(
                                     imageVector = Icons.Default.Verified,
                                     contentDescription = "Verified Tick",
-                                    tint = Color(0xFF34D399),
+                                    tint = Color(0xFFFF4DA6),
                                     modifier = Modifier.size(56.dp)
                                 )
                                 Text(
                                     text = "✓ VERIFIED",
-                                    color = Color(0xFF34D399),
+                                    color = Color(0xFFFF4DA6),
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Black
                                 )

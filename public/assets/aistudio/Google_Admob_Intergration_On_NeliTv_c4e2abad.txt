@@ -1,0 +1,25 @@
+Google Admob Intergration On NeliTv
+
+add this app-ads.txt file
+
+google.com, pub-5204110379616479, DIRECT, f08c47fec0942fa0
+
+My Admob App Id - (ca-app-pub-5204110379616479~8471497203)
+
+My Ads Type
+1. Banner (ca-app-pub-5204110379616479/4528382767)
+2. Rewarded interstitial (ca-app-pub-5204110379616479/8561454550)
+3. Native advance (ca-app-pub-5204110379616479/4267373368)
+4. App Open (ca-app-pub-5204110379616479/4953382032)
+
+
+
+add banner ads after every categories in discovery page and movies also add native advance in movie rows also add rewarded interstitial when user play movie,download or need to play any channel
+
+now add native advance ads also in live tv in home page also add banner ads down slider also add banner ads in mvie details page
+
+remove the things we says show ads after every 15 mins now
+
+pia add app open ads
+
+make app in production ready to use and not test mode

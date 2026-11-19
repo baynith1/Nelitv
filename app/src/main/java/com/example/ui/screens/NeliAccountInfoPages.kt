@@ -63,16 +63,20 @@ import com.example.ui.theme.NeliTextSecondary
 import com.example.widget.NeliHomeWidgetProvider
 
 enum class AccountInfoPageType(val title: String) {
-    ABOUT_US("About Us • Kuhusu Nelitv"),
-    CONTACT_US("System Information • Nelitv"),
+    ABOUT_US("About Us • Kuhusu NeliTV"),
+    CONTACT_US("Contact Us • Nairobi Broadcast Company"),
     HELP_FAQ("Help Center & Maswali (FAQ)"),
     PRIVACY_TERMS("Privacy Policy & Terms of Service")
 }
 
 const val APP_BRAND_NAME = "Nelitv Official"
+const val COMPANY_NAME = "Nairobi Broadcast Company"
+const val SUPPORT_EMAIL = "support@nelitv.online"
+const val SUPPORT_PHONE = "+254853553584"
+const val SERVICE_REGIONS = "Tanzania and Kenya"
 
 /**
- * Displays the Customer Care quick card, About Us, Contact Us, Help/FAQ,
+ * Displays the Nairobi Broadcast Company support card, About Us, Contact Us, Help/FAQ,
  * and Privacy & Terms cards inside the Account ("My Space") tab.
  */
 @Composable
@@ -87,6 +91,101 @@ fun NeliAccountSupportAndPagesSection(
             .testTag("account_support_and_pages_section"),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
+        // Official Nairobi Broadcast Company & Support Card
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(20.dp))
+                .background(
+                    Brush.linearGradient(
+                        listOf(Color(0xFF161A36), Color(0xFF1F1230))
+                    )
+                )
+                .border(1.dp, NeliBorder, RoundedCornerShape(20.dp))
+                .padding(16.dp)
+                .testTag("nelitv_company_support_card"),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.SupportAgent,
+                    contentDescription = "NeliTV Support",
+                    tint = NeliGenreCyan,
+                    modifier = Modifier.size(20.dp)
+                )
+                Text(
+                    text = "NeliTV • $COMPANY_NAME",
+                    color = NeliTextPrimary,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.ExtraBold
+                )
+            }
+            Text(
+                text = "NeliTV imejengwa na $COMPANY_NAME na kwa sasa inafanya kazi nchini Tanzania na Kenya pekee. Wasiliana nasi kwa msaada wowote:",
+                color = NeliTextSecondary,
+                fontSize = 12.sp,
+                lineHeight = 17.sp
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                OutlinedButton(
+                    onClick = {
+                        try {
+                            val emailIntent = Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:$SUPPORT_EMAIL"))
+                            context.startActivity(emailIntent)
+                        } catch (_: Exception) {
+                        }
+                    },
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("support_email_button")
+                ) {
+                    Text(
+                        text = SUPPORT_EMAIL,
+                        color = NeliGenreCyan,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1
+                    )
+                }
+                Button(
+                    onClick = {
+                        try {
+                            val dialIntent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$SUPPORT_PHONE"))
+                            context.startActivity(dialIntent)
+                        } catch (_: Exception) {
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("support_phone_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Call,
+                        contentDescription = "Call NeliTV Support",
+                        tint = Color.White,
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = SUPPORT_PHONE,
+                        color = Color.White,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1
+                    )
+                }
+            }
+        }
+
         // Navigation Rows for Relevant Information Pages
         Column(
             modifier = Modifier
@@ -108,10 +207,19 @@ fun NeliAccountSupportAndPagesSection(
             AccountPageLinkRow(
                 icon = Icons.Default.Info,
                 iconTint = NeliMagenta,
-                title = "About Us (Kuhusu Nelitv)",
-                subtitle = "East Africa's #1 Cinema, Swahili Movies & Azam TV Live App",
+                title = "About Us (Kuhusu NeliTV)",
+                subtitle = "Built by $COMPANY_NAME • Tanzania & Kenya",
                 testTag = "about_us_page_button",
                 onClick = { onOpenPage(AccountInfoPageType.ABOUT_US) }
+            )
+
+            AccountPageLinkRow(
+                icon = Icons.Default.SupportAgent,
+                iconTint = NeliGenreCyan,
+                title = "Contact Us (Wasiliana Nasi)",
+                subtitle = "$SUPPORT_EMAIL • $SUPPORT_PHONE",
+                testTag = "contact_us_page_button",
+                onClick = { onOpenPage(AccountInfoPageType.CONTACT_US) }
             )
 
             AccountPageLinkRow(
@@ -259,26 +367,27 @@ fun AccountInfoDetailScreen(
                 AccountInfoPageType.ABOUT_US -> {
                     item {
                         InfoCardBlock(
-                            badge = "NELIPLAY • OFFICIAL STREAMING PLATFORM",
-                            title = "Welcome to NeliPlay (Neli TV)",
-                            body = "NeliPlay is Tanzania and East Africa's premier entertainment & live television super-app. Built for ultra-fast streaming even on Low Bando (mobile data), NeliPlay brings together Live Sports, Tanzanian Television, Swahili Narrated Movies (DJuliot, Lufufu, DJ Afro, Mzee waupuuzi), International Series, and Offline Downloads in one unified cinema experience."
+                            badge = "NELITV • NAIROBI BROADCAST COMPANY",
+                            title = "Kuhusu NeliTV (About NeliTV)",
+                            body = "NeliTV ni jukwaa rasmi la burudani na matangazo ya moja kwa moja ya TV lililojengwa na $COMPANY_NAME. Kwa sasa huduma za NeliTV zinapatikana na kufanya kazi nchini Tanzania na Kenya pekee.\n\n" +
+                                "NeliTV is built by $COMPANY_NAME and currently operates in $SERVICE_REGIONS only. Designed for fast, smooth streaming even on Low Bando (mobile data), NeliTV brings together Live Sports, East African Television, Swahili Narrated Movies, International Series, and Offline Downloads in one modern app."
                         )
                     }
                     item {
                         InfoCardBlock(
                             badge = "KEY FEATURES",
-                            title = "What You Get on NeliPlay",
-                            body = "• Azam TV & Local Live Channels: Watch Azam Sports 1-4 HD, Azam One, Azam Two, Sinema Zetu, ZBC2 (including Saa 10:00 Jioni International Football), Wasafi TV, Crown TV, KIX & WWE.\n" +
-                                "• Swahili Narrated Cinema: Latest 2025/2026 TMDB blockbusters and series translated into Kiswahili with automatic 5m 30s intro-skip on Swahili movies.\n" +
-                                "• True Offline Storage: Download movies and episodes directly to your phone's internal storage to watch anytime without internet.\n" +
-                                "• Automatic Cloud Sync, App Updates & Home Widget: Instant background token synchronization, automatic GitHub APK updates, and an always-ready Home Screen Widget."
+                            title = "Huduma Unazopata Kwenye NeliTV",
+                            body = "• Live TV & Sports: Tazama Azam Sports 1-4 HD, Azam One, Azam Two, Sinema Zetu, ZBC2, Wasafi TV, Crown TV, beIN Sports, ESPN 7, MUTV, FIFA+ Women, NBC Sports NOW, KIX & WWE.\n" +
+                                "• Swahili Cinema & Series: Filamu mpya za 2025/2026 zilizotafsiriwa Kiswahili pamoja na tamthilia za kimataifa.\n" +
+                                "• Offline Downloads: Pakua filamu na vipindi utazame bila intaneti muda wowote.\n" +
+                                "• Auto-Renewing CDN & Cloud Sync: Mfumo wa kisasa unaoji-renew CDN keys moja kwa moja ili ufurahie matangazo bila kukwama."
                         )
                     }
                     item {
                         InfoCardBlock(
-                            badge = "SYSTEM ARCHITECTURE",
-                            title = "Cloud Server Infrastructure",
-                            body = "Nelitv operates with automated real-time database cloud sync and high-availability CDN stream relays. Subscriptions and tokens update seamlessly across your devices and web without manual support intervention."
+                            badge = "OFFICIAL CONTACT • NAIROBI BROADCAST COMPANY",
+                            title = "Mawasiliano Rasmi",
+                            body = "Kampuni: $COMPANY_NAME\nEneo la Huduma: $SERVICE_REGIONS (Tanzania na Kenya kwa sasa pekee)\nBarua Pepe (Email): $SUPPORT_EMAIL\nSimu / WhatsApp: $SUPPORT_PHONE"
                         )
                     }
                 }
@@ -286,19 +395,55 @@ fun AccountInfoDetailScreen(
                 AccountInfoPageType.CONTACT_US -> {
                     item {
                         InfoCardBlock(
-                            badge = "AUTOMATED PLATFORM",
-                            title = "Self-Service Digital Platform",
-                            body = "Nelitv is engineered as a fully self-healing, automated application. Subscription status, payments, and Live TV streams sync 24/7 directly with Firebase and cloud CDN relays."
+                            badge = "NAIROBI BROADCAST COMPANY",
+                            title = "Wasiliana na NeliTV Support",
+                            body = "NeliTV imejengwa na kuendeshwa na $COMPANY_NAME kwa watumiaji wa Tanzania na Kenya pekee kwa sasa.\n\n" +
+                                "Kwa msaada wa kiufundi, matangazo, ushirikiano au maoni yoyote, wasiliana nasi kupitia:\n" +
+                                "• Email: $SUPPORT_EMAIL\n" +
+                                "• Simu: $SUPPORT_PHONE\n" +
+                                "• Eneo la Huduma: Tanzania na Kenya pekee"
                         )
+                    }
+                    item {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = {
+                                    try {
+                                        context.startActivity(Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:$SUPPORT_EMAIL")))
+                                    } catch (_: Exception) {
+                                    }
+                                },
+                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text(text = "Email: $SUPPORT_EMAIL", color = NeliGenreCyan, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                            Button(
+                                onClick = {
+                                    try {
+                                        context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$SUPPORT_PHONE")))
+                                    } catch (_: Exception) {
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta),
+                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text(text = "Piga: $SUPPORT_PHONE", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
                     }
                 }
 
                 AccountInfoPageType.HELP_FAQ -> {
                     item {
                         InfoCardBlock(
-                            badge = "FAQ #1 • SHARE APK & AUTO UPDATES",
-                            title = "How do I share the APK or check for new updates?",
-                            body = "In My Space (Account), use the 'Share APK • Scan to Download & Link' card to let friends scan your QR code or share the direct GitHub APK link (https://github.com/baynith1/Nelitv/releases/download/v1.0.0/Nelitv.apk). Automatic App Updates check GitHub Releases automatically whenever a new version appears."
+                            badge = "FAQ #1 • SERVICE AVAILABILITY",
+                            title = "NeliTV inafanya kazi nchi zipi?",
+                            body = "NeliTV imejengwa na $COMPANY_NAME na kwa sasa inafanya kazi rasmi nchini Tanzania na Kenya pekee. Kwa maswali zaidi tuandikie kupitia $SUPPORT_EMAIL au piga $SUPPORT_PHONE."
                         )
                     }
                     item {
@@ -312,14 +457,14 @@ fun AccountInfoDetailScreen(
                         InfoCardBlock(
                             badge = "FAQ #3 • OFFLINE DOWNLOADS",
                             title = "Where are my downloaded movies saved?",
-                            body = "All downloaded movies and series episodes play inside NeliPlay's Downloads tab and are also saved in your phone's Internal Storage / Movies / NeliPlay folder for direct offline access anytime."
+                            body = "All downloaded movies and series episodes play inside NeliTV's Downloads tab and are securely stored in NeliTV's private in-app offline storage for direct offline access anytime."
                         )
                     }
                     item {
                         InfoCardBlock(
                             badge = "FAQ #4 • PICTURE-IN-PICTURE (PiP)",
                             title = "How does Picture-in-Picture work?",
-                            body = "PiP works strictly OUTSIDE the app. When you are watching a Live TV channel or Movie and press the Home button or open an SMS/WhatsApp message, the video shrinks into a floating window on your phone screen. Pressing Back inside the app cleanly exits the player without triggering PiP."
+                            body = "PiP works strictly OUTSIDE the app for standard Live TV and Movies. When you press the Home button, the video shrinks into a floating window on your phone screen. Pressing Back inside the app cleanly exits the player without triggering PiP."
                         )
                     }
                 }
@@ -329,14 +474,14 @@ fun AccountInfoDetailScreen(
                         InfoCardBlock(
                             badge = "PRIVACY POLICY",
                             title = "Your Privacy & Data Security",
-                            body = "NeliPlay respects your privacy. Your account profile, watchlist, and offline downloads are stored securely on your device and synced with your personal NeliPlay account. We never sell or share your personal phone number or email with third-party advertisers."
+                            body = "NeliTV ($COMPANY_NAME) respects your privacy. Your account profile, watchlist, and offline downloads are stored securely on your device and synced with your personal NeliTV account. We never sell or share your personal phone number or email with third-party data brokers."
                         )
                     }
                     item {
                         InfoCardBlock(
                             badge = "TERMS OF SERVICE",
-                            title = "NeliPlay Usage & Streaming Terms",
-                            body = "By using NeliPlay, you agree to use the platform for personal, non-commercial entertainment. Automated notifications and updates are designed to keep you updated on Live Channels, Football and new Cinema releases."
+                            title = "NeliTV Usage & Streaming Terms",
+                            body = "By using NeliTV, built by $COMPANY_NAME for users in $SERVICE_REGIONS, you agree to use the platform for personal, non-commercial entertainment. For inquiries or support contact $SUPPORT_EMAIL or $SUPPORT_PHONE."
                         )
                     }
                 }

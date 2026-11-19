@@ -1,0 +1,206 @@
+# INTEGRATION BRIEF — NELIPLAY WHITE-LABEL PLAYER
+
+You are an AI developer. Your job: connect a website, blog, CMS, web app or
+mobile app to the NeliPlay player so it plays any YouTube video with a clean,
+branding-free picture — no YouTube logo, no YouTube title bar, no channel
+watermark, no NeliPlay logo and no "NeliPlay" text anywhere on the player.
+
+Read the whole brief before writing code. Follow it exactly — do not rebuild,
+re-skin or re-host the player.
+
+====================================================================
+0. PERMISSION AND THE ONE HARD RULE
+====================================================================
+- The NeliPlay player IS allowed to run framed inside any other site or app:
+  WordPress, Blogger, Blogger/Blogspot, Shopify, Wix, Webflow, Squarespace,
+  Framer, React/Next.js, Vue, plain HTML, Android/iOS WebView, Capacitor,
+  React Native WebView, Electron. No allow-list, no approval, no whitelist.
+- No API key, no account, no sign-up, no CORS setup, no cost to embed it.
+- You may put several players on one page — one iframe per video.
+- Do NOT fork, re-skin, re-host or copy the player code. Use the iframe as given.
+- HARD RULE: the player draws its own picture and its own controls. Never
+  overlay your own logo on top of the video, never place clickable elements over
+  the picture, and never try to strip YouTube marks with your own CSS — that is
+  the player's job. Content must stay attributed to its YouTube channel in your
+  page's metadata (title / channel name), and you must respect videos whose
+  owner disabled embedding.
+
+====================================================================
+1. THE PLAYER URL
+====================================================================
+Embed URL      https://baynith-tv.base44.app/embed-neli/<VIDEO_ID>
+(The <id> slot takes a YouTube id, a NeliPlay share id, or a full YouTube link
+that the player resolves itself. Safest: send the bare YouTube id.)
+
+That route is built to be framed: no header, no footer, no navigation, no
+splash branding, no logo — just the player on black.
+
+====================================================================
+2. WHAT <VIDEO_ID> CAN BE
+====================================================================
+  a) 11-character YouTube id       dQw4w9WgXcQ          <- use this
+  b) NeliPlay share id             BTV-00123
+  c) A full YouTube link           https://youtu.be/dQw4w9WgXcQ
+
+If you have a link, reduce it to the bare 11-character id first:
+
+  youtube.com/watch?v=ID | youtu.be/ID | /shorts/ID | /embed/ID | /live/ID -> ID
+
+Regex that covers all of them:
+  /(?:youtu\.be\/|v=|\/shorts\/|\/embed\/|\/live\/)([A-Za-z0-9_-]{11})/
+
+====================================================================
+3. THE EMBED CODE
+====================================================================
+HTML — responsive 16:9, paste-ready:
+
+<div style="width:100%;aspect-ratio:16/9;border-radius:14px;overflow:hidden;background:#000">
+  <iframe
+    src="https://baynith-tv.base44.app/embed-neli/VIDEO_ID"
+    style="width:100%;height:100%;border:0;display:block"
+    title="Video player"
+    allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+    allowfullscreen
+    referrerpolicy="no-referrer-when-downgrade">
+  </iframe>
+</div>
+
+Older-browser variant (padding trick instead of aspect-ratio):
+
+<div style="position:relative;width:100%;padding-top:56.25%;border-radius:14px;overflow:hidden;background:#000">
+  <iframe src="https://baynith-tv.base44.app/embed-neli/VIDEO_ID"
+    style="position:absolute;top:0;left:0;width:100%;height:100%;border:0"
+    allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+    allowfullscreen></iframe>
+</div>
+
+React / Next.js:
+
+export default function NeliPlayer({ videoId }) {
+  return (
+    <div style={{ width: '100%', aspectRatio: '16 / 9', borderRadius: 14,
+                  overflow: 'hidden', background: '#000' }}>
+      <iframe
+        key={videoId}                       /* remount => clean switch */
+        src={`https://baynith-tv.base44.app/embed-neli/${videoId}`}
+        style={{ width: '100%', height: '100%', border: 0, display: 'block' }}
+        title="Video player"
+        allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+        allowFullScreen
+      />
+    </div>
+  );
+}
+
+Mobile app (WebView / Capacitor / React Native):
+
+<WebView
+  source={{ uri: 'https://baynith-tv.base44.app/embed-neli/VIDEO_ID' }}
+  allowsInlineMediaPlayback
+  mediaPlaybackRequiresUserAction={false}
+  allowsFullscreenVideo
+  javaScriptEnabled
+/>
+
+Sizing rules that work everywhere:
+  - Feed / list card      full width, aspect-ratio 16/9
+  - Landing hero          max-width 1100px, centred
+  - Vertical story view   give the wrapper height:100% (the player letterboxes)
+  - NEVER set only a fixed pixel height — it stretches on other screens
+  - Always give the wrapper a width: a zero-width wrapper renders nothing
+
+====================================================================
+4. HOW THE PLAYER BEHAVES — DO NOT FIGHT IT
+====================================================================
+- It starts on its own and asks for sound immediately. If the browser refuses
+  sound (normal for a cross-site frame) it plays muted, and the first touch
+  anywhere — anywhere on the page — turns sound on. A "Tap for sound" chip tells
+  the viewer.
+- If autoplay is refused completely, the poster with ONE play button is shown,
+  and one tap starts playback with sound. That is correct behaviour, not a bug.
+  Keep allow="autoplay" on the iframe so it can do this.
+- Controls: play/pause, seek bar with times, volume, jump ±10s, fullscreen.
+  Settings (speed and quality) are behind the gear. There are no subtitles.
+- Keyboard: space / K play-pause, ← → ±10s, F fullscreen, M mute.
+- Fullscreen uses the browser Fullscreen API, portrait content stays portrait.
+- To switch video, change the iframe src (or the React key). Do not create a
+  second iframe on the same page: two iframes = two audio tracks.
+- The player itself sets no cookie and no tracker.
+
+====================================================================
+5. "WITHOUT LOGO" — WHAT IS ACTUALLY REMOVED
+====================================================================
+Done by the player (never re-do it yourself):
+  - YouTube's title bar, share button, "Watch on YouTube" and watermark are
+    cropped outside the visible frame.
+  - YouTube's own controls are switched off and can't be drawn at all.
+  - NeliPlay branding: none on the embed route — no logo, no splash, no name.
+  - The only controls on screen are the player's own minimal ones.
+
+Your side of the deal:
+  - Do not add your own watermark, badge or logo over the picture.
+  - Do not cover the player with absolutely-positioned divs or overlays.
+  - Keep the video's title and channel name next to the player (below or above
+    it in your page), so the content stays attributed.
+  - Never hide the player behind a click-to-play ad of your own.
+  - Do not download, re-encode, proxy or cache the media. Framing only.
+  - If a video shows "This video can't play here", the owner disabled
+    embedding — pick another video, don't work around it.
+
+====================================================================
+6. FINDING VIDEOS (OPTIONAL, ONLY IF THE SITE HAS A SEARCH)
+====================================================================
+A single video needs nothing but its id. A search / series list needs the
+official YouTube Data API v3 — never scrape YouTube.
+
+Search:
+GET https://www.googleapis.com/youtube/v3/search
+  ?part=snippet&type=video&maxResults=20&q=<query>&key=YOUR_YOUTUBE_API_KEY
+
+Playlist = a series (item order = episode order):
+GET https://www.googleapis.com/youtube/v3/playlistItems
+  ?part=snippet,contentDetails&playlistId=PLxxxx&maxResults=50&key=YOUR_API_KEY
+
+Channel uploads:
+GET https://www.googleapis.com/youtube/v3/channels
+  ?part=contentDetails&id=UCxxxx&key=YOUR_API_KEY
+  -> contentDetails.relatedPlaylists.uploads  (feed that to playlistItems)
+
+Normalise into cards, then play by id:
+  const videos = (data.items || []).map(i => ({
+    id: i.id.videoId,
+    title: i.snippet.title,
+    channel: i.snippet.channelTitle,
+    thumb: i.snippet.thumbnails.medium.url,
+  }));
+
+Quota: search = 100 units per call, playlistItems / videos / channels = 1 unit.
+Cache lists 5–15 minutes, prefer playlists over search, and keep the API key on
+the server — never in browser code.
+
+====================================================================
+7. ERROR AND EMPTY STATES TO WRITE
+====================================================================
+  No results        "Nothing found — try another word."
+  Bad / dead id     drop the card; the player shows its own error card with
+                    "Try again". Offer "Search again" beside it.
+  Private / region  skip the video entirely, never a dead card
+  Slow network      keep the poster until the picture moves; show a spinner
+  Offline           tell the viewer; keep the last list in local storage
+
+====================================================================
+8. CHECKLIST BEFORE YOU SHIP
+====================================================================
+[ ] iframe src is https://baynith-tv.base44.app/embed-neli/<bare-video-id> and nothing else
+[ ] wrapper has a width + 16:9 ratio, no fixed pixel height
+[ ] allow="autoplay; fullscreen; encrypted-media; picture-in-picture" + allowfullscreen
+[ ] only one player iframe alive at a time
+[ ] no logo, badge or overlay placed on top of the picture
+[ ] title + channel name shown next to the player
+[ ] tested on phone, tablet and desktop; tested in fullscreen
+[ ] autoplay muted -> first touch turns sound on (verified by hand)
+[ ] videos chosen are embeddable (test each one)
+
+If any step fails on the customer's site, the cause is almost always the
+wrapper's width / aspect ratio or a site editor stripping the iframe — check
+those two first.

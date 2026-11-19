@@ -156,6 +156,12 @@ interface NeliMediaDao {
     @Query("SELECT * FROM user_accounts WHERE LOWER(email) = LOWER(:email) LIMIT 1")
     suspend fun getAccountByEmail(email: String): UserAccountEntity?
 
+    @Query("SELECT * FROM user_accounts WHERE LOWER(TRIM(realName)) = LOWER(TRIM(:username)) ORDER BY lastLoginAt DESC LIMIT 1")
+    suspend fun getAccountByUsername(username: String): UserAccountEntity?
+
+    @Query("UPDATE user_accounts SET realName = :newUsername WHERE uid = :uid")
+    suspend fun updateUsername(uid: String, newUsername: String)
+
     @Query("SELECT * FROM user_accounts ORDER BY lastLoginAt DESC")
     suspend fun getAllSavedAccounts(): List<UserAccountEntity>
 

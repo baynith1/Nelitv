@@ -675,6 +675,11 @@ object MediaContentRepository {
             }
         }
 
+        val ytThumb = com.example.player.NeliEmbedPlayerHelper.buildYoutubeThumbnailUrl(cleanStream)
+        if (ytThumb.isNotEmpty()) {
+            return ytThumb
+        }
+
         return if (isBackdrop) {
             "https://image.tmdb.org/t/p/original/2meX1nMdScFOoV4370rqHWKmXhY.jpg"
         } else {
@@ -1589,11 +1594,66 @@ object MediaContentRepository {
         val docId = doc.optString("name", "").substringAfterLast("/")
         val id = fields.fsString("id").ifEmpty { docId }
         val title = fields.fsString("title").ifEmpty { fields.fsString("name") }
-        val streamUrl = fields.fsString("streamUrl").ifEmpty {
-            fields.fsString("videoUrl").ifEmpty { fields.fsString("url") }
-        }
+        val rawYtId = fields.fsString("youtubeVideoId")
+            .ifEmpty { fields.fsString("ytVideoId") }
+            .ifEmpty { fields.fsString("ytId") }
+            .ifEmpty { fields.fsString("videoId") }
+            .trim()
+        val rawYtUrl = fields.fsString("youtubeUrl")
+            .ifEmpty { fields.fsString("ytUrl") }
+            .ifEmpty { fields.fsString("youtubeLink") }
+            .trim()
+        val rawPlaybackType = fields.fsString("playbackType")
+            .ifEmpty { fields.fsString("streamFormat") }
+            .ifEmpty { fields.fsString("sourceType") }
+            .ifEmpty { fields.fsString("playerType") }
+            .trim()
+        val rawStreamUrl = fields.fsString("streamUrl")
+            .ifEmpty { fields.fsString("playbackUrl") }
+            .ifEmpty { fields.fsString("videoUrl") }
+            .ifEmpty { fields.fsString("url") }
+            .ifEmpty { fields.fsString("embedUrl") }
+            .ifEmpty { rawYtUrl }
+            .ifEmpty { rawYtId }
+            .trim()
+        val rawDownloadUrl = fields.fsString("downloadUrl").trim()
         val published = fields.fsBoolean("published", true)
-        if (!published || title.isEmpty() || streamUrl.isEmpty()) return null
+        if (!published || title.isEmpty() || rawStreamUrl.isEmpty()) return null
+
+        val isYoutube = com.example.player.NeliEmbedPlayerHelper.isYoutubeOrEmbedNeliSource(
+            streamUrl = rawStreamUrl,
+            youtubeVideoId = rawYtId,
+            youtubeUrl = rawYtUrl,
+            playbackType = rawPlaybackType
+        )
+        val resolvedYtId = if (isYoutube) {
+            com.example.player.NeliEmbedPlayerHelper.extractYoutubeVideoId(
+                rawYtId.ifBlank { rawYtUrl }.ifBlank { rawStreamUrl }
+            )
+        } else {
+            ""
+        }
+        val effectiveStreamUrl = if (isYoutube) {
+            com.example.player.NeliEmbedPlayerHelper.resolveNeliEmbedUrl(
+                streamUrl = rawStreamUrl,
+                youtubeVideoId = resolvedYtId,
+                youtubeUrl = rawYtUrl
+            )
+        } else {
+            rawStreamUrl
+        }
+        val effectiveYoutubeUrl = when {
+            rawYtUrl.isNotBlank() -> rawYtUrl
+            isYoutube && com.example.player.NeliEmbedPlayerHelper.isYoutubeOrEmbedNeliUrl(rawStreamUrl) -> rawStreamUrl
+            resolvedYtId.isNotBlank() -> "https://www.youtube.com/watch?v=$resolvedYtId"
+            else -> ""
+        }
+        val channelAttribution = fields.fsString("channelName")
+            .ifEmpty { fields.fsString("channelTitle") }
+            .ifEmpty { fields.fsString("youtubeChannel") }
+            .ifEmpty { fields.fsString("author") }
+            .ifEmpty { fields.fsString("creator") }
+            .trim()
 
         val rawGenres = buildList {
             addAll(fields.fsStringList("genres"))
@@ -1656,23 +1716,41 @@ object MediaContentRepository {
             .ifEmpty { fields.fsString("thumbnail") }
             .ifEmpty { rawPosterCandidate }
 
+        val thumbResolveSource = effectiveYoutubeUrl.ifBlank { effectiveStreamUrl }
         val posterPath = resolveGuaranteedMediaImageUrl(
             primaryCandidate = rawPosterCandidate,
             secondaryCandidate = rawBackdropCandidate,
-            streamUrl = streamUrl,
+            streamUrl = thumbResolveSource,
             isBackdrop = false
         )
         val backdropPath = resolveGuaranteedMediaImageUrl(
             primaryCandidate = rawBackdropCandidate,
             secondaryCandidate = posterPath,
-            streamUrl = streamUrl,
+            streamUrl = thumbResolveSource,
             isBackdrop = true
         )
 
+        val isEmbedUrl = isYoutube ||
+            rawPlaybackType.equals("embedded", ignoreCase = true) ||
+            rawPlaybackType.equals("embed", ignoreCase = true) ||
+            effectiveStreamUrl.contains("baynith-tv.base44.app/embed", ignoreCase = true)
+
         val format = when {
-            streamUrl.substringBefore("?").endsWith(".mp4", ignoreCase = true) -> "mp4"
-            streamUrl.contains(".mpd", ignoreCase = true) -> "dash"
+            isEmbedUrl -> "embedded"
+            effectiveStreamUrl.substringBefore("?").endsWith(".mp4", ignoreCase = true) -> "mp4"
+            effectiveStreamUrl.contains(".mpd", ignoreCase = true) -> "dash"
             else -> "hls"
+        }
+
+        // YouTube-embedded movies must NEVER have downloads enabled unless explicitly allowed in Studio.
+        val explicitAllowDownload = fields.fsBooleanOrNull("allowDownload")
+            ?: fields.fsBooleanOrNull("downloadAllowed")
+            ?: fields.fsBooleanOrNull("isDownloadAllowed")
+        val explicitDownloadEnabled = fields.fsBooleanOrNull("downloadEnabled")
+        val resolvedDownloadEnabled = if (isYoutube) {
+            (explicitAllowDownload == true) || (explicitDownloadEnabled == true && explicitAllowDownload != false)
+        } else {
+            explicitAllowDownload ?: explicitDownloadEnabled ?: true
         }
 
         val subGenres = buildList {
@@ -1701,7 +1779,7 @@ object MediaContentRepository {
             type = if (isAdultDoc) "adult" else "movie",
             posterUrl = posterPath,
             backdropUrl = backdropPath,
-            streamUrl = streamUrl,
+            streamUrl = effectiveStreamUrl,
             streamFormat = format,
             genre = primaryGenre,
             subGenres = subGenres,
@@ -1724,7 +1802,7 @@ object MediaContentRepository {
             releaseYear = year.toString(),
             narrated = narrated,
             narrationLanguage = narrationLanguage,
-            downloadEnabled = fields.fsBoolean("downloadEnabled", true),
+            downloadEnabled = resolvedDownloadEnabled,
             featured = featured,
             published = published,
             runtimeMinutes = runtime,
@@ -1732,8 +1810,47 @@ object MediaContentRepository {
             viewsCount = fields.fsLong("viewsCount", 0L),
             voteCount = fields.fsLong("voteCount", 0L),
             watchlistsCount = fields.fsLong("watchlistsCount", 0L),
-            productionCountries = fields.fsStringList("productionCountries")
+            productionCountries = fields.fsStringList("productionCountries"),
+            downloadUrl = rawDownloadUrl.ifBlank { effectiveStreamUrl },
+            allowDownload = resolvedDownloadEnabled,
+            youtubeVideoId = resolvedYtId,
+            youtubeUrl = effectiveYoutubeUrl,
+            channelName = channelAttribution,
+            qualityUrls = parseFirestoreQualityUrls(fields)
         )
+    }
+
+    private fun parseFirestoreQualityUrls(fields: JSONObject): Map<String, String> {
+        val result = linkedMapOf<String, String>()
+        listOf("qualityUrls", "qualities").forEach { fieldName ->
+            val mapFields = fields.optJSONObject(fieldName)
+                ?.optJSONObject("mapValue")
+                ?.optJSONObject("fields")
+            if (mapFields != null) {
+                val keys = mapFields.keys()
+                while (keys.hasNext()) {
+                    val key = keys.next()
+                    val url = mapFields.fsString(key).trim()
+                    if (url.isNotBlank()) {
+                        result[key] = url
+                    }
+                }
+            }
+        }
+        listOf(
+            "360p" to listOf("url_360p", "url360p"),
+            "480p" to listOf("url_480p", "url480p"),
+            "720p" to listOf("url_720p", "url720p"),
+            "1080p" to listOf("url_1080p", "url1080p")
+        ).forEach { (key, candidates) ->
+            if (!result.containsKey(key)) {
+                val matched = candidates.firstNotNullOfOrNull { f -> fields.fsString(f).trim().takeIf { it.isNotEmpty() } }
+                if (matched != null) {
+                    result[key] = matched
+                }
+            }
+        }
+        return result
     }
 
     private fun parseFirestoreSeriesDoc(doc: JSONObject): MediaContent? {
@@ -1836,9 +1953,73 @@ object MediaContentRepository {
         val id = fields.fsString("id").ifEmpty { docId }
         val seriesId = fields.fsString("seriesId")
         val name = fields.fsString("name")
-        val streamUrl = fields.fsString("streamUrl")
+        val rawYtId = fields.fsString("youtubeVideoId")
+            .ifEmpty { fields.fsString("ytVideoId") }
+            .ifEmpty { fields.fsString("ytId") }
+            .ifEmpty { fields.fsString("videoId") }
+            .trim()
+        val rawYtUrl = fields.fsString("youtubeUrl")
+            .ifEmpty { fields.fsString("ytUrl") }
+            .ifEmpty { fields.fsString("youtubeLink") }
+            .trim()
+        val rawPlaybackType = fields.fsString("playbackType", "m3u8")
+            .ifEmpty { fields.fsString("streamFormat") }
+            .trim()
+        val rawStreamUrl = fields.fsString("streamUrl")
+            .ifEmpty { fields.fsString("playbackUrl") }
+            .ifEmpty { fields.fsString("videoUrl") }
+            .ifEmpty { fields.fsString("url") }
+            .ifEmpty { fields.fsString("embedUrl") }
+            .ifEmpty { rawYtUrl }
+            .ifEmpty { rawYtId }
+            .trim()
+        val rawDownloadUrl = fields.fsString("downloadUrl").trim()
         val published = fields.fsBoolean("published", true)
-        if (!published || seriesId.isEmpty() || streamUrl.isEmpty()) return null
+        if (!published || seriesId.isEmpty() || rawStreamUrl.isEmpty()) return null
+
+        val isYoutube = com.example.player.NeliEmbedPlayerHelper.isYoutubeOrEmbedNeliSource(
+            streamUrl = rawStreamUrl,
+            youtubeVideoId = rawYtId,
+            youtubeUrl = rawYtUrl,
+            playbackType = rawPlaybackType
+        )
+        val resolvedYtId = if (isYoutube) {
+            com.example.player.NeliEmbedPlayerHelper.extractYoutubeVideoId(
+                rawYtId.ifBlank { rawYtUrl }.ifBlank { rawStreamUrl }
+            )
+        } else {
+            ""
+        }
+        val effectiveStreamUrl = if (isYoutube) {
+            com.example.player.NeliEmbedPlayerHelper.resolveNeliEmbedUrl(
+                streamUrl = rawStreamUrl,
+                youtubeVideoId = resolvedYtId,
+                youtubeUrl = rawYtUrl
+            )
+        } else {
+            rawStreamUrl
+        }
+        val effectivePlaybackType = when {
+            isYoutube || rawPlaybackType.equals("embedded", true) || rawPlaybackType.equals("embed", true) ||
+                effectiveStreamUrl.contains("baynith-tv.base44.app/embed", true) -> "embedded"
+            else -> rawPlaybackType
+        }
+        val explicitAllowDownload = fields.fsBooleanOrNull("allowDownload")
+            ?: fields.fsBooleanOrNull("downloadAllowed")
+            ?: fields.fsBooleanOrNull("isDownloadAllowed")
+        val explicitDownloadEnabled = fields.fsBooleanOrNull("downloadEnabled")
+        val resolvedDownloadEnabled = if (isYoutube) {
+            (explicitAllowDownload == true) || (explicitDownloadEnabled == true && explicitAllowDownload != false)
+        } else {
+            explicitAllowDownload ?: explicitDownloadEnabled ?: true
+        }
+        val channelAttribution = fields.fsString("channelName")
+            .ifEmpty { fields.fsString("channelTitle") }
+            .ifEmpty { fields.fsString("youtubeChannel") }
+            .trim()
+
+        val rawStill = fields.fsString("stillPath")
+            .ifEmpty { if (resolvedYtId.isNotBlank()) com.example.player.NeliEmbedPlayerHelper.buildYoutubeThumbnailUrl(resolvedYtId) else "" }
 
         return EpisodeItem(
             id = id,
@@ -1847,16 +2028,22 @@ object MediaContentRepository {
             episodeNumber = fields.fsInt("episodeNumber", 1),
             name = name.ifEmpty { "Episode ${fields.fsInt("episodeNumber", 1)}" },
             overview = fields.fsString("overview"),
-            stillPath = fields.fsString("stillPath"),
-            streamUrl = streamUrl,
-            playbackType = fields.fsString("playbackType", "m3u8"),
+            stillPath = rawStill,
+            streamUrl = effectiveStreamUrl,
+            playbackType = effectivePlaybackType,
             runtime = fields.fsInt("runtime", 45),
             airDate = fields.fsString("airDate"),
             narrated = fields.fsBoolean("narrated", false),
             narrationLanguage = fields.fsString("narrationLanguage"),
-            downloadEnabled = fields.fsBoolean("downloadEnabled", true),
+            downloadEnabled = resolvedDownloadEnabled,
             published = published,
-            viewsCount = fields.fsLong("viewsCount", 0L)
+            viewsCount = fields.fsLong("viewsCount", 0L),
+            downloadUrl = rawDownloadUrl.ifBlank { effectiveStreamUrl },
+            allowDownload = resolvedDownloadEnabled,
+            youtubeVideoId = resolvedYtId,
+            youtubeUrl = rawYtUrl.ifBlank { if (isYoutube) rawStreamUrl else "" },
+            channelName = channelAttribution,
+            qualityUrls = parseFirestoreQualityUrls(fields)
         )
     }
 
@@ -1870,7 +2057,14 @@ object MediaContentRepository {
         val published = fields.fsBoolean("published", true)
         if (!enabled || !published || name.isEmpty() || rawUrl.isEmpty()) return null
 
-        val normalizedUrl = ChannelRepository.normalizeDashStreamUrl(rawUrl)
+        val isYtOrEmbed = com.example.player.NeliEmbedPlayerHelper.isYoutubeOrEmbedNeliUrl(rawUrl) ||
+            rawUrl.contains("baynith-tv.base44.app/embed", ignoreCase = true) ||
+            fields.fsString("streamFormat").equals("embedded", ignoreCase = true)
+        val normalizedUrl = if (isYtOrEmbed) {
+            com.example.player.NeliEmbedPlayerHelper.resolveNeliEmbedUrl(streamUrl = rawUrl)
+        } else {
+            ChannelRepository.normalizeDashStreamUrl(rawUrl)
+        }
         val category = fields.fsString("category", "Entertainment")
         val country = fields.fsString("country", "")
         val featured = fields.fsBoolean("featured", false)
@@ -1884,11 +2078,13 @@ object MediaContentRepository {
             }
         }.distinct()
 
-        val isMp4 = normalizedUrl.substringBefore("?").endsWith(".mp4", ignoreCase = true)
-        val isDash = !isMp4 && (
+        val isMp4 = !isYtOrEmbed && normalizedUrl.substringBefore("?").endsWith(".mp4", ignoreCase = true)
+        val isDash = !isYtOrEmbed && !isMp4 && (
             normalizedUrl.contains(".mpd", ignoreCase = true) ||
                 normalizedUrl.contains("/live/eds/", ignoreCase = true)
             )
+        val isYtEmbed = com.example.player.NeliEmbedPlayerHelper.isYoutubeOrEmbedNeliUrl(rawUrl) ||
+            normalizedUrl.contains("/embed-neli/", ignoreCase = true)
         val fsClearKeys = mutableMapOf<String, String>()
         val directColonKey = fields.fsString("clearKey").ifEmpty { fields.fsString("drmKey") }.trim()
         if (directColonKey.contains(":")) {
@@ -1918,6 +2114,7 @@ object MediaContentRepository {
             description = if (country.isNotBlank()) "$category • $country" else category,
             streamUrl = normalizedUrl,
             streamFormat = when {
+                isYtOrEmbed -> "embedded"
                 isMp4 -> "mp4"
                 isDash -> "dash"
                 else -> "hls"
@@ -1925,13 +2122,16 @@ object MediaContentRepository {
             thumbnailUrl = logo,
             categories = categoriesList,
             language = if (country.equals("Tanzania", ignoreCase = true)) "sw" else "en",
-            encryptionType = if (fsClearKeys.isNotEmpty() || isDash) "clearkey" else "none",
+            encryptionType = if (!isYtOrEmbed && (fsClearKeys.isNotEmpty() || isDash)) "clearkey" else "none",
             clearKeys = fsClearKeys,
             isLiveBroadcast = fields.fsBoolean("isLive", true),
             country = country,
             featured = featured,
             enabled = enabled,
-            published = published
+            published = published,
+            embeddedHtml = if (isYtEmbed) com.example.player.NeliEmbedPlayerHelper.buildNeliEmbedHtml(normalizedUrl) else "",
+            allowPip = !isYtEmbed,
+            isYoutubeEmbedded = isYtEmbed
         )
         val resolvedKeys = ChannelRepository.resolveClearKeysForChannel(provisionalChannel)
         return provisionalChannel.copy(
@@ -1949,6 +2149,11 @@ object MediaContentRepository {
     private fun JSONObject.fsBoolean(key: String, default: Boolean = false): Boolean {
         val field = optJSONObject(key) ?: return default
         return if (field.has("booleanValue")) field.optBoolean("booleanValue", default) else default
+    }
+
+    private fun JSONObject.fsBooleanOrNull(key: String): Boolean? {
+        val field = optJSONObject(key) ?: return null
+        return if (field.has("booleanValue")) field.optBoolean("booleanValue") else null
     }
 
     private fun JSONObject.fsInt(key: String, default: Int = 0): Int {
@@ -2191,8 +2396,36 @@ object MediaContentRepository {
 
     private fun parseSingleEpisodeObject(obj: JSONObject, fallbackId: String): EpisodeItem? {
         val seriesId = obj.optString("seriesId", "").trim()
-        val streamUrl = obj.optString("streamUrl", "").trim()
-        if (seriesId.isEmpty() || streamUrl.isEmpty()) return null
+        val rawYtId = obj.optString("youtubeVideoId", obj.optString("ytVideoId", obj.optString("videoId", ""))).trim()
+        val rawYtUrl = obj.optString("youtubeUrl", obj.optString("ytUrl", "")).trim()
+        val rawPlaybackType = obj.optString("playbackType", obj.optString("streamFormat", "m3u8")).trim()
+        val rawStreamUrl = obj.optString(
+            "streamUrl",
+            obj.optString("playbackUrl", obj.optString("videoUrl", obj.optString("url", rawYtUrl)))
+        ).trim().ifEmpty { rawYtId }
+        if (seriesId.isEmpty() || rawStreamUrl.isEmpty()) return null
+
+        val isYoutube = com.example.player.NeliEmbedPlayerHelper.isYoutubeOrEmbedNeliSource(
+            streamUrl = rawStreamUrl,
+            youtubeVideoId = rawYtId,
+            youtubeUrl = rawYtUrl,
+            playbackType = rawPlaybackType
+        )
+        val resolvedYtId = if (isYoutube) {
+            com.example.player.NeliEmbedPlayerHelper.extractYoutubeVideoId(
+                rawYtId.ifBlank { rawYtUrl }.ifBlank { rawStreamUrl }
+            )
+        } else ""
+        val effectiveStreamUrl = if (isYoutube) {
+            com.example.player.NeliEmbedPlayerHelper.resolveNeliEmbedUrl(rawStreamUrl, resolvedYtId, rawYtUrl)
+        } else rawStreamUrl
+        val resolvedDownload = if (isYoutube) {
+            val allowDl = if (obj.has("allowDownload")) obj.optBoolean("allowDownload", false) else null
+            val dlEnabled = if (obj.has("downloadEnabled")) obj.optBoolean("downloadEnabled", false) else null
+            (allowDl == true) || (dlEnabled == true && allowDl != false)
+        } else {
+            if (obj.has("allowDownload")) obj.optBoolean("allowDownload", true) else obj.optBoolean("downloadEnabled", true)
+        }
         return EpisodeItem(
             id = obj.optString("id", fallbackId),
             seriesId = seriesId,
@@ -2200,24 +2433,50 @@ object MediaContentRepository {
             episodeNumber = obj.optInt("episodeNumber", 1),
             name = obj.optString("name", "Episode"),
             overview = obj.optString("overview", ""),
-            stillPath = obj.optString("stillPath", ""),
-            streamUrl = streamUrl,
-            playbackType = obj.optString("playbackType", "m3u8"),
+            stillPath = obj.optString("stillPath", "").ifEmpty {
+                if (resolvedYtId.isNotBlank()) com.example.player.NeliEmbedPlayerHelper.buildYoutubeThumbnailUrl(resolvedYtId) else ""
+            },
+            streamUrl = effectiveStreamUrl,
+            playbackType = if (isYoutube) "embedded" else rawPlaybackType,
             runtime = obj.optInt("runtime", 45),
             airDate = obj.optString("airDate", ""),
             narrated = obj.optBoolean("narrated", false),
             narrationLanguage = obj.optString("narrationLanguage", ""),
-            downloadEnabled = obj.optBoolean("downloadEnabled", true),
-            published = obj.optBoolean("published", true)
+            downloadEnabled = resolvedDownload,
+            published = obj.optBoolean("published", true),
+            downloadUrl = obj.optString("downloadUrl", "").ifBlank { effectiveStreamUrl },
+            allowDownload = resolvedDownload,
+            youtubeVideoId = resolvedYtId,
+            youtubeUrl = rawYtUrl.ifBlank { if (isYoutube) rawStreamUrl else "" },
+            channelName = obj.optString("channelName", obj.optString("channelTitle", "")).trim()
         )
     }
 
     private fun parseSingleMediaObject(obj: JSONObject, fallbackId: String, defaultType: String): MediaContent? {
         val title = obj.optString("title", obj.optString("name", "")).trim()
-        val streamUrl = obj.optString(
+        val rawYtId = obj.optString("youtubeVideoId", obj.optString("ytVideoId", obj.optString("videoId", ""))).trim()
+        val rawYtUrl = obj.optString("youtubeUrl", obj.optString("ytUrl", obj.optString("youtubeLink", ""))).trim()
+        val rawPlaybackType = obj.optString("playbackType", obj.optString("streamFormat", "")).trim()
+        val rawStreamUrl = obj.optString(
             "streamUrl",
-            obj.optString("url", obj.optString("videoUrl", ""))
-        ).trim()
+            obj.optString("playbackUrl", obj.optString("url", obj.optString("videoUrl", obj.optString("embedUrl", rawYtUrl))))
+        ).trim().ifEmpty { rawYtId }
+
+        val isYoutube = com.example.player.NeliEmbedPlayerHelper.isYoutubeOrEmbedNeliSource(
+            streamUrl = rawStreamUrl,
+            youtubeVideoId = rawYtId,
+            youtubeUrl = rawYtUrl,
+            playbackType = rawPlaybackType
+        )
+        val resolvedYtId = if (isYoutube) {
+            com.example.player.NeliEmbedPlayerHelper.extractYoutubeVideoId(
+                rawYtId.ifBlank { rawYtUrl }.ifBlank { rawStreamUrl }
+            )
+        } else ""
+        val effectiveStreamUrl = if (isYoutube) {
+            com.example.player.NeliEmbedPlayerHelper.resolveNeliEmbedUrl(rawStreamUrl, resolvedYtId, rawYtUrl)
+        } else rawStreamUrl
+
         val genresList = mutableListOf<String>()
         listOf("genres", "categories", "tags").forEach { arrayKey ->
             val arr = obj.optJSONArray(arrayKey)
@@ -2249,7 +2508,7 @@ object MediaContentRepository {
 
         val isSeries = !isAdult && (obj.optString("type", defaultType).equals("series", ignoreCase = true) ||
                 obj.has("numberOfSeasons") || obj.has("seasons"))
-        if (title.isEmpty() || (!isSeries && streamUrl.isEmpty())) return null
+        if (title.isEmpty() || (!isSeries && effectiveStreamUrl.isEmpty())) return null
 
         val rawPoster = obj.optString(
             "posterPath",
@@ -2271,16 +2530,17 @@ object MediaContentRepository {
             "backdropPath",
             obj.optString("backdropUrl", obj.optString("thumbnailUrl", obj.optString("thumbnail", rawPoster)))
         )
+        val thumbSource = rawYtUrl.ifBlank { effectiveStreamUrl }
         val poster = resolveGuaranteedMediaImageUrl(
             primaryCandidate = rawPoster,
             secondaryCandidate = rawBackdrop,
-            streamUrl = streamUrl,
+            streamUrl = thumbSource,
             isBackdrop = false
         )
         val backdrop = resolveGuaranteedMediaImageUrl(
             primaryCandidate = rawBackdrop,
             secondaryCandidate = poster,
-            streamUrl = streamUrl,
+            streamUrl = thumbSource,
             isBackdrop = true
         )
 
@@ -2307,10 +2567,24 @@ object MediaContentRepository {
         val narrationLanguage = obj.optString("narrationLanguage", "")
 
         val format = when {
-            streamUrl.substringBefore("?").endsWith(".mp4", ignoreCase = true) -> "mp4"
-            streamUrl.contains(".mpd", ignoreCase = true) -> "dash"
+            isYoutube || rawPlaybackType.equals("embedded", true) || rawPlaybackType.equals("embed", true) ||
+                effectiveStreamUrl.contains("baynith-tv.base44.app/embed", true) -> "embedded"
+            effectiveStreamUrl.substringBefore("?").endsWith(".mp4", ignoreCase = true) -> "mp4"
+            effectiveStreamUrl.contains(".mpd", ignoreCase = true) -> "dash"
             else -> "hls"
         }
+
+        val resolvedDownload = if (isYoutube) {
+            val allowDl = if (obj.has("allowDownload")) obj.optBoolean("allowDownload", false) else null
+            val dlEnabled = if (obj.has("downloadEnabled")) obj.optBoolean("downloadEnabled", false) else null
+            (allowDl == true) || (dlEnabled == true && allowDl != false)
+        } else {
+            if (obj.has("allowDownload")) obj.optBoolean("allowDownload", true) else obj.optBoolean("downloadEnabled", true)
+        }
+        val channelAttribution = obj.optString(
+            "channelName",
+            obj.optString("channelTitle", obj.optString("youtubeChannel", obj.optString("author", "")))
+        ).trim()
 
         return MediaContent(
             id = obj.optString("id", fallbackId),
@@ -2322,7 +2596,7 @@ object MediaContentRepository {
             },
             posterUrl = poster,
             backdropUrl = backdrop,
-            streamUrl = streamUrl.ifEmpty { "https://vz-1bb50f2e-8ea.b-cdn.net/9af12e30-1b3f-469f-9bfe-db895030c77a/playlist.m3u8" },
+            streamUrl = effectiveStreamUrl.ifEmpty { "https://vz-1bb50f2e-8ea.b-cdn.net/9af12e30-1b3f-469f-9bfe-db895030c77a/playlist.m3u8" },
             streamFormat = format,
             genre = genre,
             subGenres = buildList {
@@ -2350,10 +2624,15 @@ object MediaContentRepository {
             isTrending = !isAdult && obj.optBoolean("featured", obj.optBoolean("isTrending", true)),
             narrated = narrated,
             narrationLanguage = narrationLanguage,
-            downloadEnabled = obj.optBoolean("downloadEnabled", true),
+            downloadEnabled = resolvedDownload,
             featured = obj.optBoolean("featured", false),
             published = obj.optBoolean("published", true),
-            releaseYear = obj.optString("year", "2025")
+            releaseYear = obj.optString("year", "2025"),
+            downloadUrl = obj.optString("downloadUrl", "").ifBlank { effectiveStreamUrl },
+            allowDownload = resolvedDownload,
+            youtubeVideoId = resolvedYtId,
+            youtubeUrl = rawYtUrl.ifBlank { if (isYoutube) rawStreamUrl else "" },
+            channelName = channelAttribution
         )
     }
 
@@ -2383,10 +2662,19 @@ object MediaContentRepository {
         val published = obj.optBoolean("published", true)
         if (!enabled || !published || name.isEmpty() || rawUrl.isEmpty()) return null
 
-        val normalizedUrl = ChannelRepository.normalizeDashStreamUrl(rawUrl)
-        val isMp4 = normalizedUrl.substringBefore("?").endsWith(".mp4", ignoreCase = true)
-        val isDash = !isMp4 && (normalizedUrl.contains(".mpd", ignoreCase = true) ||
+        val isYtOrEmbed = com.example.player.NeliEmbedPlayerHelper.isYoutubeOrEmbedNeliUrl(rawUrl) ||
+            rawUrl.contains("baynith-tv.base44.app/embed", ignoreCase = true) ||
+            obj.optString("streamFormat").equals("embedded", ignoreCase = true)
+        val normalizedUrl = if (isYtOrEmbed) {
+            com.example.player.NeliEmbedPlayerHelper.resolveNeliEmbedUrl(streamUrl = rawUrl)
+        } else {
+            ChannelRepository.normalizeDashStreamUrl(rawUrl)
+        }
+        val isMp4 = !isYtOrEmbed && normalizedUrl.substringBefore("?").endsWith(".mp4", ignoreCase = true)
+        val isDash = !isYtOrEmbed && !isMp4 && (normalizedUrl.contains(".mpd", ignoreCase = true) ||
                 obj.optString("streamFormat").equals("dash", ignoreCase = true))
+        val isYtEmbed = com.example.player.NeliEmbedPlayerHelper.isYoutubeOrEmbedNeliUrl(rawUrl) ||
+            normalizedUrl.contains("/embed-neli/", ignoreCase = true)
 
         val category = obj.optString("category", "entertainment")
         val country = obj.optString("country", "")
@@ -2418,6 +2706,7 @@ object MediaContentRepository {
             description = if (country.isNotBlank()) "$category • $country" else obj.optString("description", category),
             streamUrl = normalizedUrl,
             streamFormat = when {
+                isYtOrEmbed -> "embedded"
                 isMp4 -> "mp4"
                 isDash -> "dash"
                 else -> "hls"
@@ -2428,13 +2717,16 @@ object MediaContentRepository {
                 if (country.equals("Tanzania", ignoreCase = true)) add("tanzania")
             },
             language = if (country.equals("Tanzania", ignoreCase = true)) "sw" else obj.optString("language", "en"),
-            encryptionType = if (clearKeysMap.isNotEmpty()) "clearkey" else "none",
+            encryptionType = if (!isYtOrEmbed && clearKeysMap.isNotEmpty()) "clearkey" else "none",
             clearKeys = clearKeysMap,
             isLiveBroadcast = obj.optBoolean("isLive", true),
             country = country,
             featured = featured,
             enabled = enabled,
-            published = published
+            published = published,
+            embeddedHtml = if (isYtEmbed) com.example.player.NeliEmbedPlayerHelper.buildNeliEmbedHtml(normalizedUrl) else "",
+            allowPip = !isYtEmbed,
+            isYoutubeEmbedded = isYtEmbed
         )
         return parsedChannel.copy(
             thumbnailUrl = ChannelRepository.resolveGuaranteedChannelLogoUrl(parsedChannel)

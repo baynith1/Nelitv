@@ -803,11 +803,17 @@ class ExampleRobolectricTest {
         assertTrue(sixChannelBlocks.isNotEmpty())
         assertEquals(6, sixChannelBlocks.first().size)
 
-        // Verify every channel in All Channels has a valid https:// logo URL and fallback logo URL
+        // Verify every channel in All Channels has either its own valid logo URL or empty (monogram badge) — never a cross-channel fallback
         com.example.data.ChannelRepository.getPrioritizedAllChannels().forEach { ch ->
-            assertTrue("Channel ${ch.name} must have a valid logo URL", ch.thumbnailUrl.startsWith("https://") || ch.thumbnailUrl.startsWith("android.resource://"))
+            assertTrue(
+                "Channel ${ch.name} logo must be valid https://, android.resource://, or blank for monogram badge",
+                ch.thumbnailUrl.isBlank() || ch.thumbnailUrl.startsWith("https://") || ch.thumbnailUrl.startsWith("android.resource://")
+            )
             val fallbackLogo = com.example.data.ChannelRepository.resolveFallbackChannelLogoUrl(ch)
-            assertTrue("Channel ${ch.name} must have a valid fallback logo URL", fallbackLogo.startsWith("https://") || fallbackLogo.startsWith("android.resource://"))
+            assertTrue(
+                "Channel ${ch.name} fallback logo must be valid or blank",
+                fallbackLogo.isBlank() || fallbackLogo.startsWith("https://") || fallbackLogo.startsWith("android.resource://")
+            )
         }
 
         // Verify Firestore tvChannels custom logo fields (e.g. channelLogo / iconUrl) are extracted and visible in All Channels
@@ -1153,7 +1159,7 @@ class ExampleRobolectricTest {
             specialFolder.absolutePath.startsWith(context.filesDir.absolutePath)
         )
         assertEquals(
-            "In-App Private Storage (Nelitv Only)",
+            "In-App Private Storage (NeliTV Only)",
             com.example.data.OfflineDownloadManager.SPECIAL_DEVICE_FOLDER_DISPLAY_PATH
         )
 
@@ -1941,26 +1947,29 @@ class ExampleRobolectricTest {
         val crown = syncedChannels.first { it.name.equals("Crown Tv", ignoreCase = true) }
         val wasafi = syncedChannels.first { it.name.contains("Wasafi", ignoreCase = true) }
 
-        assertTrue(s1.streamUrl.contains("/tok_${com.example.data.ChannelRepository.AZAM_SPORT_1_TOKEN}/live/eds/AzamSport1/DASH/AzamSport1.mpd"))
-        assertTrue(s2.streamUrl.contains("/tok_${com.example.data.ChannelRepository.AZAM_SPORT_2_TOKEN}/live/eds/AzamSport2/DASH/AzamSport2.mpd"))
-        assertTrue(s3.streamUrl.contains("/tok_${com.example.data.ChannelRepository.AZAM_SPORT_3_TOKEN}/live/eds/AzamSport3/DASH/AzamSport3.mpd"))
-        assertTrue(s4.streamUrl.contains("/tok_${com.example.data.ChannelRepository.AZAM_SPORT_4_TOKEN}/live/eds/AzamSport4/DASH/AzamSport4.mpd"))
+        assertTrue(s1.streamUrl.contains("/live/eds/AzamSport1/DASH/AzamSport1.mpd"))
+        assertTrue(s1.streamUrl.contains("cdntoken="))
+        assertTrue(s2.streamUrl.contains("/live/eds/AzamSport2/DASH/AzamSport2.mpd"))
+        assertTrue(s2.streamUrl.contains("cdntoken="))
+        assertTrue(s3.streamUrl.contains("/live/eds/AzamSport3/DASH/AzamSport3.mpd"))
+        assertTrue(s4.streamUrl.contains("/live/eds/AzamSport4/DASH/AzamSport4.mpd"))
         if (s5 != null) {
-            assertTrue(s5.streamUrl.contains("/tok_${com.example.data.ChannelRepository.AZAM_SPORT_5_TOKEN}/live/eds/AzamSport5/DASH/AzamSport5.mpd"))
+            assertTrue(s5.streamUrl.contains("/live/eds/AzamSport5/DASH/AzamSport5.mpd"))
         }
-        assertTrue(aOne.streamUrl.contains("/tok_${com.example.data.ChannelRepository.AZAM_ONE_TOKEN}/live/eds/AzamOne/DASH/AzamOne.mpd"))
-        assertTrue(aTwo.streamUrl.contains("/tok_${com.example.data.ChannelRepository.AZAM_TWO_TOKEN}/live/eds/AzamTwo/DASH/AzamTwo.mpd"))
-        assertTrue(sinema.streamUrl.contains("/tok_${com.example.data.ChannelRepository.SINEMA_ZETU_TOKEN}/live/eds/SinemaZetu/DASH/SinemaZetu.mpd"))
-        assertTrue(utv.streamUrl.contains("/tok_${com.example.data.ChannelRepository.UTV_TOKEN}/live/eds/UTV/DASH/UTV.mpd"))
-        assertTrue(zbc2.streamUrl.contains("cdntoken=${com.example.data.ChannelRepository.AZAM_SECONDARY_CDN_TOKEN_ENCODED}"))
-        assertTrue(zbc.streamUrl.contains("cdntoken=${com.example.data.ChannelRepository.AZAM_SECONDARY_CDN_TOKEN_ENCODED}"))
-        assertTrue(kix.streamUrl.contains("cdntoken=${com.example.data.ChannelRepository.AZAM_SECONDARY_CDN_TOKEN_ENCODED}"))
-        assertTrue(crown.streamUrl.contains("cdntoken=${com.example.data.ChannelRepository.AZAM_SECONDARY_CDN_TOKEN_ENCODED}"))
-        assertTrue(wasafi.streamUrl.contains("cdntoken=${com.example.data.ChannelRepository.AZAM_SECONDARY_CDN_TOKEN_ENCODED}"))
+        assertTrue(aOne.streamUrl.contains("/live/eds/AzamOne/DASH/AzamOne.mpd"))
+        assertTrue(aTwo.streamUrl.contains("/live/eds/AzamTwo/DASH/AzamTwo.mpd"))
+        assertTrue(sinema.streamUrl.contains("/live/eds/SinemaZetu/DASH/SinemaZetu.mpd"))
+        assertTrue(utv.streamUrl.contains("/live/eds/UTV/DASH/UTV.mpd"))
+        assertTrue(zbc2.streamUrl.contains("cdntoken="))
+        assertTrue(zbc.streamUrl.contains("cdntoken="))
+        assertTrue(kix.streamUrl.contains("cdntoken="))
+        assertTrue(crown.streamUrl.contains("cdntoken="))
+        assertTrue(wasafi.streamUrl.contains("cdntoken="))
 
-        // Verify switching channel starts automatically at low quality (LOW_BANDO_240P) so it starts immediately without buffering
+        // Verify switching channel starts cleanly in AUTO_ADAPTIVE without prematurely throttling down to 240p
         controller.switchChannel(s2)
-        assertEquals(com.example.player.AdaptiveQualityTier.LOW_BANDO_240P, controller.playbackInfo.value.adaptiveQualityTier)
+        assertEquals(com.example.player.NetworkQualityMode.AUTO_ADAPTIVE, controller.playbackInfo.value.networkMode)
+        assertTrue(controller.playbackInfo.value.adaptiveQualityTier != com.example.player.AdaptiveQualityTier.LOW_BANDO_240P)
 
         // Verify Admin (Admin@login.com) is a Premium Member Forever and can watch locked channels even when Admin locks them
         val adminSubState = com.example.data.NeliSubscriptionManager.switchActiveAccount(
@@ -2005,4 +2014,487 @@ class ExampleRobolectricTest {
         assertNotNull(player)
         controller.release()
     }
+
+    @Test
+    fun `google admob production ids special ad-free email tiny pop logo and mandatory sign in gate`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        com.example.data.NeliSubscriptionManager.resetForTesting(context)
+
+        // 1. Verify Production Google AdMob IDs & permanently disabled test mode
+        assertFalse(com.example.ads.NeliAdManager.IS_TEST_MODE_ENABLED)
+        assertEquals("ca-app-pub-5204110379616479~8471497203", com.example.ads.NeliAdManager.ADMOB_APP_ID)
+        assertEquals("ca-app-pub-5204110379616479/4528382767", com.example.ads.NeliAdManager.BANNER_AD_UNIT_ID)
+        assertEquals("ca-app-pub-5204110379616479/8561454550", com.example.ads.NeliAdManager.REWARDED_INTERSTITIAL_AD_UNIT_ID)
+        assertEquals("ca-app-pub-5204110379616479/4267373368", com.example.ads.NeliAdManager.NATIVE_ADVANCED_AD_UNIT_ID)
+        assertEquals("ca-app-pub-5204110379616479/4953382032", com.example.ads.NeliAdManager.APP_OPEN_AD_UNIT_ID)
+        assertEquals(
+            "google.com, pub-5204110379616479, DIRECT, f08c47fec0942fa0",
+            com.example.ads.NeliAdManager.APP_ADS_TXT_LINE
+        )
+
+        com.example.ads.NeliAdManager.initialize(context)
+        assertTrue(com.example.ads.NeliAdManager.isAdsAllowed(context))
+
+        // 2. Verify Special Ad-Free VIP Email (Alexbaineth@gmail.com) gets zero ads & verified VIP status
+        assertTrue(com.example.data.NeliFreeForeverAccountsManager.isSpecialAdFreeEmail("Alexbaineth@gmail.com"))
+        assertTrue(com.example.data.NeliFreeForeverAccountsManager.isAdFreeVipEmail("alexbaineth@gmail.com"))
+        com.example.data.NeliSubscriptionManager.switchActiveAccount(
+            context = context,
+            uid = "vip_alex_uid",
+            email = "Alexbaineth@gmail.com",
+            realName = "Alex Baineth"
+        )
+        val vipState = com.example.data.NeliSubscriptionManager.subscriptionState.value
+        assertTrue(vipState.isVerified)
+        assertTrue(vipState.isSpecialAdFreeAccount)
+        assertTrue(vipState.isActiveNow)
+        assertFalse(com.example.ads.NeliAdManager.isAdsAllowed(context))
+        com.example.data.NeliSubscriptionManager.resetForTesting(context)
+
+        // 3. Verify Tiny Pop strictly resolves to bundled tinypop_kids_logo (NEVER Pop Network logo)
+        val tinyPopChannel = com.example.data.ChannelRepository.getChannelById("tinypop_kids_channel")
+        assertNotNull(tinyPopChannel)
+        val tinyPopGuaranteed = com.example.data.ChannelRepository.resolveGuaranteedChannelLogoUrl(tinyPopChannel!!)
+        val tinyPopFallback = com.example.data.ChannelRepository.resolveFallbackChannelLogoUrl(tinyPopChannel)
+        assertTrue(tinyPopGuaranteed.contains("tinypop_kids_logo"))
+        assertTrue(tinyPopFallback.contains("tinypop_kids_logo"))
+        assertFalse(tinyPopGuaranteed.contains("pop-network", ignoreCase = true))
+
+        // 4. Verify Mandatory Google Sign-In Gate logic
+        assertTrue(com.example.ui.components.requiresMandatoryGoogleSignIn(null))
+        val legacyLocalPickerUser = com.example.data.local.UserAccountEntity(
+            uid = "google_legacy_12345",
+            realName = "Legacy Picker",
+            email = "legacy@gmail.com",
+            passwordHash = "google_oauth_account",
+            idToken = "",
+            isLoggedIn = true
+        )
+        assertTrue(com.example.ui.components.requiresMandatoryGoogleSignIn(legacyLocalPickerUser))
+        val realGoogleUser = com.example.data.local.UserAccountEntity(
+            uid = "firebase_uid_98765",
+            realName = "Real Google User",
+            email = "realuser@gmail.com",
+            passwordHash = "google_oauth_account",
+            idToken = "eyJhbGciOiJSUzI1NiJ9.real",
+            isLoggedIn = true
+        )
+        assertFalse(com.example.ui.components.requiresMandatoryGoogleSignIn(realGoogleUser))
+        val alexVipUser = com.example.data.local.UserAccountEntity(
+            uid = "vip_alex",
+            realName = "Alex Baineth",
+            email = "Alexbaineth@gmail.com",
+            passwordHash = "vip",
+            idToken = "",
+            isLoggedIn = true
+        )
+        assertFalse(com.example.ui.components.requiresMandatoryGoogleSignIn(alexVipUser))
+    }
+
+    @Test
+    fun `email signup username login edit username and five free ad-free user1 to user5 accounts`() = kotlinx.coroutines.runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val db = com.example.data.local.NeliDatabase.getInstance(context)
+        val dao = db.mediaDao()
+        val authRepo = com.example.data.AuthenticationRepository(context, dao)
+        com.example.data.NeliSubscriptionManager.resetForTesting(context)
+
+        // 1. Sign Up by Email (username + email + password)
+        val signUpRes = authRepo.registerWithEmailAndPassword(
+            realName = "NeliTester",
+            email = "nelitester@example.com",
+            password = "Password123"
+        )
+        assertTrue(signUpRes.isSuccess)
+        assertEquals("NeliTester", signUpRes.getOrNull()?.realName)
+
+        // 2. Edit Username & Save
+        val editRes = authRepo.updateUsername("NeliProUser")
+        assertTrue(editRes.isSuccess)
+        assertEquals("NeliProUser", editRes.getOrNull()?.realName)
+
+        // 3. Sign out and log back in using the NEW USERNAME + Password
+        authRepo.signOut()
+        val loginByUsernameRes = authRepo.signInWithEmailAndPassword(
+            email = "NeliProUser",
+            password = "Password123"
+        )
+        assertTrue(loginByUsernameRes.isSuccess)
+        assertEquals("nelitester@example.com", loginByUsernameRes.getOrNull()?.email)
+        assertEquals("NeliProUser", loginByUsernameRes.getOrNull()?.realName)
+
+        // 4. Verify all 5 Free Ad-Free accounts (user1@login.com .. user5@login.com, password Free123)
+        val expectedFreeEmails = listOf(
+            "user1@login.com",
+            "user2@login.com",
+            "user3@login.com",
+            "user4@login.com",
+            "user5@login.com"
+        )
+        assertEquals(expectedFreeEmails, com.example.data.NeliFreeForeverAccountsManager.FREE_FOREVER_EMAILS)
+        assertEquals("Free123", com.example.data.NeliFreeForeverAccountsManager.FREE_FOREVER_PASSWORD)
+
+        for (freeEmail in expectedFreeEmails) {
+            assertTrue(com.example.data.NeliFreeForeverAccountsManager.isFreeForeverEmail(freeEmail))
+            assertTrue(com.example.data.NeliFreeForeverAccountsManager.isAdFreeVipEmail(freeEmail))
+        }
+
+        // Login with user1@login.com + Free123 -> zero ads, verified, and custom edited username persists!
+        val freeLogin = authRepo.signInWithEmailAndPassword("user1@login.com", "Free123")
+        assertTrue(freeLogin.isSuccess)
+        val freeUser = freeLogin.getOrNull()!!
+        com.example.data.NeliSubscriptionManager.switchActiveAccount(
+            context = context,
+            uid = freeUser.uid,
+            email = freeUser.email,
+            realName = freeUser.realName
+        )
+        assertFalse(com.example.ads.NeliAdManager.isAdsAllowed(context))
+        assertFalse(com.example.ui.components.requiresMandatoryGoogleSignIn(freeUser))
+
+        val renamedFree = authRepo.updateUsername("BossUserOne")
+        assertTrue(renamedFree.isSuccess)
+        assertEquals("BossUserOne", renamedFree.getOrNull()?.realName)
+
+        authRepo.signOut()
+        com.example.data.NeliSubscriptionManager.resetForTesting(context)
+    }
+
+    @Test
+    fun `nick jr channel uses non-blocked streams and auto-fails over on repeated stalls`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val nickJr = com.example.data.ChannelRepository.getChannelById("nick_jr_official_live")
+        assertNotNull(nickJr)
+
+        val channel = nickJr!!
+        assertTrue(channel.streamUrl.isNotBlank())
+        assertTrue(channel.backupStreamUrl.isNotBlank())
+        assertFalse(channel.streamUrl.contains("cinerama.uz", ignoreCase = true))
+        assertFalse(channel.backupStreamUrl.contains("cinerama.uz", ignoreCase = true))
+        org.junit.Assert.assertNotEquals(channel.streamUrl, channel.backupStreamUrl)
+
+        val expectedBackup = channel.backupStreamUrl
+        val controller = com.example.player.LivePlayerController(context, channel)
+        controller.initializePlayer()
+
+        assertTrue(controller.triggerLiveStreamAutoFix(reason = "stall_1", elapsedRealtimeMs = 10_000L))
+        assertTrue(controller.triggerLiveStreamAutoFix(reason = "stall_2", elapsedRealtimeMs = 20_000L))
+        assertTrue(controller.triggerLiveStreamAutoFix(reason = "stall_3", elapsedRealtimeMs = 30_000L))
+
+        assertEquals(expectedBackup, controller.currentChannel.value.streamUrl)
+        controller.release()
+    }
+
+    @Test
+    fun `google sign in does not bypass credential manager via raw device accounts`() = kotlinx.coroutines.runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val db = com.example.data.local.NeliDatabase.getInstance(context)
+        val dao = db.mediaDao()
+        val authRepo = com.example.data.AuthenticationRepository(context, dao)
+        authRepo.signOut()
+
+        assertTrue(com.example.data.AuthenticationRepository.getAllDeviceGoogleAccounts(context).isEmpty())
+
+        val result = authRepo.signInWithGoogle(uiContext = context, forceInteractive = true)
+        assertTrue(result is com.example.data.GoogleAutoSignInResult.UseEmailFallback)
+        org.junit.Assert.assertNull(authRepo.getCurrentUser())
+    }
+
+    @Test
+    fun `movie studio youtube urls route to neli embed player without pip and disallow download by default`() {
+        // 1. Verify NeliEmbedPlayerHelper extracts bare 11-char IDs and BTV share IDs across all YT URL shapes
+        assertEquals(
+            "dQw4w9WgXcQ",
+            com.example.player.NeliEmbedPlayerHelper.extractYoutubeVideoId("https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=12s")
+        )
+        assertEquals(
+            "dQw4w9WgXcQ",
+            com.example.player.NeliEmbedPlayerHelper.extractYoutubeVideoId("https://youtu.be/dQw4w9WgXcQ?si=abc")
+        )
+        assertEquals(
+            "abcDEF12345",
+            com.example.player.NeliEmbedPlayerHelper.extractYoutubeVideoId("https://www.youtube.com/shorts/abcDEF12345")
+        )
+        assertEquals(
+            "xyz98765432",
+            com.example.player.NeliEmbedPlayerHelper.extractYoutubeVideoId("https://www.youtube.com/live/xyz98765432")
+        )
+        assertEquals(
+            "BTV-123456-ABCD",
+            com.example.player.NeliEmbedPlayerHelper.extractYoutubeVideoId("https://baynith-tv.base44.app/embed-neli/BTV-123456-ABCD")
+        )
+        assertEquals(
+            "https://baynith-tv.base44.app/embed-neli/dQw4w9WgXcQ",
+            com.example.player.NeliEmbedPlayerHelper.resolveNeliEmbedUrl(
+                streamUrl = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+            )
+        )
+        val embedHtml = com.example.player.NeliEmbedPlayerHelper.buildNeliEmbedHtml("dQw4w9WgXcQ")
+        assertTrue(embedHtml.contains("padding-top:56.25%"))
+        assertTrue(embedHtml.contains("https://baynith-tv.base44.app/embed-neli/dQw4w9WgXcQ"))
+
+        val fullScreenEmbedHtml = com.example.player.NeliEmbedPlayerHelper.buildFullScreenNeliEmbedHtml("dQw4w9WgXcQ")
+        assertTrue(fullScreenEmbedHtml.contains("width: 100%;"))
+        assertTrue(fullScreenEmbedHtml.contains("height: 100%;"))
+        assertTrue(fullScreenEmbedHtml.contains("allow=\"autoplay; fullscreen; encrypted-media; picture-in-picture\""))
+        assertTrue(fullScreenEmbedHtml.contains("referrerpolicy=\"no-referrer-when-downgrade\""))
+        assertTrue(fullScreenEmbedHtml.contains("playVideo"))
+        assertTrue(fullScreenEmbedHtml.contains("https://baynith-tv.base44.app/embed-neli/dQw4w9WgXcQ"))
+
+        // 2. Verify Studio Movie JSON with YouTube URL (default no download) vs explicit allowDownload = true vs standard MP4 movie
+        val studioJson = """
+            {
+              "movies": {
+                "yt_spidey_1": {
+                  "title": "Spidey's Best Moments",
+                  "streamUrl": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                  "channelName": "Spidey Cartoon Hub",
+                  "published": true
+                },
+                "yt_gta_allowed": {
+                  "title": "Superheroes On A Motorcycle Ride Over The Sea",
+                  "youtubeUrl": "https://youtu.be/abcDEF12345",
+                  "allowDownload": true,
+                  "published": true
+                },
+                "direct_mp4_1": {
+                  "title": "Direct MP4 Movie",
+                  "streamUrl": "https://vz-1bb50f2e-8ea.b-cdn.net/sample/play_480p.mp4",
+                  "published": true
+                }
+              }
+            }
+        """.trimIndent()
+        val parsedCount = MediaContentRepository.parseFirebaseJsonPayload(studioJson)
+        assertEquals(3, parsedCount)
+
+        val spideyMovie = MediaContentRepository.getMediaById("yt_spidey_1")
+        assertNotNull(spideyMovie)
+        assertEquals("embedded", spideyMovie!!.streamFormat)
+        assertEquals("https://baynith-tv.base44.app/embed-neli/dQw4w9WgXcQ", spideyMovie.streamUrl)
+        assertEquals("Spidey Cartoon Hub", spideyMovie.channelName)
+        assertTrue(spideyMovie.isYoutubeSource)
+        assertFalse("YouTube Studio movie must NOT allow download by default", spideyMovie.isDownloadPermitted)
+
+        val spideyPlayable = spideyMovie.toPlayableChannel()
+        assertTrue(spideyPlayable.isEmbedded)
+        assertTrue(spideyPlayable.isYoutubeEmbedded)
+        assertFalse("YouTube embed must disable PiP", spideyPlayable.isPipAllowedForChannel)
+        assertEquals("Spidey Cartoon Hub", spideyPlayable.channelAttribution)
+
+        val gtaAllowedMovie = MediaContentRepository.getMediaById("yt_gta_allowed")
+        assertNotNull(gtaAllowedMovie)
+        assertEquals("https://baynith-tv.base44.app/embed-neli/abcDEF12345", gtaAllowedMovie!!.streamUrl)
+        assertTrue("Studio allowDownload=true should allow download", gtaAllowedMovie.isDownloadPermitted)
+
+        val directMovie = MediaContentRepository.getMediaById("direct_mp4_1")
+        assertNotNull(directMovie)
+        assertFalse(directMovie!!.isYoutubeSource)
+        assertTrue("Regular non-YouTube MP4 movie remains downloadable", directMovie.isDownloadPermitted)
+
+        // 3. Verify existing Sports embedded channels keep PiP enabled
+        val superSport = com.example.data.ChannelRepository.getChannelById("baynith_sport_1")
+        assertNotNull(superSport)
+        assertTrue(superSport!!.isEmbedded)
+        assertFalse(superSport.isYoutubeEmbedded)
+        assertTrue(superSport.isPipAllowedForChannel)
+    }
+
+    @Test
+    fun `channels never display another channels logo and expired azam tokens rewrite path and query`() {
+        val azamOneLogo = "https://i.ibb.co/8gtr1n42/1000221072.jpg"
+        val azamSport4Logo = "https://i.ibb.co/SwtFQNsh/1000221063.jpg"
+        val sinemaZetuLogo = "https://i.ibb.co/twBGTs4s/1000221073.jpg"
+        val utvLogo = "https://i.ibb.co/N2nCDLwD/1000221071.png"
+        val wasafiLogo = "https://i.ibb.co/W4PYYhRV/157731247083407-Y3-Jvc-Cwx-MTQ0-LDg5-NCww-LDU4-OA.png"
+        val forbiddenCrossLogos = setOf(azamOneLogo, azamSport4Logo, sinemaZetuLogo, utvLogo, wasafiLogo)
+
+        // 1. beIN Sports and ESPN 7 must use exact requested logo URLs and Dish on TV must NOT use Azam One's logo
+        val expectedBeinLogo = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTe_WqQisMRWGDios7Dg-Y9-cktdA91Ebx_dDJusVORPA&s=10"
+        val expectedEspn7Logo = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTpavpazIXesA-dugZUG8XMc6MXDNf7qzM1rMD3m0IO1bl1s0HX_IC2mOE&s=10"
+        val beinSports = com.example.data.ChannelRepository.getChannelById("bein_sports_official_live")
+        assertNotNull(beinSports)
+        assertEquals(expectedBeinLogo, beinSports!!.thumbnailUrl)
+        assertEquals(expectedBeinLogo, com.example.data.ChannelRepository.resolveGuaranteedChannelLogoUrl(beinSports))
+
+        val espn7 = com.example.data.ChannelRepository.getChannelById("espn_7_official_live")
+        assertNotNull(espn7)
+        assertEquals(expectedEspn7Logo, espn7!!.thumbnailUrl)
+        assertEquals(expectedEspn7Logo, com.example.data.ChannelRepository.resolveGuaranteedChannelLogoUrl(espn7))
+
+        val dishOnTv = com.example.data.ChannelRepository.getChannelById("DC7152673681")
+        assertNotNull(dishOnTv)
+        assertFalse("Dish on TV must not reuse Azam One logo", dishOnTv!!.thumbnailUrl == azamOneLogo)
+
+        // 2. Unrelated channels in Sports, News, Movies, Music, Kids, Other must NEVER get another channel's logo as fallback
+        val unrelatedChannels = listOf(
+            com.example.model.LiveChannel(id = "test_sport_x", name = "Super Football TV", description = "", streamUrl = "https://example.com/s.m3u8", streamFormat = "hls", thumbnailUrl = "", categories = listOf("sports")),
+            com.example.model.LiveChannel(id = "test_news_x", name = "World Breaking News", description = "", streamUrl = "https://example.com/n.m3u8", streamFormat = "hls", thumbnailUrl = "", categories = listOf("news")),
+            com.example.model.LiveChannel(id = "test_movie_x", name = "Cinema Max HD", description = "", streamUrl = "https://example.com/m.m3u8", streamFormat = "hls", thumbnailUrl = "", categories = listOf("movies")),
+            com.example.model.LiveChannel(id = "test_music_x", name = "Bongo Beats TV", description = "", streamUrl = "https://example.com/mu.m3u8", streamFormat = "hls", thumbnailUrl = "", categories = listOf("music")),
+            com.example.model.LiveChannel(id = "test_kids_x", name = "Cartoon World Kids", description = "", streamUrl = "https://example.com/k.m3u8", streamFormat = "hls", thumbnailUrl = "", categories = listOf("kids")),
+            com.example.model.LiveChannel(id = "test_other_x", name = "Random Live TV", description = "", streamUrl = "https://example.com/o.m3u8", streamFormat = "hls", thumbnailUrl = "", categories = listOf("entertainment"))
+        )
+        unrelatedChannels.forEach { ch ->
+            val fb = com.example.data.ChannelRepository.resolveFallbackChannelLogoUrl(ch)
+            assertFalse("Unrelated channel ${ch.name} must not get a cross-channel logo ($fb)", fb in forbiddenCrossLogos)
+            assertFalse("Unrelated channel ${ch.name} must not get pop_kids_logo", fb.contains("pop_kids_logo", ignoreCase = true))
+            assertEquals("Expected blank fallback for unknown channel ${ch.name}", "", fb)
+        }
+
+        // 3. Expired /tok_<OLD>/ and ?cdntoken=<OLD> must BOTH be rewritten when a fresher live token is synced
+        val prevToken = com.example.data.ChannelRepository.AZAM_CDN_TOKEN
+        val prevAuthFlag = com.example.data.ChannelRepository.hasAuthoritativeLiveToken
+        try {
+            // Fresh JWT with exp = 2000000000 (year 2033)
+            val freshPayloadB64 = java.util.Base64.getUrlEncoder().withoutPadding()
+                .encodeToString("""{"exp":2000000000,"sub":"live"}""".toByteArray(Charsets.UTF_8))
+            val freshJwt = "eyJhbGciOiJIUzI1NiJ9.$freshPayloadB64.liveSig"
+
+            // Expired JWT with exp = 1700000000 (year 2023)
+            val expiredPayloadB64 = java.util.Base64.getUrlEncoder().withoutPadding()
+                .encodeToString("""{"exp":1700000000,"sub":"old"}""".toByteArray(Charsets.UTF_8))
+            val expiredJwt = "eyJhbGciOiJIUzI1NiJ9.$expiredPayloadB64.oldSig"
+
+            assertTrue(
+                com.example.data.ChannelRepository.updateCdnAuthorizationToken(
+                    """{"token":"$freshJwt","cdnHost":"https://cdnedgch2.azamtvltd.co.tz","source":"live"}""",
+                    isAuthoritativeTokenApi = true
+                )
+            )
+            val rawAzamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$expiredJwt/live/eds/AzamSport1/DASH/AzamSport1.mpd?cdntoken=$expiredJwt"
+            val normalized = com.example.data.ChannelRepository.normalizeDashStreamUrl(rawAzamUrl)
+            assertTrue("Expected /tok_ path to contain fresh token: $normalized", normalized.contains("/tok_$freshJwt/live/eds/AzamSport1/"))
+            assertTrue("Expected ?cdntoken= query to contain fresh token: $normalized", normalized.contains("cdntoken=$freshJwt"))
+            assertFalse("Expected expired token to be completely removed: $normalized", normalized.contains(expiredJwt))
+        } finally {
+            com.example.data.ChannelRepository.resetTokenStateForTesting(prevToken, prevAuthFlag)
+        }
+
+        // 4. Verify LivePlayerController preserves exceedVideoConstraintsIfNecessary across quality modes
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val sampleChannel = com.example.data.ChannelRepository.channels.first()
+        val controller = com.example.player.LivePlayerController(context, sampleChannel)
+        controller.initializePlayer()
+        controller.applyNetworkQualityMode(com.example.player.NetworkQualityMode.WEAK_NETWORK_SAVER)
+        controller.applyNetworkQualityMode(com.example.player.NetworkQualityMode.AUTO_ADAPTIVE)
+        assertTrue(
+            "Expected initial bandwidth estimate to be healthy (>= 450kbps)",
+            controller.playbackInfo.value.estimatedBandwidthKbps >= 450
+        )
+        controller.release()
+    }
+
+    @Test
+    fun `production release verifies fixed streams company branding scroll state and auto cdn renewal`() {
+        // 1. Verify FIFA+ Women, MUTV, ESPN 7, and NBC Sports NOW use live-verified master manifests with distinct backups
+        val fifaWomen = com.example.data.ChannelRepository.getChannelById("fifa_plus_women_official_live")!!
+        assertTrue(fifaWomen.streamUrl.contains("/master/") && fifaWomen.streamUrl.endsWith("/playlist.m3u8"))
+        assertTrue(fifaWomen.backupStreamUrl.isNotBlank() && fifaWomen.backupStreamUrl != fifaWomen.streamUrl)
+
+        val mutv = com.example.data.ChannelRepository.getChannelById("mutv_official_live")!!
+        assertTrue(mutv.streamUrl.endsWith("/playlist-hls.m3u8"))
+        assertFalse(mutv.streamUrl.contains("chunklist__1"))
+        assertTrue(mutv.backupStreamUrl.isNotBlank() && mutv.backupStreamUrl != mutv.streamUrl)
+
+        val espn7 = com.example.data.ChannelRepository.getChannelById("espn_7_official_live")!!
+        assertTrue(espn7.streamUrl.endsWith(".m3u8") && espn7.streamUrl.startsWith("https://"))
+        assertTrue(espn7.backupStreamUrl.isNotBlank() && espn7.backupStreamUrl != espn7.streamUrl)
+
+        val nbcSportsNow = com.example.data.ChannelRepository.getChannelById("nbc_sports_now_official_live")!!
+        assertTrue(nbcSportsNow.streamUrl.contains("/hls/master.m3u8"))
+        assertTrue(nbcSportsNow.backupStreamUrl.isNotBlank() && nbcSportsNow.backupStreamUrl != nbcSportsNow.streamUrl)
+
+        // 1b. Verify third-party HLS CDNs never receive Azam Authorization / X-CDN-Token / StreamZone headers
+        val thirdPartyHeaders = com.example.player.TokenManager.buildExoPlayerHeaders(
+            "https://rbmn-live.akamaized.net/hls/live/590964/BoRB-AT/master.m3u8"
+        )
+        assertFalse("Third-party HLS must not send Authorization header", thirdPartyHeaders.containsKey("Authorization"))
+        assertFalse("Third-party HLS must not send X-CDN-Token header", thirdPartyHeaders.containsKey("X-CDN-Token"))
+        assertFalse("Third-party HLS must not send cdntoken header", thirdPartyHeaders.containsKey("cdntoken"))
+        assertFalse("Third-party HLS must not send Origin header", thirdPartyHeaders.containsKey("Origin"))
+
+        val azamHeaders = com.example.player.TokenManager.buildExoPlayerHeaders(
+            "https://cdnedgch2.azamtvltd.co.tz/live/eds/AzamSport1/DASH/AzamSport1.mpd"
+        )
+        assertTrue("Azam stream must include Authorization header", azamHeaders.containsKey("Authorization"))
+        assertTrue("Azam stream must include X-CDN-Token header", azamHeaders.containsKey("X-CDN-Token"))
+
+        // 2. Verify Nairobi Broadcast Company branding & contact info + production AdMob mode
+        assertEquals("Nairobi Broadcast Company", com.example.ui.screens.COMPANY_NAME)
+        assertEquals("support@nelitv.online", com.example.ui.screens.SUPPORT_EMAIL)
+        assertEquals("+254853553584", com.example.ui.screens.SUPPORT_PHONE)
+        assertEquals("Tanzania and Kenya", com.example.ui.screens.SERVICE_REGIONS)
+        assertEquals("NeliTV", com.example.data.OfflineDownloadManager.SPECIAL_DEVICE_FOLDER_NAME)
+        assertFalse("App must be in Production AdMob mode", com.example.ads.NeliAdManager.IS_TEST_MODE_ENABLED)
+
+        // 3. Verify proactive CDN expiry detection & auto-renewal triggers
+        assertTrue(com.example.player.TokenManager.isAuthenticationFailure(401))
+        assertTrue(com.example.player.TokenManager.isAuthenticationFailure(403))
+        assertTrue(com.example.player.TokenManager.isAuthenticationFailure(410))
+        assertTrue(com.example.player.TokenManager.isAuthenticationFailure(null, "ClearKey decryption error"))
+
+        val prevToken = com.example.data.ChannelRepository.AZAM_CDN_TOKEN
+        val prevAuthFlag = com.example.data.ChannelRepository.hasAuthoritativeLiveToken
+        try {
+            val soonExp = (System.currentTimeMillis() / 1000L) + 120L
+            val soonPayloadB64 = java.util.Base64.getUrlEncoder().withoutPadding()
+                .encodeToString("""{"exp":$soonExp,"sub":"soon"}""".toByteArray(Charsets.UTF_8))
+            val soonJwt = "eyJhbGciOiJIUzI1NiJ9.$soonPayloadB64.sig"
+            com.example.data.ChannelRepository.resetTokenStateForTesting(soonJwt, true)
+            assertTrue(
+                "Token expiring in 2 minutes must trigger proactive renewal within 10-minute lead window",
+                com.example.data.ChannelRepository.isActiveTokenExpiringSoon(leadSeconds = 600L)
+            )
+        } finally {
+            com.example.data.ChannelRepository.resetTokenStateForTesting(prevToken, prevAuthFlag)
+        }
+    }
+
+    @Test
+    fun `smart tv bypasses login and ads while mobile allows ads and never blocks when no ad fills`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+
+        // 1. Smart TV must NEVER require mandatory login or sign-up even when currentUser == null
+        assertFalse(
+            "Smart TV must bypass mandatory sign-in popup",
+            com.example.ui.components.requiresMandatoryGoogleSignIn(currentUser = null, isTelevision = true)
+        )
+        // Mobile/Tablet still requires sign-in when unauthenticated
+        assertTrue(
+            "Mobile/Tablet must show mandatory sign-in popup when signed out",
+            com.example.ui.components.requiresMandatoryGoogleSignIn(currentUser = null, isTelevision = false)
+        )
+
+        // 2. Smart TV must strictly disable ads; mobile standard users allow ads
+        val prevForceTv = com.example.ui.theme.NeliThemeManager.forceTvMode
+        try {
+            com.example.ui.theme.NeliThemeManager.setTvModeSetting(context, true)
+            assertFalse("Ads must be disabled on Smart TV", com.example.ads.NeliAdManager.isAdsAllowed(context))
+
+            com.example.ui.theme.NeliThemeManager.setTvModeSetting(context, false)
+            assertTrue("Ads must be enabled on mobile for standard users", com.example.ads.NeliAdManager.isAdsAllowed(context))
+        } finally {
+            com.example.ui.theme.NeliThemeManager.setTvModeSetting(context, prevForceTv)
+        }
+
+        // 3. When no ad is loaded/available, playback and download callbacks must proceed immediately without blocking
+        var channelPlayProceeded = false
+        com.example.ads.NeliAdManager.showChannelOpeningAd(
+            activity = null,
+            channelName = "Azam Sports 1 HD",
+            channelId = "azam_sports_1"
+        ) {
+            channelPlayProceeded = true
+        }
+        assertTrue("Channel playback must proceed immediately when no ad is available", channelPlayProceeded)
+
+        var downloadProceeded = false
+        com.example.ads.NeliAdManager.showDownloadRewardedAd(activity = null) {
+            downloadProceeded = true
+        }
+        assertTrue("Download must proceed immediately when no ad is available", downloadProceeded)
+    }
 }
+
+
