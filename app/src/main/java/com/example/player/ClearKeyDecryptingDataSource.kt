@@ -41,6 +41,13 @@ class ClearKeyDecryptingDataSource(
         }
     }
 
+    companion object {
+        private val AZAM_XML_HOST_REGEX = Regex(
+            "https?://[a-zA-Z0-9.-]*azamtvltd\\.co\\.tz(?::\\d+)?",
+            RegexOption.IGNORE_CASE
+        )
+    }
+
     private var currentUri: Uri? = null
     private var transformedData: ByteArray? = null
     private var readPosition: Int = 0
@@ -95,9 +102,8 @@ class ClearKeyDecryptingDataSource(
         upstream.close()
 
         val processedBytes = if (isMpd) {
-            val xml = String(rawBytes, Charsets.UTF_8)
-                .replace("http://cdnblncr.azamtvltd.co.tz", com.example.data.ChannelRepository.AZAM_CDN_HOST, ignoreCase = true)
-                .replace("https://cdnblncr.azamtvltd.co.tz", com.example.data.ChannelRepository.AZAM_CDN_HOST, ignoreCase = true)
+            val rawXml = String(rawBytes, Charsets.UTF_8)
+            val xml = AZAM_XML_HOST_REGEX.replace(rawXml, com.example.data.ChannelRepository.AZAM_CDN_HOST)
             val stripped = decryptor?.stripMpdContentProtection(xml)
                 ?: Mp4CencDecryptor(emptyMap()).stripMpdContentProtection(xml)
             stripped.toByteArray(Charsets.UTF_8)
@@ -137,16 +143,19 @@ class ClearKeyDecryptingDataSource(
             val isAzamStream = attemptUriStr.contains("azamtvltd.co.tz", ignoreCase = true) ||
                 attemptUriStr.contains("/live/eds/", ignoreCase = true)
 
-            val shouldAutoRenewCdnKeys = isAuthError || (isAzamStream && (e.responseCode == 404 || e.responseCode == 410))
+            val shouldAutoRenewCdnKeys = isAuthError || (isAzamStream && (e.responseCode == 404 || e.responseCode == 410 || e.responseCode == 429))
 
             if (shouldAutoRenewCdnKeys) {
                 try {
                     upstream.close()
                 } catch (_: Exception) {
                 }
+                // Switch providers (aztv <-> mpingo) immediately on 429 / 401 / 403
+                val previousToken = TokenManager.currentToken
                 TokenManager.renewCdnKeysAndChannelsBlocking(
                     failedChannel = null,
-                    httpStatusCode = e.responseCode
+                    httpStatusCode = e.responseCode,
+                    switchProvider = isAzamStream && (e.responseCode == 429 || e.responseCode == 401 || e.responseCode == 403)
                 )
                 val refreshedBaseSpec = resolveDataSpecToken(originalSpec, forceLatestRepoToken = true)
                 val retrySpec = refreshedBaseSpec.buildUpon()
@@ -156,12 +165,44 @@ class ClearKeyDecryptingDataSource(
                 try {
                     val retryLen = upstream.open(retrySpec)
                     return retrySpec to retryLen
-                } catch (_: HttpDataSource.InvalidResponseCodeException) {
+                } catch (retryEx: HttpDataSource.InvalidResponseCodeException) {
                     if (isAzamStream) {
                         val openedAlt = tryOpenAzamAlternates(retrySpec, TokenManager.currentToken)
                         if (openedAlt != null) return openedAlt
+
+                        // If alternate provider also hit 429/403 (or token didn't change), try one fresh unexcluded fetch after a brief pause
+                        if (retryEx.responseCode == 429 || retryEx.responseCode == 401 || retryEx.responseCode == 403) {
+                            try {
+                                upstream.close()
+                            } catch (_: Exception) {
+                            }
+                            try {
+                                Thread.sleep(750L)
+                            } catch (_: InterruptedException) {
+                            }
+                            TokenManager.clearExcludedProvider()
+                            val secondToken = TokenManager.fetchLiveTokenBlocking(
+                                forceRefresh = true,
+                                bypassCooldown = true,
+                                excludeProvider = null
+                            )
+                            if (secondToken.isNotBlank() && secondToken != previousToken) {
+                                val secondSpec = resolveDataSpecToken(originalSpec, forceLatestRepoToken = true)
+                                    .buildUpon()
+                                    .setPosition(attemptSpec.position)
+                                    .setLength(attemptSpec.length)
+                                    .build()
+                                try {
+                                    val secondLen = upstream.open(secondSpec)
+                                    return secondSpec to secondLen
+                                } catch (_: HttpDataSource.InvalidResponseCodeException) {
+                                    val openedSecondAlt = tryOpenAzamAlternates(secondSpec, secondToken)
+                                    if (openedSecondAlt != null) return openedSecondAlt
+                                }
+                            }
+                        }
                     }
-                    throw e
+                    throw retryEx
                 }
             }
 
@@ -187,23 +228,27 @@ class ClearKeyDecryptingDataSource(
         val alternateUris = mutableListOf<String>()
 
         if (base.contains("/tok_", ignoreCase = true)) {
-            if (query.isNotEmpty()) {
-                alternateUris.add(base)
-            }
             val beforeTok = base.substringBefore("/tok_")
             val tokInPath = base.substringAfter("/tok_").substringBefore("/")
             val afterTok = base.substringAfter("/tok_").substringAfter("/", "")
             if (afterTok.isNotEmpty()) {
                 val effectiveTok = tokenToUse.ifBlank { tokInPath }
+                // 1. Canonical StreamZone clean query-only format (no redundant /tok_ in path)
                 alternateUris.add("$beforeTok/$afterTok?cdntoken=$effectiveTok")
-                alternateUris.add("$beforeTok/tok_$effectiveTok/$afterTok?cdntoken=$effectiveTok")
+                // 2. Clean path-token-only format (no duplicate ?cdntoken= query param)
+                alternateUris.add("$beforeTok/tok_$effectiveTok/$afterTok")
+            }
+            if (query.isNotEmpty()) {
+                alternateUris.add(base)
             }
         } else if (base.contains("/live/eds/", ignoreCase = true)) {
             val edsIdx = base.indexOf("/live/eds/", ignoreCase = true)
             val hostPrefix = base.substring(0, edsIdx)
             val pathAfterHost = base.substring(edsIdx)
+            // 1. Clean path-token-only format
             alternateUris.add("$hostPrefix/tok_$tokenToUse$pathAfterHost")
-            alternateUris.add("$hostPrefix/tok_$tokenToUse$pathAfterHost?cdntoken=$tokenToUse")
+            // 2. Clean query-only format with latest token
+            alternateUris.add("$hostPrefix$pathAfterHost?cdntoken=$tokenToUse")
         }
 
         for (altUrl in alternateUris.distinct()) {

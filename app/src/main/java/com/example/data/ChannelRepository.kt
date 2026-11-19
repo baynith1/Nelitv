@@ -38,9 +38,12 @@ object ChannelRepository {
     const val AZAM_SECONDARY_CDN_TOKEN_ENCODED =
         "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJleHAiOiIxNzkwOTQ2OTQzIiwic2lwIjoiIiwicGF0aCI6IiIsInNlc3Npb25fY2RuX2lkIjoiZTZhZTQ3MzliNmY4ZjhiNyIsInNlc3Npb25faWQiOiIiLCJjbGllbnRfaWQiOiI0ODQwODMyIiwiZGV2aWNlX2lkIjoiIiwibWF4X3Nlc3Npb25zIjowLCJzZXNzaW9uX2R1cmF0aW9uIjowLCJ1cmwiOiJodHRwczovLzEwMi4yMDguMjQ0LjkiLCJzZXNzaW9uX3RpbWVvdXQiOjAsImF1ZCI6IjciLCJzb3VyY2VzIjpbM119.FbnzSDR1Vi6Yfo4Qys6fBQV04WVdcCBFcCAI-Hgy9YvhRjwqp6uhKmXKPQZinjuWAzt5Hu17E4gnZCFzv6KtYQ%3D%3D"
     const val DEFAULT_AZAM_CDN_SOURCE = "cache"
+    const val DEFAULT_AZAM_CDN_PROVIDER = "aztv"
     const val DEFAULT_TOKEN_ENDPOINT_URL = "https://streamzone.fun/api/cdn-token"
     const val DEFAULT_CHANNELS_BACKUP_API_URL = "https://streamzone.fun/api/channels"
     const val EXTENDED_TOKEN_EXPIRY_EPOCH_SEC = 4102444800L // 2100-01-01T00:00:00Z extended expiry
+
+    private val AZAM_HOST_REGEX = Regex("^https?://[a-zA-Z0-9.-]*azamtvltd\\.co\\.tz(?::\\d+)?", RegexOption.IGNORE_CASE)
 
     /**
      * Known dummy/revoked test token fragments that must never overwrite the active Azam CDN token.
@@ -73,9 +76,10 @@ object ChannelRepository {
     var hasAuthoritativeLiveToken: Boolean = false
         private set
 
-    internal fun resetTokenStateForTesting(token: String, authoritative: Boolean) {
+    internal fun resetTokenStateForTesting(token: String, authoritative: Boolean, provider: String = DEFAULT_AZAM_CDN_PROVIDER) {
         AZAM_CDN_TOKEN = token
         hasAuthoritativeLiveToken = authoritative
+        AZAM_CDN_PROVIDER = provider
     }
 
     @Volatile
@@ -84,6 +88,10 @@ object ChannelRepository {
 
     @Volatile
     var AZAM_CDN_SOURCE: String = DEFAULT_AZAM_CDN_SOURCE
+        private set
+
+    @Volatile
+    var AZAM_CDN_PROVIDER: String = DEFAULT_AZAM_CDN_PROVIDER
         private set
 
     @Volatile
@@ -227,7 +235,7 @@ object ChannelRepository {
             name = "Azam One",
             description = "Burudani na Filamu za Afrika Mashariki • Free Channel",
             streamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_ONE_TOKEN/live/eds/AzamOne/DASH/AzamOne.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
-            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_ONE_TOKEN/live/eds/AzamOne/DASH/AzamOne.mpd?cdntoken=$AZAM_ONE_TOKEN",
+            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/live/eds/AzamOne/DASH/AzamOne.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
             streamFormat = "dash",
             thumbnailUrl = "https://i.ibb.co/8gtr1n42/1000221072.jpg",
             categories = listOf("entertainment", "movies", "tanzania"),
@@ -244,7 +252,7 @@ object ChannelRepository {
             name = "Azam Two",
             description = "Tamthilia za Kiswahili na Burudani Live",
             streamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_TWO_TOKEN/live/eds/AzamTwo/DASH/AzamTwo.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
-            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_TWO_TOKEN/live/eds/AzamTwo/DASH/AzamTwo.mpd?cdntoken=$AZAM_TWO_TOKEN",
+            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/live/eds/AzamTwo/DASH/AzamTwo.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
             streamFormat = "dash",
             thumbnailUrl = "https://i.ibb.co/Z6sdp2tg/1000221074.jpg",
             categories = listOf("entertainment", "tanzania"),
@@ -261,7 +269,7 @@ object ChannelRepository {
             name = "Sinema Zetu",
             description = "Filamu za Kiswahili & Bongo Movies 24/7 • Free Channel",
             streamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$SINEMA_ZETU_TOKEN/live/eds/SinemaZetu/DASH/SinemaZetu.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
-            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$SINEMA_ZETU_TOKEN/live/eds/SinemaZetu/DASH/SinemaZetu.mpd?cdntoken=$SINEMA_ZETU_TOKEN",
+            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/live/eds/SinemaZetu/DASH/SinemaZetu.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
             streamFormat = "dash",
             thumbnailUrl = "https://i.ibb.co/twBGTs4s/1000221073.jpg",
             categories = listOf("entertainment", "movies", "tanzania"),
@@ -323,7 +331,7 @@ object ChannelRepository {
             name = "Azam Sports 1 HD",
             description = "Mpira Live • Ligi Kuu Tanzania Bara",
             streamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_SPORT_1_TOKEN/live/eds/AzamSport1/DASH/AzamSport1.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
-            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_SPORT_1_TOKEN/live/eds/AzamSport1/DASH/AzamSport1.mpd?cdntoken=$AZAM_SPORT_1_TOKEN",
+            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/live/eds/AzamSport1/DASH/AzamSport1.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
             streamFormat = "dash",
             thumbnailUrl = "https://i.ibb.co/B29Xvb5P/azam-sport-1-01.png",
             categories = listOf("sport", "entertainment", "tanzania"),
@@ -340,7 +348,7 @@ object ChannelRepository {
             name = "Azam Sports 2 HD",
             description = "Mpira Live • Ligi Kuu & Mashindano",
             streamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_SPORT_2_TOKEN/live/eds/AzamSport2/DASH/AzamSport2.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
-            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_SPORT_2_TOKEN/live/eds/AzamSport2/DASH/AzamSport2.mpd?cdntoken=$AZAM_SPORT_2_TOKEN",
+            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/live/eds/AzamSport2/DASH/AzamSport2.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
             streamFormat = "dash",
             thumbnailUrl = "https://i.ibb.co/Y7Cj3Wtj/azam-sport-2-01.png",
             categories = listOf("sport", "entertainment", "tanzania"),
@@ -357,7 +365,7 @@ object ChannelRepository {
             name = "Azam Sports 3 HD",
             description = "Mpira Live & Michezo Mbalimbali • Free Channel",
             streamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_SPORT_3_TOKEN/live/eds/AzamSport3/DASH/AzamSport3.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
-            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_SPORT_3_TOKEN/live/eds/AzamSport3/DASH/AzamSport3.mpd?cdntoken=$AZAM_SPORT_3_TOKEN",
+            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/live/eds/AzamSport3/DASH/AzamSport3.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
             streamFormat = "dash",
             thumbnailUrl = "https://i.ibb.co/2YfLQ545/1000221070.png",
             categories = listOf("sport", "entertainment", "tanzania"),
@@ -374,7 +382,7 @@ object ChannelRepository {
             name = "Azam Sports 4 HD",
             description = "Mpira Live • Free Channel",
             streamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_SPORT_4_TOKEN/live/eds/AzamSport4/DASH/AzamSport4.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
-            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_SPORT_4_TOKEN/live/eds/AzamSport4/DASH/AzamSport4.mpd?cdntoken=$AZAM_SPORT_4_TOKEN",
+            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/live/eds/AzamSport4/DASH/AzamSport4.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
             streamFormat = "dash",
             thumbnailUrl = "https://i.ibb.co/SwtFQNsh/1000221063.jpg",
             categories = listOf("sport", "entertainment", "tanzania"),
@@ -722,7 +730,7 @@ object ChannelRepository {
             name = "UTV",
             description = "Habari, Michezo na Burudani • Azam TV",
             streamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$UTV_TOKEN/live/eds/UTV/DASH/UTV.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
-            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$UTV_TOKEN/live/eds/UTV/DASH/UTV.mpd?cdntoken=$UTV_TOKEN",
+            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/live/eds/UTV/DASH/UTV.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
             streamFormat = "dash",
             thumbnailUrl = "https://i.ibb.co/N2nCDLwD/1000221071.png",
             categories = listOf("entertainment", "tanzania"),
@@ -1949,6 +1957,9 @@ object ChannelRepository {
                 ).trim().removeSuffix("/")
                 newSource = targetObj.optString("source", root.optString("source", AZAM_CDN_SOURCE))
                     .ifBlank { DEFAULT_AZAM_CDN_SOURCE }
+                val newProvider = targetObj.optString("provider", root.optString("provider", ""))
+                    .trim()
+                    .lowercase()
                 newEndpoint = targetObj.optString(
                     "tokenEndpointUrl",
                     targetObj.optString("apiUrl", root.optString("tokenEndpointUrl", root.optString("apiUrl", "")))
@@ -1956,6 +1967,63 @@ object ChannelRepository {
                 val rawExp = targetObj.optLong("exp", root.optLong("exp", 0L))
                 if (rawExp > 0L) {
                     parsedExp = rawExp
+                }
+
+                if (newEndpoint.startsWith("http", ignoreCase = true)) {
+                    AZAM_TOKEN_ENDPOINT_URL = newEndpoint
+                }
+                if (newToken.isNotEmpty() && !isSupersededOrRevokedToken(newToken)) {
+                    val currentExp = extractJwtExpEpochSeconds(AZAM_CDN_TOKEN) ?: 0L
+                    val candidateExp = extractJwtExpEpochSeconds(newToken) ?: parsedExp ?: 0L
+
+                    val shouldReplaceToken = when {
+                        isAuthoritativeTokenApi -> true
+                        !hasAuthoritativeLiveToken && candidateExp >= currentExp -> true
+                        !hasAuthoritativeLiveToken && currentExp == 0L -> true
+                        candidateExp > currentExp -> true
+                        AZAM_CDN_TOKEN == DEFAULT_AZAM_CDN_TOKEN -> true
+                        else -> false
+                    }
+
+                    if (shouldReplaceToken) {
+                        AZAM_CDN_TOKEN = newToken
+                        if (newProvider.isNotEmpty()) {
+                            AZAM_CDN_PROVIDER = newProvider
+                        }
+                        if (isAuthoritativeTokenApi) {
+                            hasAuthoritativeLiveToken = true
+                            lastLiveTokenSyncEpochMs = System.currentTimeMillis()
+                        }
+                    }
+                    if (newHost.startsWith("http", ignoreCase = true)) {
+                        AZAM_CDN_HOST = newHost
+                    }
+                    AZAM_CDN_EXP = parsedExp
+                    effectiveTokenExpiryEpochSec = candidateExp.takeIf { it > 0L }
+                        ?: (extractJwtExpEpochSeconds(newToken) ?: EXTENDED_TOKEN_EXPIRY_EPOCH_SEC)
+                    AZAM_CDN_SOURCE = newSource
+                    cachedBackupApiChannels = cachedBackupApiChannels.map { ch ->
+                        val resolvedKeys = resolveClearKeysForChannel(ch)
+                        ch.copy(
+                            streamUrl = normalizeDashStreamUrl(ch.streamUrl),
+                            backupStreamUrl = if (ch.backupStreamUrl.isNotBlank()) normalizeDashStreamUrl(ch.backupStreamUrl) else "",
+                            clearKeys = resolvedKeys,
+                            encryptionType = if (resolvedKeys.isNotEmpty()) "clearkey" else ch.encryptionType
+                        )
+                    }
+                    _liveChannelsFlow.value = _liveChannelsFlow.value.map { ch ->
+                        val resolvedKeys = resolveClearKeysForChannel(ch)
+                        ch.copy(
+                            streamUrl = normalizeDashStreamUrl(ch.streamUrl),
+                            backupStreamUrl = if (ch.backupStreamUrl.isNotBlank()) normalizeDashStreamUrl(ch.backupStreamUrl) else "",
+                            clearKeys = resolvedKeys,
+                            encryptionType = if (resolvedKeys.isNotEmpty()) "clearkey" else ch.encryptionType
+                        )
+                    }
+                    com.example.player.TokenManager.syncStateFromRepository()
+                    return true
+                } else {
+                    return false
                 }
             }
 
@@ -2938,11 +3006,15 @@ object ChannelRepository {
         val trimmed = rawUrl.trim()
         if (trimmed.isEmpty()) return trimmed
 
-        val rewrittenHostUrl = trimmed
-            .replace("http://cdnblncr.azamtvltd.co.tz", AZAM_CDN_HOST, ignoreCase = true)
-            .replace("https://cdnblncr.azamtvltd.co.tz", AZAM_CDN_HOST, ignoreCase = true)
-            .replace("http://cdnedgch2.azamtvltd.co.tz", AZAM_CDN_HOST, ignoreCase = true)
-            .replace("https://cdnedgch2.azamtvltd.co.tz", AZAM_CDN_HOST, ignoreCase = true)
+        val rewrittenHostUrl = if (AZAM_HOST_REGEX.containsMatchIn(trimmed)) {
+            AZAM_HOST_REGEX.replace(trimmed, AZAM_CDN_HOST)
+        } else {
+            trimmed
+                .replace("http://cdnblncr.azamtvltd.co.tz", AZAM_CDN_HOST, ignoreCase = true)
+                .replace("https://cdnblncr.azamtvltd.co.tz", AZAM_CDN_HOST, ignoreCase = true)
+                .replace("http://cdnedgch2.azamtvltd.co.tz", AZAM_CDN_HOST, ignoreCase = true)
+                .replace("https://cdnedgch2.azamtvltd.co.tz", AZAM_CDN_HOST, ignoreCase = true)
+        }
 
         val basePath = rewrittenHostUrl.substringBefore("?")
         val existingQuery = rewrittenHostUrl.substringAfter("?", "")

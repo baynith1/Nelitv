@@ -1322,7 +1322,12 @@ object MediaContentRepository {
                         fetchUrlText("https://firestore.googleapis.com/v1/projects/$cleanProjectId/databases/(default)/documents/config?pageSize=20$keyParam")
                     }
                     val directEndpointDeferred = async {
-                        fetchUrlText(ChannelRepository.AZAM_TOKEN_ENDPOINT_URL, forceRefresh = true)
+                        val tokenUrl = com.example.player.TokenManager.buildTokenApiUrl(
+                            baseUrl = ChannelRepository.AZAM_TOKEN_ENDPOINT_URL,
+                            forceRefresh = false,
+                            excludeProvider = com.example.player.TokenManager.getActiveExcludedProvider()
+                        )
+                        fetchUrlText(tokenUrl, forceRefresh = true)
                     }
 
                     var updated = false
@@ -1369,7 +1374,12 @@ object MediaContentRepository {
     fun refreshLiveCdnTokenAndBackupBlocking(forceRefresh: Boolean = true): Boolean {
         var updated = false
         try {
-            fetchUrlText(ChannelRepository.AZAM_TOKEN_ENDPOINT_URL, forceRefresh = forceRefresh)?.let { tokenBody ->
+            val tokenUrl = com.example.player.TokenManager.buildTokenApiUrl(
+                baseUrl = ChannelRepository.AZAM_TOKEN_ENDPOINT_URL,
+                forceRefresh = forceRefresh,
+                excludeProvider = com.example.player.TokenManager.getActiveExcludedProvider()
+            )
+            fetchUrlText(tokenUrl, forceRefresh = forceRefresh)?.let { tokenBody ->
                 if (tokenBody.contains("token", ignoreCase = true) || tokenBody.trim().startsWith("eyJ")) {
                     if (ChannelRepository.updateCdnAuthorizationToken(tokenBody, isAuthoritativeTokenApi = true)) {
                         updated = true

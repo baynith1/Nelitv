@@ -2495,6 +2495,86 @@ class ExampleRobolectricTest {
         }
         assertTrue("Download must proceed immediately when no ad is available", downloadProceeded)
     }
+
+    @Test
+    fun `azam 429 rate limit triggers aztv to mpingo provider failover and dynamic host rewrite`() {
+        // 1. HTTP 429 Too Many IPs must be classified as an authentication/token failure
+        assertTrue(com.example.player.TokenManager.isAuthenticationFailure(429))
+        assertTrue(
+            com.example.player.TokenManager.isAuthenticationFailure(
+                null,
+                "Error 429 Too Many IPs for the Client ID"
+            )
+        )
+
+        // 2. buildTokenApiUrl must attach cache-busting t=, excludeProvider=, and fresh=1
+        val failoverUrl = com.example.player.TokenManager.buildTokenApiUrl(
+            baseUrl = "https://streamzone.fun/api/cdn-token",
+            forceRefresh = true,
+            excludeProvider = "aztv",
+            nowMs = 1795106000000L
+        )
+        assertEquals(
+            "https://streamzone.fun/api/cdn-token?t=1795106000000&excludeProvider=aztv&fresh=1",
+            failoverUrl
+        )
+
+        // 3. markProviderFailed and clearExcludedProvider manage provider exclusion state
+        com.example.player.TokenManager.clearExcludedProvider()
+        assertEquals(null, com.example.player.TokenManager.getActiveExcludedProvider())
+        com.example.player.TokenManager.markProviderFailed("aztv", httpStatusCode = 429, nowMs = 1000L)
+        assertEquals("aztv", com.example.player.TokenManager.getActiveExcludedProvider(nowMs = 5000L))
+        assertEquals(null, com.example.player.TokenManager.getActiveExcludedProvider(nowMs = 130_000L))
+        com.example.player.TokenManager.clearExcludedProvider()
+
+        // 4. Authoritative failover from aztv -> mpingo (with exp: 0 in outer JSON) must update provider, token, and any azamtvltd.co.tz host
+        val prevToken = com.example.data.ChannelRepository.AZAM_CDN_TOKEN
+        val prevAuth = com.example.data.ChannelRepository.hasAuthoritativeLiveToken
+        val prevProvider = com.example.data.ChannelRepository.AZAM_CDN_PROVIDER
+        val prevHost = com.example.data.ChannelRepository.AZAM_CDN_HOST
+        try {
+            val aztvPayloadB64 = java.util.Base64.getUrlEncoder().withoutPadding()
+                .encodeToString("""{"exp":2000005000,"client_id":"4840832"}""".toByteArray(Charsets.UTF_8))
+            val aztvJwt = "eyJhbGciOiJIUzUxMiJ9.$aztvPayloadB64.aztvSig"
+            assertTrue(
+                com.example.player.TokenManager.parseAndApplyTokenPayload(
+                    """{"token":"$aztvJwt","exp":2000005000,"cdnHost":"https://cdnedgch2.azamtvltd.co.tz","source":"aztv-service","provider":"aztv"}""",
+                    isAuthoritative = true
+                )
+            )
+            assertEquals("aztv", com.example.player.TokenManager.currentProvider)
+
+            val mpingoPayloadB64 = java.util.Base64.getUrlEncoder().withoutPadding()
+                .encodeToString("""{"exp":2000001000,"client_id":"1153952"}""".toByteArray(Charsets.UTF_8))
+            val mpingoJwt = "eyJhbGciOiJIUzUxMiJ9.$mpingoPayloadB64.mpingoSig"
+            assertTrue(
+                com.example.player.TokenManager.parseAndApplyTokenPayload(
+                    """{"token":"$mpingoJwt","exp":0,"cdnHost":"https://cdnedgch3.azamtvltd.co.tz","source":"mpingo-player","provider":"mpingo","usedFallback":true}""",
+                    isAuthoritative = true
+                )
+            )
+            assertEquals("mpingo", com.example.player.TokenManager.currentProvider)
+            assertEquals(mpingoJwt, com.example.player.TokenManager.currentToken)
+
+            // Any azamtvltd.co.tz host (cdnblncr, cdnedgch1, cdnedgch2) must rewrite to active AZAM_CDN_HOST
+            val rewritten = com.example.data.ChannelRepository.normalizeDashStreamUrl(
+                "https://cdnedgch1.azamtvltd.co.tz/live/eds/AzamSport1/DASH/AzamSport1.mpd"
+            )
+            assertTrue("Expected dynamic host rewrite to cdnedgch3: $rewritten", rewritten.startsWith("https://cdnedgch3.azamtvltd.co.tz/live/eds/AzamSport1/DASH/AzamSport1.mpd?cdntoken=$mpingoJwt"))
+
+            // Built-in Azam channels must have clean canonical query-only backup URLs without /tok_
+            val azam1 = com.example.data.ChannelRepository.channels.first { it.name.equals("Azam Sports 1 HD", ignoreCase = true) }
+            assertFalse("Backup URL must be clean canonical query-only without /tok_", azam1.backupStreamUrl.contains("/tok_"))
+            assertTrue(azam1.backupStreamUrl.contains("/live/eds/AzamSport1/DASH/AzamSport1.mpd?cdntoken="))
+        } finally {
+            com.example.data.ChannelRepository.applyDirectAuthorizationToken(
+                token = prevToken,
+                cdnHost = prevHost
+            )
+            com.example.data.ChannelRepository.resetTokenStateForTesting(prevToken, prevAuth, prevProvider)
+            com.example.player.TokenManager.clearExcludedProvider()
+        }
+    }
 }
 
 

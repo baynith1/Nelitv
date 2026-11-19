@@ -525,6 +525,26 @@ class LivePlayerController(
         }
     }
 
+    private val azamTokenKeepAliveRunnable = object : Runnable {
+        override fun run() {
+            val activePlayer = exoPlayer ?: return
+            if (channel.isLiveBroadcast && TokenManager.isAzamOrStreamzoneUrl(channel.streamUrl)) {
+                Thread {
+                    try {
+                        TokenManager.fetchLiveTokenBlocking(
+                            forceRefresh = false,
+                            excludeProvider = TokenManager.getActiveExcludedProvider()
+                        )
+                    } catch (_: Exception) {
+                    }
+                }.start()
+                if (activePlayer.playbackState != Player.STATE_ENDED) {
+                    mainHandler.postDelayed(this, 30_000L)
+                }
+            }
+        }
+    }
+
     private val bandwidthEventListener = BandwidthMeter.EventListener { _, _, bitrateEstimate ->
         if (bitrateEstimate > 0L) {
             latestEstimatedBandwidthBps = bitrateEstimate
@@ -971,7 +991,16 @@ class LivePlayerController(
             }
 
             val httpCode = extractHttpErrorCode(error)
-            val maxReconnects = if (channel.isLiveBroadcast) 3 else 2
+            val isAzamOrDashLive = channel.isLiveBroadcast && (
+                channel.isDash ||
+                    channel.isClearKey ||
+                    TokenManager.isAzamOrStreamzoneUrl(channel.streamUrl)
+                )
+            val maxReconnects = when {
+                isAzamOrDashLive -> 4
+                channel.isLiveBroadcast -> 3
+                else -> 2
+            }
             if (autoReconnectAttempts < maxReconnects) {
                 autoReconnectAttempts++
                 val currentAttempt = autoReconnectAttempts
@@ -985,61 +1014,74 @@ class LivePlayerController(
                 }
                 val resumePos = lastKnownVodPositionMs
                 if (channel.isLiveBroadcast) {
-                    val isAzamOrDashChannel = channel.isDash ||
-                        channel.isClearKey ||
-                        TokenManager.isAzamOrStreamzoneUrl(channel.streamUrl)
-                    if (isAzamOrDashChannel) {
-                        Thread {
-                            val renewedChannel = try {
-                                TokenManager.renewCdnKeysAndChannelsBlocking(
-                                    failedChannel = channel,
-                                    httpStatusCode = httpCode
-                                )
-                            } catch (_: Exception) {
-                                null
-                            }
-                            mainHandler.post {
-                                exoPlayer?.let { p ->
-                                    val baseChannel = renewedChannel ?: channel
-                                    val backupMatch = com.example.data.ChannelRepository.findBackupChannelFor(baseChannel)
-                                    val preferBackup = currentAttempt >= 2 && (
-                                        baseChannel.backupStreamUrl.isNotBlank() &&
-                                            baseChannel.backupStreamUrl != baseChannel.streamUrl ||
-                                            !backupMatch?.streamUrl.isNullOrBlank()
-                                        )
-                                    val candidateUrl = if (preferBackup) {
-                                        baseChannel.backupStreamUrl
-                                            .takeIf { it.isNotBlank() && it != baseChannel.streamUrl }
-                                            ?: backupMatch?.streamUrl?.ifBlank { null }
-                                            ?: baseChannel.streamUrl
-                                    } else {
-                                        baseChannel.streamUrl.ifBlank {
-                                            baseChannel.backupStreamUrl.ifBlank { backupMatch?.streamUrl.orEmpty() }
-                                        }
+                    if (isAzamOrDashLive) {
+                        val retryDelayMs = when {
+                            httpCode == 429 && currentAttempt == 1 -> 0L
+                            httpCode == 429 && currentAttempt == 2 -> 1_200L
+                            httpCode == 429 && currentAttempt == 3 -> 2_500L
+                            httpCode == 429 -> 3_500L
+                            else -> 0L
+                        }
+                        val shouldSwitchProvider = httpCode == 429 || httpCode == 401 || httpCode == 403 || currentAttempt == 1 || currentAttempt == 3
+                        mainHandler.postDelayed({
+                            if (exoPlayer == null) return@postDelayed
+                            Thread {
+                                val renewedChannel = try {
+                                    if (currentAttempt == 3 && httpCode == 429) {
+                                        // Clear stale exclusion on attempt 3 in case primary rotated client_id
+                                        TokenManager.clearExcludedProvider()
                                     }
-                                    val mergedClearKeys = com.example.data.ChannelRepository.resolveClearKeysForChannel(
-                                        baseChannel.copy(clearKeys = (backupMatch?.clearKeys ?: emptyMap()) + baseChannel.clearKeys)
+                                    TokenManager.renewCdnKeysAndChannelsBlocking(
+                                        failedChannel = channel,
+                                        httpStatusCode = httpCode,
+                                        switchProvider = shouldSwitchProvider
                                     )
-                                    val normalizedStreamUrl = com.example.data.ChannelRepository.resolvePlayableAzamManifestUrl(candidateUrl)
-                                    val nextBackupUrl = if (normalizedStreamUrl != baseChannel.streamUrl && baseChannel.streamUrl.isNotBlank()) {
-                                        baseChannel.streamUrl
-                                    } else {
-                                        baseChannel.backupStreamUrl.ifBlank {
-                                            backupMatch?.streamUrl?.let { com.example.data.ChannelRepository.resolvePlayableAzamManifestUrl(it) }.orEmpty()
-                                        }
-                                    }
-                                    TokenManager.injectHeadersIntoFactory(sharedBaseHttpDataSourceFactory, normalizedStreamUrl)
-                                    channel = baseChannel.copy(
-                                        streamUrl = normalizedStreamUrl,
-                                        backupStreamUrl = nextBackupUrl,
-                                        clearKeys = mergedClearKeys,
-                                        encryptionType = if (mergedClearKeys.isNotEmpty()) "clearkey" else baseChannel.encryptionType
-                                    )
-                                    _currentChannel.value = channel
-                                    loadChannelStream(p, preserveVodPosition = false)
+                                } catch (_: Exception) {
+                                    null
                                 }
-                            }
-                        }.start()
+                                mainHandler.post {
+                                    exoPlayer?.let { p ->
+                                        val baseChannel = renewedChannel ?: channel
+                                        val backupMatch = com.example.data.ChannelRepository.findBackupChannelFor(baseChannel)
+                                        val preferBackup = currentAttempt >= 2 && (
+                                            baseChannel.backupStreamUrl.isNotBlank() &&
+                                                baseChannel.backupStreamUrl != baseChannel.streamUrl ||
+                                                !backupMatch?.streamUrl.isNullOrBlank()
+                                            )
+                                        val candidateUrl = if (preferBackup) {
+                                            baseChannel.backupStreamUrl
+                                                .takeIf { it.isNotBlank() && it != baseChannel.streamUrl }
+                                                ?: backupMatch?.streamUrl?.ifBlank { null }
+                                                ?: baseChannel.streamUrl
+                                        } else {
+                                            baseChannel.streamUrl.ifBlank {
+                                                baseChannel.backupStreamUrl.ifBlank { backupMatch?.streamUrl.orEmpty() }
+                                            }
+                                        }
+                                        val mergedClearKeys = com.example.data.ChannelRepository.resolveClearKeysForChannel(
+                                            baseChannel.copy(clearKeys = (backupMatch?.clearKeys ?: emptyMap()) + baseChannel.clearKeys)
+                                        )
+                                        val normalizedStreamUrl = com.example.data.ChannelRepository.resolvePlayableAzamManifestUrl(candidateUrl)
+                                        val nextBackupUrl = if (normalizedStreamUrl != baseChannel.streamUrl && baseChannel.streamUrl.isNotBlank()) {
+                                            baseChannel.streamUrl
+                                        } else {
+                                            baseChannel.backupStreamUrl.ifBlank {
+                                                backupMatch?.streamUrl?.let { com.example.data.ChannelRepository.resolvePlayableAzamManifestUrl(it) }.orEmpty()
+                                            }
+                                        }
+                                        TokenManager.injectHeadersIntoFactory(sharedBaseHttpDataSourceFactory, normalizedStreamUrl)
+                                        channel = baseChannel.copy(
+                                            streamUrl = normalizedStreamUrl,
+                                            backupStreamUrl = nextBackupUrl,
+                                            clearKeys = mergedClearKeys,
+                                            encryptionType = if (mergedClearKeys.isNotEmpty()) "clearkey" else baseChannel.encryptionType
+                                        )
+                                        _currentChannel.value = channel
+                                        loadChannelStream(p, preserveVodPosition = false)
+                                    }
+                                }
+                            }.start()
+                        }, retryDelayMs)
                     } else {
                         // Standard non-Azam HLS M3U8 channel: immediately fail over to its clean backupStreamUrl without Azam headers
                         mainHandler.postDelayed({
@@ -1922,6 +1964,10 @@ class LivePlayerController(
             if (player.playWhenReady) {
                 player.play()
             }
+            mainHandler.removeCallbacks(azamTokenKeepAliveRunnable)
+            if (channel.isLiveBroadcast && TokenManager.isAzamOrStreamzoneUrl(channel.streamUrl)) {
+                mainHandler.postDelayed(azamTokenKeepAliveRunnable, 30_000L)
+            }
         } catch (e: Exception) {
             _uiState.value = PlayerUiState.Error(
                 userFriendlyMessage = "Kuna shida ya mtandao kwa sasa jaribu tena baadae",
@@ -2129,7 +2175,8 @@ class LivePlayerController(
                 val renewedChannel = try {
                     TokenManager.renewCdnKeysAndChannelsBlocking(
                         failedChannel = channel,
-                        httpStatusCode = null
+                        httpStatusCode = 429,
+                        switchProvider = true
                     )
                 } catch (_: Exception) {
                     null
@@ -2442,6 +2489,7 @@ class LivePlayerController(
         }
         val msg = (error.message ?: "") + " " + (cause?.message ?: "")
         return when {
+            msg.contains("429") -> 429
             msg.contains("403") -> 403
             msg.contains("401") -> 401
             msg.contains("404") -> 404
@@ -2454,7 +2502,12 @@ class LivePlayerController(
     }
 
     private fun mapPlaybackError(error: PlaybackException): String {
-        return "Kuna shida ya mtandao kwa sasa jaribu tena baadae"
+        val code = extractHttpErrorCode(error)
+        return if (code == 429) {
+            "Seva ya Azam ina watumiaji wengi sasa hivi. Subiri sekunde chache kisha bonyeza Jaribu Tena."
+        } else {
+            "Kuna shida ya mtandao kwa sasa jaribu tena baadae"
+        }
     }
 
     private class LiveStreamLoadErrorHandlingPolicy : DefaultLoadErrorHandlingPolicy() {
@@ -2463,7 +2516,7 @@ class LivePlayerController(
             val responseCode = (ex as? HttpDataSource.InvalidResponseCodeException)?.responseCode
                 ?: (ex.cause as? HttpDataSource.InvalidResponseCodeException)?.responseCode
 
-            if ((responseCode == 401 || responseCode == 403 || responseCode == 404 || responseCode == 410) && loadErrorInfo.errorCount >= 1) {
+            if ((responseCode == 401 || responseCode == 403 || responseCode == 404 || responseCode == 410 || responseCode == 429) && loadErrorInfo.errorCount >= 1) {
                 return C.TIME_UNSET
             }
             return minOf(loadErrorInfo.errorCount * 300L, 900L)

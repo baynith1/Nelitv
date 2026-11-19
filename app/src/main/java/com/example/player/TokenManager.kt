@@ -39,6 +39,7 @@ object TokenManager {
         val token: String = ChannelRepository.AZAM_CDN_TOKEN,
         val cdnHost: String = ChannelRepository.AZAM_CDN_HOST,
         val source: String = ChannelRepository.AZAM_CDN_SOURCE,
+        val provider: String = ChannelRepository.AZAM_CDN_PROVIDER,
         val effectiveExpiryEpochSec: Long = ChannelRepository.effectiveTokenExpiryEpochSec,
         val lastUpdatedEpochMs: Long = System.currentTimeMillis()
     )
@@ -46,17 +47,26 @@ object TokenManager {
     private val refreshMutex = Mutex()
     private val blockingLock = Any()
 
+    private const val EXCLUDED_PROVIDER_TTL_MS = 120_000L
+
     @Volatile
     private var lastNetworkRefreshAttemptMs: Long = 0L
 
     @Volatile
     private var lastAuthFailureRecoveryMs: Long = 0L
 
+    @Volatile
+    private var excludedProviderName: String? = null
+
+    @Volatile
+    private var excludedProviderUntilMs: Long = 0L
+
     private val _tokenSessionFlow = MutableStateFlow(
         TokenSession(
             token = ChannelRepository.AZAM_CDN_TOKEN,
             cdnHost = ChannelRepository.AZAM_CDN_HOST,
             source = ChannelRepository.AZAM_CDN_SOURCE,
+            provider = ChannelRepository.AZAM_CDN_PROVIDER,
             effectiveExpiryEpochSec = ChannelRepository.effectiveTokenExpiryEpochSec,
             lastUpdatedEpochMs = System.currentTimeMillis()
         )
@@ -74,8 +84,73 @@ object TokenManager {
     val currentSource: String
         get() = ChannelRepository.AZAM_CDN_SOURCE
 
+    val currentProvider: String
+        get() = ChannelRepository.AZAM_CDN_PROVIDER.ifBlank { ChannelRepository.DEFAULT_AZAM_CDN_PROVIDER }
+
     val effectiveExpiryEpochSec: Long
         get() = ChannelRepository.effectiveTokenExpiryEpochSec
+
+    /**
+     * Returns the currently excluded Azam token provider (e.g. `"aztv"` or `"mpingo"`)
+     * if it recently failed with HTTP 429/401/403 within [EXCLUDED_PROVIDER_TTL_MS].
+     */
+    fun getActiveExcludedProvider(nowMs: Long = System.currentTimeMillis()): String? {
+        val candidate = excludedProviderName?.trim()?.lowercase()?.takeIf { it.isNotEmpty() } ?: return null
+        if (nowMs >= excludedProviderUntilMs) {
+            excludedProviderName = null
+            excludedProviderUntilMs = 0L
+            return null
+        }
+        return candidate
+    }
+
+    /**
+     * Marks a token provider (`"aztv"` or `"mpingo"`) as temporarily unhealthy (e.g. HTTP 429 Too Many IPs)
+     * so subsequent fetches pass `excludeProvider=<provider>&fresh=1` and use the alternate provider.
+     */
+    fun markProviderFailed(
+        provider: String?,
+        httpStatusCode: Int? = null,
+        nowMs: Long = System.currentTimeMillis()
+    ) {
+        val normalized = provider?.trim()?.lowercase().orEmpty()
+        if (normalized == "aztv" || normalized == "mpingo") {
+            excludedProviderName = normalized
+            val ttl = if (httpStatusCode == 429) EXCLUDED_PROVIDER_TTL_MS else 60_000L
+            excludedProviderUntilMs = nowMs + ttl
+        }
+    }
+
+    fun clearExcludedProvider() {
+        excludedProviderName = null
+        excludedProviderUntilMs = 0L
+    }
+
+    /**
+     * Builds the StreamZone CDN token API URL with cache-busting `?t=<ms>`, optional `fresh=1`,
+     * and optional `excludeProvider=<aztv|mpingo>` matching the live web player's failover protocol.
+     */
+    fun buildTokenApiUrl(
+        baseUrl: String = ChannelRepository.AZAM_TOKEN_ENDPOINT_URL,
+        forceRefresh: Boolean = false,
+        excludeProvider: String? = getActiveExcludedProvider(),
+        nowMs: Long = System.currentTimeMillis()
+    ): String {
+        val cleanBase = baseUrl.trim().ifBlank { DEFAULT_TOKEN_API_URL }
+        if (!cleanBase.contains("/api/cdn-token", ignoreCase = true)) {
+            return cleanBase
+        }
+        val baseWithoutQuery = cleanBase.substringBefore("?")
+        val params = mutableListOf("t=$nowMs")
+        val cleanExclude = excludeProvider?.trim()?.lowercase().orEmpty()
+        if (cleanExclude == "aztv" || cleanExclude == "mpingo") {
+            params.add("excludeProvider=$cleanExclude")
+        }
+        if (forceRefresh) {
+            params.add("fresh=1")
+        }
+        return "$baseWithoutQuery?${params.joinToString("&")}"
+    }
 
     /**
      * Returns true ONLY for Azam TV / StreamZone CDN stream URLs that require
@@ -298,6 +373,7 @@ object TokenManager {
             token = currentToken,
             cdnHost = currentCdnHost,
             source = currentSource,
+            provider = currentProvider,
             effectiveExpiryEpochSec = effectiveExpiryEpochSec,
             lastUpdatedEpochMs = System.currentTimeMillis()
         )
@@ -310,39 +386,63 @@ object TokenManager {
      */
     suspend fun fetchLiveToken(
         forceRefresh: Boolean = false,
-        apiUrl: String = ChannelRepository.AZAM_TOKEN_ENDPOINT_URL
+        apiUrl: String = ChannelRepository.AZAM_TOKEN_ENDPOINT_URL,
+        excludeProvider: String? = getActiveExcludedProvider()
     ): String = refreshMutex.withLock {
         withContext(Dispatchers.IO) {
-            fetchLiveTokenBlocking(forceRefresh = forceRefresh, apiUrl = apiUrl)
+            fetchLiveTokenBlocking(
+                forceRefresh = forceRefresh,
+                apiUrl = apiUrl,
+                excludeProvider = excludeProvider
+            )
         }
     }
 
     /**
      * Blocking variant of [fetchLiveToken] safe to call from Media3 ExoPlayer I/O loader threads.
+     * Supports StreamZone's multi-provider failover (`aztv` <-> `mpingo`) via `excludeProvider` and `fresh=1`.
      */
     fun fetchLiveTokenBlocking(
         forceRefresh: Boolean = false,
         apiUrl: String = ChannelRepository.AZAM_TOKEN_ENDPOINT_URL,
-        bypassCooldown: Boolean = false
+        bypassCooldown: Boolean = false,
+        excludeProvider: String? = getActiveExcludedProvider()
     ): String = synchronized(blockingLock) {
         val now = System.currentTimeMillis()
-        val minCooldownMs = if (forceRefresh) 2_000L else 15_000L
+        val minCooldownMs = if (forceRefresh) 1_500L else 15_000L
         if (!bypassCooldown && lastNetworkRefreshAttemptMs > 0L && (now - lastNetworkRefreshAttemptMs) < minCooldownMs) {
             return currentToken
         }
         lastNetworkRefreshAttemptMs = now
 
-        val targetUrls = listOf(
-            apiUrl.ifBlank { DEFAULT_TOKEN_API_URL },
-            DEFAULT_TOKEN_API_URL,
-            "https://neliplay-default-rtdb.firebaseio.com/config/azam_token.json",
-            "https://neliplay-default-rtdb.firebaseio.com/azam_token.json",
-            "https://neliplay-default-rtdb.firebaseio.com/cdn_token.json"
-        ).distinct()
+        val effectiveBaseUrl = apiUrl.ifBlank { DEFAULT_TOKEN_API_URL }
+        val cleanExclude = excludeProvider?.trim()?.lowercase()?.takeIf { it == "aztv" || it == "mpingo" }
+
+        val targetUrls = buildList {
+            if (cleanExclude != null) {
+                // First request the alternate provider with fresh=1 (e.g. aztv failed 429 -> fetch mpingo)
+                add(buildTokenApiUrl(effectiveBaseUrl, forceRefresh = true, excludeProvider = cleanExclude, nowMs = now))
+            }
+            // Standard (or fresh) primary token request with cache-buster
+            add(buildTokenApiUrl(effectiveBaseUrl, forceRefresh = forceRefresh, excludeProvider = null, nowMs = now + 1L))
+            if (effectiveBaseUrl != DEFAULT_TOKEN_API_URL) {
+                add(buildTokenApiUrl(DEFAULT_TOKEN_API_URL, forceRefresh = forceRefresh, excludeProvider = cleanExclude, nowMs = now + 2L))
+            }
+            add("https://neliplay-default-rtdb.firebaseio.com/config/azam_token.json")
+            add("https://neliplay-default-rtdb.firebaseio.com/azam_token.json")
+            add("https://neliplay-default-rtdb.firebaseio.com/cdn_token.json")
+        }.distinct()
 
         for (endpoint in targetUrls) {
             val responseText = executeHttpGet(endpoint)
             if (!responseText.isNullOrBlank()) {
+                // If this endpoint explicitly asked to exclude a provider, reject payload if backend still echoed that provider
+                if (cleanExclude != null && endpoint.contains("excludeProvider=$cleanExclude", ignoreCase = true)) {
+                    val returnedProvider = extractProviderFromPayload(responseText)
+                    if (returnedProvider == cleanExclude) {
+                        continue
+                    }
+                }
                 if (parseAndApplyTokenPayload(responseText, isAuthoritative = true)) {
                     return currentToken
                 }
@@ -364,9 +464,24 @@ object TokenManager {
         return currentToken
     }
 
+    private fun extractProviderFromPayload(payload: String): String? {
+        return try {
+            val trimmed = payload.trim()
+            if (!trimmed.startsWith("{")) return null
+            val root = org.json.JSONObject(trimmed)
+            val data = root.optJSONObject("data") ?: root
+            data.optString("provider", root.optString("provider", ""))
+                .trim()
+                .lowercase()
+                .takeIf { it.isNotEmpty() }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     /**
-     * Handles stream authentication failures (e.g. HTTP 401/403 or DRM/token rejection) by automatically
-     * refreshing the live token from the API and updating Media3 ExoPlayer headers and channel URLs.
+     * Handles stream authentication or CDN rate-limit failures (HTTP 401/403/410/429 or DRM/token rejection)
+     * by switching Azam token providers (`aztv` <-> `mpingo`) and updating Media3 ExoPlayer headers and URLs.
      */
     suspend fun handleAuthenticationFailure(
         failedUrl: String? = null,
@@ -376,19 +491,31 @@ object TokenManager {
     }
 
     /**
-     * Blocking handler for stream authentication failures invoked directly on ExoPlayer error/retry paths.
+     * Blocking handler for stream authentication/rate-limit failures invoked directly on ExoPlayer error/retry paths.
      */
     fun handleAuthenticationFailureBlocking(
         failedUrl: String? = null,
         httpStatusCode: Int? = null
     ): String = synchronized(blockingLock) {
+        val shouldSwitch = httpStatusCode == 429 || httpStatusCode == 401 || httpStatusCode == 403
         val now = System.currentTimeMillis()
-        if (lastAuthFailureRecoveryMs > 0L && (now - lastAuthFailureRecoveryMs) < 1_000L) {
+        if (!shouldSwitch && lastAuthFailureRecoveryMs > 0L && (now - lastAuthFailureRecoveryMs) < 1_000L) {
             return currentToken
         }
         lastAuthFailureRecoveryMs = now
-        // 1. Fetch fresh token immediately bypassing cooldown
-        fetchLiveTokenBlocking(forceRefresh = true, bypassCooldown = true)
+        val providerToExclude = if (shouldSwitch) {
+            val failedProv = currentProvider
+            markProviderFailed(failedProv, httpStatusCode, now)
+            failedProv
+        } else {
+            getActiveExcludedProvider(now)
+        }
+        // 1. Fetch fresh token immediately bypassing cooldown (switching provider when rate-limited/rejected)
+        fetchLiveTokenBlocking(
+            forceRefresh = true,
+            bypassCooldown = true,
+            excludeProvider = providerToExclude
+        )
 
         // 2. Re-normalize all live channel URLs and update registered ExoPlayer HTTP factories
         ChannelRepository.refreshLiveChannels()
@@ -399,27 +526,48 @@ object TokenManager {
     /**
      * Full automatic CDN key & token renewal routine:
      * 1. Immediately fetches fresh CDN tokens from live token API (`streamzone.fun/api/cdn-token`) & Firebase RTDB.
+     *    When [switchProvider] is true (or on HTTP 429/401/403), automatically fails over between `aztv` and `mpingo`.
      * 2. Fetches fresh channel definitions & ClearKeys from backup channels API (`streamzone.fun/api/channels`).
      * 3. Re-normalizes all live channel URLs, updates registered ExoPlayer HTTP factories, and returns the
      *    freshest updated [LiveChannel] matching [failedChannel] (if provided) so playback heals automatically.
      */
     suspend fun renewCdnKeysAndChannels(
         failedChannel: LiveChannel? = null,
-        httpStatusCode: Int? = null
+        httpStatusCode: Int? = null,
+        switchProvider: Boolean = false
     ): LiveChannel? = withContext(Dispatchers.IO) {
-        renewCdnKeysAndChannelsBlocking(failedChannel = failedChannel, httpStatusCode = httpStatusCode)
+        renewCdnKeysAndChannelsBlocking(
+            failedChannel = failedChannel,
+            httpStatusCode = httpStatusCode,
+            switchProvider = switchProvider
+        )
     }
 
     fun renewCdnKeysAndChannelsBlocking(
         failedChannel: LiveChannel? = null,
-        httpStatusCode: Int? = null
+        httpStatusCode: Int? = null,
+        switchProvider: Boolean = false
     ): LiveChannel? = synchronized(blockingLock) {
         val now = System.currentTimeMillis()
-        val canHitNetwork = lastAuthFailureRecoveryMs == 0L || (now - lastAuthFailureRecoveryMs) >= 1_000L
+        val isRateLimitOrAuthFail = httpStatusCode == 429 || httpStatusCode == 401 || httpStatusCode == 403
+        val shouldSwitchProvider = switchProvider || isRateLimitOrAuthFail
+        val canHitNetwork = shouldSwitchProvider || lastAuthFailureRecoveryMs == 0L || (now - lastAuthFailureRecoveryMs) >= 1_000L
         if (canHitNetwork) {
             lastAuthFailureRecoveryMs = now
-            // 1. Force fresh CDN authorization token from primary token API + RTDB
-            fetchLiveTokenBlocking(forceRefresh = true, bypassCooldown = true)
+            val providerToExclude = if (shouldSwitchProvider) {
+                val activeProv = currentProvider
+                markProviderFailed(activeProv, httpStatusCode, now)
+                activeProv
+            } else {
+                getActiveExcludedProvider(now)
+            }
+
+            // 1. Force fresh CDN authorization token from primary/fallback provider + RTDB
+            fetchLiveTokenBlocking(
+                forceRefresh = true,
+                bypassCooldown = true,
+                excludeProvider = providerToExclude
+            )
 
             // 2. Also refresh backup channels API so rotated ClearKeys & updated CDN hosts/manifests apply immediately
             try {
@@ -468,14 +616,19 @@ object TokenManager {
 
     /**
      * Returns true if the given HTTP status code or error message indicates a stream authentication,
-     * expired CDN token, or decryption key failure that should trigger automatic CDN key renewal.
+     * expired CDN token, CDN client-ID IP limit (HTTP 429), or decryption key failure that should
+     * trigger automatic CDN key/provider renewal.
      */
     fun isAuthenticationFailure(httpStatusCode: Int?, errorMessage: String? = null): Boolean {
-        if (httpStatusCode == 401 || httpStatusCode == 403 || httpStatusCode == 410) return true
+        if (httpStatusCode == 401 || httpStatusCode == 403 || httpStatusCode == 410 || httpStatusCode == 429) return true
         val msg = errorMessage?.lowercase().orEmpty()
         return msg.contains("401") ||
             msg.contains("403") ||
             msg.contains("410") ||
+            msg.contains("429") ||
+            msg.contains("too many") ||
+            msg.contains("rate limit") ||
+            msg.contains("client id") ||
             msg.contains("unauthorized") ||
             msg.contains("forbidden") ||
             msg.contains("authorization") ||
@@ -492,13 +645,17 @@ object TokenManager {
             val url = URL(urlStr)
             connection = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "GET"
-                connectTimeout = 5_000
-                readTimeout = 5_000
+                connectTimeout = 8_000
+                readTimeout = 18_000
                 instanceFollowRedirects = true
                 useCaches = false
                 setRequestProperty("User-Agent", USER_AGENT)
                 setRequestProperty("Accept", "application/json, text/plain, */*")
-                setRequestProperty("Cache-Control", "no-cache")
+                setRequestProperty("Cache-Control", "no-store, no-cache")
+                if (urlStr.contains("streamzone.fun", ignoreCase = true)) {
+                    setRequestProperty("Origin", "https://streamzone.fun")
+                    setRequestProperty("Referer", "https://streamzone.fun/")
+                }
             }
             val code = connection.responseCode
             if (code in 200..299) {
