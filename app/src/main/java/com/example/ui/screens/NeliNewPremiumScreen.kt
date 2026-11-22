@@ -110,13 +110,38 @@ fun NeliNewPremiumScreen(
     LaunchedEffect(Unit) {
         NeliSubscriptionManager.initialize(context)
         while (true) {
+            val tickNow = System.currentTimeMillis()
+            nowMs = tickNow
+            NeliSubscriptionManager.expireSubscriptionIfNeeded(context, tickNow)
             delay(1_000L)
+        }
+    }
+
+    // Real-time cloud sync with Supabase across ALL people & ALL devices (by phone or logged-in email)
+    LaunchedEffect(subState.phoneNumber, currentUser?.email) {
+        val candidatePhone = subState.phoneNumber.trim()
+        val candidateEmail = currentUser?.email?.trim().orEmpty()
+        val record = when {
+            candidatePhone.isNotBlank() && HarakaPayRepository.isValidTzPhoneNumber(
+                HarakaPayRepository.normalizeTzPhoneNumber(candidatePhone)
+            ) -> NeliSupabaseSyncManager.querySubscriptionByPhone(candidatePhone).getOrNull()
+            candidateEmail.isNotBlank() -> NeliSupabaseSyncManager.querySubscriptionByEmail(candidateEmail).getOrNull()
+            else -> null
+        }
+        if (record != null && record.isActive) {
+            NeliSubscriptionManager.activateVerifiedSubscriptionFromSupabase(
+                context = context,
+                record = record
+            )
             nowMs = System.currentTimeMillis()
         }
     }
 
     val isActiveVip = NeliSubscriptionManager.isPremiumMemberActive(nowMs = nowMs, context = context) ||
         com.example.data.NeliFreeForeverAccountsManager.isSpecialAdFreeUser(currentUser)
+    val countdownBreakdown = remember(subState.expiresAtMs, subState.isVerified, subState.planId, nowMs) {
+        subState.remainingBreakdown(nowMs)
+    }
 
     var activeMode by remember { mutableStateOf(PremiumPageMode.LIPIA_VIFURUSHI) }
     var phoneInput by remember {
@@ -232,54 +257,160 @@ fun NeliNewPremiumScreen(
                         .widthIn(max = 560.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    // Active VIP Membership Banner (if active)
+                    // Active VIP Membership Real-Time Countdown Dashboard (synced across ALL people & devices)
                     if (isActiveVip) {
-                        Row(
+                        Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(18.dp))
+                                .clip(RoundedCornerShape(20.dp))
                                 .background(
-                                    Brush.horizontalGradient(
-                                        listOf(Color(0xFF0C2A24), Color(0xFF141B36))
+                                    Brush.verticalGradient(
+                                        listOf(Color(0xFF0E2B24), Color(0xFF101933))
                                     )
                                 )
-                                .border(1.2.dp, Color(0xFF34D399), RoundedCornerShape(18.dp))
-                                .padding(14.dp)
+                                .border(1.4.dp, Color(0xFF34D399), RoundedCornerShape(20.dp))
+                                .padding(15.dp)
                                 .testTag("premium_active_vip_banner"),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Verified,
-                                contentDescription = "Active VIP",
-                                tint = Color(0xFF34D399),
-                                modifier = Modifier.size(30.dp)
-                            )
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "VIP Member Active • ${subState.planTitle.ifBlank { "VIP Pass" }}",
-                                    color = Color.White,
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.ExtraBold
-                                )
-                                val countdownText = if (subState.expiresAtMs > nowMs) {
-                                    "Muda uliobaki: ${subState.formatLiveCountdown(nowMs)}"
-                                } else {
-                                    "Akaunti yako ya VIP ipo wazi"
-                                }
-                                Text(
-                                    text = countdownText,
-                                    color = Color(0xFF6EE7B7),
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                if (subState.phoneNumber.isNotBlank()) {
-                                    Text(
-                                        text = "Namba: ${subState.phoneNumber} • Cloud Synced",
-                                        color = NeliTextSecondary,
-                                        fontSize = 11.sp
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(38.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0x2E34D399)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Verified,
+                                        contentDescription = "Active VIP",
+                                        tint = Color(0xFF34D399),
+                                        modifier = Modifier.size(24.dp)
                                     )
                                 }
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "ACTIVE VIP MEMBER • ${subState.planTitle.ifBlank { "VIP Pass" }}",
+                                        color = Color.White,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Black,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        text = "Channel zote za VIP zimefunguliwa",
+                                        color = Color(0xFF6EE7B7),
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                                Row(
+                                    modifier = Modifier
+                                        .clip(CircleShape)
+                                        .background(Color(0x2634D399))
+                                        .border(1.dp, Color(0x8834D399), CircleShape)
+                                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(6.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFF34D399))
+                                    )
+                                    Text(
+                                        text = "LIVE",
+                                        color = Color(0xFF6EE7B7),
+                                        fontSize = 9.5.sp,
+                                        fontWeight = FontWeight.Black
+                                    )
+                                }
+                            }
+
+                            // 4-Box Real-Time Digital Countdown Timer (SIKU | SAA | DAKIKA | SEKUNDE)
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(Color(0xFF0A1120))
+                                    .border(1.dp, Color(0x4400E5FF), RoundedCornerShape(14.dp))
+                                    .padding(12.dp)
+                                    .testTag("premium_realtime_countdown_box"),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text(
+                                    text = "MUDA ULIOBAKI (REAL-TIME • VIFAA VYOTE)",
+                                    color = NeliGenreCyan,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                                if (subState.isFreeForeverAccount) {
+                                    Text(
+                                        text = "∞  Bure Milele • VIP Active",
+                                        color = Color(0xFFFDE047),
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Black
+                                    )
+                                } else {
+                                    val units = listOf(
+                                        "SIKU" to countdownBreakdown.days.toString(),
+                                        "SAA" to String.format(java.util.Locale.US, "%02d", countdownBreakdown.hours),
+                                        "DAKIKA" to String.format(java.util.Locale.US, "%02d", countdownBreakdown.minutes),
+                                        "SEKUNDE" to String.format(java.util.Locale.US, "%02d", countdownBreakdown.seconds)
+                                    )
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        units.forEach { (label, value) ->
+                                            Column(
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .clip(RoundedCornerShape(10.dp))
+                                                    .background(Color(0xFF162038))
+                                                    .border(1.dp, Color(0x4434D399), RoundedCornerShape(10.dp))
+                                                    .padding(vertical = 8.dp),
+                                                horizontalAlignment = Alignment.CenterHorizontally
+                                            ) {
+                                                Text(
+                                                    text = value,
+                                                    color = Color(0xFFFDE047),
+                                                    fontSize = 18.sp,
+                                                    fontWeight = FontWeight.Black,
+                                                    maxLines = 1
+                                                )
+                                                Text(
+                                                    text = label,
+                                                    color = NeliTextSecondary,
+                                                    fontSize = 9.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    maxLines = 1
+                                                )
+                                            }
+                                        }
+                                    }
+                                    if (subState.formattedExpiryDate.isNotBlank()) {
+                                        Text(
+                                            text = "Inaisha: ${subState.formattedExpiryDate}",
+                                            color = Color(0xFF6EE7B7),
+                                            fontSize = 11.5.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
+
+                            if (subState.phoneNumber.isNotBlank()) {
+                                Text(
+                                    text = "Namba: ${subState.phoneNumber} • Inasoma Real-Time kwenye vifaa vyote",
+                                    color = NeliTextSecondary,
+                                    fontSize = 11.sp
+                                )
                             }
                         }
                     }
@@ -425,9 +556,9 @@ fun NeliNewPremiumScreen(
                             ) {
                                 CompactPriceChipCard(
                                     plan = SubscriptionPlanType.DAILY,
-                                    shortDuration = "Siku 2",
+                                    shortDuration = "Siku 1",
                                     shortPrice = "1,000",
-                                    tagLabel = "2 DAYS",
+                                    tagLabel = "SIKU",
                                     selected = selectedPlan == SubscriptionPlanType.DAILY,
                                     onClick = { selectedPlan = SubscriptionPlanType.DAILY },
                                     modifier = Modifier
@@ -438,7 +569,7 @@ fun NeliNewPremiumScreen(
                                     plan = SubscriptionPlanType.WEEKLY,
                                     shortDuration = "Wiki 1",
                                     shortPrice = "3,000",
-                                    tagLabel = "POPULAR",
+                                    tagLabel = "WIKI",
                                     selected = selectedPlan == SubscriptionPlanType.WEEKLY,
                                     onClick = { selectedPlan = SubscriptionPlanType.WEEKLY },
                                     modifier = Modifier
@@ -449,7 +580,7 @@ fun NeliNewPremiumScreen(
                                     plan = SubscriptionPlanType.MONTHLY,
                                     shortDuration = "Mwezi 1",
                                     shortPrice = "10,000",
-                                    tagLabel = "VIP",
+                                    tagLabel = "MWEZI",
                                     selected = selectedPlan == SubscriptionPlanType.MONTHLY,
                                     onClick = { selectedPlan = SubscriptionPlanType.MONTHLY },
                                     modifier = Modifier
@@ -695,7 +826,7 @@ fun NeliNewPremiumScreen(
                             fontWeight = FontWeight.ExtraBold
                         )
                         Text(
-                            text = "• Tazama bila matangazo (Zero Ads)\n• Hifadhi ya malipo mtandaoni — fungua VIP kwenye simu yoyote kwa namba yako\n• Channels zote ziko wazi kwa sasa huku ukiunga mkono NeliTv HD.",
+                            text = "• Fungua channel ZOTE za VIP (Azam Sports 1–4, Super Sport, EPL, Movies, n.k.)\n• Tazama bila matangazo (Zero Ads)\n• Hifadhi ya malipo mtandaoni — muda wako unahesabu real-time kwenye kifaa chochote kwa namba yako",
                             color = NeliTextSecondary,
                             fontSize = 12.sp,
                             lineHeight = 18.sp

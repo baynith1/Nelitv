@@ -166,7 +166,8 @@ fun PlayerScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
     sharedController: LivePlayerController? = null,
-    onEnterPipMode: (() -> Unit)? = null
+    onEnterPipMode: (() -> Unit)? = null,
+    onOpenPremium: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val view = LocalView.current
@@ -851,6 +852,7 @@ fun PlayerScreen(
                     com.example.data.NeliSubscriptionManager.expireSubscriptionIfNeeded(context)
                     val isNowLocked = com.example.data.NeliAdminManager.isChannelLockedForUser(
                         channelId = activeChannel.id,
+                        channelObj = activeChannel,
                         currentUser = null,
                         context = context
                     )
@@ -2210,9 +2212,22 @@ fun PlayerScreen(
                     val isPlayingThisChannel = ch.id == activeChannel.id
                     val isLockedForUser = ch.isLiveBroadcast && com.example.data.NeliAdminManager.isChannelLockedForUser(
                         channelId = ch.id,
+                        channelObj = ch,
                         currentUser = null,
                         context = context
                     )
+                    var showLockedSwitcherPopup by remember(ch.id) { mutableStateOf(false) }
+                    if (showLockedSwitcherPopup) {
+                        com.example.ui.components.LockedChannelQuickPayPopup(
+                            channel = ch,
+                            currentUser = null,
+                            onDismiss = { showLockedSwitcherPopup = false },
+                            onPaymentUnlockedChannel = { unlockedCh ->
+                                showLockedSwitcherPopup = false
+                                playerController.switchChannel(unlockedCh)
+                            }
+                        )
+                    }
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -2224,7 +2239,9 @@ fun PlayerScreen(
                                 RoundedCornerShape(14.dp)
                             )
                             .clickable {
-                                if (!isLockedForUser) {
+                                if (isLockedForUser) {
+                                    showLockedSwitcherPopup = true
+                                } else {
                                     playerController.switchChannel(ch)
                                 }
                             }

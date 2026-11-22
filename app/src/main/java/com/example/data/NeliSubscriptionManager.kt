@@ -40,9 +40,9 @@ data class CountdownBreakdown(
 
 /**
  * Subscription plans available in the Premium tab (1 Day = 24 Hours):
- * - Kwa Siku Mbili: 1,000 TSh (2 days = 48 hours)
- * - Kwa Wiki: 3,500 TSh (7 days = 168 hours)
- * - Kwa Mwezi: 15,000 TSh (30 days = 720 hours)
+ * - Kwa Siku: 1,000 TSh (1 day = 24 hours)
+ * - Kwa Wiki: 3,000 TSh (7 days = 168 hours)
+ * - Kwa Mwezi: 10,000 TSh (30 days = 720 hours)
  */
 enum class SubscriptionPlanType(
     val id: String,
@@ -56,15 +56,15 @@ enum class SubscriptionPlanType(
     val badgeText: String
 ) {
     DAILY(
-        id = "TWO_DAYS_1000",
-        titleSwahili = "Kwa Siku Mbili",
-        subtitleSwahili = "Fungua channel zote za VIP kwa siku 2 kamili (saa 48)",
+        id = "DAILY_1000",
+        titleSwahili = "Kwa Siku",
+        subtitleSwahili = "Fungua channel zote za VIP kwa siku 1 kamili (saa 24)",
         amountTzs = 1000,
         priceFormatted = "1,000 TSh",
-        daysCount = 2,
-        durationMillis = 2L * 24L * 60L * 60L * 1000L,
-        durationLabel = "Siku 2 (Saa 48)",
-        badgeText = "MAARUFU KWA SIKU 2"
+        daysCount = 1,
+        durationMillis = 1L * 24L * 60L * 60L * 1000L,
+        durationLabel = "Siku 1 (Saa 24)",
+        badgeText = "KWA SIKU"
     ),
     WEEKLY(
         id = "WEEKLY_3000",
@@ -75,18 +75,18 @@ enum class SubscriptionPlanType(
         daysCount = 7,
         durationMillis = 7L * 24L * 60L * 60L * 1000L,
         durationLabel = "Wiki 1 (Siku 7)",
-        badgeText = "OFA BORA YA WIKI"
+        badgeText = "KWA WIKI"
     ),
     MONTHLY(
         id = "MONTHLY_10000",
         titleSwahili = "Kwa Mwezi",
-        subtitleSwahili = "Fungua channel zote za VIP kwa mwezi mzima (siku 30/31)",
+        subtitleSwahili = "Fungua channel zote za VIP kwa mwezi mzima (siku 30 kamili)",
         amountTzs = 10000,
         priceFormatted = "10,000 TSh",
         daysCount = 30,
         durationMillis = 30L * 24L * 60L * 60L * 1000L,
         durationLabel = "Mwezi 1 (Siku 30)",
-        badgeText = "VIP FULL ACCESS"
+        badgeText = "KWA MWEZI"
     );
 
     companion object {
@@ -96,7 +96,7 @@ enum class SubscriptionPlanType(
 
         fun fromId(id: String): SubscriptionPlanType {
             return when (id.uppercase()) {
-                "TWO_DAYS_1000", "DAILY" -> DAILY
+                "DAILY_1000", "TWO_DAYS_1000", "DAILY" -> DAILY
                 "WEEKLY_3000", "WEEKLY_3500", "WEEKLY" -> WEEKLY
                 "MONTHLY_10000", "MONTHLY_15000", "MONTHLY" -> MONTHLY
                 else -> DAILY

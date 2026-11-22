@@ -213,67 +213,98 @@ object NeliAdminManager {
     }
 
     fun isChannelExplicitlyFree(channel: LiveChannel): Boolean {
+        if (!channel.isLiveBroadcast) return true
         val name = channel.name.trim().lowercase()
-        val id = channel.id.trim()
+        val id = channel.id.trim().lowercase()
 
-        // 1. Azam One na Sinema Zetu ni bure
-        if (name.contains("azam one") || id == "c405ae74-c4c5-4842-9f26-130ce380b307") return true
+        // Never lock offline downloads or VOD items
+        if (id.startsWith("dl_") || id.startsWith("vod_") || channel.streamUrl.startsWith("file:", ignoreCase = true)) {
+            return true
+        }
+
+        // 1. User-requested open Azam channels: Azam One & Sinema Zetu
+        if (name == "azam one" || name == "azam 1" || id == "c405ae74-c4c5-4842-9f26-130ce380b307") return true
         if (name.contains("sinema zetu") || id == "f56ca8c1-3d3f-4dd2-8d9d-b0b54b559f6e") return true
 
-        // 2. Azam Sport 3 and 4 ni bure kwa upande wa Azam TV
-        if (name.contains("azam sport 3") || name.contains("azam sports 3") || id == "1c976127-e8a4-4bd6-8e73-5da0edce369b") return true
-        if (name.contains("azam sport 4") || name.contains("azam sports 4") || id == "244bcd50-b3bf-4d5e-8419-08cc7bad1a7c") return true
-
-        // 3. UTV ni bure na ZBC ni bure
-        if (name.contains("utv") || id == "d7b415f7-d024-4c7f-a570-653367e8dc5c") return true
-        if (name.contains("zbc") || id.contains("zbc")) return true
-
-        // 4. Movie Korea, Now Global, Trace Latina, Movie Sphere ni bure
-        if (name.contains("movie korea") || id == "movie_korea_channel") return true
+        // 2. Public Tanzania, News & Music free channels
+        if (name.contains("tbc 1") || id == "tbc_1_live") return true
+        if (name.contains("tbc 2") || id == "tbc_2_live") return true
+        if (name.contains("tanzania safari") || name.contains("safari channel") || id == "tanzania_safari_channel_live") return true
         if (name.contains("now global") || id == "now_global_channel") return true
         if (name.contains("trace latina") || id == "trace_latina_channel") return true
-        if (name.contains("movie sphere") || id == "movie_sphere_channel") return true
 
-        // 5. Channel ya Tom and Jerry ni bure
+        // 3. Kids channels (free for families)
         if (name.contains("tom and jerry") || name.contains("toma and jerry") || id == "tom_and_jerry_channel") return true
+        if (name.contains("tinypop") || name.contains("tiny pop") || id == "tinypop_kids_channel") return true
+        if (name.contains("pop animation") || name.contains("pop kids") || id == "tv_1788953482934_twaqe" || id == "pop_kids_channel") return true
+        if (name.contains("lego channel") || id == "lego_channel_official_live") return true
+        if (name.contains("moonbug") || id == "moonbug_kids_official_live") return true
+        if (name.contains("nick jr") || id == "nick_jr_official_live") return true
+        if (name.contains("mr bean") || id == "mr_bean_live_action_official_live") return true
 
-        // 6. Za Firebase ziache nazo ni bure (Pop kids, na nyingine zote za Firebase)
-        if (id.startsWith("fb_") || id.startsWith("firebase_") || channel.categories.contains("firebase") ||
-            name.contains("pop kids") || id == "pop_kids_channel" || id == "tv_1788953482934_twaqe"
-        ) return true
-
-        // WWE, Wasafi na Crown Tv
-        if (name.contains("wwe") || id == "0d7274cb-6a3e-464d-8b8d-bc3c6d433cc2") return true
-        if (name.contains("wasafi") || id == "wasafi_tv_live_stream_tz" || id == "80e54146-1d9b-4c91-8f71-de0ea4866833") return true
-        if (name.contains("crown") || name.contains("clown") || id == "bba104f4-f5ac-41c9-aa36-7af71aaa1993") return true
-        if (name.contains("sk moments") || id == "sk_moments_europe") return true
+        // 4. Selected free Movie channels
+        if (name.contains("movie sphere") || id == "movie_sphere_channel") return true
+        if (name.contains("movie korea") || id == "movie_korea_channel") return true
+        if (name == "comedy" || id == "comedy_channel") return true
+        if (name.contains("movie room") || id == "movie_room_channel") return true
 
         return false
     }
 
     fun isChannelLockedByDefault(channel: LiveChannel): Boolean {
-        return false
+        if (!channel.isLiveBroadcast) return false
+        return !isChannelExplicitlyFree(channel)
     }
 
     /**
-     * Checks whether the Admin has marked this channel as locked for Free Users.
+     * Checks whether this Live TV channel requires VIP (either by default Freemium lock
+     * or by Admin lock configuration). VOD movies/series and offline downloads are never locked here.
      */
     fun isChannelLockedByAdmin(channelId: String, channelObj: LiveChannel? = null): Boolean {
-        return false
+        val cleanId = channelId.trim()
+        if (cleanId.startsWith("dl_", ignoreCase = true) || cleanId.startsWith("vod_", ignoreCase = true)) {
+            return false
+        }
+        val resolvedChannel = channelObj ?: ChannelRepository.getChannelById(cleanId)
+        if (resolvedChannel != null) {
+            if (!resolvedChannel.isLiveBroadcast || resolvedChannel.streamUrl.startsWith("file:", ignoreCase = true)) {
+                return false
+            }
+            if (_areAllChannelsLocked.value || _lockedChannelIds.value.contains(cleanId)) {
+                return true
+            }
+            return isChannelLockedByDefault(resolvedChannel)
+        }
+        return _areAllChannelsLocked.value || _lockedChannelIds.value.contains(cleanId)
     }
 
     /**
-     * All channels are 100% unlocked for everyone (Free Forever with Ads).
+     * Evaluates whether a Live TV channel is locked for the current user in real time.
+     * Unlocks ALL channels immediately once the user has an active verified VIP subscription,
+     * and automatically re-locks VIP channels the second the subscription expires.
      */
     fun isChannelLockedForUser(
         channelId: String,
         channelObj: LiveChannel? = null,
         currentUser: UserAccountEntity? = null,
-        isPremiumActive: Boolean = true,
+        isPremiumActive: Boolean = false,
         nowMs: Long = System.currentTimeMillis(),
         context: Context? = null
     ): Boolean {
-        return false
+        val cleanId = channelId.trim()
+        if (cleanId.startsWith("dl_", ignoreCase = true) || cleanId.startsWith("vod_", ignoreCase = true)) {
+            return false
+        }
+        val resolvedChannel = channelObj ?: ChannelRepository.getChannelById(cleanId)
+        if (resolvedChannel != null && (!resolvedChannel.isLiveBroadcast || resolvedChannel.streamUrl.startsWith("file:", ignoreCase = true))) {
+            return false
+        }
+        val hasActiveVip = isPremiumActive ||
+            NeliSubscriptionManager.isPremiumMemberActive(nowMs = nowMs, context = context) ||
+            NeliFreeForeverAccountsManager.isSpecialAdFreeUser(currentUser) ||
+            NeliFreeForeverAccountsManager.isFreeForeverUser(currentUser)
+        if (hasActiveVip) return false
+        return isChannelLockedByAdmin(cleanId, resolvedChannel)
     }
 
     fun setLockAllChannels(context: Context, lockAll: Boolean) {

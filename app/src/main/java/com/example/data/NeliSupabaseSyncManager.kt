@@ -350,7 +350,8 @@ object NeliSupabaseSyncManager {
                 val durationMs = when {
                     amount >= 10000 -> 30L * 24L * 60L * 60L * 1000L
                     amount >= 3000 -> 7L * 24L * 60L * 60L * 1000L
-                    else -> 2L * 24L * 60L * 60L * 1000L
+                    planId.contains("TWO_DAYS", ignoreCase = true) -> 2L * 24L * 60L * 60L * 1000L
+                    else -> 1L * 24L * 60L * 60L * 1000L
                 }
                 val expiresAt = (if (completedAt > 0L) completedAt else System.currentTimeMillis()) + durationMs
 
@@ -420,6 +421,59 @@ object NeliSupabaseSyncManager {
                 }
             } catch (e: Throwable) {
                 Log.w(TAG, "queryCompletedPaymentByOrderIds error: ${e.message}")
+                Result.failure(e)
+            }
+        }
+
+    /**
+     * Queries Supabase for an active subscription linked to [rawEmail] so logged-in users
+     * automatically see their synchronized real-time VIP countdown on ANY device (phone, tablet, TV).
+     */
+    suspend fun querySubscriptionByEmail(rawEmail: String): Result<SupabaseSubscriptionRecord?> =
+        withContext(Dispatchers.IO) {
+            try {
+                val cleanEmail = rawEmail.trim().lowercase()
+                if (cleanEmail.isBlank()) return@withContext Result.success(null)
+
+                val encodedEmail = java.net.URLEncoder.encode(cleanEmail, "UTF-8")
+                val url =
+                    "$SUPABASE_URL/rest/v1/nelitv_subscriptions?user_email=ilike.$encodedEmail&order=expires_at.desc&limit=1"
+
+                val request = Request.Builder()
+                    .url(url)
+                    .addHeader("apikey", SUPABASE_ANON_KEY)
+                    .addHeader("Authorization", "Bearer $SUPABASE_ANON_KEY")
+                    .addHeader("Accept", "application/json")
+                    .get()
+                    .build()
+
+                httpClient.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        return@withContext Result.failure(Exception("Supabase email query failed (${response.code})"))
+                    }
+                    val respBody = response.body?.string().orEmpty()
+                    val jsonArray = JSONArray(respBody)
+                    if (jsonArray.length() == 0) {
+                        return@withContext Result.success(null)
+                    }
+                    val row = jsonArray.getJSONObject(0)
+                    val record = SupabaseSubscriptionRecord(
+                        phoneNumber = row.optString("phone_number", ""),
+                        planId = row.optString("plan_id", "DAILY_1000"),
+                        premiumStatus = row.optString("premium_status", "active"),
+                        amountPaid = row.optDouble("amount_paid", 0.0),
+                        activatedAtMs = parseIsoTimestamp(row.optString("activated_at")).let {
+                            if (it > 0L) it else System.currentTimeMillis()
+                        },
+                        expiresAtMs = parseIsoTimestamp(row.optString("expires_at")),
+                        userEmail = row.optString("user_email", cleanEmail),
+                        userId = row.optString("user_id", ""),
+                        lastDeviceType = row.optString("last_device_type", "")
+                    )
+                    Result.success(record)
+                }
+            } catch (e: Throwable) {
+                Log.w(TAG, "querySubscriptionByEmail error: ${e.message}")
                 Result.failure(e)
             }
         }

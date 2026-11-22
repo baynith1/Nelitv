@@ -72,7 +72,9 @@ fun ChannelCard(
     val lockAllAzamForFree by NeliAdminManager.areAllAzamChannelsLocked.collectAsState()
     val subState by NeliSubscriptionManager.subscriptionState.collectAsState()
     val isPremiumActive = subState.isActiveNow
-    val isLockedByAdmin = NeliAdminManager.isChannelLockedByAdmin(channel.id)
+    val isLockedByAdmin = remember(channel.id, lockAllForFree, lockAllAzamForFree, lockedChannelIds) {
+        NeliAdminManager.isChannelLockedByAdmin(channel.id, channel)
+    }
     val isLockedForCurrentUser = isLockedByAdmin && !isPremiumActive
 
     val primaryLogoUrl = remember(channel.id, channel.thumbnailUrl) {

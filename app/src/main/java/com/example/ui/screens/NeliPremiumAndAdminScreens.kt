@@ -4309,92 +4309,169 @@ fun LockedChannelPremiumDialog(
         Card(
             modifier = Modifier
                 .fillMaxWidth()
+                .widthIn(max = 380.dp)
                 .testTag("locked_channel_premium_dialog"),
-            shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF121726))
+            shape = RoundedCornerShape(22.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF0E1324))
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .border(1.5.dp, Color(0xFFF59E0B), RoundedCornerShape(20.dp))
-                    .padding(20.dp),
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(Color(0xFF1A1230), Color(0xFF0D1120))
+                        )
+                    )
+                    .border(1.4.dp, Color(0xCCF59E0B), RoundedCornerShape(22.dp))
+                    .padding(horizontal = 18.dp, vertical = 16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                verticalArrangement = Arrangement.spacedBy(11.dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
+                    Row(
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .background(Color(0x2EF59E0B))
+                            .border(1.dp, Color(0x88F59E0B), CircleShape)
+                            .padding(horizontal = 10.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.WorkspacePremium,
+                            contentDescription = null,
+                            tint = Color(0xFFFBBF24),
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Text(
+                            text = "VIP CHANNEL",
+                            color = Color(0xFFFDE68A),
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.Black
+                        )
+                    }
+
                     IconButton(
                         onClick = onDismiss,
                         modifier = Modifier
-                            .size(40.dp)
+                            .size(48.dp)
                             .clip(CircleShape)
-                            .background(NeliSurfaceVariant)
+                            .background(Color(0x22FFFFFF))
                             .testTag("locked_dialog_back_button")
                     ) {
                         Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Rudi Nyuma",
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Funga",
                             tint = Color.White,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(20.dp)
                         )
                     }
-                    Text(
-                        text = "Premium Payment Required",
-                        color = Color(0xFFFBBF24),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.ExtraBold
-                    )
-                    Spacer(modifier = Modifier.width(40.dp))
                 }
 
                 Box(
                     modifier = Modifier
-                        .size(56.dp)
+                        .size(54.dp)
                         .clip(CircleShape)
-                        .background(Color(0x22F59E0B)),
+                        .background(
+                            Brush.radialGradient(
+                                listOf(Color(0x44F59E0B), Color(0x18FF007A))
+                            )
+                        )
+                        .border(1.2.dp, Color(0x99FBBF24), CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Default.Lock,
-                        contentDescription = "Channel Locked",
+                        contentDescription = "Channel Imefungwa",
                         tint = Color(0xFFFBBF24),
-                        modifier = Modifier.size(30.dp)
+                        modifier = Modifier.size(26.dp)
                     )
                 }
 
                 Text(
-                    text = "${channel.name} Imefungwa kwa Free Users",
+                    text = channel.name,
                     color = Color.White,
-                    fontSize = 17.sp,
+                    fontSize = 17.5.sp,
                     fontWeight = FontWeight.Black,
-                    textAlign = TextAlign.Center
+                    textAlign = TextAlign.Center,
+                    maxLines = 2
                 )
 
                 Text(
-                    text = "Channel hii imefungwa na Admin kwa watumiaji wa bure. Jiunge na Premium sasa (Kwa Siku Mbili 1,000 TSh, Kwa Wiki 3,000 TSh, au Kwa Mwezi 10,000 TSh) kupitia HarakaPay ili kufungua channels zote papo hapo!",
-                    color = NeliTextSecondary,
-                    fontSize = 13.sp,
+                    text = "Channel hii ni ya VIP. Lipia kifurushi sasa ufungue channel ZOTE za VIP (Azam Sports 1–4, Super Sport, EPL, Movies) papo hapo bila matangazo.",
+                    color = Color(0xFFCBD5E1),
+                    fontSize = 12.5.sp,
+                    lineHeight = 17.5.sp,
                     textAlign = TextAlign.Center
                 )
+
+                // Compact Siku / Wiki / Mwezi preview strip
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    listOf(
+                        "Siku 1" to "1,000",
+                        "Wiki 1" to "3,000",
+                        "Mwezi 1" to "10,000"
+                    ).forEach { (duration, price) ->
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color(0xFF171E35))
+                                .border(1.dp, Color(0x33FBBF24), RoundedCornerShape(10.dp))
+                                .padding(vertical = 7.dp, horizontal = 4.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = duration,
+                                color = Color(0xFF94A3B8),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1
+                            )
+                            Text(
+                                text = "$price TSh",
+                                color = Color(0xFFFDE047),
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.Black,
+                                maxLines = 1
+                            )
+                        }
+                    }
+                }
 
                 Button(
                     onClick = onGoToPremium,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(48.dp)
+                        .height(50.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(
+                            Brush.horizontalGradient(listOf(NeliMagenta, Color(0xFFFF7A00)))
+                        )
                         .testTag("locked_dialog_go_premium_button"),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta)
+                    shape = RoundedCornerShape(14.dp),
+                    contentPadding = PaddingValues(0.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent)
                 ) {
-                    Icon(Icons.Default.WorkspacePremium, contentDescription = null, tint = Color.White)
+                    Icon(
+                        imageVector = Icons.Default.WorkspacePremium,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(19.dp)
+                    )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Jiunge na Premium (1,000 TSh)",
+                        text = "Lipia Sasa • Fungua VIP",
                         color = Color.White,
-                        fontWeight = FontWeight.ExtraBold
+                        fontSize = 14.5.sp,
+                        fontWeight = FontWeight.Black
                     )
                 }
             }

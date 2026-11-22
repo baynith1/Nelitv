@@ -129,7 +129,9 @@ import kotlinx.coroutines.launch
 fun HomeScreen(
     onChannelSelected: (LiveChannel) -> Unit,
     modifier: Modifier = Modifier,
-    neliViewModel: NeliViewModel = viewModel()
+    neliViewModel: NeliViewModel = viewModel(),
+    initialShowPremium: Boolean = false,
+    onConsumeInitialShowPremium: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val isOfflineMode by neliViewModel.isOfflineMode.collectAsState()
@@ -184,7 +186,6 @@ fun HomeScreen(
     LaunchedEffect(subState.isVerified, subState.expiresAtMs, lockAllForFree, lockedChannelIds) {
         NeliSubscriptionManager.expireSubscriptionIfNeeded(context)
         if (subState.isVerified && subState.expiresAtMs > 0L) {
-            lockedChannelToPrompt = null
             while (true) {
                 val remaining = subState.expiresAtMs - System.currentTimeMillis()
                 if (remaining <= 0L) {
@@ -208,24 +209,38 @@ fun HomeScreen(
         if (!isDuplicateRapidTap) {
             lastTappedLiveChannelId = ch.id
             lastTappedLiveChannelMs = nowMs
-            lockedChannelToPrompt = null
-            pendingUnlockedChannelAfterPayment = null
-            if (isCastActive) {
-                NeliCastManager.startCastingMedia(
-                    channel = ch,
+            val isLocalOfflineFile = ch.id.startsWith("dl_") || ch.streamUrl.startsWith("file:", ignoreCase = true)
+            val isChannelLockedNow = !isLocalOfflineFile && ch.isLiveBroadcast &&
+                NeliAdminManager.isChannelLockedForUser(
+                    channelId = ch.id,
+                    channelObj = ch,
                     currentUser = currentUser,
+                    isPremiumActive = isPremiumActive,
+                    nowMs = nowMs,
                     context = context
                 )
-                // Stream and audio play on the Smart TV; phone acts as remote control and remains free for user
+            if (isChannelLockedNow) {
+                lockedChannelToPrompt = ch
+                pendingUnlockedChannelAfterPayment = ch
             } else {
-                val activity = com.example.data.AuthenticationRepository.findActivity(context)
-                val isLocalOfflineFile = ch.id.startsWith("dl_") || ch.streamUrl.startsWith("file:", ignoreCase = true)
-                if (activity != null && !isLocalOfflineFile) {
-                    NeliAdManager.showChannelOpeningAd(activity, ch.name, ch.id) {
+                lockedChannelToPrompt = null
+                pendingUnlockedChannelAfterPayment = null
+                if (isCastActive) {
+                    NeliCastManager.startCastingMedia(
+                        channel = ch,
+                        currentUser = currentUser,
+                        context = context
+                    )
+                    // Stream and audio play on the Smart TV; phone acts as remote control and remains free for user
+                } else {
+                    val activity = com.example.data.AuthenticationRepository.findActivity(context)
+                    if (activity != null && !isLocalOfflineFile) {
+                        NeliAdManager.showChannelOpeningAd(activity, ch.name, ch.id) {
+                            onChannelSelected(ch)
+                        }
+                    } else {
                         onChannelSelected(ch)
                     }
-                } else {
-                    onChannelSelected(ch)
                 }
             }
         }
@@ -245,7 +260,54 @@ fun HomeScreen(
         }
     }
 
-    var showPremiumPage by remember { mutableStateOf(false) }
+    var showPremiumPage by remember { mutableStateOf(initialShowPremium) }
+
+    LaunchedEffect(initialShowPremium) {
+        if (initialShowPremium) {
+            showPremiumPage = true
+            isSearchOpen = false
+            onConsumeInitialShowPremium()
+        }
+    }
+
+    // Sync active VIP subscription from Supabase across all devices on launch/account change
+    LaunchedEffect(subState.phoneNumber, currentUser?.email) {
+        val savedPhone = subState.phoneNumber.trim()
+        val userEmail = currentUser?.email?.trim().orEmpty()
+        val record = when {
+            savedPhone.isNotBlank() && com.example.data.HarakaPayRepository.isValidTzPhoneNumber(
+                com.example.data.HarakaPayRepository.normalizeTzPhoneNumber(savedPhone)
+            ) -> com.example.data.NeliSupabaseSyncManager.querySubscriptionByPhone(savedPhone).getOrNull()
+            userEmail.isNotBlank() -> com.example.data.NeliSupabaseSyncManager.querySubscriptionByEmail(userEmail).getOrNull()
+            else -> null
+        }
+        if (record != null && record.isActive) {
+            NeliSubscriptionManager.activateVerifiedSubscriptionFromSupabase(
+                context = context,
+                record = record
+            )
+        }
+    }
+
+    // Smooth 3-Step In-Place VIP Payment Popup (Select Plan -> Enter Phone -> Verify USSD -> Auto-Unlock & Play)
+    val lockedPrompt = lockedChannelToPrompt
+    if (lockedPrompt != null) {
+        com.example.ui.components.LockedChannelQuickPayPopup(
+            channel = lockedPrompt,
+            currentUser = currentUser,
+            onDismiss = {
+                lockedChannelToPrompt = null
+                pendingUnlockedChannelAfterPayment = null
+            },
+            onPaymentUnlockedChannel = { unlockedChannel ->
+                lockedChannelToPrompt = null
+                pendingUnlockedChannelAfterPayment = null
+                isSearchOpen = false
+                searchQuery = ""
+                onChannelSelected(unlockedChannel)
+            }
+        )
+    }
 
     if (showCastDialog) {
         NeliCastModalSheet(
@@ -1457,7 +1519,9 @@ private fun HomepageLiveChannelCard(
     val lockAllForFree by NeliAdminManager.areAllChannelsLocked.collectAsState()
     val subState by NeliSubscriptionManager.subscriptionState.collectAsState()
     val isPremiumActive = subState.isActiveNow
-    val isLockedByAdmin = lockAllForFree || lockedChannelIds.contains(channel.id)
+    val isLockedByAdmin = remember(channel.id, lockAllForFree, lockedChannelIds) {
+        NeliAdminManager.isChannelLockedByAdmin(channel.id, channel)
+    }
     val isLockedForCurrentUser = isLockedByAdmin && !isPremiumActive
 
     val primaryLogoUrl = remember(channel.id, channel.thumbnailUrl) {

@@ -641,6 +641,8 @@ fun NeliApp(
             }
         }
 
+        var openPremiumAfterPlayerExit by remember { mutableStateOf(false) }
+
         if (currentChan != null && currentCtrl != null) {
             PlayerScreen(
                 channel = currentChan,
@@ -655,6 +657,9 @@ fun NeliApp(
                 onEnterPipMode = {
                     // Enters Android OS Picture-in-Picture mode OUTSIDE the app (never inside the app)
                     onRequestSystemPipOutsideApp()
+                },
+                onOpenPremium = {
+                    openPremiumAfterPlayerExit = true
                 }
             )
         } else {
@@ -662,7 +667,11 @@ fun NeliApp(
                 onChannelSelected = { selected ->
                     startOrSwitchChannel(selected)
                 },
-                neliViewModel = neliViewModel
+                neliViewModel = neliViewModel,
+                initialShowPremium = openPremiumAfterPlayerExit,
+                onConsumeInitialShowPremium = {
+                    openPremiumAfterPlayerExit = false
+                }
             )
         }
 
