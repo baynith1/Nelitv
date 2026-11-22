@@ -348,6 +348,9 @@ class LivePlayerController(
         const val LIVE_STREAM_STALL_AUTO_FIX_THRESHOLD_MS = 8_000L
         const val LIVE_STREAM_AUTO_FIX_COOLDOWN_MS = 6_000L
 
+        @Volatile
+        private var activeControllerRef: java.lang.ref.WeakReference<LivePlayerController>? = null
+
         /**
          * Computes the target [BatteryPowerProfile] based on real-time device battery level,
          * charging state, OS Power Save mode, background/PiP loading state, and user optimization policy.
@@ -458,6 +461,10 @@ class LivePlayerController(
     private var bandwidthMeter: DefaultBandwidthMeter? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private var autoReconnectAttempts = 0
+    private var codecRecoveryAttempts = 0
+    @Volatile
+    private var preferSoftwareVideoDecoder = false
+    private var wasCodecSuspendedForBackgroundOrAd = false
     private var forcedContainerMode = ForcedContainerMode.NONE
     private var hasAppliedSwahiliMovieIntroSkip = false
     private var lastKnownVodPositionMs = 0L
@@ -866,6 +873,7 @@ class LivePlayerController(
                     if (_playbackInfo.value.networkMode == NetworkQualityMode.AUTO_ADAPTIVE) {
                         evaluateAndApplyAdaptiveTrackSelection(forceBufferingState = false)
                     }
+                    codecRecoveryAttempts = 0
                     _uiState.value = PlayerUiState.Ready
                     updatePlaybackInfo()
                     mainHandler.removeCallbacks(positionUpdateRunnable)
@@ -970,6 +978,73 @@ class LivePlayerController(
 
         override fun onPlayerError(error: PlaybackException) {
             val cause = error.cause
+            val innerCause = cause?.cause
+            val combinedErrorMsg = listOfNotNull(error.message, cause?.message, innerCause?.message).joinToString(" ")
+
+            // Handle MediaCodec resource reclamation ("Released by resource manager") or decoder init failures
+            // by cleanly releasing the dead codec, stepping down resolution / falling back to software decoder,
+            // and re-preparing without triggering misleading network errors.
+            val isCodecReclaimedOrDecoderError =
+                error.errorCode == PlaybackException.ERROR_CODE_DECODING_RESOURCES_RECLAIMED ||
+                    error.errorCode == PlaybackException.ERROR_CODE_DECODING_FAILED ||
+                    error.errorCode == PlaybackException.ERROR_CODE_DECODER_INIT_FAILED ||
+                    error.errorCode == PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED ||
+                    cause is android.media.MediaCodec.CodecException ||
+                    innerCause is android.media.MediaCodec.CodecException ||
+                    combinedErrorMsg.contains("resource manager", ignoreCase = true) ||
+                    combinedErrorMsg.contains("reclaimed", ignoreCase = true)
+
+            if (isCodecReclaimedOrDecoderError && codecRecoveryAttempts < 3) {
+                codecRecoveryAttempts++
+                val attempt = codecRecoveryAttempts
+                _uiState.value = PlayerUiState.Buffering
+                val resumeVodPos = if (!channel.isLiveBroadcast) {
+                    exoPlayer?.currentPosition?.takeIf { it > 0L } ?: lastKnownVodPositionMs
+                } else {
+                    0L
+                }
+                if (!channel.isLiveBroadcast && resumeVodPos > 0L) {
+                    lastKnownVodPositionMs = resumeVodPos
+                }
+                if (attempt >= 2) {
+                    preferSoftwareVideoDecoder = true
+                }
+                try {
+                    exoPlayer?.stop()
+                } catch (_: Exception) {
+                }
+                try {
+                    trackSelector?.let { selector ->
+                        val maxW = if (attempt == 1) 1280 else 854
+                        val maxH = if (attempt == 1) 720 else 480
+                        selector.setParameters(
+                            selector.buildUponParameters()
+                                .setMaxVideoSize(maxW, maxH)
+                        )
+                    }
+                } catch (_: Exception) {
+                }
+                mainHandler.postDelayed({
+                    val p = exoPlayer ?: return@postDelayed
+                    if (adPausedForBreak || wasCodecSuspendedForBackgroundOrAd) return@postDelayed
+                    try {
+                        if (!channel.isLiveBroadcast && lastKnownVodPositionMs > 0L) {
+                            p.seekTo(lastKnownVodPositionMs)
+                        } else if (channel.isLiveBroadcast && !channel.isMp4) {
+                            p.seekToDefaultPosition()
+                        }
+                        p.prepare()
+                        if (!pausedByCallOrExternalAudio) {
+                            p.playWhenReady = true
+                            p.play()
+                        }
+                    } catch (_: Exception) {
+                        loadChannelStream(p, preserveVodPosition = !channel.isLiveBroadcast)
+                    }
+                }, 350L * attempt)
+                return
+            }
+
             val isContainerFormatMismatch = cause is UnrecognizedInputFormatException ||
                     cause is ParserException ||
                     (error.message?.contains("EXTM3U", ignoreCase = true) == true) ||
@@ -1407,26 +1482,36 @@ class LivePlayerController(
     fun initializePlayer(): ExoPlayer {
         NativeLogSuppressor.suppressNonFatalNativeLogs()
         exoPlayer?.let { return it }
+        // Guarantee only a single ExoPlayer holds hardware MediaCodec slots at any time
+        activeControllerRef?.get()?.let { existing ->
+            if (existing !== this && existing.exoPlayer != null) {
+                existing.release()
+            }
+        }
+        activeControllerRef = java.lang.ref.WeakReference(this)
         autoReconnectAttempts = 0
+        codecRecoveryAttempts = 0
+        wasCodecSuspendedForBackgroundOrAd = false
         hasReachedReadyForCurrentStream = false
         consecutiveRebufferCount = 0
         _uiState.value = PlayerUiState.Loading
         registerPowerBroadcastReceiverIfNeeded()
 
-        // Use standard MediaCodecSelector.DEFAULT with decoder fallback so ExoPlayer uses
-        // optimal hardware decoders first without forcing software Codec2 components that fail
-        // system resource queries (error 6).
+        // Use standard MediaCodecSelector.DEFAULT with decoder fallback; if hardware MediaCodec
+        // was reclaimed by Android's resource manager, prioritize software video decoders automatically.
         val reliableCodecSelector = MediaCodecSelector { mimeType, requiresSecureDecoder, requiresTunnelingDecoder ->
             try {
                 val defaultInfos = MediaCodecSelector.DEFAULT.getDecoderInfos(
                     mimeType,
                     requiresSecureDecoder,
                     requiresTunnelingDecoder
-                )
-                if (defaultInfos.isNotEmpty()) {
-                    defaultInfos
-                } else {
+                ).ifEmpty {
                     MediaCodecSelector.DEFAULT.getDecoderInfos(mimeType, false, false)
+                }
+                if (preferSoftwareVideoDecoder && mimeType.startsWith("video/", ignoreCase = true)) {
+                    defaultInfos.sortedBy { if (it.softwareOnly) 0 else 1 }
+                } else {
+                    defaultInfos
                 }
             } catch (_: Throwable) {
                 try {
@@ -1773,19 +1858,79 @@ class LivePlayerController(
 
     fun isAdPausedForBreak(): Boolean = adPausedForBreak
 
+    /**
+     * Proactively stops decoding and releases the hardware MediaCodec surface when the player
+     * goes to the background or behind a full-screen video ad, preventing Android's
+     * MediaResourceManagerService from forcibly reclaiming the codec (`Released by resource manager`).
+     */
+    fun suspendPlaybackAndReleaseCodec() {
+        wasCodecSuspendedForBackgroundOrAd = true
+        exoPlayer?.let { player ->
+            if (!channel.isLiveBroadcast) {
+                val pos = player.currentPosition
+                if (pos > 0L) {
+                    lastKnownVodPositionMs = pos
+                }
+            }
+            try {
+                player.playWhenReady = false
+                player.stop()
+                player.clearVideoSurface()
+            } catch (_: Exception) {
+            }
+        }
+        updatePlaybackInfo()
+    }
+
+    /**
+     * Cleanly re-prepares ExoPlayer after returning from background or ad break once a valid
+     * video surface is attached again.
+     */
+    fun resumePlaybackAfterCodecSuspend() {
+        wasCodecSuspendedForBackgroundOrAd = false
+        if (adPausedForBreak || pausedByCallOrExternalAudio) return
+        exoPlayer?.let { player ->
+            try {
+                if (player.playbackState == Player.STATE_IDLE || player.playbackState == Player.STATE_ENDED) {
+                    if (!channel.isLiveBroadcast && lastKnownVodPositionMs > 0L) {
+                        player.seekTo(lastKnownVodPositionMs)
+                    } else if (channel.isLiveBroadcast && !channel.isMp4) {
+                        player.seekToDefaultPosition()
+                    }
+                    player.prepare()
+                } else if (channel.isLiveBroadcast && !channel.isMp4) {
+                    player.seekToDefaultPosition()
+                }
+                player.volume = if (_playbackInfo.value.isMuted) 0f else 1f
+                player.playWhenReady = true
+                player.play()
+            } catch (_: Exception) {
+                loadChannelStream(player, preserveVodPosition = !channel.isLiveBroadcast)
+            }
+        }
+        updatePlaybackInfo()
+    }
+
     fun pauseForAdBreak() {
         adPausedForBreak = true
         exoPlayer?.let { player ->
             player.volume = 0f
-            player.playWhenReady = false
-            player.pause()
         }
+        // Release hardware MediaCodec while full-screen AdActivity is displaying so video ads never reclaim it
+        suspendPlaybackAndReleaseCodec()
     }
 
     fun resumeVodFromPreRoll() {
         adPausedForBreak = false
+        wasCodecSuspendedForBackgroundOrAd = false
         exoPlayer?.let { player ->
             if (!pausedByCallOrExternalAudio) {
+                if (player.playbackState == Player.STATE_IDLE || player.playbackState == Player.STATE_ENDED) {
+                    if (!channel.isLiveBroadcast && lastKnownVodPositionMs > 0L) {
+                        player.seekTo(lastKnownVodPositionMs)
+                    }
+                    player.prepare()
+                }
                 player.volume = if (_playbackInfo.value.isMuted) 0f else 1f
                 player.playWhenReady = true
                 player.play()
@@ -1799,9 +1944,16 @@ class LivePlayerController(
 
     fun resumeVodAtExactPosition(savedPosMs: Long) {
         adPausedForBreak = false
+        wasCodecSuspendedForBackgroundOrAd = false
+        if (savedPosMs > 0L) {
+            lastKnownVodPositionMs = savedPosMs
+        }
         exoPlayer?.let { player ->
             if (savedPosMs > 0L) {
                 player.seekTo(savedPosMs)
+            }
+            if (player.playbackState == Player.STATE_IDLE || player.playbackState == Player.STATE_ENDED) {
+                player.prepare()
             }
             if (!pausedByCallOrExternalAudio) {
                 player.volume = if (_playbackInfo.value.isMuted) 0f else 1f
@@ -1813,6 +1965,7 @@ class LivePlayerController(
 
     fun reconnectLiveEdgeBehind(behindEdgeMs: Long = 30_000L) {
         adPausedForBreak = false
+        wasCodecSuspendedForBackgroundOrAd = false
         exoPlayer?.let { player ->
             if (!pausedByCallOrExternalAudio) {
                 player.volume = if (_playbackInfo.value.isMuted) 0f else 1f
@@ -2554,6 +2707,9 @@ class LivePlayerController(
             }
         }
         exoPlayer = null
+        if (activeControllerRef?.get() === this) {
+            activeControllerRef = null
+        }
     }
 
     private fun updatePlaybackInfo(

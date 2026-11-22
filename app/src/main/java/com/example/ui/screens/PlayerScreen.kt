@@ -625,12 +625,32 @@ fun PlayerScreen(
         }
     }
 
+    var attachedPlayerView by remember { mutableStateOf<PlayerView?>(null) }
+    val isAdCurrentlyDisplaying by com.example.ads.NeliAdManager.isAdCurrentlyDisplaying.collectAsState()
+
+    // Release hardware MediaCodec while a full-screen AdMob video ad is displayed and cleanly re-attach after dismissal
+    LaunchedEffect(isAdCurrentlyDisplaying, playerController) {
+        if (isAdCurrentlyDisplaying) {
+            playerController.pauseForAdBreak()
+        } else if (playerController.isAdPausedForBreak()) {
+            attachedPlayerView?.let { pv ->
+                pv.player = null
+                pv.player = activeExoPlayer
+            }
+            if (activeChannel.isLiveBroadcast) {
+                playerController.reconnectLiveEdgeBehind()
+            } else {
+                playerController.resumeVodFromPreRoll()
+            }
+        }
+    }
+
     DisposableEffect(lifecycleOwner, playerController, orientationMode) {
         var wasPausedByLifecycle = false
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_STOP -> {
-                    // Only pause on STOP if Activity is NOT in Picture-in-Picture mode
+                    // Only suspend & release hardware MediaCodec on STOP if Activity is NOT in Picture-in-Picture mode
                     if (activity?.isInPictureInPictureMode == true) {
                         playerController.setBackgroundLoadingState(
                             isBackgroundLoading = false,
@@ -642,7 +662,7 @@ fun PlayerScreen(
                             isBackgroundLoading = true,
                             isPictureInPicture = false
                         )
-                        playerController.pause()
+                        playerController.suspendPlaybackAndReleaseCodec()
                     }
                 }
                 Lifecycle.Event.ON_RESUME -> {
@@ -659,10 +679,13 @@ fun PlayerScreen(
                     }
                     if (wasPausedByLifecycle) {
                         wasPausedByLifecycle = false
-                        if (activeChannel.isLiveBroadcast) {
-                            playerController.syncToLiveEdge()
-                        } else {
-                            playerController.play()
+                        // Re-attach video surface cleanly before resuming after MediaCodec suspension
+                        attachedPlayerView?.let { pv ->
+                            pv.player = null
+                            pv.player = activeExoPlayer
+                        }
+                        if (!com.example.ads.NeliAdManager.isAdCurrentlyDisplaying.value) {
+                            playerController.resumePlaybackAfterCodecSuspend()
                         }
                     }
                 }
@@ -768,9 +791,14 @@ fun PlayerScreen(
                             ViewGroup.LayoutParams.MATCH_PARENT
                         )
                         this.player = activeExoPlayer
+                    }.also { pv ->
+                        attachedPlayerView = pv
                     }
                 },
                 update = { playerView ->
+                    if (attachedPlayerView !== playerView) {
+                        attachedPlayerView = playerView
+                    }
                     if (playerView.player != activeExoPlayer) {
                         playerView.player = activeExoPlayer
                     }
@@ -779,6 +807,9 @@ fun PlayerScreen(
                     }
                 },
                 onRelease = { playerView ->
+                    if (attachedPlayerView === playerView) {
+                        attachedPlayerView = null
+                    }
                     playerView.player = null
                 },
                 modifier = Modifier.fillMaxSize()

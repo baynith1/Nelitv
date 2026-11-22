@@ -477,6 +477,17 @@ object MediaContentRepository {
         "mov_2026_dar_express"
     )
 
+    val FALLBACK_PLACEHOLDER_DISCOVERY_IDS = setOf(
+        "mov_1788911132603_wdgav",
+        "ser_1788988691994_5tt72",
+        "mov_2026_shadow_protocol",
+        "mov_2026_crimson_horizon",
+        "mov_2026_dar_express",
+        "adult_midnight_desire_hd",
+        "adult_crimson_nights_hd",
+        "adult_velvet_temptation_hd"
+    )
+
     private val _mediaCatalog = MutableStateFlow<List<MediaContent>>(initialProductionCatalog)
     val mediaCatalog: StateFlow<List<MediaContent>> = _mediaCatalog.asStateFlow()
 
@@ -1606,9 +1617,7 @@ object MediaContentRepository {
                     } else media
                 } else media
             }
-            _mediaCatalog.value = enrichedMedia + initialProductionCatalog.filter { def ->
-                enrichedMedia.none { it.id == def.id }
-            }
+            _mediaCatalog.value = (enrichedMedia + initialProductionCatalog).distinctBy { it.id }
         }
 
         if (parsedChannels.isNotEmpty()) {

@@ -11,6 +11,7 @@ import android.os.Build
 import android.os.Bundle
 import android.util.Rational
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -80,15 +81,22 @@ class MainActivity : ComponentActivity() {
 
     private var isTabletDevice: Boolean = false
     private var isFullScreenPlayerActive: Boolean = false
+    private var systemBarsHiddenForPlayer: Boolean = false
 
-    private fun configureBrowseWindowStatusBar() {
+    private fun configureBrowseWindowStatusBar(forceShowSystemBars: Boolean = false) {
         try {
             val decor = window.decorView
             WindowCompat.getInsetsController(window, decor).apply {
-                show(WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.navigationBars())
+                if (forceShowSystemBars) {
+                    show(WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.navigationBars())
+                }
                 val isLight = NeliThemeManager.isLightMode
-                isAppearanceLightStatusBars = isLight
-                isAppearanceLightNavigationBars = isLight
+                if (isAppearanceLightStatusBars != isLight) {
+                    isAppearanceLightStatusBars = isLight
+                }
+                if (isAppearanceLightNavigationBars != isLight) {
+                    isAppearanceLightNavigationBars = isLight
+                }
             }
         } catch (_: Exception) {
         }
@@ -96,10 +104,13 @@ class MainActivity : ComponentActivity() {
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (hasFocus && !isFullScreenPlayerActive) {
+        // Only touch WindowInsetsController if we are returning from full-screen PlayerScreen;
+        // calling insetsController.show() unconditionally on focus triggers extra SurfaceSyncGroup transactions.
+        if (hasFocus && !isFullScreenPlayerActive && systemBarsHiddenForPlayer) {
+            systemBarsHiddenForPlayer = false
             window.decorView.post {
                 if (!isFullScreenPlayerActive) {
-                    configureBrowseWindowStatusBar()
+                    configureBrowseWindowStatusBar(forceShowSystemBars = true)
                 }
             }
         }
@@ -107,10 +118,13 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        if (!isFullScreenPlayerActive) {
+        // Expanding PiP back to full screen reaches onResume(); clear any pending PiP-exit timestamp
+        lastExitedPipAtRealtimeMs = 0L
+        if (!isFullScreenPlayerActive && systemBarsHiddenForPlayer) {
+            systemBarsHiddenForPlayer = false
             window.decorView.post {
                 if (!isFullScreenPlayerActive) {
-                    configureBrowseWindowStatusBar()
+                    configureBrowseWindowStatusBar(forceShowSystemBars = true)
                 }
             }
         }
@@ -120,8 +134,13 @@ class MainActivity : ComponentActivity() {
         NativeLogSuppressor.suppressNonFatalNativeLogs()
         super.onCreate(savedInstanceState)
         NeliThemeManager.initialize(this)
-        enableEdgeToEdge()
-        configureBrowseWindowStatusBar()
+        val initialLightMode = NeliThemeManager.isLightMode
+        val barStyle = if (initialLightMode) {
+            SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT)
+        } else {
+            SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+        }
+        enableEdgeToEdge(statusBarStyle = barStyle, navigationBarStyle = barStyle)
 
         // Check for android.hardware.type.television and Tablet form factor to dynamically adjust layout & orientation
         val pm = packageManager
@@ -176,18 +195,19 @@ class MainActivity : ComponentActivity() {
         extractDeepLinkFromIntent(intent)
 
         // Offload SharedPreferences JSON parsing, AdMob SDK init, notifications, Firebase sync, and update check
-        // off the main thread AFTER initial window draw so MainActivity's SurfaceSyncGroup completes immediately.
+        // off the main thread AFTER initial window draw & SurfaceSyncGroup transactions settle cleanly.
         lifecycleScope.launch(Dispatchers.IO) {
+            kotlinx.coroutines.delay(450L)
             com.example.data.NeliWatchProgressManager.initialize(this@MainActivity)
         }
         if (!isTvEnvironment) {
             lifecycleScope.launch(Dispatchers.IO) {
-                kotlinx.coroutines.delay(1_200L)
+                kotlinx.coroutines.delay(2_600L)
                 NeliAdManager.initialize(this@MainActivity)
             }
         }
-        lifecycleScope.launch(Dispatchers.Default) {
-            kotlinx.coroutines.delay(600L)
+        lifecycleScope.launch(Dispatchers.IO) {
+            kotlinx.coroutines.delay(1_800L)
             com.example.data.NeliFirebaseSyncManager.initialize(this@MainActivity)
             NeliNotificationScheduler.scheduleAllDailyNotifications(this@MainActivity)
             NeliHomeWidgetProvider.ensureWidgetAutomaticallyPinnedAndUpdated(this@MainActivity)
@@ -215,17 +235,11 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
+            var lastAppliedLightMode by remember { mutableStateOf(initialLightMode) }
             LaunchedEffect(isLightMode) {
-                try {
-                    WindowCompat.getInsetsController(window, window.decorView).apply {
-                        if (isAppearanceLightStatusBars != isLightMode) {
-                            isAppearanceLightStatusBars = isLightMode
-                        }
-                        if (isAppearanceLightNavigationBars != isLightMode) {
-                            isAppearanceLightNavigationBars = isLightMode
-                        }
-                    }
-                } catch (_: Exception) {
+                if (isLightMode != lastAppliedLightMode) {
+                    lastAppliedLightMode = isLightMode
+                    configureBrowseWindowStatusBar(forceShowSystemBars = false)
                 }
             }
 
@@ -254,15 +268,22 @@ class MainActivity : ComponentActivity() {
                                 updateSystemPipParams(isActive)
                             },
                             onFullScreenPlayerStateChanged = { inPlayer ->
+                                val wasInPlayer = isFullScreenPlayerActive
                                 isFullScreenPlayerActive = inPlayer
-                                if (!inPlayer) {
+                                if (inPlayer) {
+                                    systemBarsHiddenForPlayer = true
+                                } else if (wasInPlayer || systemBarsHiddenForPlayer) {
+                                    systemBarsHiddenForPlayer = false
                                     window.decorView.post {
-                                        configureBrowseWindowStatusBar()
+                                        configureBrowseWindowStatusBar(forceShowSystemBars = true)
                                     }
                                 }
                             },
                             onRequestSystemPipOutsideApp = {
                                 enterSystemPipIfSupported()
+                            },
+                            onClosePipAndApp = {
+                                closeAppAfterPipDismissed()
                             }
                         )
                     }
@@ -288,8 +309,46 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun closeAppAfterPipDismissed() {
+        wasInPipMode = false
+        isSystemInPipMode = false
+        hasActivePlaybackForPip = false
+        lastExitedPipAtRealtimeMs = 0L
+        updateSystemPipParams(false)
+        NeliPlaybackReleaseHook.onReleaseActivePlayback?.invoke()
+        if (!isFinishing && !isDestroyed) {
+            try {
+                finishAndRemoveTask()
+            } catch (_: Exception) {
+                try {
+                    finish()
+                } catch (_: Exception) {
+                }
+            }
+        }
+    }
+
     override fun onStop() {
         super.onStop()
+        val powerManager = getSystemService(android.content.Context.POWER_SERVICE) as? android.os.PowerManager
+        val isScreenInteractive = powerManager?.isInteractive != false
+        val exitedPipJustNow = lastExitedPipAtRealtimeMs > 0L &&
+            (android.os.SystemClock.elapsedRealtime() - lastExitedPipAtRealtimeMs) < 1_500L
+        val dismissedFromPip = !isChangingConfigurations &&
+            (wasInPipMode || isSystemInPipMode || exitedPipJustNow)
+
+        if (dismissedFromPip) {
+            if (isScreenInteractive) {
+                // User tapped the X button or swiped away the PiP window:
+                // stop & release the player immediately and close the app automatically.
+                closeAppAfterPipDismissed()
+                return
+            } else {
+                // Screen turned off while in PiP: release playback so audio doesn't keep playing silently in pocket
+                NeliPlaybackReleaseHook.onReleaseActivePlayback?.invoke()
+            }
+        }
+
         if (!isChangingConfigurations && !isInPictureInPictureMode) {
             wasInBackground = true
         }
@@ -303,6 +362,7 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         wasInPipMode = false
         hasActivePlaybackForPip = false
+        lastExitedPipAtRealtimeMs = 0L
         NeliPlaybackReleaseHook.onReleaseActivePlayback?.invoke()
         super.onDestroy()
     }
@@ -371,14 +431,27 @@ class MainActivity : ComponentActivity() {
     }
 
     private var wasInPipMode = false
+    private var lastExitedPipAtRealtimeMs = 0L
 
     override fun onPictureInPictureModeChanged(
         isInPictureInPictureMode: Boolean,
         newConfig: Configuration
     ) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        val previouslyInPip = wasInPipMode || isSystemInPipMode
         isSystemInPipMode = isInPictureInPictureMode
         wasInPipMode = isInPictureInPictureMode
+
+        if (isInPictureInPictureMode) {
+            lastExitedPipAtRealtimeMs = 0L
+        } else if (previouslyInPip) {
+            lastExitedPipAtRealtimeMs = android.os.SystemClock.elapsedRealtime()
+            // On Android 12+, tapping X on the PiP window moves lifecycle to CREATED before invoking
+            // onPictureInPictureModeChanged(false). Expanding PiP stays STARTED/RESUMED.
+            if (!lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) {
+                closeAppAfterPipDismissed()
+            }
+        }
     }
 
     override fun onMultiWindowModeChanged(
@@ -411,6 +484,7 @@ fun NeliApp(
     onActivePlaybackChanged: (Boolean) -> Unit = {},
     onFullScreenPlayerStateChanged: (Boolean) -> Unit = {},
     onRequestSystemPipOutsideApp: () -> Unit = {},
+    onClosePipAndApp: () -> Unit = {},
     neliViewModel: NeliViewModel = viewModel()
 ) {
     val context = LocalContext.current
@@ -505,18 +579,22 @@ fun NeliApp(
     // Never render a floating PiP overlay inside the NeliPlay app UI!
     val controller = sharedPlayerController
     if (isSystemInPipMode && activeChannel != null && activeChannel!!.isPipAllowedForChannel) {
+        val closePipAndFinishApp: () -> Unit = {
+            closeAndReleasePlayback()
+            onClosePipAndApp()
+        }
         if (activeChannel!!.isEmbedded) {
             // Keep embedded channel playing smoothly inside system PiP window without black screen
             com.example.ui.screens.EmbeddedChannelWebViewPlayer(
                 channel = activeChannel!!,
-                onBack = closeAndReleasePlayback
+                onBack = closePipAndFinishApp
             )
             return
         } else if (controller != null) {
             com.example.ui.components.SystemPipPlayerView(
                 playerController = controller,
                 onExpandToFullScreen = {},
-                onClosePip = closeAndReleasePlayback
+                onClosePip = closePipAndFinishApp
             )
             return
         }

@@ -370,4 +370,57 @@ object NeliSupabaseSyncManager {
             return null
         }
     }
+
+    /**
+     * Checks `public.nelitv_payments` directly for any completed payment matching the given HarakaPay [orderIds].
+     * Used alongside `HarakaPayRepository.checkPaymentStatus` and `querySubscriptionByPhone` so a confirmed
+     * payment is still detected even if HarakaPay's status endpoint returns a temporary error.
+     */
+    suspend fun queryCompletedPaymentByOrderIds(orderIds: List<String>): Result<String?> =
+        withContext(Dispatchers.IO) {
+            try {
+                val cleanIds = orderIds.map { it.trim() }.filter { it.isNotBlank() }.distinct()
+                if (cleanIds.isEmpty()) return@withContext Result.success(null)
+
+                val orFilter = cleanIds.joinToString(separator = ",") { "order_id.eq.$it" }
+                val encodedFilter = java.net.URLEncoder.encode("($orFilter)", "UTF-8")
+                val url =
+                    "$SUPABASE_URL/rest/v1/nelitv_payments?or=$encodedFilter&order=completed_at.desc&limit=5"
+
+                val request = Request.Builder()
+                    .url(url)
+                    .addHeader("apikey", SUPABASE_ANON_KEY)
+                    .addHeader("Authorization", "Bearer $SUPABASE_ANON_KEY")
+                    .addHeader("Accept", "application/json")
+                    .get()
+                    .build()
+
+                httpClient.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        return@withContext Result.failure(
+                            Exception("Supabase payment lookup failed (${response.code})")
+                        )
+                    }
+                    val body = response.body?.string().orEmpty()
+                    val array = JSONArray(body)
+                    for (i in 0 until array.length()) {
+                        val row = array.getJSONObject(i)
+                        val status = row.optString("status", "").trim()
+                        val isPaid = status.equals("completed", ignoreCase = true) ||
+                            status.equals("paid", ignoreCase = true) ||
+                            status.equals("success", ignoreCase = true)
+                        if (isPaid) {
+                            val matchedOrderId = row.optString("order_id", "").trim()
+                            return@withContext Result.success(
+                                matchedOrderId.ifBlank { cleanIds.first() }
+                            )
+                        }
+                    }
+                    Result.success(null)
+                }
+            } catch (e: Throwable) {
+                Log.w(TAG, "queryCompletedPaymentByOrderIds error: ${e.message}")
+                Result.failure(e)
+            }
+        }
 }

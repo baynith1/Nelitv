@@ -1,6 +1,8 @@
 package com.example.ui.screens
 
 import android.app.Activity
+import android.content.Context
+import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -41,6 +43,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Download
@@ -53,6 +56,7 @@ import androidx.compose.material.icons.filled.HighQuality
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.NetworkCell
 import androidx.compose.material.icons.filled.Folder
@@ -122,6 +126,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.lerp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.zIndex
 import kotlin.math.absoluteValue
 import coil.compose.AsyncImage
@@ -130,6 +136,7 @@ import com.example.data.ChannelRepository
 import com.example.data.MediaContentRepository
 import com.example.data.NeliAdminManager
 import com.example.data.NeliSubscriptionManager
+import com.example.data.OfflineDownloadManager
 import com.example.ui.theme.rememberNeliScreenProfile
 import com.example.data.local.DownloadedItemEntity
 import com.example.data.local.FirebaseConfigEntity
@@ -569,6 +576,24 @@ fun DiscoveryTabContent(
     val effectiveSeed = if (catalogRotationSeed != 0L) catalogRotationSeed else liveRotationSeed
     val pullToRefreshState = rememberPullToRefreshState()
 
+    var hasFinishedInitialDiscoveryAttempt by remember { mutableStateOf(hasSyncedRealMovies) }
+    var show24hDownloadAdvicePopup by remember { mutableStateOf(false) }
+
+    // Show Swahili/English download recommendation popup once every 24 hours when entering Discovery
+    LaunchedEffect(Unit) {
+        try {
+            val prefs = context.getSharedPreferences("neli_discovery_download_tip_prefs", Context.MODE_PRIVATE)
+            val lastShownMs = prefs.getLong("last_download_tip_shown_ms", 0L)
+            val nowMs = System.currentTimeMillis()
+            val twentyFourHoursMs = 24L * 60L * 60L * 1000L
+            if (lastShownMs <= 0L || (nowMs - lastShownMs) >= twentyFourHoursMs) {
+                show24hDownloadAdvicePopup = true
+                prefs.edit().putLong("last_download_tip_shown_ms", nowMs).apply()
+            }
+        } catch (_: Throwable) {
+        }
+    }
+
     // Pre-warm from cache immediately; only sync from network if catalog has not been loaded yet
     LaunchedEffect(hasSyncedRealMovies) {
         if (!hasSyncedRealMovies) {
@@ -580,13 +605,19 @@ fun DiscoveryTabContent(
                 projectId = MediaContentRepository.DEFAULT_PROJECT_ID,
                 forceRefresh = false
             )
+            hasFinishedInitialDiscoveryAttempt = true
+        } else {
+            hasFinishedInitialDiscoveryAttempt = true
         }
     }
 
-    // Exclude synthetic demo fallback movies from Discovery so users only see real movies from Firebase
-    val discoveryCatalog = remember(mediaCatalog, hasSyncedRealMovies) {
-        val withoutDemo = mediaCatalog.filter { it.id !in MediaContentRepository.DEMO_FALLBACK_MOVIE_IDS }
-        withoutDemo.ifEmpty { mediaCatalog }
+    // Strictly remove fake/placeholder fallback movies from Discovery so only real Firebase movies appear.
+    // When server movies are temporarily unavailable, discoveryCatalog becomes empty and shows "No movie available for 30 mins".
+    val discoveryCatalog = remember(mediaCatalog) {
+        mediaCatalog.filter {
+            it.id !in MediaContentRepository.DEMO_FALLBACK_MOVIE_IDS &&
+                it.id !in MediaContentRepository.FALLBACK_PLACEHOLDER_DISCOVERY_IDS
+        }
     }
 
     // Rotating spotlight mix (Studio Admin new additions + rotated catalog picks)
@@ -606,27 +637,49 @@ fun DiscoveryTabContent(
         )
     }
 
-    val seriesList = remember(mediaCatalog, effectiveSeed) {
-        val rawSeries = mediaCatalog.filter { it.published && it.isSeries && !it.isAdultContent }
+    val seriesList = remember(discoveryCatalog, effectiveSeed) {
+        val rawSeries = discoveryCatalog.filter { it.published && it.isSeries && !it.isAdultContent }
             .distinctBy { it.id }
         MediaContentRepository.rotateMediaListForSeed(rawSeries, effectiveSeed, "discovery_series")
     }
 
-    val adultList = remember(mediaCatalog) {
-        MediaContentRepository.getAdultContentCatalog(mediaCatalog)
+    val adultList = remember(discoveryCatalog) {
+        MediaContentRepository.getAdultContentCatalog(discoveryCatalog)
     }
 
     var selectedAdultCategory by rememberSaveable { mutableStateOf("All") }
 
-    val adultCategories = remember(mediaCatalog) {
-        MediaContentRepository.getAdultGenreAndCategoryFilters(mediaCatalog)
+    val adultCategories = remember(discoveryCatalog) {
+        MediaContentRepository.getAdultGenreAndCategoryFilters(discoveryCatalog)
     }
 
-    val adultsByGenreAndCategory = remember(mediaCatalog, selectedAdultCategory) {
+    val adultsByGenreAndCategory = remember(discoveryCatalog, selectedAdultCategory) {
         MediaContentRepository.getAdultsGroupedByGenreAndCategory(
-            catalog = mediaCatalog,
+            catalog = discoveryCatalog,
             selectedAdultCategory = selectedAdultCategory
         )
+    }
+
+    val isCurrentDiscoveryViewEmpty = remember(
+        selectedFilter,
+        discoveryCatalog,
+        rotatingSpotlightMovies,
+        moviesByFirstGenre,
+        seriesList,
+        adultList
+    ) {
+        when {
+            selectedFilter.equals("Series", ignoreCase = true) -> seriesList.isEmpty()
+            selectedFilter.equals("Adults", ignoreCase = true) -> adultList.isEmpty()
+            selectedFilter.equals("Movies", ignoreCase = true) ->
+                rotatingSpotlightMovies.isEmpty() && moviesByFirstGenre.isEmpty()
+            else -> discoveryCatalog.isEmpty() || (
+                rotatingSpotlightMovies.isEmpty() &&
+                    moviesByFirstGenre.isEmpty() &&
+                    seriesList.isEmpty() &&
+                    adultList.isEmpty()
+                )
+        }
     }
 
     // Hero 3D stacked Recommended showcase: freshly rotates a rich mix of Movies, Animations, and Series every session
@@ -794,12 +847,98 @@ fun DiscoveryTabContent(
                 }
             }
 
-            // 2. Compact Swahili DJs Eyebrow Banner (Preserves DISCOVERY_MADJS_BANNER_TEXT, 100% Samsung-safe)
-            item(key = "discovery_madjs_eyebrow") {
-                DiscoveryMadjsBanner(
-                    totalMovieCount = rotatingSpotlightMovies.size,
-                    onRotateClick = onRefreshDiscovery
-                )
+            // 2. Compact Swahili DJs Eyebrow Banner (only when movies are available)
+            if (!isCurrentDiscoveryViewEmpty) {
+                item(key = "discovery_madjs_eyebrow") {
+                    DiscoveryMadjsBanner(
+                        totalMovieCount = rotatingSpotlightMovies.size,
+                        onRotateClick = onRefreshDiscovery
+                    )
+                }
+            }
+
+            // 2b. Unavailable State when real movies temporarily disappear due to high usage
+            if (isCurrentDiscoveryViewEmpty) {
+                item(key = "discovery_unavailable_30min_state") {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = screenProfile.horizontalPadding, vertical = 28.dp)
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(NeliSurface)
+                            .border(1.dp, NeliMagenta.copy(alpha = 0.45f), RoundedCornerShape(20.dp))
+                            .padding(horizontal = 22.dp, vertical = 28.dp)
+                            .testTag("discovery_unavailable_30min_card"),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        if (!hasFinishedInitialDiscoveryAttempt && isRefreshing) {
+                            CircularProgressIndicator(
+                                color = NeliMagenta,
+                                strokeWidth = 3.dp,
+                                modifier = Modifier.size(34.dp)
+                            )
+                            Text(
+                                text = "Inapakia movies...",
+                                color = NeliTextPrimary,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .size(56.dp)
+                                    .clip(CircleShape)
+                                    .background(NeliMagenta.copy(alpha = 0.16f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Movie,
+                                    contentDescription = "No movie available",
+                                    tint = NeliMagenta,
+                                    modifier = Modifier.size(30.dp)
+                                )
+                            }
+                            Text(
+                                text = "No movie available for 30 mins",
+                                color = NeliTextPrimary,
+                                fontSize = if (screenProfile.isSmallPhone) 16.sp else 18.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                textAlign = TextAlign.Center
+                            )
+                            Text(
+                                text = "Kutokana na matumizi makubwa ya server, movies zitarudi ndani ya dakika 30. Tafadhali jaribu tena baada ya muda mfupi.",
+                                color = NeliTextSecondary,
+                                fontSize = 12.sp,
+                                lineHeight = 18.sp,
+                                textAlign = TextAlign.Center
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Button(
+                                onClick = onRefreshDiscovery,
+                                colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .height(44.dp)
+                                    .testTag("discovery_unavailable_refresh_btn")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Refresh,
+                                    contentDescription = "Refresh Movies",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Jaribu Tena",
+                                    color = Color.White,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                }
             }
 
             // 3. 3D Stacked Center-Focused Hero Poster Carousel (Inspired by cinema showcase in Neli TV palette)
@@ -1272,6 +1411,144 @@ fun DiscoveryTabContent(
                                 .padding(top = 6.dp, bottom = 2.dp)
                         )
                     }
+                }
+            }
+        }
+    }
+
+    // 24-Hour Discovery Download Advisory Popup (Swahili on top, English below, X button to close)
+    if (show24hDownloadAdvicePopup) {
+        Dialog(
+            onDismissRequest = { show24hDownloadAdvicePopup = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp)
+                    .widthIn(max = 380.dp)
+                    .clip(RoundedCornerShape(22.dp))
+                    .background(NeliSurface)
+                    .border(
+                        width = 1.2.dp,
+                        brush = Brush.linearGradient(listOf(NeliMagenta, NeliGenreCyan)),
+                        shape = RoundedCornerShape(22.dp)
+                    )
+                    .padding(18.dp)
+                    .testTag("discovery_download_tip_popup"),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(CircleShape)
+                                .background(NeliMagenta.copy(alpha = 0.18f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Download,
+                                contentDescription = null,
+                                tint = NeliMagenta,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        Text(
+                            text = "Ushauri • Tip",
+                            color = NeliTextPrimary,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                    }
+
+                    IconButton(
+                        onClick = { show24hDownloadAdvicePopup = false },
+                        modifier = Modifier
+                            .size(48.dp)
+                            .testTag("discovery_download_tip_close")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Funga",
+                            tint = NeliTextSecondary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+
+                // Top: Swahili recommendation
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(NeliSurfaceVariant.copy(alpha = 0.72f))
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = "SWAHILI",
+                        color = NeliMagenta,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        letterSpacing = 0.8.sp
+                    )
+                    Text(
+                        text = "Unapendekezwa kupakua movie kuliko kuangalia online ili ufurahie bila kukwama na utumie bando kidogo.",
+                        color = NeliTextPrimary,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        lineHeight = 19.sp
+                    )
+                }
+
+                // Bottom: English recommendation
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(NeliSurfaceVariant.copy(alpha = 0.45f))
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = "ENGLISH",
+                        color = NeliGenreCyan,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        letterSpacing = 0.8.sp
+                    )
+                    Text(
+                        text = "It is recommended to download movies rather than watching online for smooth playback and lower data usage.",
+                        color = NeliTextSecondary,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        lineHeight = 18.sp
+                    )
+                }
+
+                Button(
+                    onClick = { show24hDownloadAdvicePopup = false },
+                    colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(44.dp)
+                        .testTag("discovery_download_tip_ok_btn")
+                ) {
+                    Text(
+                        text = "Sawa • Got it",
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.ExtraBold
+                    )
                 }
             }
         }
@@ -2253,10 +2530,20 @@ fun DownloadTabContent(
     onDeleteDownload: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     val screenProfile = rememberNeliScreenProfile()
     val rotationSeed by MediaContentRepository.catalogRotationSeed.collectAsState()
+
+    var selectedOptionsDownloadItem by remember { mutableStateOf<DownloadedItemEntity?>(null) }
+    var isSavingToPhone by remember { mutableStateOf(false) }
+
     val downloadableCatalog = remember(mediaCatalog, downloadedIds, rotationSeed) {
-        val raw = mediaCatalog.filter { it.published && it.isDownloadPermitted && !it.isAdultContent }
+        val withoutFake = mediaCatalog.filter { media ->
+            media.id !in MediaContentRepository.DEMO_FALLBACK_MOVIE_IDS &&
+                media.id !in MediaContentRepository.FALLBACK_PLACEHOLDER_DISCOVERY_IDS
+        }
+        val raw = withoutFake.filter { it.published && it.isDownloadPermitted && !it.isAdultContent }
         MediaContentRepository.rotateMediaListForSeed(raw, rotationSeed, "downloadable_catalog")
     }
 
@@ -2313,7 +2600,7 @@ fun DownloadTabContent(
                 }
             }
 
-            // Clean Header (No jittery overall progress bar or bulky storage banner)
+            // Clean Header
             item {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -2367,7 +2654,8 @@ fun DownloadTabContent(
                         Text(
                             text = "Downloaded movies & series appear here so you can watch offline anytime.",
                             color = NeliTextSecondary,
-                            fontSize = 12.sp
+                            fontSize = 12.sp,
+                            textAlign = TextAlign.Center
                         )
                     }
                 }
@@ -2386,15 +2674,24 @@ fun DownloadTabContent(
                     } else {
                         (activePct ?: item.progressPercent).coerceIn(0, 99)
                     }
-                    // Prioritize movie poster first for a clean vertical movie poster look
                     val posterUrl = MediaContentRepository.resolveGuaranteedMediaImageUrl(
                         item.posterUrl,
                         item.backdropUrl,
                         item.streamUrl
                     )
-                    val posterWidth = if (screenProfile.isSmallPhone) 64.dp else 74.dp
+                    val posterWidth = if (screenProfile.isSmallPhone) 56.dp else 64.dp
+                    val dlPosterReq = remember(item.id, posterUrl) {
+                        ImageRequest.Builder(context)
+                            .data(posterUrl)
+                            .size(200, 300)
+                            .crossfade(false)
+                            .build()
+                    }
 
-                    Column(
+                    // Sleek vertical linear box:
+                    // - Completed: Poster | Title + "Ready for offline" | Play Button | 3-Dots Menu
+                    // - Downloading/Paused: Poster | Title + Live Percentage & Total MB + Progress Bar | Pause/Resume + Cancel
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .tvCardGrow(
@@ -2424,39 +2721,29 @@ fun DownloadTabContent(
                                     isPausedError -> onRetryDownload(item)
                                 }
                             }
-                            .padding(if (screenProfile.isSmallPhone) 10.dp else 12.dp)
+                            .padding(horizontal = 10.dp, vertical = 10.dp)
                             .testTag("download_item_${item.id}"),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        // Top Row: Clean Movie Poster (no overlapping progress circle) + Movie Details & MB Size
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        // Left: Movie Poster
+                        Box(
+                            modifier = Modifier
+                                .width(posterWidth)
+                                .aspectRatio(2f / 3f)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(NeliSurfaceVariant)
                         ) {
-                            val dlContext = LocalContext.current
-                            val dlPosterReq = remember(item.id, posterUrl) {
-                                ImageRequest.Builder(dlContext)
-                                    .data(posterUrl)
-                                    .size(220, 330)
-                                    .crossfade(false)
-                                    .build()
-                            }
-                            Box(
-                                modifier = Modifier
-                                    .width(posterWidth)
-                                    .aspectRatio(2f / 3f)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(NeliSurfaceVariant)
-                            ) {
-                                AsyncImage(
-                                    model = dlPosterReq,
-                                    contentDescription = item.title,
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                            }
+                            AsyncImage(
+                                model = dlPosterReq,
+                                contentDescription = item.title,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
 
+                        if (isCompleted) {
+                            // Middle: Title + Ready for offline & MB size
                             Column(
                                 modifier = Modifier.weight(1f),
                                 verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -2464,201 +2751,202 @@ fun DownloadTabContent(
                                 Text(
                                     text = item.title.replace("\n", " "),
                                     color = NeliTextPrimary,
-                                    fontSize = if (screenProfile.isSmallPhone) 14.sp else 15.sp,
+                                    fontSize = if (screenProfile.isSmallPhone) 13.sp else 14.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = if (item.fileSizeLabel.isNotBlank()) {
+                                        "Ready for offline • ${item.fileSizeLabel}"
+                                    } else {
+                                        "Ready for offline"
+                                    },
+                                    color = Color(0xFF34D399),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+
+                            // Right: Play button + 3 dots (MoreVert)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(2.dp)
+                            ) {
+                                Button(
+                                    onClick = { onPlayDownloaded(item) },
+                                    colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier
+                                        .tvButtonGrow(shape = RoundedCornerShape(10.dp))
+                                        .height(38.dp)
+                                        .testTag("play_offline_btn_${item.id}")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.PlayArrow,
+                                        contentDescription = "Play ${item.title}",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(17.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(3.dp))
+                                    Text(
+                                        text = "Play",
+                                        color = Color.White,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        maxLines = 1
+                                    )
+                                }
+
+                                IconButton(
+                                    onClick = { selectedOptionsDownloadItem = item },
+                                    modifier = Modifier
+                                        .size(48.dp)
+                                        .testTag("download_more_btn_${item.id}")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.MoreVert,
+                                        contentDescription = "Download options for ${item.title}",
+                                        tint = NeliTextPrimary,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                }
+                            }
+                        } else {
+                            // Still Downloading or Paused: Title + Percentage + Total MB + Progress Bar
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = item.title.replace("\n", " "),
+                                    color = NeliTextPrimary,
+                                    fontSize = if (screenProfile.isSmallPhone) 13.sp else 14.sp,
                                     fontWeight = FontWeight.ExtraBold,
                                     maxLines = 2,
                                     overflow = TextOverflow.Ellipsis
                                 )
 
-                                Text(
-                                    text = "${item.genre} • ${item.duration}",
-                                    color = NeliTextSecondary,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-
-                                // Current downloading MB / Total movie MB + Percentage status
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text(
-                                        text = when {
-                                            isDownloading -> item.fileSizeLabel.ifBlank { "Starting download..." }
-                                            isPausedError -> item.fileSizeLabel.ifBlank { "Paused" }
-                                            else -> item.fileSizeLabel.ifBlank { "Ready Offline" }
-                                        },
-                                        color = when {
-                                            isDownloading -> NeliGenreCyan
-                                            isPausedError -> Color(0xFFF59E0B)
-                                            else -> Color(0xFFFF4DA6)
-                                        },
+                                        text = if (isPausedError) "Paused • $displayPct%" else "$displayPct%",
+                                        color = if (isPausedError) Color(0xFFF59E0B) else NeliGenreCyan,
                                         fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.weight(1f)
-                                    )
-
-                                    Spacer(modifier = Modifier.width(6.dp))
-
-                                    Text(
-                                        text = when {
-                                            isCompleted -> "Ready"
-                                            isPausedError -> "Paused • $displayPct%"
-                                            else -> "$displayPct%"
-                                        },
-                                        color = when {
-                                            isCompleted -> Color(0xFFFF4DA6)
-                                            isPausedError -> Color(0xFFF59E0B)
-                                            else -> Color.White
-                                        },
-                                        fontSize = 11.sp,
                                         fontWeight = FontWeight.ExtraBold,
                                         maxLines = 1
                                     )
+                                    Text(
+                                        text = item.fileSizeLabel.ifBlank { "Calculating MB..." },
+                                        color = NeliTextSecondary,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
                                 }
-                            }
-                        }
 
-                        // Smooth Download Timeline Progress Bar until complete
-                        if (isDownloading || isPausedError) {
-                            LinearProgressIndicator(
-                                progress = { (displayPct / 100f).coerceIn(0f, 1f) },
-                                color = if (isPausedError) Color(0xFFF59E0B) else NeliMagenta,
-                                trackColor = NeliSurfaceVariant,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(6.dp)
-                                    .clip(RoundedCornerShape(4.dp))
-                            )
-                        }
+                                LinearProgressIndicator(
+                                    progress = { (displayPct / 100f).coerceIn(0f, 1f) },
+                                    color = if (isPausedError) Color(0xFFF59E0B) else NeliMagenta,
+                                    trackColor = NeliSurfaceVariant,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(6.dp)
+                                        .clip(RoundedCornerShape(4.dp))
+                                )
 
-                        // Dedicated Action Row: Pause / Resume / Play + Delete (never cramped!)
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            when {
-                                isCompleted -> {
-                                    Button(
-                                        onClick = { onPlayDownloaded(item) },
-                                        colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta),
-                                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
-                                        shape = RoundedCornerShape(10.dp),
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .tvButtonGrow(shape = RoundedCornerShape(10.dp))
-                                            .height(40.dp)
-                                            .testTag("play_offline_btn_${item.id}")
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.PlayArrow,
-                                            contentDescription = null,
-                                            tint = Color.White,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text(
-                                            text = "Play Offline",
-                                            color = Color.White,
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.ExtraBold,
-                                            maxLines = 1
-                                        )
-                                    }
-                                }
-                                isDownloading -> {
-                                    OutlinedButton(
-                                        onClick = { onPauseDownload(item.id) },
-                                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
-                                        shape = RoundedCornerShape(10.dp),
-                                        border = BorderStroke(1.dp, NeliGenreCyan.copy(alpha = 0.7f)),
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .tvButtonGrow(shape = RoundedCornerShape(10.dp))
-                                            .height(40.dp)
-                                            .testTag("pause_download_btn_${item.id}")
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Pause,
-                                            contentDescription = "Pause Download",
-                                            tint = NeliGenreCyan,
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text(
-                                            text = "Pause",
-                                            color = NeliTextPrimary,
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            maxLines = 1
-                                        )
-                                    }
-                                }
-                                isPausedError -> {
-                                    Button(
-                                        onClick = { onRetryDownload(item) },
-                                        colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta),
-                                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
-                                        shape = RoundedCornerShape(10.dp),
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .tvButtonGrow(shape = RoundedCornerShape(10.dp))
-                                            .height(40.dp)
-                                            .testTag("resume_download_btn_${item.id}")
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Refresh,
-                                            contentDescription = "Resume Download",
-                                            tint = Color.White,
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text(
-                                            text = "Resume",
-                                            color = Color.White,
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.ExtraBold,
-                                            maxLines = 1
-                                        )
-                                    }
-                                }
-                            }
-
-                            OutlinedButton(
-                                onClick = {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
                                     if (isDownloading) {
-                                        onCancelDownload(item.id)
+                                        OutlinedButton(
+                                            onClick = { onPauseDownload(item.id) },
+                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                                            shape = RoundedCornerShape(8.dp),
+                                            border = BorderStroke(1.dp, NeliGenreCyan.copy(alpha = 0.65f)),
+                                            modifier = Modifier
+                                                .height(34.dp)
+                                                .testTag("pause_download_btn_${item.id}")
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Pause,
+                                                contentDescription = "Pause Download",
+                                                tint = NeliGenreCyan,
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(
+                                                text = "Pause",
+                                                color = NeliTextPrimary,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
                                     } else {
-                                        onDeleteDownload(item.id)
+                                        Button(
+                                            onClick = { onRetryDownload(item) },
+                                            colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta),
+                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                                            shape = RoundedCornerShape(8.dp),
+                                            modifier = Modifier
+                                                .height(34.dp)
+                                                .testTag("resume_download_btn_${item.id}")
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Refresh,
+                                                contentDescription = "Resume Download",
+                                                tint = Color.White,
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(
+                                                text = "Resume",
+                                                color = Color.White,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
                                     }
-                                },
-                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                                shape = RoundedCornerShape(10.dp),
-                                border = BorderStroke(1.dp, NeliMagenta.copy(alpha = 0.65f)),
-                                modifier = Modifier
-                                    .height(40.dp)
-                                    .testTag("delete_download_btn_${item.id}")
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.DeleteOutline,
-                                    contentDescription = "Delete Download",
-                                    tint = NeliMagenta,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = "Delete",
-                                    color = NeliMagenta,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    maxLines = 1
-                                )
+
+                                    OutlinedButton(
+                                        onClick = {
+                                            if (isDownloading) {
+                                                onCancelDownload(item.id)
+                                            } else {
+                                                onDeleteDownload(item.id)
+                                            }
+                                        },
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                                        shape = RoundedCornerShape(8.dp),
+                                        border = BorderStroke(1.dp, NeliMagenta.copy(alpha = 0.6f)),
+                                        modifier = Modifier
+                                            .height(34.dp)
+                                            .testTag("delete_download_btn_${item.id}")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.DeleteOutline,
+                                            contentDescription = "Cancel Download",
+                                            tint = NeliMagenta,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = "Cancel",
+                                            color = NeliMagenta,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -2795,6 +3083,174 @@ fun DownloadTabContent(
                                 maxLines = 1
                             )
                         }
+                    }
+                }
+            }
+        }
+    }
+
+    // 3-Dots Completed Download Options Popup (X to close, 1. Save to phone -> Movies/NeliTv Movie, 2. Delete in-app only)
+    selectedOptionsDownloadItem?.let { targetItem ->
+        Dialog(
+            onDismissRequest = {
+                if (!isSavingToPhone) {
+                    selectedOptionsDownloadItem = null
+                }
+            },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp)
+                    .widthIn(max = 370.dp)
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(NeliSurface)
+                    .border(1.dp, NeliMagenta.copy(alpha = 0.5f), RoundedCornerShape(20.dp))
+                    .padding(16.dp)
+                    .testTag("download_options_popup"),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // Header with Movie Title and X Close Button
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = targetItem.title.replace("\n", " "),
+                            color = NeliTextPrimary,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        if (targetItem.fileSizeLabel.isNotBlank()) {
+                            Text(
+                                text = targetItem.fileSizeLabel,
+                                color = NeliTextSecondary,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+
+                    IconButton(
+                        onClick = {
+                            if (!isSavingToPhone) {
+                                selectedOptionsDownloadItem = null
+                            }
+                        },
+                        modifier = Modifier
+                            .size(48.dp)
+                            .testTag("download_options_close_btn")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Close options",
+                            tint = NeliTextSecondary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+
+                HorizontalDivider(color = NeliBorder.copy(alpha = 0.45f))
+
+                // Option 1: Save to phone (Movies/NeliTv Movie — single copy, no duplicates, independent of in-app delete)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(NeliSurfaceVariant.copy(alpha = 0.7f))
+                        .border(1.dp, NeliGenreCyan.copy(alpha = 0.4f), RoundedCornerShape(14.dp))
+                        .clickable(enabled = !isSavingToPhone) {
+                            isSavingToPhone = true
+                            coroutineScope.launch {
+                                val result = OfflineDownloadManager.saveDownloadedMovieToPhone(
+                                    context = context,
+                                    item = targetItem
+                                )
+                                isSavingToPhone = false
+                                val toastText = when (result) {
+                                    is OfflineDownloadManager.SaveToPhoneResult.Saved ->
+                                        "Imehifadhiwa kwenye simu: ${result.folderPath}"
+                                    is OfflineDownloadManager.SaveToPhoneResult.AlreadyExists ->
+                                        "Movie tayari ipo kwenye simu (${result.folderPath})"
+                                    is OfflineDownloadManager.SaveToPhoneResult.Failed ->
+                                        result.reason
+                                }
+                                Toast.makeText(context, toastText, Toast.LENGTH_LONG).show()
+                                selectedOptionsDownloadItem = null
+                            }
+                        }
+                        .padding(horizontal = 14.dp, vertical = 14.dp)
+                        .testTag("download_option_save_to_phone"),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    if (isSavingToPhone) {
+                        CircularProgressIndicator(
+                            color = NeliGenreCyan,
+                            strokeWidth = 2.5.dp,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.PhoneAndroid,
+                            contentDescription = "Save to phone",
+                            tint = NeliGenreCyan,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = if (isSavingToPhone) "Saving to phone..." else "Save to phone",
+                            color = NeliTextPrimary,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Movies/${OfflineDownloadManager.PUBLIC_PHONE_MOVIE_FOLDER} • No duplicates",
+                            color = NeliTextSecondary,
+                            fontSize = 11.sp
+                        )
+                    }
+                }
+
+                // Option 2: Delete (removes from app only; any copy saved in Movies/NeliTv Movie stays intact)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(NeliMagenta.copy(alpha = 0.12f))
+                        .border(1.dp, NeliMagenta.copy(alpha = 0.5f), RoundedCornerShape(14.dp))
+                        .clickable(enabled = !isSavingToPhone) {
+                            onDeleteDownload(targetItem.id)
+                            selectedOptionsDownloadItem = null
+                        }
+                        .padding(horizontal = 14.dp, vertical = 14.dp)
+                        .testTag("download_option_delete"),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.DeleteOutline,
+                        contentDescription = "Delete download",
+                        tint = NeliMagenta,
+                        modifier = Modifier.size(22.dp)
+                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Delete",
+                            color = NeliMagenta,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Futa ndani ya app tu (faili la simu halitafutwa)",
+                            color = NeliTextSecondary,
+                            fontSize = 11.sp
+                        )
                     }
                 }
             }

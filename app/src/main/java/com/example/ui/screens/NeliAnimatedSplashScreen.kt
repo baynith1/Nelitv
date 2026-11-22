@@ -31,16 +31,17 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
+import android.graphics.Bitmap
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -70,10 +71,12 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.R
+import com.example.data.ChannelRepository
 import com.example.data.MediaContentRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
@@ -87,7 +90,14 @@ private data class SoaringPosterSpec(
     val widthDp: Float,
     val tiltZ: Float,
     val swayAmplitudeDp: Float,
-    val depthAlpha: Float
+    val depthAlpha: Float,
+    val preferChannel: Boolean
+)
+
+private data class SplashShowcaseItem(
+    val imageUrl: String,
+    val label: String = "",
+    val isLiveChannel: Boolean = false
 )
 
 /**
@@ -95,8 +105,9 @@ private data class SoaringPosterSpec(
  * - All high-frequency animation values are read exclusively inside `graphicsLayer` and `Canvas`
  *   draw scopes (never in the root composition scope), eliminating 60fps tree recompositions
  *   and preventing SurfaceSyncGroup 1000ms transaction timeouts on cold launch.
- * - Background displays real movie posters from the app orbiting ("zinazunguka") and soaring
- *   upward ("zinapaa") in smooth 3D parallax lanes.
+ * - Background showcases BOTH real Movie Posters AND flagship Live TV Channel Cards
+ *   (Azam Sports 1-4, Azam One, Azam Two, Sinema Zetu, Super Sport, EPL League Tv & more)
+ *   soaring upward ("zinapaa") and orbiting ("zinazunguka") from top to bottom of the app.
  * - Centerpiece performs the signature NeliTv Logo REFILL animation with progressive rainbow
  *   squircle trace and liquid wave crest.
  */
@@ -106,59 +117,123 @@ fun NeliAnimatedSplashScreen(
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current
-    val liveCatalog by MediaContentRepository.mediaCatalog.collectAsState()
 
-    // Defer mounting heavy network poster cards slightly so MainActivity's very first frame
-    // and SurfaceSyncGroup transaction complete in < 16ms.
-    var mountPosterLayer by remember { mutableStateOf(false) }
+    // Keep Frame 1 completely free of MediaContentRepository/ChannelRepository <clinit> locks
+    // and heavy image decoding so MainActivity's SurfaceSyncGroup commits in < 16ms.
+    var mountSoaringLayer by remember { mutableStateOf(false) }
+    var mountOrbitLayer by remember { mutableStateOf(false) }
+
+    val defaultMovieItems = remember {
+        listOf(
+            SplashShowcaseItem("https://image.tmdb.org/t/p/w342/8cdWjvZQUExUUTzyp4t6EDMubfO.jpg", "Cinema 1", false),
+            SplashShowcaseItem("https://image.tmdb.org/t/p/w342/kDp1vUBnMpe8ak4rjgl3cLELqjU.jpg", "Cinema 2", false),
+            SplashShowcaseItem("https://image.tmdb.org/t/p/w342/vpnVM9B6NMmQpWeZvzLvDESb2QY.jpg", "Cinema 3", false),
+            SplashShowcaseItem("https://image.tmdb.org/t/p/w342/gKkl37BQuKTanygYQG1pyYgLVgf.jpg", "Cinema 4", false),
+            SplashShowcaseItem("https://image.tmdb.org/t/p/w342/wWba3TaojhK7NdycRhoQpsG0FaH.jpg", "Cinema 5", false),
+            SplashShowcaseItem("https://image.tmdb.org/t/p/w342/1pdfLvkbY9ohJlCjQH2CZjjYVvJ.jpg", "Cinema 6", false)
+        )
+    }
+
+    val defaultChannelItems = remember {
+        listOf(
+            SplashShowcaseItem("https://i.ibb.co/B29Xvb5P/azam-sport-1-01.png", "Azam Sports 1 HD", true),
+            SplashShowcaseItem("https://i.ibb.co/Y7Cj3Wtj/azam-sport-2-01.png", "Azam Sports 2 HD", true),
+            SplashShowcaseItem("https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQRXdkBQjulSPjDIGj-uoSq4M-KtghT3B5s8wHWxPA8uw&s=10", "Super Sport", true),
+            SplashShowcaseItem("https://i.ibb.co/twBGTs4s/1000221073.jpg", "Sinema Zetu", true),
+            SplashShowcaseItem("https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRCz0sRYKbBB2ulNZ5yIvWFMPp7IRlkD8KcJAmTZDlAwA&s=10", "EPL League Tv", true),
+            SplashShowcaseItem("https://i.ibb.co/8gtr1n42/1000221072.jpg", "Azam One", true),
+            SplashShowcaseItem("https://i.ibb.co/Z6sdp2tg/1000221074.jpg", "Azam Two", true),
+            SplashShowcaseItem("https://i.ibb.co/2YfLQ545/1000221070.png", "Azam Sports 3 HD", true),
+            SplashShowcaseItem("https://i.ibb.co/SwtFQNsh/1000221063.jpg", "Azam Sports 4 HD", true)
+        )
+    }
+
+    var splashMovieItems by remember { mutableStateOf(defaultMovieItems) }
+    var splashChannelItems by remember { mutableStateOf(defaultChannelItems) }
 
     LaunchedEffect(Unit) {
-        delay(180L)
-        mountPosterLayer = true
+        // Wait for at least 2 real UI frames to commit before mounting background artwork
+        withFrameNanos { }
+        withFrameNanos { }
+        delay(280L)
+        mountSoaringLayer = true
+
+        // Load real cached movies & Live TV channels off the main thread (zero <clinit> block on UI thread)
         launch(Dispatchers.IO) {
             try {
                 MediaContentRepository.initializeAndPrewarmFromCache(context)
+                val catalog = MediaContentRepository.mediaCatalog.value
+                val realPosters = catalog
+                    .filter { it.published && !it.isAdultContent }
+                    .mapNotNull { media ->
+                        val url = media.posterUrl.trim().ifBlank { media.backdropUrl.trim() }
+                        if (url.startsWith("http", ignoreCase = true)) {
+                            SplashShowcaseItem(imageUrl = url, label = media.title, isLiveChannel = false)
+                        } else null
+                    }
+                val mergedMovies = (realPosters + defaultMovieItems)
+                    .distinctBy { it.imageUrl }
+                    .distinctBy { it.label.lowercase().trim().ifBlank { it.imageUrl } }
+                    .take(10)
+
+                val flagshipOrder = listOf(
+                    "azam sports 1",
+                    "azam sports 2",
+                    "super sport",
+                    "sinema zetu",
+                    "epl league",
+                    "azam one",
+                    "azam two",
+                    "azam sports 3",
+                    "azam sports 4"
+                )
+                fun normalizeChannelKey(name: String): String =
+                    name.lowercase()
+                        .replace("hd", "")
+                        .replace("tv", "")
+                        .replace(Regex("[^a-z0-9]"), "")
+
+                val repoChannels = ChannelRepository.liveChannelsFlow.value
+                    .ifEmpty { ChannelRepository.getPrioritizedAllChannels() }
+                val sortedChannels = repoChannels
+                    .filter { it.thumbnailUrl.startsWith("http", ignoreCase = true) }
+                    .sortedBy { ch ->
+                        val lower = ch.name.lowercase()
+                        val idx = flagshipOrder.indexOfFirst { lower.contains(it) }
+                        if (idx >= 0) idx else 100
+                    }
+                    .map { ch ->
+                        SplashShowcaseItem(
+                            imageUrl = ch.thumbnailUrl.trim(),
+                            label = ch.name.trim(),
+                            isLiveChannel = true
+                        )
+                    }
+                val mergedChannels = (sortedChannels + defaultChannelItems)
+                    .distinctBy { normalizeChannelKey(it.label).ifBlank { it.imageUrl } }
+                    .distinctBy { it.imageUrl }
+                    .take(10)
+
+                withContext(Dispatchers.Main) {
+                    if (mergedMovies.isNotEmpty()) splashMovieItems = mergedMovies
+                    if (mergedChannels.isNotEmpty()) splashChannelItems = mergedChannels
+                }
             } catch (_: Throwable) {
             }
         }
+
+        // Stagger the orbital ring slightly after soaring lanes so RenderThread stays smooth
+        delay(240L)
+        mountOrbitLayer = true
     }
 
-    val splashPosters = remember(liveCatalog) {
-        val realCatalogPosters = liveCatalog
-            .filter { it.published && !it.isAdultContent }
-            .mapNotNull { media ->
-                val url = media.posterUrl.trim().ifBlank { media.backdropUrl.trim() }
-                if (url.startsWith("http", ignoreCase = true)) url else null
-            }
-            .distinct()
-            .take(16)
-
-        val fallbackCinemaPosters = listOf(
-            "https://image.tmdb.org/t/p/w342/8cdWjvZQUExUUTzyp4t6EDMubfO.jpg",
-            "https://image.tmdb.org/t/p/w342/kDp1vUBnMpe8ak4rjgl3cLELqjU.jpg",
-            "https://image.tmdb.org/t/p/w342/vpnVM9B6NMmQpWeZvzLvDESb2QY.jpg",
-            "https://image.tmdb.org/t/p/w342/gKkl37BQuKTanygYQG1pyYgLVgf.jpg",
-            "https://image.tmdb.org/t/p/w342/wWba3TaojhK7NdycRhoQpsG0FaH.jpg",
-            "https://image.tmdb.org/t/p/w342/1pdfLvkbY9ohJlCjQH2CZjjYVvJ.jpg",
-            "https://image.tmdb.org/t/p/w342/z1p34vh7dEOnLDmyCrlUVLuoDzd.jpg",
-            "https://image.tmdb.org/t/p/w342/qhb1qOilapbapxWQn9jtRCMwXJF.jpg",
-            "https://image.tmdb.org/t/p/w342/iuFNMS8U5cb6xfzi51Dbkovj7vM.jpg",
-            "https://image.tmdb.org/t/p/w342/sh7Rg8Er3tFcN9BpKIPOMvALgZd.jpg",
-            "https://image.tmdb.org/t/p/w342/d5NXSklXo0qyIYkgV94XAgMIckC.jpg",
-            "https://image.tmdb.org/t/p/w342/rCzpDGLbOoPwLjy3OAm5NUPOTrC.jpg"
-        )
-
-        (realCatalogPosters + fallbackCinemaPosters).distinct().take(16)
-    }
-
+    // Disjoint soaring lanes (2 unique channels + 2 unique movies — zero overlap with the 6 orbital ring items!)
     val soaringSpecs = remember {
         listOf(
-            SoaringPosterSpec(0.10f, 0.05f, 1.00f, 82f, -9f, 12f, 0.72f),
-            SoaringPosterSpec(0.32f, 0.42f, 0.85f, 74f, 6f, 15f, 0.58f),
-            SoaringPosterSpec(0.56f, 0.74f, 1.12f, 86f, -6f, 14f, 0.68f),
-            SoaringPosterSpec(0.84f, 0.22f, 0.94f, 80f, 10f, 14f, 0.74f),
-            SoaringPosterSpec(0.22f, 0.63f, 1.06f, 76f, 8f, 10f, 0.62f),
-            SoaringPosterSpec(0.74f, 0.88f, 0.88f, 76f, -8f, 13f, 0.60f)
+            SoaringPosterSpec(0.14f, 0.08f, 0.94f, 118f, -5f, 9f, 0.86f, preferChannel = true),
+            SoaringPosterSpec(0.42f, 0.34f, 0.88f, 112f, 5f, 10f, 0.84f, preferChannel = false),
+            SoaringPosterSpec(0.74f, 0.60f, 0.96f, 118f, -5f, 9f, 0.86f, preferChannel = true),
+            SoaringPosterSpec(0.86f, 0.84f, 0.90f, 114f, 6f, 10f, 0.84f, preferChannel = false)
         )
     }
 
@@ -181,7 +256,7 @@ fun NeliAnimatedSplashScreen(
         initialValue = 0f,
         targetValue = 360f,
         animationSpec = infiniteRepeatable(
-            animation = tween(7800, easing = LinearEasing),
+            animation = tween(11_000, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
         label = "poster_orbit_angle"
@@ -191,7 +266,7 @@ fun NeliAnimatedSplashScreen(
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(6800, easing = LinearEasing),
+            animation = tween(8_800, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
         label = "poster_soar_cycle"
@@ -316,9 +391,9 @@ fun NeliAnimatedSplashScreen(
             .testTag("animated_splash_screen"),
         contentAlignment = Alignment.Center
     ) {
-        // LAYER 1: Real Movie Posters SOARING UPWARD ("zinapaa") & ORBITING ("zinazunguka")
-        // Mounted after Frame 1 completes; transforms update strictly in GPU graphicsLayer phase!
-        if (mountPosterLayer) {
+        // LAYER 1: Real Movie Posters & Live TV Channels SOARING UPWARD ("zinapaa") & ORBITING ("zinazunguka")
+        // Mounted in staggered waves after Frame 1 commits; uses fast 2D GPU graphicsLayer transforms (zero 3D stall).
+        if (mountSoaringLayer) {
             BoxWithConstraints(
                 modifier = Modifier
                     .fillMaxSize()
@@ -327,95 +402,110 @@ fun NeliAnimatedSplashScreen(
                 val widthPx = with(density) { maxWidth.toPx() }
                 val heightPx = with(density) { maxHeight.toPx() }
 
-                // Sub-layer 1A: Floating Movie Posters soaring smoothly from bottom -> top with gentle sway
+                // Strictly disjoint channel & movie pools so ZERO channel (like Super Sport) or movie ever duplicates!
+                val orbitChannelSlice = splashChannelItems.take(3)
+                val soaringChannelSlice = splashChannelItems.drop(3).ifEmpty { splashChannelItems }
+                val orbitMovieSlice = splashMovieItems.take(3)
+                val soaringMovieSlice = splashMovieItems.drop(3).ifEmpty { splashMovieItems }
+
+                // Sub-layer 1A: Floating Live TV Channels & Movie Posters soaring smoothly top-to-bottom
+                var soaringChannelCursor = 0
+                var soaringMovieCursor = 0
                 soaringSpecs.forEachIndexed { idx, spec ->
+                    val showcaseItem = if (spec.preferChannel) {
+                        soaringChannelSlice[(soaringChannelCursor++) % soaringChannelSlice.size]
+                    } else {
+                        soaringMovieSlice[(soaringMovieCursor++) % soaringMovieSlice.size]
+                    }
                     key("soar_$idx") {
-                        val posterUrl = splashPosters[idx % splashPosters.size]
+                        val aspect = if (showcaseItem.isLiveChannel) 1.12f else 0.67f
                         val cardWidthPx = with(density) { spec.widthDp.dp.toPx() }
-                        val cardHeightPx = with(density) { (spec.widthDp / 0.67f).dp.toPx() }
+                        val cardHeightPx = with(density) { (spec.widthDp / aspect).dp.toPx() }
                         val swayMaxPx = with(density) { spec.swayAmplitudeDp.dp.toPx() }
-                        val travelSpan = heightPx + cardHeightPx * 2.1f
                         val baseX = (widthPx * spec.laneFractionX) - (cardWidthPx / 2f)
 
                         SplashFloatingPosterCard(
-                            posterUrl = posterUrl,
+                            item = showcaseItem,
                             widthDp = spec.widthDp,
                             accentMagenta = idx % 2 == 0,
                             modifier = Modifier.graphicsLayer {
                                 val progress = (soarCycleState.value * spec.speedMultiplier + spec.phaseOffset) % 1f
-                                val yPx = (heightPx + cardHeightPx * 0.6f) - (progress * travelSpan)
+                                val yPx = (heightPx + cardHeightPx * 0.25f) - (progress * (heightPx + cardHeightPx * 1.55f))
                                 val swayPx = sin((progress * 2.0 * PI + idx).toDouble()).toFloat() * swayMaxPx
                                 val edgeFade = when {
-                                    progress < 0.12f -> progress / 0.12f
-                                    progress > 0.86f -> ((1f - progress) / 0.14f).coerceIn(0f, 1f)
+                                    progress < 0.06f -> progress / 0.06f
+                                    progress > 0.94f -> ((1f - progress) / 0.06f).coerceIn(0f, 1f)
                                     else -> 1f
                                 }
                                 translationX = baseX + swayPx
                                 translationY = yPx
-                                rotationZ = spec.tiltZ + sin((progress * 2.0 * PI).toDouble()).toFloat() * 5f
-                                rotationY = cos((progress * 2.0 * PI + idx).toDouble()).toFloat() * 14f
+                                rotationZ = spec.tiltZ + sin((progress * 2.0 * PI).toDouble()).toFloat() * 3.5f
                                 alpha = spec.depthAlpha * edgeFade
-                                cameraDistance = 14f * density.density
                             }
                         )
                     }
                 }
 
-                // Sub-layer 1B: 3D Tilted Orbital Ring of Real Movie Posters ("zinazunguka")
-                // Fixed composition order (zero node recreation!) with smooth GPU perspective transforms.
-                val orbitCount = 6
-                val radiusX = widthPx * 0.42f
-                val radiusY = heightPx * 0.24f
-                val centerX = widthPx / 2f
-                val centerY = heightPx * 0.46f
-                val cardW = 84f
-                val cardWPx = with(density) { cardW.dp.toPx() }
-                val cardHPx = with(density) { (cardW / 0.67f).dp.toPx() }
+                // Sub-layer 1B: Smooth Orbital Ring strictly alternating Live TV <-> Movie ("zinazunguka")
+                if (mountOrbitLayer) {
+                    val orbitCount = 6
+                    val radiusX = widthPx * 0.43f
+                    val radiusY = heightPx * 0.36f
+                    val centerX = widthPx / 2f
+                    val centerY = heightPx * 0.49f
 
-                for (slot in 0 until orbitCount) {
-                    key("orbit_$slot") {
-                        val posterUrl = splashPosters[(slot + soaringSpecs.size) % splashPosters.size]
-                        val slotOffsetDeg = slot * (360f / orbitCount)
-
-                        SplashFloatingPosterCard(
-                            posterUrl = posterUrl,
-                            widthDp = cardW,
-                            accentMagenta = slot % 2 == 1,
-                            modifier = Modifier.graphicsLayer {
-                                val angleRad = Math.toRadians((orbitAngleState.value + slotOffsetDeg).toDouble())
-                                val cosA = cos(angleRad).toFloat()
-                                val sinA = sin(angleRad).toFloat()
-                                val depth = (sinA + 1f) / 2f
-                                val posX = centerX + cosA * radiusX - (cardWPx / 2f)
-                                val posY = centerY + sinA * radiusY + (cosA * heightPx * 0.055f) - (cardHPx / 2f)
-                                val perspectiveScale = 0.66f + (depth * 0.44f)
-                                val perspectiveAlpha = 0.34f + (depth * 0.56f)
-
-                                translationX = posX
-                                translationY = posY
-                                scaleX = perspectiveScale
-                                scaleY = perspectiveScale
-                                rotationY = -cosA * 26f
-                                rotationZ = cosA * 9f
-                                alpha = perspectiveAlpha
-                                cameraDistance = 16f * density.density
+                    for (slot in 0 until orbitCount) {
+                        key("orbit_$slot") {
+                            val isChannelSlot = slot % 2 == 0
+                            val showcaseItem = if (isChannelSlot) {
+                                orbitChannelSlice[(slot / 2) % orbitChannelSlice.size]
+                            } else {
+                                orbitMovieSlice[(slot / 2) % orbitMovieSlice.size]
                             }
-                        )
+                            val cardW = if (showcaseItem.isLiveChannel) 118f else 108f
+                            val aspect = if (showcaseItem.isLiveChannel) 1.12f else 0.67f
+                            val cardWPx = with(density) { cardW.dp.toPx() }
+                            val cardHPx = with(density) { (cardW / aspect).dp.toPx() }
+                            val slotOffsetDeg = slot * (360f / orbitCount)
+
+                            SplashFloatingPosterCard(
+                                item = showcaseItem,
+                                widthDp = cardW,
+                                accentMagenta = slot % 2 == 1,
+                                modifier = Modifier.graphicsLayer {
+                                    val angleRad = Math.toRadians((orbitAngleState.value + slotOffsetDeg).toDouble())
+                                    val cosA = cos(angleRad).toFloat()
+                                    val sinA = sin(angleRad).toFloat()
+                                    val depth = (sinA + 1f) / 2f
+                                    val posX = centerX + cosA * radiusX - (cardWPx / 2f)
+                                    val posY = centerY + sinA * radiusY + (cosA * heightPx * 0.04f) - (cardHPx / 2f)
+                                    val perspectiveScale = 0.80f + (depth * 0.30f)
+                                    val perspectiveAlpha = 0.58f + (depth * 0.38f)
+
+                                    translationX = posX
+                                    translationY = posY
+                                    scaleX = perspectiveScale
+                                    scaleY = perspectiveScale
+                                    rotationZ = cosA * 5f
+                                    alpha = perspectiveAlpha
+                                }
+                            )
+                        }
                     }
                 }
             }
         }
 
-        // LAYER 2: Deep Cinema Vignette so the Refilling NeliTv Logo Pops Dramatically
+        // LAYER 2: Balanced Cinema Vignette — keeps center logo crisp while letting large posters shine all the way to top & bottom edges
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
                     Brush.radialGradient(
                         colors = listOf(
-                            Color(0xD90A071E),
-                            Color(0xBA050817),
-                            Color(0xEA03050F)
+                            Color(0xB809071C),
+                            Color(0x6E050817),
+                            Color(0x7803050F)
                         )
                     )
                 )
@@ -773,36 +863,110 @@ private fun SplashCinemaDotsRow(
 
 @Composable
 private fun SplashFloatingPosterCard(
-    posterUrl: String,
+    item: SplashShowcaseItem,
     widthDp: Float,
     accentMagenta: Boolean,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val request = remember(posterUrl) {
+    val request = remember(item.imageUrl, item.isLiveChannel) {
         ImageRequest.Builder(context)
-            .data(posterUrl)
-            .size(160, 240)
+            .data(item.imageUrl)
+            .size(if (item.isLiveChannel) 180 else 160, if (item.isLiveChannel) 160 else 240)
+            .bitmapConfig(Bitmap.Config.RGB_565)
             .crossfade(false)
             .build()
     }
-    Box(
-        modifier = modifier
-            .width(widthDp.dp)
-            .aspectRatio(0.67f)
-            .clip(RoundedCornerShape(14.dp))
-            .background(Color(0xFF131932))
-            .border(
-                width = 1.dp,
-                color = if (accentMagenta) Color(0x66FF007A) else Color(0x6600E5FF),
-                shape = RoundedCornerShape(14.dp)
+    if (item.isLiveChannel) {
+        // Sleek Broadcast Live TV Channel Showcase Card (Azam Sports 1-4, Azam One/Two, Sinema Zetu, Super Sport, EPL)
+        Box(
+            modifier = modifier
+                .width(widthDp.dp)
+                .aspectRatio(1.12f)
+                .clip(RoundedCornerShape(16.dp))
+                .background(
+                    Brush.verticalGradient(
+                        listOf(Color(0xFF151E3E), Color(0xFF0A0F24))
+                    )
+                )
+                .border(
+                    width = 1.2.dp,
+                    color = if (accentMagenta) Color(0x88FF007A) else Color(0x8800E5FF),
+                    shape = RoundedCornerShape(16.dp)
+                )
+        ) {
+            AsyncImage(
+                model = request,
+                contentDescription = item.label.ifBlank { null },
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
             )
-    ) {
-        AsyncImage(
-            model = request,
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize()
-        )
+            // Bottom label gradient so channel name is crisp and legible
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(Color.Transparent, Color(0xD9050814))
+                        )
+                    )
+                    .padding(horizontal = 7.dp, vertical = 5.dp)
+            ) {
+                Text(
+                    text = item.label.ifBlank { "Live TV" },
+                    color = Color.White,
+                    fontSize = 9.5.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    maxLines = 1
+                )
+            }
+            // Subtle LIVE broadcast indicator badge in top-left corner
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(3.dp),
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(6.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xCCDC2626))
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(4.5.dp)
+                        .clip(CircleShape)
+                        .background(Color.White)
+                )
+                Text(
+                    text = "LIVE",
+                    color = Color.White,
+                    fontSize = 7.5.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 0.4.sp
+                )
+            }
+        }
+    } else {
+        // Vertical Cinema Movie Poster Card
+        Box(
+            modifier = modifier
+                .width(widthDp.dp)
+                .aspectRatio(0.67f)
+                .clip(RoundedCornerShape(15.dp))
+                .background(Color(0xFF131932))
+                .border(
+                    width = 1.dp,
+                    color = if (accentMagenta) Color(0x77FF007A) else Color(0x7700E5FF),
+                    shape = RoundedCornerShape(15.dp)
+                )
+        ) {
+            AsyncImage(
+                model = request,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
     }
 }

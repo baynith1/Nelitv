@@ -124,79 +124,16 @@ fun NeliNewPremiumScreen(
     }
     var selectedPlan by remember { mutableStateOf(SubscriptionPlanType.DAILY) }
 
-    // Payment execution states (HarakaPay Production + Supabase persistence)
-    var isProcessingPayment by remember { mutableStateOf(false) }
-    var activePendingOrderId by remember { mutableStateOf(subState.pendingOrderId) }
+    // Payment Verification Popup state (opens immediately when user taps Pay on chosen plan)
+    var activePaymentPopupPhone by remember { mutableStateOf<String?>(null) }
+    var activePaymentPopupPlan by remember { mutableStateOf<SubscriptionPlanType?>(null) }
+    var wasActiveBeforePopup by remember { mutableStateOf(false) }
     var statusInfoMessage by remember { mutableStateOf<String?>(null) }
     var statusErrorMessage by remember { mutableStateOf<String?>(null) }
     var statusSuccessMessage by remember { mutableStateOf<String?>(null) }
     var isCheckingSupabaseVip by remember { mutableStateOf(false) }
 
     BackHandler { onBackToHome() }
-
-    // Automatic background status poller whenever a HarakaPay USSD push order is pending
-    LaunchedEffect(activePendingOrderId) {
-        val orderId = activePendingOrderId.trim()
-        if (orderId.isBlank()) return@LaunchedEffect
-        var attempts = 0
-        while (attempts < 45 && activePendingOrderId == orderId) {
-            delay(3_500L)
-            attempts++
-            val statusRes = HarakaPayRepository.checkPaymentStatus(orderId)
-            val statusObj = statusRes.getOrNull()
-            if (statusObj != null && statusObj.isCompleted) {
-                val paidPhone = HarakaPayRepository.normalizeTzPhoneNumber(phoneInput.ifBlank { subState.pendingPhone })
-                val paidPlan = SubscriptionPlanType.fromId(
-                    subState.pendingPlanId.ifBlank { selectedPlan.id }
-                )
-                val activated = NeliSubscriptionManager.activateVerifiedSubscription(
-                    context = context,
-                    plan = paidPlan,
-                    phone = paidPhone,
-                    verifiedOrderId = orderId
-                )
-                if (currentUser != null && currentUser.email.isNotBlank()) {
-                    NeliSubscriptionManager.linkUserAccountToSubscription(
-                        context = context,
-                        uid = currentUser.uid,
-                        email = currentUser.email,
-                        realName = currentUser.realName
-                    )
-                }
-                NeliSupabaseSyncManager.syncSubscriptionAndPaymentNow(
-                    phoneNumber = paidPhone,
-                    planId = paidPlan.id,
-                    amountTzs = paidPlan.amountTzs,
-                    orderId = orderId,
-                    activatedAtMs = activated.activatedAtMs,
-                    expiresAtMs = activated.expiresAtMs,
-                    userEmail = currentUser?.email.orEmpty(),
-                    userId = currentUser?.uid.orEmpty(),
-                    providerReference = "HPAY-$orderId"
-                )
-                activePendingOrderId = ""
-                isProcessingPayment = false
-                statusInfoMessage = null
-                statusErrorMessage = null
-                statusSuccessMessage = "Hongera! Malipo ya ${paidPlan.priceFormatted} yamethibitishwa. Karibu Active Member!"
-                android.widget.Toast.makeText(
-                    context,
-                    "Hongera! Umekuwa Active Member wa NeliTv VIP.",
-                    android.widget.Toast.LENGTH_SHORT
-                ).show()
-                delay(700L)
-                onBackToHome()
-                break
-            } else if (statusObj != null && statusObj.isFailed) {
-                NeliSubscriptionManager.clearPendingOrder(context)
-                activePendingOrderId = ""
-                isProcessingPayment = false
-                statusInfoMessage = null
-                statusErrorMessage = "Malipo hayakukamilika (${statusObj.status}). Hakikisha una salio kisha jaribu tena."
-                break
-            }
-        }
-    }
 
     Box(
         modifier = modifier
@@ -529,7 +466,7 @@ fun NeliNewPremiumScreen(
                                 fontWeight = FontWeight.Bold
                             )
 
-                            // 3) Pay Button (Real HarakaPay Production USSD Push + Supabase Sync)
+                            // 3) Pay Button -> Opens Live Payment Verification Popup (USSD Push + Auto-Close Green Tick + Nimelipa Refresh + Omba USSD Upya + X Cancel)
                             Button(
                                 onClick = {
                                     val normalizedPhone = HarakaPayRepository.normalizeTzPhoneNumber(phoneInput)
@@ -539,34 +476,12 @@ fun NeliNewPremiumScreen(
                                     }
                                     statusErrorMessage = null
                                     statusSuccessMessage = null
-                                    isProcessingPayment = true
-                                    statusInfoMessage = "Inatuma ombi la malipo kwenye $normalizedPhone..."
-
-                                    scope.launch {
-                                        val res = HarakaPayRepository.collectPayment(
-                                            phone = normalizedPhone,
-                                            amount = selectedPlan.amountTzs,
-                                            description = "Nelitv ${selectedPlan.titleSwahili} VIP"
-                                        )
-                                        res.onSuccess { collect ->
-                                            NeliSubscriptionManager.savePendingOrder(
-                                                context = context,
-                                                plan = selectedPlan,
-                                                phone = normalizedPhone,
-                                                orderId = collect.orderId
-                                            )
-                                            activePendingOrderId = collect.orderId
-                                            statusInfoMessage =
-                                                "Ombi limetumwa kwenye $normalizedPhone! Ingiza PIN kwenye ujumbe wa simu yako kuthibitisha ${selectedPlan.priceFormatted}. App itawasha VIP moja kwa moja."
-                                        }.onFailure { err ->
-                                            isProcessingPayment = false
-                                            statusInfoMessage = null
-                                            statusErrorMessage = err.message
-                                                ?: "Imeshindikana kutuma ombi la malipo. Angalia mtandao na jaribu tena."
-                                        }
-                                    }
+                                    statusInfoMessage = null
+                                    wasActiveBeforePopup = isActiveVip
+                                    activePaymentPopupPhone = normalizedPhone
+                                    activePaymentPopupPlan = selectedPlan
                                 },
-                                enabled = !isProcessingPayment,
+                                enabled = activePaymentPopupPhone == null,
                                 colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
                                 contentPadding = PaddingValues(0.dp),
                                 shape = RoundedCornerShape(14.dp),
@@ -579,101 +494,12 @@ fun NeliNewPremiumScreen(
                                     )
                                     .testTag("premium_pay_submit_button")
                             ) {
-                                if (isProcessingPayment && activePendingOrderId.isBlank()) {
-                                    CircularProgressIndicator(
-                                        color = Color.White,
-                                        strokeWidth = 2.4.dp,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(10.dp))
-                                    Text(
-                                        text = "Inatuma Ombi...",
-                                        color = Color.White,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        fontSize = 14.5.sp
-                                    )
-                                } else {
-                                    Text(
-                                        text = "Pay • ${selectedPlan.priceFormatted}",
-                                        color = Color.White,
-                                        fontWeight = FontWeight.Black,
-                                        fontSize = 15.5.sp
-                                    )
-                                }
-                            }
-
-                            // Manual instant verify button while waiting for USSD SMS confirmation
-                            if (activePendingOrderId.isNotBlank()) {
-                                OutlinedButton(
-                                    onClick = {
-                                        val checkOrderId = activePendingOrderId
-                                        statusInfoMessage = "Inahakiki malipo yako sasa..."
-                                        scope.launch {
-                                            val stRes = HarakaPayRepository.checkPaymentStatus(checkOrderId)
-                                            val st = stRes.getOrNull()
-                                            if (st != null && st.isCompleted) {
-                                                val paidPhone = HarakaPayRepository.normalizeTzPhoneNumber(phoneInput)
-                                                val activated = NeliSubscriptionManager.activateVerifiedSubscription(
-                                                    context = context,
-                                                    plan = selectedPlan,
-                                                    phone = paidPhone,
-                                                    verifiedOrderId = checkOrderId
-                                                )
-                                                if (currentUser != null && currentUser.email.isNotBlank()) {
-                                                    NeliSubscriptionManager.linkUserAccountToSubscription(
-                                                        context = context,
-                                                        uid = currentUser.uid,
-                                                        email = currentUser.email,
-                                                        realName = currentUser.realName
-                                                    )
-                                                }
-                                                NeliSupabaseSyncManager.syncSubscriptionAndPaymentNow(
-                                                    phoneNumber = paidPhone,
-                                                    planId = selectedPlan.id,
-                                                    amountTzs = selectedPlan.amountTzs,
-                                                    orderId = checkOrderId,
-                                                    activatedAtMs = activated.activatedAtMs,
-                                                    expiresAtMs = activated.expiresAtMs,
-                                                    userEmail = currentUser?.email.orEmpty(),
-                                                    userId = currentUser?.uid.orEmpty(),
-                                                    providerReference = "HPAY-$checkOrderId"
-                                                )
-                                                activePendingOrderId = ""
-                                                isProcessingPayment = false
-                                                statusInfoMessage = null
-                                                statusErrorMessage = null
-                                                statusSuccessMessage = "Malipo yamethibitishwa! Karibu Active Member."
-                                                android.widget.Toast.makeText(
-                                                    context,
-                                                    "Hongera! Umekuwa Active Member wa NeliTv VIP.",
-                                                    android.widget.Toast.LENGTH_SHORT
-                                                ).show()
-                                                delay(600L)
-                                                onBackToHome()
-                                            } else if (st != null && st.isFailed) {
-                                                NeliSubscriptionManager.clearPendingOrder(context)
-                                                activePendingOrderId = ""
-                                                isProcessingPayment = false
-                                                statusInfoMessage = null
-                                                statusErrorMessage = "Malipo yamekataliwa au muda umeisha. Jaribu tena."
-                                            } else {
-                                                statusInfoMessage = "Bado tunasubiri uthibitisho wa PIN kwenye simu yako..."
-                                            }
-                                        }
-                                    },
-                                    shape = RoundedCornerShape(12.dp),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .heightIn(min = 48.dp)
-                                        .testTag("premium_manual_verify_button")
-                                ) {
-                                    Text(
-                                        text = "Nimemaliza Kulipa • Thibitisha Sasa",
-                                        color = NeliGenreCyan,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 13.sp
-                                    )
-                                }
+                                Text(
+                                    text = "Pay • ${selectedPlan.priceFormatted}",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Black,
+                                    fontSize = 15.5.sp
+                                )
                             }
                         }
                     } else {
@@ -879,6 +705,30 @@ fun NeliNewPremiumScreen(
                     Spacer(modifier = Modifier.height(18.dp))
                 }
             }
+        }
+
+        // Live Payment Verification Popup (USSD Push, Dual HarakaPay+Supabase Check, Animated Green Tick -> Auto-Home, Resend USSD, X Cancel)
+        val popupPhone = activePaymentPopupPhone
+        val popupPlan = activePaymentPopupPlan
+        if (popupPhone != null && popupPlan != null) {
+            com.example.ui.components.NeliPaymentVerificationPopup(
+                normalizedPhone = popupPhone,
+                selectedPlan = popupPlan,
+                currentUser = currentUser,
+                wasAlreadyActiveBeforePopup = wasActiveBeforePopup,
+                onPaymentConfirmedReturnHome = {
+                    activePaymentPopupPhone = null
+                    activePaymentPopupPlan = null
+                    onBackToHome()
+                },
+                onCancelledByUser = {
+                    activePaymentPopupPhone = null
+                    activePaymentPopupPlan = null
+                    statusSuccessMessage = null
+                    statusErrorMessage = null
+                    statusInfoMessage = "Umeghairi malipo. Unaweza kuchagua kifurushi wakati wowote ukiwa tayari."
+                }
+            )
         }
     }
 }

@@ -51,6 +51,13 @@ object OfflineDownloadManager {
 
     const val SPECIAL_DEVICE_FOLDER_NAME = "NeliTV"
     const val SPECIAL_DEVICE_FOLDER_DISPLAY_PATH = "In-App Private Storage (NeliTV Only)"
+    const val PUBLIC_PHONE_MOVIE_FOLDER = "NeliTv Movie"
+
+    sealed interface SaveToPhoneResult {
+        data class Saved(val folderPath: String, val fileName: String) : SaveToPhoneResult
+        data class AlreadyExists(val folderPath: String, val fileName: String) : SaveToPhoneResult
+        data class Failed(val reason: String) : SaveToPhoneResult
+    }
 
     private const val NOTIFICATION_CHANNEL_ID = "neli_offline_downloads_channel"
     private const val NOTIFICATION_CHANNEL_NAME = "Nelitv Background Downloads"
@@ -191,6 +198,175 @@ object OfflineDownloadManager {
             }
         } catch (_: Exception) {
             sourceFile
+        }
+    }
+
+    /**
+     * Builds a clean, single-copy public filename for the phone's `Movies/NeliTv Movie` folder
+     * so saving the same movie twice never creates duplicates.
+     */
+    fun buildPublicPhoneMovieFileName(title: String, extension: String = "mp4"): String {
+        val cleanExt = extension.trim().removePrefix(".").lowercase(Locale.US).ifBlank { "mp4" }
+        val cleanTitle = title
+            .replace(Regex("[\\\\/:*?\"<>|\\n\\r\\t]"), " ")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+            .take(64)
+            .ifBlank { "NeliTv Movie" }
+        return "$cleanTitle.$cleanExt"
+    }
+
+    /**
+     * Saves an already-downloaded movie/episode to the phone's public `Movies/NeliTv Movie` folder:
+     * - Independent copy: deleting it in the phone's Files/Gallery leaves the in-app copy intact,
+     *   and deleting it inside the app leaves the phone's `NeliTv Movie` file intact.
+     * - Strictly duplicate-free: if the movie already exists in `Movies/NeliTv Movie`, it is NOT
+     *   duplicated and returns [SaveToPhoneResult.AlreadyExists].
+     */
+    suspend fun saveDownloadedMovieToPhone(
+        context: Context,
+        item: DownloadedItemEntity
+    ): SaveToPhoneResult = withContext(Dispatchers.IO) {
+        try {
+            val appContext = context.applicationContext
+            val sourcePath = item.localFilePath.trim()
+            val sourceFile = File(sourcePath)
+            if (sourcePath.isBlank() || !sourceFile.exists()) {
+                return@withContext SaveToPhoneResult.Failed("Faili la movie halijakamilika bado kwenye simu.")
+            }
+
+            val isHlsPlaylist = sourceFile.name.endsWith(".m3u8", ignoreCase = true)
+            val ext = when {
+                isHlsPlaylist -> "ts"
+                sourceFile.extension.equals("mp4", true) -> "mp4"
+                sourceFile.extension.equals("ts", true) -> "ts"
+                sourceFile.extension.equals("mkv", true) -> "mkv"
+                else -> "mp4"
+            }
+            val mimeType = when (ext) {
+                "ts" -> "video/mp2t"
+                "mkv" -> "video/x-matroska"
+                else -> "video/mp4"
+            }
+            val displayName = buildPublicPhoneMovieFileName(item.title, ext)
+            val displayFolder = "Movies/$PUBLIC_PHONE_MOVIE_FOLDER"
+
+            val orderedSegments: List<File> = if (isHlsPlaylist) {
+                val parent = sourceFile.parentFile
+                    ?: return@withContext SaveToPhoneResult.Failed("Folda ya video haikupatikana.")
+                val lines = sourceFile.readLines()
+                val playlistSegs = lines.map { it.trim() }
+                    .filter { it.isNotBlank() && !it.startsWith("#") }
+                    .map { File(parent, it) }
+                    .filter { it.exists() && it.length() > 0L }
+                playlistSegs.ifEmpty {
+                    parent.listFiles()
+                        ?.filter { it.isFile && !it.name.endsWith(".m3u8", true) && it.length() > 0L }
+                        ?.sortedBy { it.name }
+                        .orEmpty()
+                }
+            } else {
+                listOf(sourceFile)
+            }
+
+            val totalBytes = orderedSegments.sumOf { it.length() }
+            if (orderedSegments.isEmpty() || totalBytes <= MIN_VALID_VIDEO_BYTES) {
+                return@withContext SaveToPhoneResult.Failed("Video haina data ya kutosha kuhifadhiwa.")
+            }
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val resolver = appContext.contentResolver
+                val relativePath = "${Environment.DIRECTORY_MOVIES}/$PUBLIC_PHONE_MOVIE_FOLDER/"
+                val projection = arrayOf(MediaStore.Video.Media._ID, MediaStore.Video.Media.SIZE)
+                val selection =
+                    "${MediaStore.Video.Media.DISPLAY_NAME} = ? AND ${MediaStore.Video.Media.RELATIVE_PATH} LIKE ?"
+                val selectionArgs = arrayOf(displayName, "%$PUBLIC_PHONE_MOVIE_FOLDER%")
+
+                // Duplicate guard: check if this exact movie already exists in Movies/NeliTv Movie
+                resolver.query(
+                    MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+                    projection,
+                    selection,
+                    selectionArgs,
+                    null
+                )?.use { cursor ->
+                    while (cursor.moveToNext()) {
+                        val existingSize = cursor.getLong(1)
+                        if (existingSize > MIN_VALID_VIDEO_BYTES) {
+                            return@withContext SaveToPhoneResult.AlreadyExists(displayFolder, displayName)
+                        }
+                    }
+                }
+
+                val values = ContentValues().apply {
+                    put(MediaStore.Video.Media.DISPLAY_NAME, displayName)
+                    put(MediaStore.Video.Media.MIME_TYPE, mimeType)
+                    put(MediaStore.Video.Media.RELATIVE_PATH, relativePath)
+                    put(MediaStore.Video.Media.IS_PENDING, 1)
+                }
+
+                val insertedUri = resolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values)
+                    ?: return@withContext SaveToPhoneResult.Failed("Imeshindikana kutengeneza faili kwenye $displayFolder.")
+
+                try {
+                    resolver.openOutputStream(insertedUri)?.use { outStream ->
+                        val buffer = ByteArray(64 * 1024)
+                        for (seg in orderedSegments) {
+                            FileInputStream(seg).use { input ->
+                                while (true) {
+                                    val read = input.read(buffer)
+                                    if (read <= 0) break
+                                    outStream.write(buffer, 0, read)
+                                }
+                            }
+                        }
+                        outStream.flush()
+                    } ?: throw IllegalStateException("Imeshindikana kufungua hifadhi ya simu.")
+
+                    val finalizeValues = ContentValues().apply {
+                        put(MediaStore.Video.Media.IS_PENDING, 0)
+                    }
+                    resolver.update(insertedUri, finalizeValues, null, null)
+                    SaveToPhoneResult.Saved(displayFolder, displayName)
+                } catch (writeErr: Throwable) {
+                    runCatching { resolver.delete(insertedUri, null, null) }
+                    SaveToPhoneResult.Failed(writeErr.message ?: "Imeshindikana kuhifadhi kwenye simu.")
+                }
+            } else {
+                @Suppress("DEPRECATION")
+                val moviesRoot = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES)
+                val targetDir = File(moviesRoot, PUBLIC_PHONE_MOVIE_FOLDER).apply {
+                    if (!exists()) mkdirs()
+                }
+                val targetFile = File(targetDir, displayName)
+                if (targetFile.exists() && targetFile.length() > MIN_VALID_VIDEO_BYTES) {
+                    return@withContext SaveToPhoneResult.AlreadyExists(displayFolder, displayName)
+                }
+                FileOutputStream(targetFile).use { outStream ->
+                    val buffer = ByteArray(64 * 1024)
+                    for (seg in orderedSegments) {
+                        FileInputStream(seg).use { input ->
+                            while (true) {
+                                val read = input.read(buffer)
+                                if (read <= 0) break
+                                outStream.write(buffer, 0, read)
+                            }
+                        }
+                    }
+                    outStream.flush()
+                }
+                runCatching {
+                    MediaScannerConnection.scanFile(
+                        appContext,
+                        arrayOf(targetFile.absolutePath),
+                        arrayOf(mimeType),
+                        null
+                    )
+                }
+                SaveToPhoneResult.Saved(displayFolder, displayName)
+            }
+        } catch (e: Throwable) {
+            SaveToPhoneResult.Failed(e.message ?: "Hitilafu imetokea wakati wa kuhifadhi kwenye simu.")
         }
     }
 

@@ -24,14 +24,27 @@ class NeliApplication : Application(), ImageLoaderFactory {
         NativeLogSuppressor.suppressNonFatalNativeLogs()
         super.onCreate()
         NeliThemeManager.initialize(this)
-        com.example.data.NeliSubscriptionManager.initialize(this)
-        com.example.data.NeliAdminManager.initialize(this)
-        com.example.player.TokenManager.initializeVault(this)
-        // Offload heavy disk I/O, update checks, Room DB open, catalog loading, and Azam CDN/token pre-warming
-        // off the main thread so MainActivity's first frames & SurfaceSyncGroup transactions never stall.
-        // AdMob SDK initialization is deferred cleanly inside MainActivity after initial frame draw.
+        // Offload SharedPreferences, keystore vault, disk I/O, update checks, Room DB open,
+        // and Azam CDN/token pre-warming off the main thread AFTER a short settle window so
+        // MainActivity's initial frames & SurfaceSyncGroup transactions commit with zero contention.
         val appCtx = applicationContext
         Thread({
+            try {
+                com.example.data.NeliSubscriptionManager.initialize(appCtx)
+            } catch (_: Throwable) {
+            }
+            try {
+                com.example.data.NeliAdminManager.initialize(appCtx)
+            } catch (_: Throwable) {
+            }
+            try {
+                com.example.player.TokenManager.initializeVault(appCtx)
+            } catch (_: Throwable) {
+            }
+            try {
+                Thread.sleep(600L)
+            } catch (_: InterruptedException) {
+            }
             ensureWebViewCacheDir()
             try {
                 com.example.player.NeliLocalStreamEngine.warmUpAzamCdnAndTokenAsync()
@@ -43,8 +56,6 @@ class NeliApplication : Application(), ImageLoaderFactory {
             }
             try {
                 com.example.data.local.NeliDatabase.getInstance(appCtx)
-                com.example.data.ChannelRepository.liveChannelsFlow.value
-                com.example.data.MediaContentRepository.mediaCatalog.value
             } catch (_: Throwable) {
             }
         }, "NeliAppStartupWarmup").start()
