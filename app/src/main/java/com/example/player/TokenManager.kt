@@ -1,5 +1,6 @@
 package com.example.player
 
+import android.content.Context
 import android.net.Uri
 import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
@@ -127,6 +128,42 @@ object TokenManager {
     }
 
     /**
+     * Loads any persisted valid CDN token & optional self-hosted NeliTV token server URL
+     * from the local vault for instant 0ms startup without waiting on external APIs.
+     */
+    fun initializeVault(context: Context) {
+        NeliLocalStreamEngine.initializeVault(context)
+        syncStateFromRepository()
+    }
+
+    fun setCustomTokenServerUrl(context: Context?, url: String) {
+        NeliLocalStreamEngine.setCustomTokenServerUrl(context, url)
+    }
+
+    fun getCustomTokenServerUrl(): String = NeliLocalStreamEngine.customTokenServerUrl
+
+    private val asyncRefreshInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    /**
+     * Triggers a non-blocking background token refresh so active playback never pauses
+     * while proactively renewing an expiring token.
+     */
+    fun triggerAsyncBackgroundRefresh(forceRefresh: Boolean = false) {
+        if (!asyncRefreshInFlight.compareAndSet(false, true)) return
+        Thread({
+            try {
+                fetchLiveTokenBlocking(
+                    forceRefresh = forceRefresh,
+                    excludeProvider = getActiveExcludedProvider()
+                )
+            } catch (_: Exception) {
+            } finally {
+                asyncRefreshInFlight.set(false)
+            }
+        }, "NeliAsyncTokenRefresh").start()
+    }
+
+    /**
      * Builds the StreamZone CDN token API URL with cache-busting `?t=<ms>`, optional `fresh=1`,
      * and optional `excludeProvider=<aztv|mpingo>` matching the live web player's failover protocol.
      */
@@ -164,12 +201,13 @@ object TokenManager {
         return clean.contains("azamtvltd.co.tz", ignoreCase = true) ||
             clean.contains("/live/eds/", ignoreCase = true) ||
             clean.contains("cdntoken=", ignoreCase = true) ||
+            clean.contains("nelitv.online", ignoreCase = true) ||
             clean.contains("streamzone.fun", ignoreCase = true)
     }
 
     /**
      * Builds the HTTP headers to inject into Media3 ExoPlayer requests.
-     * Strictly scopes Azam Authorization/Origin/Referer headers to Azam/StreamZone URLs only
+     * Strictly scopes Azam Authorization/Origin/Referer headers to Azam/NeliTV CDN URLs only
      * so third-party M3U8 HLS CDNs never reject playback with HTTP 400/403.
      */
     fun buildExoPlayerHeaders(
@@ -197,12 +235,21 @@ object TokenManager {
                 headers["Origin"] = "https://getembed.live"
             }
             isAzamOrStreamzoneUrl(url) -> {
+                if (url.contains("nelitv.online", ignoreCase = true)) {
+                    val neliKey = NeliLocalStreamEngine.getConfiguredNeliTvApiKey()
+                    if (neliKey.isNotEmpty()) {
+                        headers["X-API-Key"] = neliKey
+                    }
+                    headers["Origin"] = ChannelRepository.NELITV_SERVER_BASE_URL
+                    headers["Referer"] = "${ChannelRepository.NELITV_SERVER_BASE_URL}/"
+                } else {
+                    headers["Origin"] = ChannelRepository.NELITV_SERVER_BASE_URL
+                    headers["Referer"] = "${ChannelRepository.NELITV_SERVER_BASE_URL}/"
+                }
                 if (activeToken.isNotEmpty()) {
                     headers["Authorization"] = "Bearer $activeToken"
                     headers["X-CDN-Token"] = activeToken
                     headers["cdntoken"] = activeToken
-                    headers["Origin"] = "https://streamzone.fun"
-                    headers["Referer"] = "https://streamzone.fun/"
                 }
             }
         }
@@ -337,6 +384,14 @@ object TokenManager {
             isAuthoritativeTokenApi = isAuthoritative
         )
         if (updated) {
+            NeliLocalStreamEngine.saveTokenToVault(
+                token = currentToken,
+                cdnHost = currentCdnHost,
+                provider = currentProvider,
+                source = currentSource,
+                expEpochSec = effectiveExpiryEpochSec
+            )
+            NeliLocalStreamEngine.clearTransientManifestCache()
             syncStateFromRepository()
             updateRegisteredFactories()
         }
@@ -409,59 +464,127 @@ object TokenManager {
         excludeProvider: String? = getActiveExcludedProvider()
     ): String = synchronized(blockingLock) {
         val now = System.currentTimeMillis()
-        val minCooldownMs = if (forceRefresh) 1_500L else 15_000L
+        val minCooldownMs = if (forceRefresh) 1_200L else 15_000L
         if (!bypassCooldown && lastNetworkRefreshAttemptMs > 0L && (now - lastNetworkRefreshAttemptMs) < minCooldownMs) {
             return currentToken
         }
         lastNetworkRefreshAttemptMs = now
 
         val effectiveBaseUrl = apiUrl.ifBlank { DEFAULT_TOKEN_API_URL }
+        val customServer = NeliLocalStreamEngine.customTokenServerUrl.trim()
         val cleanExclude = excludeProvider?.trim()?.lowercase()?.takeIf { it == "aztv" || it == "mpingo" }
 
-        val targetUrls = buildList {
-            if (cleanExclude != null) {
-                // First request the alternate provider with fresh=1 (e.g. aztv failed 429 -> fetch mpingo)
-                add(buildTokenApiUrl(effectiveBaseUrl, forceRefresh = true, excludeProvider = cleanExclude, nowMs = now))
+        // Build prioritized NeliTv Own Server token race batch:
+        // 1. Custom self-hosted NeliTV Token Server (if configured by Admin)
+        // 2. Primary NeliTv App Server CDN token endpoint (https://nelitv.online/baynithalex/api/cdn-token)
+        // 3. NeliTv App Server status/app/v1 content endpoints (when not switching provider)
+        // NOTE: Do NOT race Firebase RTDB in this primary batch because RTDB responds faster (~50ms)
+        // and can contain an older/rate-limited token that would cancel the live NeliTv server response.
+        val raceEndpoints = buildList {
+            if (customServer.startsWith("http", ignoreCase = true)) {
+                add(buildTokenApiUrl(customServer, forceRefresh = forceRefresh, excludeProvider = cleanExclude, nowMs = now))
             }
-            // Standard (or fresh) primary token request with cache-buster
-            add(buildTokenApiUrl(effectiveBaseUrl, forceRefresh = forceRefresh, excludeProvider = null, nowMs = now + 1L))
-            if (effectiveBaseUrl != DEFAULT_TOKEN_API_URL) {
+            if (cleanExclude != null) {
+                add(buildTokenApiUrl(effectiveBaseUrl, forceRefresh = true, excludeProvider = cleanExclude, nowMs = now))
+            } else {
+                add(buildTokenApiUrl(effectiveBaseUrl, forceRefresh = forceRefresh, excludeProvider = null, nowMs = now + 1L))
+            }
+            if (effectiveBaseUrl != DEFAULT_TOKEN_ENDPOINT_URL_FALLBACK()) {
                 add(buildTokenApiUrl(DEFAULT_TOKEN_API_URL, forceRefresh = forceRefresh, excludeProvider = cleanExclude, nowMs = now + 2L))
             }
+            if (cleanExclude == null) {
+                add(ChannelRepository.NELITV_SERVER_STATUS_URL)
+                add(ChannelRepository.NELITV_APP_SYNC_URL)
+                add(ChannelRepository.NELITV_CONTENT_API_URL)
+            }
+        }.distinct()
+
+        val winningPayload = NeliLocalStreamEngine.raceFetchFirstValidToken(
+            endpoints = raceEndpoints,
+            excludedProvider = cleanExclude
+        ) { endpoint, body ->
+            if (cleanExclude != null && endpoint.contains("excludeProvider=$cleanExclude", ignoreCase = true)) {
+                val returnedProvider = extractProviderFromPayload(body)
+                if (returnedProvider == cleanExclude) {
+                    return@raceFetchFirstValidToken false
+                }
+            }
+            val extractedToken = extractRawTokenForValidation(body)
+            if (extractedToken.isNullOrBlank() || ChannelRepository.isJwtTokenExpired(extractedToken)) {
+                return@raceFetchFirstValidToken false
+            }
+            true
+        }
+
+        if (!winningPayload.isNullOrBlank() && parseAndApplyTokenPayload(winningPayload, isAuthoritative = true)) {
+            return currentToken
+        }
+
+        // Secondary fallback race (unexcluded NeliTv server + emergency backup + Firebase RTDB mirror)
+        // ONLY if primary NeliTv server endpoints returned nothing valid.
+        val fallbackEndpoints = buildList {
+            if (cleanExclude != null) {
+                add(buildTokenApiUrl(effectiveBaseUrl, forceRefresh = true, excludeProvider = null, nowMs = now + 3L))
+                add(ChannelRepository.NELITV_SERVER_STATUS_URL)
+            }
+            add(buildTokenApiUrl(ChannelRepository.FALLBACK_STREAMZONE_TOKEN_URL, forceRefresh = forceRefresh, excludeProvider = cleanExclude, nowMs = now + 4L))
             add("https://neliplay-default-rtdb.firebaseio.com/config/azam_token.json")
             add("https://neliplay-default-rtdb.firebaseio.com/azam_token.json")
             add("https://neliplay-default-rtdb.firebaseio.com/cdn_token.json")
-        }.distinct()
+        }.distinct().filterNot { it in raceEndpoints }
 
-        for (endpoint in targetUrls) {
-            val responseText = executeHttpGet(endpoint)
-            if (!responseText.isNullOrBlank()) {
-                // If this endpoint explicitly asked to exclude a provider, reject payload if backend still echoed that provider
-                if (cleanExclude != null && endpoint.contains("excludeProvider=$cleanExclude", ignoreCase = true)) {
-                    val returnedProvider = extractProviderFromPayload(responseText)
-                    if (returnedProvider == cleanExclude) {
-                        continue
+        if (fallbackEndpoints.isNotEmpty()) {
+            val currentExp = ChannelRepository.extractJwtExpEpochSeconds(currentToken) ?: 0L
+            val isCurrentExpired = ChannelRepository.isActiveTokenExpired()
+            val fallbackPayload = NeliLocalStreamEngine.raceFetchFirstValidToken(
+                endpoints = fallbackEndpoints,
+                excludedProvider = null
+            ) { endpoint, body ->
+                val extractedToken = extractRawTokenForValidation(body)
+                if (extractedToken.isNullOrBlank() || ChannelRepository.isJwtTokenExpired(extractedToken)) {
+                    return@raceFetchFirstValidToken false
+                }
+                if (endpoint.contains("firebaseio.com", ignoreCase = true) && !isCurrentExpired && currentExp > 0L) {
+                    val candExp = ChannelRepository.extractJwtExpEpochSeconds(extractedToken) ?: 0L
+                    if (candExp <= currentExp) {
+                        return@raceFetchFirstValidToken false
                     }
                 }
-                if (parseAndApplyTokenPayload(responseText, isAuthoritative = true)) {
-                    return currentToken
-                }
+                true
             }
-        }
-
-        // Fallback: check backup channels API (`https://streamzone.fun/api/channels`) which may also embed fresh cdntokens
-        if (forceRefresh || ChannelRepository.getCachedBackupApiChannels().isEmpty()) {
-            val backupJson = executeHttpGet(ChannelRepository.CHANNELS_BACKUP_API_URL)
-            if (!backupJson.isNullOrBlank()) {
-                val parsed = ChannelRepository.parseBackupChannelsApiPayload(backupJson)
-                if (parsed.isNotEmpty()) {
-                    syncStateFromRepository()
-                }
+            if (!fallbackPayload.isNullOrBlank() && parseAndApplyTokenPayload(fallbackPayload, isAuthoritative = isCurrentExpired)) {
+                return currentToken
             }
         }
 
         syncStateFromRepository()
         return currentToken
+    }
+
+    private fun DEFAULT_TOKEN_ENDPOINT_URL_FALLBACK(): String = DEFAULT_TOKEN_API_URL
+
+    private fun extractRawTokenForValidation(payload: String): String? {
+        return try {
+            val trimmed = payload.trim()
+            if (trimmed.isEmpty() || trimmed == "null") return null
+            if (trimmed.startsWith("eyJ") && !trimmed.startsWith("{")) {
+                return trimmed.removeSurrounding("\"")
+            }
+            if (!trimmed.startsWith("{")) return null
+            val root = org.json.JSONObject(trimmed)
+            val data = root.optJSONObject("data")
+                ?: root.optJSONObject("result")
+                ?: root.optJSONObject("payload")
+                ?: root
+            val keys = listOf("token", "cdnToken", "cdntoken", "cdn_token", "azamToken", "azam_token", "access_token", "jwt", "value")
+            for (k in keys) {
+                val v = data.optString(k, root.optString(k, "")).trim()
+                if (v.isNotEmpty() && !v.startsWith("{")) return v
+            }
+            null
+        } catch (_: Exception) {
+            null
+        }
     }
 
     private fun extractProviderFromPayload(payload: String): String? {
@@ -534,19 +657,22 @@ object TokenManager {
     suspend fun renewCdnKeysAndChannels(
         failedChannel: LiveChannel? = null,
         httpStatusCode: Int? = null,
-        switchProvider: Boolean = false
+        switchProvider: Boolean = false,
+        includeBackupChannelsSync: Boolean = false
     ): LiveChannel? = withContext(Dispatchers.IO) {
         renewCdnKeysAndChannelsBlocking(
             failedChannel = failedChannel,
             httpStatusCode = httpStatusCode,
-            switchProvider = switchProvider
+            switchProvider = switchProvider,
+            includeBackupChannelsSync = includeBackupChannelsSync
         )
     }
 
     fun renewCdnKeysAndChannelsBlocking(
         failedChannel: LiveChannel? = null,
         httpStatusCode: Int? = null,
-        switchProvider: Boolean = false
+        switchProvider: Boolean = false,
+        includeBackupChannelsSync: Boolean = false
     ): LiveChannel? = synchronized(blockingLock) {
         val now = System.currentTimeMillis()
         val isRateLimitOrAuthFail = httpStatusCode == 429 || httpStatusCode == 401 || httpStatusCode == 403
@@ -562,20 +688,44 @@ object TokenManager {
                 getActiveExcludedProvider(now)
             }
 
-            // 1. Force fresh CDN authorization token from primary/fallback provider + RTDB
+            // 1. Fast parallel race for fresh CDN authorization token (custom server / RTDB / alternate provider)
             fetchLiveTokenBlocking(
                 forceRefresh = true,
                 bypassCooldown = true,
                 excludeProvider = providerToExclude
             )
 
-            // 2. Also refresh backup channels API so rotated ClearKeys & updated CDN hosts/manifests apply immediately
-            try {
-                val backupJson = executeHttpGet(ChannelRepository.CHANNELS_BACKUP_API_URL)
-                if (!backupJson.isNullOrBlank()) {
-                    ChannelRepository.parseBackupChannelsApiPayload(backupJson)
+            // 2. Never block live playback waiting on the heavy channels API JSON;
+            //    only run it synchronously when explicitly requested, otherwise refresh in the background
+            //    from NeliTv App Server (/baynithalex/api/channels -> /api/v1/content -> /baynithalex/api/app).
+            val channelSyncCandidates = listOf(
+                ChannelRepository.CHANNELS_BACKUP_API_URL,
+                ChannelRepository.NELITV_CONTENT_API_URL,
+                ChannelRepository.NELITV_APP_SYNC_URL
+            ).distinct()
+            if (includeBackupChannelsSync) {
+                for (chEndpoint in channelSyncCandidates) {
+                    try {
+                        val backupJson = executeHttpGet(chEndpoint)
+                        if (!backupJson.isNullOrBlank() && ChannelRepository.parseBackupChannelsApiPayload(backupJson).isNotEmpty()) {
+                            break
+                        }
+                    } catch (_: Exception) {
+                    }
                 }
-            } catch (_: Exception) {
+            } else if (ChannelRepository.getCachedBackupApiChannels().isEmpty()) {
+                Thread({
+                    for (chEndpoint in channelSyncCandidates) {
+                        try {
+                            val backupJson = executeHttpGet(chEndpoint)
+                            if (!backupJson.isNullOrBlank() && ChannelRepository.parseBackupChannelsApiPayload(backupJson).isNotEmpty()) {
+                                syncStateFromRepository()
+                                break
+                            }
+                        } catch (_: Exception) {
+                        }
+                    }
+                }, "NeliBackupChannelsAsyncSync").start()
             }
 
             // 3. Re-normalize all live channels with the newly renewed CDN token and ClearKeys
@@ -589,9 +739,9 @@ object TokenManager {
         val backupMatch = ChannelRepository.findBackupChannelFor(failedChannel)
         val mergedClearKeys = ChannelRepository.resolveClearKeysForChannel(
             failedChannel.copy(
-                clearKeys = (backupMatch?.clearKeys ?: emptyMap()) +
+                clearKeys = failedChannel.clearKeys +
                     (refreshedFromRepo?.clearKeys ?: emptyMap()) +
-                    failedChannel.clearKeys
+                    (backupMatch?.clearKeys ?: emptyMap())
             )
         )
         val freshPrimary = ChannelRepository.resolvePlayableAzamManifestUrl(
@@ -605,12 +755,20 @@ object TokenManager {
             ).let { raw ->
                 if (raw.isNotBlank()) ChannelRepository.resolvePlayableAzamManifestUrl(raw) else ""
             }
+        val freshFormat = refreshedFromRepo?.streamFormat?.ifBlank { null }
+            ?: backupMatch?.streamFormat?.ifBlank { null }
+            ?: failedChannel.streamFormat
 
         return failedChannel.copy(
             streamUrl = freshPrimary,
             backupStreamUrl = freshBackup,
             clearKeys = mergedClearKeys,
-            encryptionType = if (mergedClearKeys.isNotEmpty()) "clearkey" else failedChannel.encryptionType
+            streamFormat = freshFormat,
+            encryptionType = if (mergedClearKeys.isNotEmpty()) {
+                "clearkey"
+            } else {
+                refreshedFromRepo?.encryptionType?.ifBlank { null } ?: failedChannel.encryptionType
+            }
         )
     }
 
@@ -642,17 +800,26 @@ object TokenManager {
     private fun executeHttpGet(urlStr: String): String? {
         var connection: HttpURLConnection? = null
         return try {
-            val url = URL(urlStr)
+            val effectiveUrl = NeliLocalStreamEngine.appendNeliTvApiKeyIfNeeded(urlStr)
+            val url = URL(effectiveUrl)
             connection = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "GET"
-                connectTimeout = 8_000
-                readTimeout = 18_000
+                connectTimeout = 4_000
+                readTimeout = 6_000
                 instanceFollowRedirects = true
                 useCaches = false
                 setRequestProperty("User-Agent", USER_AGENT)
                 setRequestProperty("Accept", "application/json, text/plain, */*")
                 setRequestProperty("Cache-Control", "no-store, no-cache")
-                if (urlStr.contains("streamzone.fun", ignoreCase = true)) {
+                if (effectiveUrl.contains("nelitv.online", ignoreCase = true)) {
+                    setRequestProperty("Origin", ChannelRepository.NELITV_SERVER_BASE_URL)
+                    setRequestProperty("Referer", "${ChannelRepository.NELITV_SERVER_BASE_URL}/")
+                    val apiKey = NeliLocalStreamEngine.getConfiguredNeliTvApiKey()
+                    if (apiKey.isNotEmpty()) {
+                        setRequestProperty("X-API-Key", apiKey)
+                        setRequestProperty("Authorization", "Bearer $apiKey")
+                    }
+                } else if (effectiveUrl.contains("streamzone.fun", ignoreCase = true)) {
                     setRequestProperty("Origin", "https://streamzone.fun")
                     setRequestProperty("Referer", "https://streamzone.fun/")
                 }

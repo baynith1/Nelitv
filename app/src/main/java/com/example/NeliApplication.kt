@@ -23,12 +23,31 @@ class NeliApplication : Application(), ImageLoaderFactory {
     override fun onCreate() {
         NativeLogSuppressor.suppressNonFatalNativeLogs()
         super.onCreate()
-        ensureWebViewCacheDir()
         NeliThemeManager.initialize(this)
         com.example.data.NeliSubscriptionManager.initialize(this)
         com.example.data.NeliAdminManager.initialize(this)
-        com.example.data.NeliAppUpdateManager.initialize(this)
-        com.example.ads.NeliAdManager.initialize(this)
+        com.example.player.TokenManager.initializeVault(this)
+        // Offload heavy disk I/O, update checks, Room DB open, catalog loading, and Azam CDN/token pre-warming
+        // off the main thread so MainActivity's first frames & SurfaceSyncGroup transactions never stall.
+        // AdMob SDK initialization is deferred cleanly inside MainActivity after initial frame draw.
+        val appCtx = applicationContext
+        Thread({
+            ensureWebViewCacheDir()
+            try {
+                com.example.player.NeliLocalStreamEngine.warmUpAzamCdnAndTokenAsync()
+            } catch (_: Throwable) {
+            }
+            try {
+                com.example.data.NeliAppUpdateManager.initialize(appCtx)
+            } catch (_: Throwable) {
+            }
+            try {
+                com.example.data.local.NeliDatabase.getInstance(appCtx)
+                com.example.data.ChannelRepository.liveChannelsFlow.value
+                com.example.data.MediaContentRepository.mediaCatalog.value
+            } catch (_: Throwable) {
+            }
+        }, "NeliAppStartupWarmup").start()
     }
 
     private fun ensureWebViewCacheDir() {

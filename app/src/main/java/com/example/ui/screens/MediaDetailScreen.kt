@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -19,12 +21,13 @@ import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -39,21 +42,17 @@ import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Downloading
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.HighQuality
 import androidx.compose.material.icons.filled.Movie
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.SkipNext
-import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
@@ -68,6 +67,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -81,6 +81,9 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.example.ads.AdMobBannerAd
+import com.example.ads.AdMobNativeCardAd
+import com.example.ads.NeliAdManager
 import com.example.data.MediaContentRepository
 import com.example.data.TmdbRepository
 import com.example.model.CastMember
@@ -90,17 +93,16 @@ import com.example.model.LiveChannel
 import com.example.model.MediaContent
 import com.example.ui.theme.NeliBackground
 import com.example.ui.theme.NeliCardPurple
-import com.example.ui.theme.NeliDurationViolet
 import com.example.ui.theme.NeliGenreCyan
 import com.example.ui.theme.NeliMagenta
 import com.example.ui.theme.NeliSurface
 import com.example.ui.theme.NeliSurfaceVariant
 import com.example.ui.theme.NeliTextPrimary
 import com.example.ui.theme.NeliTextSecondary
-import com.example.ads.AdMobBannerAd
-import com.example.ads.AdMobNativeCardAd
-import com.example.ads.NeliAdManager
+import com.example.ui.theme.NeliWarmOrange
+import com.example.ui.theme.rememberNeliScreenProfile
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun MediaDetailScreen(
     media: MediaContent,
@@ -177,24 +179,22 @@ fun MediaDetailScreen(
     }
 
     val detailContext = LocalContext.current
-    val guaranteedStatusBarTop = remember(detailContext) {
-        val resId = detailContext.resources.getIdentifier("status_bar_height", "dimen", "android")
-        if (resId > 0) {
-            val px = detailContext.resources.getDimensionPixelSize(resId)
-            val density = detailContext.resources.displayMetrics.density.coerceAtLeast(1f)
-            (px / density).dp.coerceAtLeast(32.dp)
+    val screenProfile = rememberNeliScreenProfile()
+    val isNarrow = screenProfile.isSmallPhone || screenProfile.widthDp < 380
+
+    val cutoutTop = WindowInsets.displayCutout.asPaddingValues().calculateTopPadding()
+    val statusTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val floatingHeaderTopPadding = maxOf(cutoutTop, statusTop, 14.dp)
+
+    val triggerPrimaryPlay: () -> Unit = {
+        if (media.isSeries && currentVodEpisode != null) {
+            onPlayChannel(currentVodEpisode.toPlayableChannel(media.title))
         } else {
-            32.dp
+            onPlayChannel(media.toPlayableChannel())
         }
     }
-    val systemStatusBarTop = WindowInsets.statusBars.union(WindowInsets.displayCutout).asPaddingValues().calculateTopPadding()
-    val safeDetailTopPadding = if (systemStatusBarTop < guaranteedStatusBarTop) {
-        guaranteedStatusBarTop
-    } else {
-        systemStatusBarTop
-    }
 
-    Column(
+    Box(
         modifier = modifier
             .fillMaxSize()
             .background(NeliBackground)
@@ -202,73 +202,15 @@ fun MediaDetailScreen(
             .windowInsetsPadding(WindowInsets.navigationBars)
             .testTag("media_detail_screen")
     ) {
-        // Pinned Status-Bar-Safe Top Bar so content never collides with phone's top status bar or notification icons
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(Color(0xFF120426))
-                .padding(top = safeDetailTopPadding)
-                .padding(horizontal = 16.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(
-                onClick = onBack,
-                modifier = Modifier
-                    .testTag("detail_back_button")
-                    .size(44.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xAA2B1055))
-            ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back",
-                    tint = Color.White
-                )
-            }
-
-            Text(
-                text = media.title,
-                color = NeliTextPrimary,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.ExtraBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(horizontal = 12.dp)
-            )
-
-            IconButton(
-                onClick = { onToggleWatchlist(media) },
-                modifier = Modifier
-                    .testTag("detail_watchlist_button")
-                    .size(44.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xAA2B1055))
-            ) {
-                Icon(
-                    imageVector = if (isInWatchlist) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
-                    contentDescription = if (isInWatchlist) "Remove from Watchlist" else "Add to Watchlist",
-                    tint = if (isInWatchlist) NeliMagenta else Color.White
-                )
-            }
-        }
-
         LazyColumn(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f),
-            contentPadding = PaddingValues(bottom = 100.dp)
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = 84.dp)
         ) {
-            // Responsive Hero Backdrop Header
-            item {
-                BoxWithConstraints(
-                    modifier = Modifier.fillMaxWidth()
-                ) {
+            // 1. Full-Bleed Cinema Hero Artwork with Floating Glass Top Controls & Overlapping Circular Play Trigger
+            item(key = "detail_cinema_hero") {
+                BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
                     val isTablet = maxWidth >= 600.dp
-                    val headerHeight = if (isTablet) 300.dp else (maxWidth * 0.56f).coerceIn(210.dp, 260.dp)
-                    val context = LocalContext.current
+                    val heroHeight = if (isTablet) 360.dp else (maxWidth * 0.78f).coerceIn(275.dp, 345.dp)
                     val heroBackdropUrl = remember(media.id, media.backdropUrl, media.posterUrl, media.streamUrl) {
                         MediaContentRepository.resolveGuaranteedMediaImageUrl(
                             media.backdropUrl,
@@ -277,657 +219,769 @@ fun MediaDetailScreen(
                         )
                     }
                     val heroRequest = remember(media.id, heroBackdropUrl) {
-                        ImageRequest.Builder(context)
+                        ImageRequest.Builder(detailContext)
                             .data(heroBackdropUrl)
-                            .crossfade(false)
+                            .crossfade(true)
                             .build()
                     }
+
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(headerHeight)
-                            .background(NeliSurfaceVariant)
+                            .height(heroHeight + 28.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Movie,
-                            contentDescription = null,
-                            tint = NeliMagenta.copy(alpha = 0.45f),
-                            modifier = Modifier
-                                .align(Alignment.Center)
-                                .size(56.dp)
-                        )
-                        AsyncImage(
-                            model = heroRequest,
-                            contentDescription = media.title,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize()
-                        )
-
+                        // Rounded bottom-edge Cinema Backdrop
                         Box(
                             modifier = Modifier
-                                .fillMaxSize()
-                                .background(
-                                    Brush.verticalGradient(
-                                        colors = listOf(
-                                            Color(0x5514052B),
-                                            Color(0x4414052B),
-                                            NeliBackground
+                                .fillMaxWidth()
+                                .height(heroHeight)
+                                .clip(RoundedCornerShape(bottomStart = 30.dp, bottomEnd = 30.dp))
+                                .background(NeliSurfaceVariant)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Movie,
+                                contentDescription = null,
+                                tint = NeliMagenta.copy(alpha = 0.35f),
+                                modifier = Modifier
+                                    .align(Alignment.Center)
+                                    .size(64.dp)
+                            )
+                            AsyncImage(
+                                model = heroRequest,
+                                contentDescription = media.title,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+
+                            // Atmospheric top + bottom gradient scrim for effortless readability
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(
+                                        Brush.verticalGradient(
+                                            colorStops = arrayOf(
+                                                0.0f to Color(0x88070913),
+                                                0.28f to Color.Transparent,
+                                                0.68f to Color(0x55070913),
+                                                1.0f to NeliBackground
+                                            )
                                         )
                                     )
-                                )
-                        )
+                            )
 
-                        // Floating Play Button on Backdrop
+                            // Floating Glass Back & Bookmark Buttons over Full-Bleed Artwork
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = floatingHeaderTopPadding)
+                                    .padding(horizontal = 16.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                IconButton(
+                                    onClick = onBack,
+                                    modifier = Modifier
+                                        .testTag("detail_back_button")
+                                        .size(44.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0x880D1226))
+                                        .border(1.dp, Color(0x44FFFFFF), CircleShape)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                        contentDescription = "Back",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                }
+
+                                IconButton(
+                                    onClick = { onToggleWatchlist(media) },
+                                    modifier = Modifier
+                                        .testTag("detail_watchlist_button")
+                                        .size(44.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0x880D1226))
+                                        .border(
+                                            width = 1.dp,
+                                            color = if (isInWatchlist) NeliMagenta else Color(0x44FFFFFF),
+                                            shape = CircleShape
+                                        )
+                                ) {
+                                    Icon(
+                                        imageVector = if (isInWatchlist) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                                        contentDescription = if (isInWatchlist) "Remove from Watchlist" else "Add to Watchlist",
+                                        tint = if (isInWatchlist) NeliMagenta else Color.White,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        // Centered Overlapping Circular Play Button (matching Reference Image 1 right)
                         Box(
                             modifier = Modifier
-                                .align(Alignment.Center)
-                                .size(68.dp)
+                                .align(Alignment.BottomCenter)
+                                .size(66.dp)
+                                .shadow(
+                                    elevation = 16.dp,
+                                    shape = CircleShape,
+                                    ambientColor = NeliMagenta,
+                                    spotColor = NeliMagenta
+                                )
                                 .clip(CircleShape)
-                                .background(NeliMagenta)
-                                .clickable {
-                                    if (media.isSeries && currentVodEpisode != null) {
-                                        onPlayChannel(currentVodEpisode.toPlayableChannel(media.title))
-                                    } else {
-                                        onPlayChannel(media.toPlayableChannel())
-                                    }
-                                },
+                                .background(
+                                    Brush.linearGradient(
+                                        listOf(NeliMagenta, NeliWarmOrange)
+                                    )
+                                )
+                                .border(3.dp, NeliBackground, CircleShape)
+                                .clickable(onClick = triggerPrimaryPlay),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 imageVector = Icons.Default.PlayArrow,
                                 contentDescription = "Play Now",
                                 tint = Color.White,
-                                modifier = Modifier.size(38.dp)
+                                modifier = Modifier.size(36.dp)
                             )
                         }
                     }
                 }
             }
 
-            // Download progress stays strictly inside the Downloads tab (never cluttering other movie pages)
-
-        // Title, Badges & Action Buttons
-        item {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-            ) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
+            // 2. Clean Structured Metadata Header: Release Year, Title, Pill Chips, Rating Row & Gradient CTA
+            item(key = "detail_metadata_header") {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = if (isNarrow) 16.dp else 20.dp)
+                        .padding(top = 8.dp)
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(NeliGenreCyan)
-                            .padding(horizontal = 10.dp, vertical = 4.dp)
-                    ) {
-                        Text(
-                            text = media.genre.uppercase(),
-                            color = Color.White,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.ExtraBold
-                        )
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(NeliDurationViolet)
-                            .padding(horizontal = 10.dp, vertical = 4.dp)
-                    ) {
-                        Text(
-                            text = media.duration,
-                            color = Color.White,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-
-                    Row(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(NeliMagenta)
-                            .padding(horizontal = 10.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Star,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(12.dp)
-                        )
-                        Text(
-                            text = media.rating,
-                            color = Color.White,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.ExtraBold
-                        )
-                    }
-
-                    if (media.narrated && media.narrationLanguage.isNotBlank()) {
-                        Row(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(Color(0xFF10B981))
-                                .padding(horizontal = 10.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.GraphicEq,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(12.dp)
-                            )
-                            Text(
-                                text = media.narrationLanguage.uppercase(),
-                                color = Color.White,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.ExtraBold
-                            )
+                    // Eyebrow release date / original title
+                    val eyebrowText = buildString {
+                        if (media.releaseYear.isNotBlank()) append(media.releaseYear)
+                        if (media.originalTitle.isNotBlank() && media.originalTitle != media.title) {
+                            if (isNotEmpty()) append("  •  ")
+                            append(media.originalTitle)
                         }
                     }
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Text(
-                    text = media.title,
-                    color = NeliTextPrimary,
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.ExtraBold
-                )
-
-                if (media.originalTitle.isNotBlank() && media.originalTitle != media.title) {
-                    Text(
-                        text = "${media.originalTitle} • ${media.releaseYear}",
-                        color = NeliTextSecondary,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                // Primary Play & Offline Download (with Quality Picker) Buttons
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Button(
-                        onClick = {
-                            if (media.isSeries && currentVodEpisode != null) {
-                                onPlayChannel(currentVodEpisode.toPlayableChannel(media.title))
-                            } else {
-                                onPlayChannel(media.toPlayableChannel())
-                            }
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta),
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(50.dp)
-                            .testTag("detail_play_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.PlayArrow,
-                            contentDescription = null,
-                            tint = Color.White
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
+                    if (eyebrowText.isNotBlank()) {
                         Text(
-                            text = when {
-                                isMediaAlreadyDownloaded -> "Watch Offline"
-                                media.isSeries && currentVodEpisode != null -> "Watch S${currentVodEpisode.seasonNumber}E${currentVodEpisode.episodeNumber}"
-                                media.isSeries -> "Watch Series"
-                                else -> "Watch Movie"
-                            },
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp,
+                            text = eyebrowText,
+                            color = NeliTextSecondary,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
+                        Spacer(modifier = Modifier.height(4.dp))
                     }
 
-                    if (media.isDownloadPermitted) {
-                        val isActivelyDownloadingThis = !isMediaAlreadyDownloaded && mediaDownloadingPct != null && mediaDownloadingPct < 100
-                        OutlinedButton(
-                            onClick = {
-                                if (isMediaAlreadyDownloaded) {
-                                    if (media.isSeries && currentVodEpisode != null) {
-                                        onPlayChannel(currentVodEpisode.toPlayableChannel(media.title))
-                                    } else {
-                                        onPlayChannel(media.toPlayableChannel())
-                                    }
-                                } else if (!isActivelyDownloadingThis) {
-                                    if (media.isSeries && currentVodEpisode != null) {
-                                        pendingEpisodeForQualityDialog = currentVodEpisode
-                                    } else {
-                                        showQualityDialogForMedia = true
-                                    }
-                                }
-                            },
-                            enabled = !isActivelyDownloadingThis,
-                            shape = RoundedCornerShape(14.dp),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                            modifier = Modifier
-                                .height(50.dp)
-                                .testTag("detail_download_button")
+                    // Bold Cinema Title
+                    Text(
+                        text = media.title,
+                        color = NeliTextPrimary,
+                        fontSize = if (isNarrow) 23.sp else 27.sp,
+                        lineHeight = if (isNarrow) 28.sp else 33.sp,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Sleek Wrapped Metadata Pills (never overflows on Samsung narrow screens!)
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        if (media.duration.isNotBlank()) {
+                            DetailMetadataPill(label = media.duration)
+                        }
+                        if (media.primaryGenre.isNotBlank()) {
+                            DetailMetadataPill(label = media.primaryGenre)
+                        }
+                        DetailMetadataPill(label = if (media.isSeries) "Series" else "Movie")
+                        if (media.narrated && media.narrationLanguage.isNotBlank()) {
+                            DetailMetadataPill(
+                                label = media.narrationLanguage,
+                                accentColor = Color(0xFF10B981),
+                                leadingIcon = Icons.Default.GraphicEq
+                            )
+                        } else {
+                            DetailMetadataPill(label = "HD")
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Rating & Social Proof Strip (Image 1 & 2 right inspired)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(NeliSurface.copy(alpha = 0.85f))
+                            .border(1.dp, Color(0x28FFFFFF), RoundedCornerShape(16.dp))
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             Icon(
-                                imageVector = when {
-                                    isMediaAlreadyDownloaded -> Icons.Default.CheckCircle
-                                    isActivelyDownloadingThis -> Icons.Default.Downloading
-                                    else -> Icons.Default.Download
-                                },
+                                imageVector = Icons.Default.Star,
                                 contentDescription = null,
-                                tint = if (isMediaAlreadyDownloaded) Color(0xFFFF4DA6) else NeliGenreCyan,
-                                modifier = Modifier.size(18.dp)
+                                tint = Color(0xFFFFC107),
+                                modifier = Modifier.size(20.dp)
                             )
-                            Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = when {
-                                    isActivelyDownloadingThis -> "$mediaDownloadingPct%"
-                                    isMediaAlreadyDownloaded -> "Offline"
-                                    else -> "Download"
-                                },
+                                text = "${media.rating}/10",
                                 color = NeliTextPrimary,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.ExtraBold
+                            )
+                            Text(
+                                text = "IMDb",
+                                color = NeliTextSecondary,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium
                             )
                         }
-                    }
-                }
 
-                // Google AdMob Banner Ad in Movie Details page
-                AdMobBannerAd(
-                    adTag = "detail_page_banner",
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 8.dp)
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Text(
-                    text = "Synopsis",
-                    color = NeliTextPrimary,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = media.synopsis,
-                    color = NeliTextSecondary,
-                    fontSize = 13.sp,
-                    lineHeight = 20.sp
-                )
-
-                if (media.productionCountries.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "Production: ${media.productionCountries.joinToString(", ")}",
-                        color = NeliGenreCyan,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-            }
-        }
-
-        // Google AdMob Native Advanced Ad Card in Media Details
-        item(key = "detail_native_sponsored_card") {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
-            ) {
-                AdMobNativeCardAd(
-                    adTag = "detail_page",
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        }
-
-        // Cast & Crew Section
-        if (media.cast.isNotEmpty()) {
-            item {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 20.dp)
-                        .testTag("detail_cast_section")
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Cast & Crew",
-                            color = NeliTextPrimary,
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.ExtraBold
-                        )
-                        Text(
-                            text = "${media.cast.size} Credits",
-                            color = NeliGenreCyan,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    LazyRow(
-                        contentPadding = PaddingValues(horizontal = 16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        items(media.cast, key = { it.id }) { member ->
-                            CastMemberCard(member = member)
-                        }
-                    }
-                }
-            }
-        }
-
-        // Series Seasons & Episodes Section
-        if (media.isSeries) {
-            item {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 20.dp)
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Seasons & Episodes",
-                            color = NeliTextPrimary,
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.ExtraBold
-                        )
-
-                        val downloadableEpisodes = filteredEpisodes.filter { it.isDownloadPermitted }
-                        if (downloadableEpisodes.size > 1) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
                             Row(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(NeliCardPurple)
-                                    .border(1.dp, NeliGenreCyan.copy(alpha = 0.6f), RoundedCornerShape(10.dp))
-                                    .clickable {
-                                        val act = detailContext as? android.app.Activity
-                                        val batchAction = {
-                                            downloadableEpisodes.forEach { ep ->
-                                                onDownloadEpisode(ep)
-                                            }
-                                        }
-                                        if (act != null) {
-                                            NeliAdManager.showDownloadRewardedAd(act) {
-                                                batchAction()
-                                            }
-                                        } else {
-                                            batchAction()
-                                        }
-                                    }
-                                    .padding(horizontal = 10.dp, vertical = 6.dp)
-                                    .testTag("download_all_season_episodes_button"),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.Download,
-                                    contentDescription = "Download All Season Episodes",
+                                    imageVector = Icons.Default.ThumbUp,
+                                    contentDescription = null,
                                     tint = NeliGenreCyan,
                                     modifier = Modifier.size(15.dp)
                                 )
                                 Text(
-                                    text = "Multi-Download Season (${filteredEpisodes.size})",
-                                    color = NeliGenreCyan,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.ExtraBold
+                                    text = if (media.narrated) "Swahili DJ" else "Top Pick",
+                                    color = NeliTextSecondary,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    softWrap = false
                                 )
                             }
                         }
                     }
 
-                    if (media.seasons.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(10.dp))
-                        LazyRow(
-                            contentPadding = PaddingValues(horizontal = 16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Primary Full-Width Neli Gradient CTA + Sleek Download Pill
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 52.dp)
+                                .clip(RoundedCornerShape(26.dp))
+                                .background(
+                                    Brush.horizontalGradient(
+                                        listOf(NeliMagenta, NeliWarmOrange)
+                                    )
+                                )
+                                .clickable(onClick = triggerPrimaryPlay)
+                                .padding(horizontal = 16.dp, vertical = 12.dp)
+                                .testTag("detail_play_button"),
+                            contentAlignment = Alignment.Center
                         ) {
-                            items(media.seasons, key = { it.seasonNumber }) { season ->
-                                val isSelected = season.seasonNumber == selectedSeasonNumber
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .background(if (isSelected) NeliMagenta else NeliCardPurple)
-                                        .border(
-                                            width = 1.dp,
-                                            color = if (isSelected) NeliMagenta else Color(0x44A855F7),
-                                            shape = RoundedCornerShape(12.dp)
-                                        )
-                                        .clickable { selectedSeasonNumber = season.seasonNumber }
-                                        .padding(horizontal = 14.dp, vertical = 8.dp)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.PlayArrow,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                                Text(
+                                    text = when {
+                                        isMediaAlreadyDownloaded -> "Watch Offline"
+                                        media.isSeries && currentVodEpisode != null -> "Watch S${currentVodEpisode.seasonNumber}E${currentVodEpisode.episodeNumber}"
+                                        media.isSeries -> "Watch Series"
+                                        else -> "Watch Movie"
+                                    },
+                                    color = Color.White,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 14.sp,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+
+                        if (media.isDownloadPermitted) {
+                            val isActivelyDownloadingThis = !isMediaAlreadyDownloaded && mediaDownloadingPct != null && mediaDownloadingPct < 100
+                            Box(
+                                modifier = Modifier
+                                    .heightIn(min = 52.dp)
+                                    .clip(RoundedCornerShape(26.dp))
+                                    .background(NeliSurfaceVariant)
+                                    .border(
+                                        width = 1.dp,
+                                        color = if (isMediaAlreadyDownloaded) NeliMagenta else NeliGenreCyan.copy(alpha = 0.55f),
+                                        shape = RoundedCornerShape(26.dp)
+                                    )
+                                    .clickable(enabled = !isActivelyDownloadingThis) {
+                                        if (isMediaAlreadyDownloaded) {
+                                            triggerPrimaryPlay()
+                                        } else if (!isActivelyDownloadingThis) {
+                                            if (media.isSeries && currentVodEpisode != null) {
+                                                pendingEpisodeForQualityDialog = currentVodEpisode
+                                            } else {
+                                                showQualityDialogForMedia = true
+                                            }
+                                        }
+                                    }
+                                    .padding(horizontal = if (isNarrow) 14.dp else 18.dp, vertical = 12.dp)
+                                    .testTag("detail_download_button"),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
+                                    Icon(
+                                        imageVector = when {
+                                            isMediaAlreadyDownloaded -> Icons.Default.CheckCircle
+                                            isActivelyDownloadingThis -> Icons.Default.Downloading
+                                            else -> Icons.Default.Download
+                                        },
+                                        contentDescription = null,
+                                        tint = if (isMediaAlreadyDownloaded) Color(0xFFFF4DA6) else NeliGenreCyan,
+                                        modifier = Modifier.size(18.dp)
+                                    )
                                     Text(
-                                        text = "${season.name} (${season.episodeCount} Eps)",
-                                        color = if (isSelected) Color.White else NeliTextPrimary,
-                                        fontSize = 12.sp,
-                                        fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium
+                                        text = when {
+                                            isActivelyDownloadingThis -> "$mediaDownloadingPct%"
+                                            isMediaAlreadyDownloaded -> "Offline"
+                                            else -> "Download"
+                                        },
+                                        color = NeliTextPrimary,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                 }
                             }
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    // Google AdMob Banner Ad in Movie Details page
+                    AdMobBannerAd(
+                        adTag = "detail_page_banner",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 10.dp)
+                    )
                 }
             }
 
-            items(filteredEpisodes, key = { it.id }) { ep ->
-                val isEpDownloaded = downloadedIds.contains(ep.id)
-                val epProgress = downloadProgress[ep.id]
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 6.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(NeliSurface)
-                        .border(1.dp, Color(0x33A855F7), RoundedCornerShape(16.dp))
-                        .clickable {
-                            val idx = filteredEpisodes.indexOfFirst { it.id == ep.id }
-                            if (idx >= 0) activeEpisodeIndex = idx
-                            onPlayChannel(ep.toPlayableChannel(media.title))
-                        }
-                        .padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    val epContext = LocalContext.current
-                    val epThumbUrl = remember(ep.id, ep.stillPath, media.backdropUrl, ep.streamUrl) {
-                        MediaContentRepository.resolveGuaranteedMediaImageUrl(
-                            ep.stillPath,
-                            media.backdropUrl,
-                            ep.streamUrl
-                        )
-                    }
-                    val epThumbRequest = remember(ep.id, epThumbUrl) {
-                        ImageRequest.Builder(epContext)
-                            .data(epThumbUrl)
-                            .size(320, 180)
-                            .crossfade(false)
-                            .build()
-                    }
-                    Box(
+            // 3. Cast & Crew Horizontal Rounded Portrait Cards (matching Reference Image 1 right)
+            if (media.cast.isNotEmpty()) {
+                item(key = "detail_cast_section_item") {
+                    Column(
                         modifier = Modifier
-                            .width(120.dp)
-                            .aspectRatio(16f / 9f)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(NeliSurfaceVariant),
-                        contentAlignment = Alignment.Center
+                            .fillMaxWidth()
+                            .padding(top = 8.dp)
+                            .testTag("detail_cast_section")
                     ) {
-                        AsyncImage(
-                            model = epThumbRequest,
-                            contentDescription = ep.name,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                        Box(
-                            modifier = Modifier
-                                .size(32.dp)
-                                .clip(CircleShape)
-                                .background(NeliMagenta.copy(alpha = 0.9f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.PlayArrow,
-                                contentDescription = "Play Episode",
-                                tint = Color.White,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                    }
-
-                    Column(modifier = Modifier.weight(1f)) {
                         Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = if (isNarrow) 16.dp else 20.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "S${ep.seasonNumber} • E${ep.episodeNumber}",
-                                color = NeliGenreCyan,
-                                fontSize = 11.sp,
+                                text = "Cast",
+                                color = NeliTextPrimary,
+                                fontSize = 19.sp,
                                 fontWeight = FontWeight.ExtraBold
                             )
-                            if (ep.narrated && ep.narrationLanguage.isNotBlank()) {
-                                Text(
-                                    text = "• ${ep.narrationLanguage}",
-                                    color = Color(0xFF10B981),
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
                             Text(
-                                text = "• ${ep.durationLabel}",
+                                text = "${media.cast.size} Credits",
                                 color = NeliTextSecondary,
-                                fontSize = 11.sp
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold
                             )
                         }
 
-                        Text(
-                            text = ep.name,
-                            color = NeliTextPrimary,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        Spacer(modifier = Modifier.height(12.dp))
 
-                        if (ep.overview.isNotBlank()) {
-                            Text(
-                                text = ep.overview,
-                                color = NeliTextSecondary,
-                                fontSize = 11.sp,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
-
-                    if (ep.isDownloadPermitted) {
-                        val isEpActivelyDownloading = !isEpDownloaded && epProgress != null && epProgress < 100
-                        IconButton(
-                            onClick = {
-                                if (isEpDownloaded) {
-                                    val idx = filteredEpisodes.indexOfFirst { it.id == ep.id }
-                                    if (idx >= 0) activeEpisodeIndex = idx
-                                    onPlayChannel(ep.toPlayableChannel(media.title))
-                                } else if (!isEpActivelyDownloading) {
-                                    pendingEpisodeForQualityDialog = ep
-                                }
-                            },
-                            enabled = !isEpActivelyDownloading,
-                            modifier = Modifier
-                                .size(48.dp)
-                                .testTag("download_episode_${ep.id}")
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = if (isNarrow) 16.dp else 20.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            Icon(
-                                imageVector = when {
-                                    isEpDownloaded -> Icons.Default.CheckCircle
-                                    isEpActivelyDownloading -> Icons.Default.Downloading
-                                    else -> Icons.Default.Download
-                                },
-                                contentDescription = if (isEpDownloaded) "Play Downloaded Episode Offline" else "Download Episode",
-                                tint = if (isEpDownloaded) Color(0xFF10B981) else NeliGenreCyan
-                            )
+                            items(media.cast, key = { it.id }) { member ->
+                                CastMemberCard(member = member)
+                            }
                         }
                     }
                 }
             }
-        }
 
-        // Recommended Movies & Series Section
-        if (recommendedMedia.isNotEmpty()) {
-            item {
+            // 4. Synopsis Section (clean cinema typography like Reference Image 1 & 2 right)
+            item(key = "detail_synopsis_section") {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 24.dp)
-                        .testTag("detail_recommended_section")
+                        .padding(horizontal = if (isNarrow) 16.dp else 20.dp)
+                        .padding(top = 20.dp)
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+                    Text(
+                        text = "Synopsis",
+                        color = NeliTextPrimary,
+                        fontSize = 19.sp,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = media.synopsis,
+                        color = NeliTextSecondary,
+                        fontSize = 14.sp,
+                        lineHeight = 22.sp
+                    )
+
+                    if (media.productionCountries.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(10.dp))
                         Text(
-                            text = "Recommended Movies & Series",
-                            color = NeliTextPrimary,
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.ExtraBold
-                        )
-                        Text(
-                            text = "More Like This",
+                            text = "Production • ${media.productionCountries.joinToString(", ")}",
                             color = NeliGenreCyan,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold
                         )
                     }
+                }
+            }
 
-                    Spacer(modifier = Modifier.height(10.dp))
+            // 5. Google AdMob Native Advanced Ad Card in Media Details
+            item(key = "detail_native_sponsored_card") {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = if (isNarrow) 16.dp else 20.dp, vertical = 12.dp)
+                ) {
+                    AdMobNativeCardAd(
+                        adTag = "detail_page",
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
 
-                    LazyRow(
-                        contentPadding = PaddingValues(horizontal = 16.dp),
+            // 6. Series Seasons & Episodes Section
+            if (media.isSeries) {
+                item(key = "detail_seasons_header") {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = if (isNarrow) 16.dp else 20.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Episodes",
+                                color = NeliTextPrimary,
+                                fontSize = 19.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                modifier = Modifier.weight(1f)
+                            )
+
+                            val downloadableEpisodes = filteredEpisodes.filter { it.isDownloadPermitted }
+                            if (downloadableEpisodes.size > 1) {
+                                Row(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .background(NeliCardPurple)
+                                        .border(1.dp, NeliGenreCyan.copy(alpha = 0.6f), RoundedCornerShape(14.dp))
+                                        .clickable {
+                                            val act = detailContext as? android.app.Activity
+                                            val batchAction = {
+                                                downloadableEpisodes.forEach { ep ->
+                                                    onDownloadEpisode(ep)
+                                                }
+                                            }
+                                            if (act != null) {
+                                                NeliAdManager.showDownloadRewardedAd(act) {
+                                                    batchAction()
+                                                }
+                                            } else {
+                                                batchAction()
+                                            }
+                                        }
+                                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                                        .testTag("download_all_season_episodes_button"),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Download,
+                                        contentDescription = "Download All Season Episodes",
+                                        tint = NeliGenreCyan,
+                                        modifier = Modifier.size(15.dp)
+                                    )
+                                    Text(
+                                        text = "Download All (${filteredEpisodes.size})",
+                                        color = NeliGenreCyan,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        maxLines = 1,
+                                        softWrap = false
+                                    )
+                                }
+                            }
+                        }
+
+                        if (media.seasons.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            LazyRow(
+                                contentPadding = PaddingValues(horizontal = if (isNarrow) 16.dp else 20.dp),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                items(media.seasons, key = { it.seasonNumber }) { season ->
+                                    val isSelected = season.seasonNumber == selectedSeasonNumber
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(20.dp))
+                                            .background(
+                                                if (isSelected) {
+                                                    Brush.horizontalGradient(listOf(NeliMagenta, NeliWarmOrange))
+                                                } else {
+                                                    androidx.compose.ui.graphics.SolidColor(NeliSurfaceVariant)
+                                                }
+                                            )
+                                            .border(
+                                                width = 1.dp,
+                                                color = if (isSelected) Color.Transparent else Color(0x33FFFFFF),
+                                                shape = RoundedCornerShape(20.dp)
+                                            )
+                                            .clickable { selectedSeasonNumber = season.seasonNumber }
+                                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                                    ) {
+                                        Text(
+                                            text = "${season.name} (${season.episodeCount})",
+                                            color = if (isSelected) Color.White else NeliTextPrimary,
+                                            fontSize = 12.sp,
+                                            fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium,
+                                            maxLines = 1,
+                                            softWrap = false
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+                    }
+                }
+
+                items(filteredEpisodes, key = { it.id }) { ep ->
+                    val isEpDownloaded = downloadedIds.contains(ep.id)
+                    val epProgress = downloadProgress[ep.id]
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = if (isNarrow) 16.dp else 20.dp, vertical = 6.dp)
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(NeliSurface)
+                            .border(1.dp, Color(0x28FFFFFF), RoundedCornerShape(18.dp))
+                            .clickable {
+                                val idx = filteredEpisodes.indexOfFirst { it.id == ep.id }
+                                if (idx >= 0) activeEpisodeIndex = idx
+                                onPlayChannel(ep.toPlayableChannel(media.title))
+                            }
+                            .padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        items(recommendedMedia, key = { "rec_${it.id}" }) { recItem ->
-                            MediaPosterCard(
-                                media = recItem,
-                                onClick = { onSelectRecommendedMedia(recItem) }
+                        val epThumbUrl = remember(ep.id, ep.stillPath, media.backdropUrl, ep.streamUrl) {
+                            MediaContentRepository.resolveGuaranteedMediaImageUrl(
+                                ep.stillPath,
+                                media.backdropUrl,
+                                ep.streamUrl
                             )
+                        }
+                        val epThumbRequest = remember(ep.id, epThumbUrl) {
+                            ImageRequest.Builder(detailContext)
+                                .data(epThumbUrl)
+                                .size(320, 180)
+                                .crossfade(false)
+                                .build()
+                        }
+                        Box(
+                            modifier = Modifier
+                                .width(if (isNarrow) 104.dp else 120.dp)
+                                .aspectRatio(16f / 9f)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(NeliSurfaceVariant),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            AsyncImage(
+                                model = epThumbRequest,
+                                contentDescription = ep.name,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .clip(CircleShape)
+                                    .background(NeliMagenta.copy(alpha = 0.92f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.PlayArrow,
+                                    contentDescription = "Play Episode",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = "S${ep.seasonNumber} • E${ep.episodeNumber}",
+                                    color = NeliGenreCyan,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                                Text(
+                                    text = "• ${ep.durationLabel}",
+                                    color = NeliTextSecondary,
+                                    fontSize = 11.sp,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
+
+                            Text(
+                                text = ep.name,
+                                color = NeliTextPrimary,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+
+                            if (ep.overview.isNotBlank()) {
+                                Text(
+                                    text = ep.overview,
+                                    color = NeliTextSecondary,
+                                    fontSize = 11.sp,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+
+                        if (ep.isDownloadPermitted) {
+                            val isEpActivelyDownloading = !isEpDownloaded && epProgress != null && epProgress < 100
+                            IconButton(
+                                onClick = {
+                                    if (isEpDownloaded) {
+                                        val idx = filteredEpisodes.indexOfFirst { it.id == ep.id }
+                                        if (idx >= 0) activeEpisodeIndex = idx
+                                        onPlayChannel(ep.toPlayableChannel(media.title))
+                                    } else if (!isEpActivelyDownloading) {
+                                        pendingEpisodeForQualityDialog = ep
+                                    }
+                                },
+                                enabled = !isEpActivelyDownloading,
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .testTag("download_episode_${ep.id}")
+                            ) {
+                                Icon(
+                                    imageVector = when {
+                                        isEpDownloaded -> Icons.Default.CheckCircle
+                                        isEpActivelyDownloading -> Icons.Default.Downloading
+                                        else -> Icons.Default.Download
+                                    },
+                                    contentDescription = if (isEpDownloaded) "Play Downloaded Episode Offline" else "Download Episode",
+                                    tint = if (isEpDownloaded) Color(0xFF10B981) else NeliGenreCyan
+                                )
+                            }
                         }
                     }
                 }
             }
-        }
+
+            // 7. Recommended Movies & Series ("For You")
+            if (recommendedMedia.isNotEmpty()) {
+                item(key = "detail_recommended_section_item") {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 24.dp)
+                            .testTag("detail_recommended_section")
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = if (isNarrow) 16.dp else 20.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "For You",
+                                color = NeliTextPrimary,
+                                fontSize = 19.sp,
+                                fontWeight = FontWeight.ExtraBold
+                            )
+                            Text(
+                                text = "More Like This",
+                                color = NeliGenreCyan,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = if (isNarrow) 16.dp else 20.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            items(recommendedMedia, key = { "rec_${it.id}" }) { recItem ->
+                                MediaPosterCard(
+                                    media = recItem,
+                                    onClick = { onSelectRecommendedMedia(recItem) }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -982,29 +1036,65 @@ fun MediaDetailScreen(
 }
 
 @Composable
+private fun DetailMetadataPill(
+    label: String,
+    accentColor: Color? = null,
+    leadingIcon: androidx.compose.ui.graphics.vector.ImageVector? = null
+) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(20.dp))
+            .background(
+                accentColor?.copy(alpha = 0.22f) ?: NeliSurfaceVariant
+            )
+            .border(
+                width = 1.dp,
+                color = accentColor?.copy(alpha = 0.55f) ?: Color(0x33FFFFFF),
+                shape = RoundedCornerShape(20.dp)
+            )
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(5.dp)
+    ) {
+        if (leadingIcon != null) {
+            Icon(
+                imageVector = leadingIcon,
+                contentDescription = null,
+                tint = accentColor ?: NeliTextPrimary,
+                modifier = Modifier.size(13.dp)
+            )
+        }
+        Text(
+            text = label,
+            color = accentColor ?: NeliTextPrimary,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
 private fun CastMemberCard(member: CastMember) {
     Column(
-        modifier = Modifier
-            .width(114.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(NeliSurface)
-            .border(1.dp, Color(0x33A855F7), RoundedCornerShape(16.dp))
-            .padding(10.dp),
+        modifier = Modifier.width(102.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         Box(
             modifier = Modifier
-                .size(64.dp)
-                .clip(CircleShape)
+                .size(96.dp)
+                .clip(RoundedCornerShape(22.dp))
                 .background(NeliCardPurple)
-                .border(1.5.dp, NeliMagenta.copy(alpha = 0.7f), CircleShape),
+                .border(1.dp, Color(0x33FFFFFF), RoundedCornerShape(22.dp)),
             contentAlignment = Alignment.Center
         ) {
             Text(
                 text = member.name.take(1).uppercase(),
                 color = Color.White,
-                fontSize = 20.sp,
+                fontSize = 24.sp,
                 fontWeight = FontWeight.ExtraBold
             )
             if (member.avatarUrl.isNotBlank()) {
@@ -1012,7 +1102,7 @@ private fun CastMemberCard(member: CastMember) {
                 val avatarReq = remember(member.id, member.avatarUrl) {
                     ImageRequest.Builder(castContext)
                         .data(member.avatarUrl)
-                        .size(160, 160)
+                        .size(220, 220)
                         .crossfade(false)
                         .build()
                 }
@@ -1035,15 +1125,17 @@ private fun CastMemberCard(member: CastMember) {
             textAlign = TextAlign.Center
         )
 
-        Text(
-            text = member.role,
-            color = NeliGenreCyan,
-            fontSize = 10.sp,
-            fontWeight = FontWeight.Medium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.Center
-        )
+        if (member.role.isNotBlank()) {
+            Text(
+                text = member.role,
+                color = NeliTextSecondary,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center
+            )
+        }
     }
 }
 
@@ -1179,7 +1271,9 @@ fun DownloadQualityDialog(
                             text = sizeEstimate,
                             color = Color.White,
                             fontSize = 10.sp,
-                            fontWeight = FontWeight.ExtraBold
+                            fontWeight = FontWeight.ExtraBold,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                 }
@@ -1194,12 +1288,14 @@ fun DownloadQualityDialog(
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier
                         .weight(1f)
-                        .height(48.dp)
+                        .heightIn(min = 48.dp)
                 ) {
                     Text(
                         text = "Cancel",
                         color = Color.White,
-                        fontWeight = FontWeight.SemiBold
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        softWrap = false
                     )
                 }
 
@@ -1209,7 +1305,7 @@ fun DownloadQualityDialog(
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier
                         .weight(1.4f)
-                        .height(48.dp)
+                        .heightIn(min = 48.dp)
                         .testTag("confirm_download_quality_button")
                 ) {
                     Icon(
@@ -1223,7 +1319,10 @@ fun DownloadQualityDialog(
                         text = "Download ${selectedQuality.resolutionBadge}",
                         color = Color.White,
                         fontWeight = FontWeight.ExtraBold,
-                        fontSize = 13.sp
+                        fontSize = 13.sp,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }

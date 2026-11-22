@@ -768,7 +768,8 @@ class LivePlayerController(
             // Dynamic buffering, bandwidth & battery-aware adaptation during active playback/buffering
             if (_playbackInfo.value.networkMode == NetworkQualityMode.AUTO_ADAPTIVE) {
                 if (player.playbackState == Player.STATE_BUFFERING) {
-                    if (bufferingEnteredAtRealtimeMs > 0L && now - bufferingEnteredAtRealtimeMs >= 4_500L) {
+                    val rebufferStepThresholdMs = if (hasReachedReadyForCurrentStream) 5_500L else 12_000L
+                    if (bufferingEnteredAtRealtimeMs > 0L && now - bufferingEnteredAtRealtimeMs >= rebufferStepThresholdMs) {
                         // Prolonged buffering stall -> step down another quality tier dynamically
                         consecutiveRebufferCount = (consecutiveRebufferCount + 1).coerceAtMost(4)
                         bufferingEnteredAtRealtimeMs = now
@@ -997,7 +998,7 @@ class LivePlayerController(
                     TokenManager.isAzamOrStreamzoneUrl(channel.streamUrl)
                 )
             val maxReconnects = when {
-                isAzamOrDashLive -> 4
+                isAzamOrDashLive -> 3
                 channel.isLiveBroadcast -> 3
                 else -> 2
             }
@@ -1017,9 +1018,8 @@ class LivePlayerController(
                     if (isAzamOrDashLive) {
                         val retryDelayMs = when {
                             httpCode == 429 && currentAttempt == 1 -> 0L
-                            httpCode == 429 && currentAttempt == 2 -> 1_200L
-                            httpCode == 429 && currentAttempt == 3 -> 2_500L
-                            httpCode == 429 -> 3_500L
+                            httpCode == 429 && currentAttempt == 2 -> 500L
+                            httpCode == 429 -> 1_000L
                             else -> 0L
                         }
                         val shouldSwitchProvider = httpCode == 429 || httpCode == 401 || httpCode == 403 || currentAttempt == 1 || currentAttempt == 3
@@ -1034,7 +1034,8 @@ class LivePlayerController(
                                     TokenManager.renewCdnKeysAndChannelsBlocking(
                                         failedChannel = channel,
                                         httpStatusCode = httpCode,
-                                        switchProvider = shouldSwitchProvider
+                                        switchProvider = shouldSwitchProvider,
+                                        includeBackupChannelsSync = currentAttempt == 1 || currentAttempt == 3
                                     )
                                 } catch (_: Exception) {
                                     null
@@ -1043,25 +1044,40 @@ class LivePlayerController(
                                     exoPlayer?.let { p ->
                                         val baseChannel = renewedChannel ?: channel
                                         val backupMatch = com.example.data.ChannelRepository.findBackupChannelFor(baseChannel)
-                                        val preferBackup = currentAttempt >= 2 && (
+                                        val useNeliProxyOnFinalAttempt = currentAttempt >= 3 &&
+                                            !baseChannel.streamUrl.contains("/api/proxy-stream", ignoreCase = true)
+                                        val preferBackup = currentAttempt == 2 && (
                                             baseChannel.backupStreamUrl.isNotBlank() &&
                                                 baseChannel.backupStreamUrl != baseChannel.streamUrl ||
                                                 !backupMatch?.streamUrl.isNullOrBlank()
                                             )
-                                        val candidateUrl = if (preferBackup) {
-                                            baseChannel.backupStreamUrl
-                                                .takeIf { it.isNotBlank() && it != baseChannel.streamUrl }
-                                                ?: backupMatch?.streamUrl?.ifBlank { null }
-                                                ?: baseChannel.streamUrl
-                                        } else {
-                                            baseChannel.streamUrl.ifBlank {
-                                                baseChannel.backupStreamUrl.ifBlank { backupMatch?.streamUrl.orEmpty() }
+                                        val candidateUrl = when {
+                                            useNeliProxyOnFinalAttempt -> {
+                                                val targetForProxy = com.example.data.ChannelRepository.resolvePlayableAzamManifestUrl(
+                                                    baseChannel.streamUrl.ifBlank { backupMatch?.streamUrl.orEmpty() }
+                                                )
+                                                NeliLocalStreamEngine.buildNeliTvProxyStreamUrl(targetForProxy)
+                                            }
+                                            preferBackup -> {
+                                                baseChannel.backupStreamUrl
+                                                    .takeIf { it.isNotBlank() && it != baseChannel.streamUrl }
+                                                    ?: backupMatch?.streamUrl?.ifBlank { null }
+                                                    ?: baseChannel.streamUrl
+                                            }
+                                            else -> {
+                                                baseChannel.streamUrl.ifBlank {
+                                                    baseChannel.backupStreamUrl.ifBlank { backupMatch?.streamUrl.orEmpty() }
+                                                }
                                             }
                                         }
                                         val mergedClearKeys = com.example.data.ChannelRepository.resolveClearKeysForChannel(
-                                            baseChannel.copy(clearKeys = (backupMatch?.clearKeys ?: emptyMap()) + baseChannel.clearKeys)
+                                            baseChannel.copy(clearKeys = baseChannel.clearKeys + (backupMatch?.clearKeys ?: emptyMap()))
                                         )
-                                        val normalizedStreamUrl = com.example.data.ChannelRepository.resolvePlayableAzamManifestUrl(candidateUrl)
+                                        val normalizedStreamUrl = if (candidateUrl.contains("/api/proxy-stream", ignoreCase = true)) {
+                                            candidateUrl
+                                        } else {
+                                            com.example.data.ChannelRepository.resolvePlayableAzamManifestUrl(candidateUrl)
+                                        }
                                         val nextBackupUrl = if (normalizedStreamUrl != baseChannel.streamUrl && baseChannel.streamUrl.isNotBlank()) {
                                             baseChannel.streamUrl
                                         } else {
@@ -1074,6 +1090,9 @@ class LivePlayerController(
                                             streamUrl = normalizedStreamUrl,
                                             backupStreamUrl = nextBackupUrl,
                                             clearKeys = mergedClearKeys,
+                                            streamFormat = baseChannel.streamFormat
+                                                .ifBlank { backupMatch?.streamFormat.orEmpty() }
+                                                .ifBlank { channel.streamFormat },
                                             encryptionType = if (mergedClearKeys.isNotEmpty()) "clearkey" else baseChannel.encryptionType
                                         )
                                         _currentChannel.value = channel
@@ -1083,21 +1102,49 @@ class LivePlayerController(
                             }.start()
                         }, retryDelayMs)
                     } else {
-                        // Standard non-Azam HLS M3U8 channel: immediately fail over to its clean backupStreamUrl without Azam headers
+                        // Standard non-Azam HLS M3U8 channel: sync latest nelitv.online URL/backup & fail over cleanly
                         mainHandler.postDelayed({
-                            exoPlayer?.let { p ->
-                                val distinctBackup = channel.backupStreamUrl.trim()
-                                    .takeIf { it.isNotBlank() && it != channel.streamUrl }
-                                if (distinctBackup != null) {
-                                    val oldPrimary = channel.streamUrl
-                                    channel = channel.copy(
-                                        streamUrl = distinctBackup,
-                                        backupStreamUrl = oldPrimary
-                                    )
-                                    _currentChannel.value = channel
+                            Thread {
+                                try {
+                                    if (currentAttempt == 1) {
+                                        NeliLocalStreamEngine.syncLiveChannelsFromNeliTvServerBlocking(forceRefresh = true)
+                                    }
+                                } catch (_: Exception) {
                                 }
-                                loadChannelStream(p, preserveVodPosition = false)
-                            }
+                                mainHandler.post {
+                                    exoPlayer?.let { p ->
+                                        val liveUpdated = com.example.data.ChannelRepository.getChannelById(channel.id)
+                                        val serverNewUrl = liveUpdated?.streamUrl?.trim()
+                                            ?.takeIf { it.isNotBlank() && it != channel.streamUrl }
+                                        val distinctBackup = channel.backupStreamUrl.trim()
+                                            .takeIf { it.isNotBlank() && it != channel.streamUrl }
+                                        val nextUrl = when {
+                                            currentAttempt == 1 && serverNewUrl != null -> serverNewUrl
+                                            distinctBackup != null -> distinctBackup
+                                            currentAttempt >= 3 && !channel.streamUrl.contains("/api/proxy-stream", ignoreCase = true) ->
+                                                NeliLocalStreamEngine.buildNeliTvProxyStreamUrl(channel.streamUrl)
+                                            else -> null
+                                        }
+                                        if (nextUrl != null) {
+                                            val oldPrimary = channel.streamUrl
+                                            val updatedClearKeys = if (liveUpdated != null && liveUpdated.clearKeys.isNotEmpty()) {
+                                                channel.clearKeys + liveUpdated.clearKeys
+                                            } else {
+                                                channel.clearKeys
+                                            }
+                                            channel = channel.copy(
+                                                streamUrl = nextUrl,
+                                                backupStreamUrl = oldPrimary,
+                                                streamFormat = liveUpdated?.streamFormat?.ifBlank { null } ?: channel.streamFormat,
+                                                clearKeys = updatedClearKeys,
+                                                encryptionType = if (updatedClearKeys.isNotEmpty()) "clearkey" else (liveUpdated?.encryptionType?.ifBlank { null } ?: channel.encryptionType)
+                                            )
+                                            _currentChannel.value = channel
+                                        }
+                                        loadChannelStream(p, preserveVodPosition = false)
+                                    }
+                                }
+                            }.start()
                         }, 250L)
                     }
                 } else {
@@ -1191,7 +1238,10 @@ class LivePlayerController(
      * without prematurely throttling down to 240p before the first frame arrives.
      */
     private fun detectInitialBitrateEstimate(): Long {
-        return if (isLowBandoNetworkDetected()) 450_000L else 2_200_000L
+        if (isLowBandoNetworkDetected()) return 450_000L
+        // Start Live TV on a fast 480p SD keyframe (~1.0 Mbps) so the first frame renders in 1-2s,
+        // then AdaptiveTrackSelection smoothly scales up to 720p/1080p HD as throughput confirms.
+        return if (channel.isLiveBroadcast) 1_000_000L else 2_200_000L
     }
 
     /**
@@ -1457,19 +1507,36 @@ class LivePlayerController(
         }
         trackSelector = selector
 
-        val loadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(
-                /* minBufferMs = */ 6_000,
-                /* maxBufferMs = */ 30_000,
-                /* bufferForPlaybackMs = */ 1_000,
-                /* bufferForPlaybackAfterRebufferMs = */ 2_000
-            )
-            .setBackBuffer(
-                /* backBufferDurationMs = */ 5_000,
-                /* retainBackBufferFromKeyframe = */ true
-            )
-            .setPrioritizeTimeOverSizeThresholds(true)
-            .build()
+        val loadControl = if (channel.isLiveBroadcast) {
+            // Fast & stable Live TV buffer: 1s startup (prevents immediate post-start rebuffer on 4-6s DASH chunks)
+            DefaultLoadControl.Builder()
+                .setBufferDurationsMs(
+                    /* minBufferMs = */ 6_000,
+                    /* maxBufferMs = */ 25_000,
+                    /* bufferForPlaybackMs = */ 1_000,
+                    /* bufferForPlaybackAfterRebufferMs = */ 2_000
+                )
+                .setBackBuffer(
+                    /* backBufferDurationMs = */ 3_000,
+                    /* retainBackBufferFromKeyframe = */ false
+                )
+                .setPrioritizeTimeOverSizeThresholds(true)
+                .build()
+        } else {
+            DefaultLoadControl.Builder()
+                .setBufferDurationsMs(
+                    /* minBufferMs = */ 6_000,
+                    /* maxBufferMs = */ 30_000,
+                    /* bufferForPlaybackMs = */ 1_000,
+                    /* bufferForPlaybackAfterRebufferMs = */ 2_000
+                )
+                .setBackBuffer(
+                    /* backBufferDurationMs = */ 5_000,
+                    /* retainBackBufferFromKeyframe = */ true
+                )
+                .setPrioritizeTimeOverSizeThresholds(true)
+                .build()
+        }
 
         val mediaAudioAttributes = AudioAttributes.Builder()
             .setUsage(C.USAGE_MEDIA)
@@ -1815,10 +1882,15 @@ class LivePlayerController(
         }
 
         val stalledDurationMs = (elapsedRealtimeMs - lastLivePositionProgressRealtimeMs).coerceAtLeast(0L)
+        val effectiveBufferingThresholdMs = if (hasReachedReadyForCurrentStream) {
+            LIVE_STREAM_STALL_AUTO_FIX_THRESHOLD_MS
+        } else {
+            16_000L
+        }
         val stallReason = when {
             state == Player.STATE_IDLE || state == Player.STATE_ENDED ->
                 "live_state_idle_or_ended"
-            state == Player.STATE_BUFFERING && stalledDurationMs >= LIVE_STREAM_STALL_AUTO_FIX_THRESHOLD_MS ->
+            state == Player.STATE_BUFFERING && stalledDurationMs >= effectiveBufferingThresholdMs ->
                 "live_buffering_stall_${stalledDurationMs}ms"
             else -> null
         } ?: return false
@@ -1855,9 +1927,24 @@ class LivePlayerController(
 
         val player = exoPlayer
         if (player != null) {
-            if (consecutiveLiveStallAutoFixes >= 3) {
-                // Escalated self-healing: refresh live CDN token off-main-thread, failover to backup URL if distinct, then reload live manifest
-                consecutiveLiveStallAutoFixes = 0
+            // Never call seekToDefaultPosition() repeatedly before initial playback has ever reached READY,
+            // as doing so aborts in-flight DASH/HLS segment downloads and traps the player in a loading loop.
+            val shouldEscalateReload = (!hasReachedReadyForCurrentStream && reason.startsWith("live_buffering_stall")) ||
+                consecutiveLiveStallAutoFixes >= 3
+            if (shouldEscalateReload) {
+                if (!hasReachedReadyForCurrentStream && consecutiveLiveStallAutoFixes >= 4) {
+                    // Already tried initial recovery + backup failover without reaching READY -> surface clear retryable error
+                    consecutiveLiveStallAutoFixes = 0
+                    player.stop()
+                    _uiState.value = PlayerUiState.Error(
+                        userFriendlyMessage = "Kuna shida ya mtandao au seva ya chaneli kwa sasa. Bonyeza Jaribu Tena.",
+                        technicalDetail = null
+                    )
+                    return true
+                }
+                if (hasReachedReadyForCurrentStream) {
+                    consecutiveLiveStallAutoFixes = 0
+                }
                 val currentCh = channel
                 val backupMatch = com.example.data.ChannelRepository.findBackupChannelFor(currentCh)
                 val distinctBackup = currentCh.backupStreamUrl.trim()
@@ -1877,9 +1964,11 @@ class LivePlayerController(
                 ) {
                     Thread {
                         try {
-                            TokenManager.handleAuthenticationFailureBlocking(
-                                failedUrl = channel.streamUrl,
-                                httpStatusCode = null
+                            TokenManager.renewCdnKeysAndChannelsBlocking(
+                                failedChannel = channel,
+                                httpStatusCode = 429,
+                                switchProvider = true,
+                                includeBackupChannelsSync = false
                             )
                         } catch (_: Exception) {
                         }
@@ -1977,19 +2066,38 @@ class LivePlayerController(
     }
 
     private fun createMediaSource(channel: LiveChannel): MediaSource {
-        val resolvedOfflineOrOnlineUrl = if (channel.isLiveBroadcast && !channel.id.startsWith("dl_")) {
-            channel.streamUrl
+        // Always prefer the freshest live channel definition synced from nelitv.online (when not in proxy fallback)
+        val liveServerChannel = if (channel.isLiveBroadcast &&
+            !channel.id.startsWith("dl_") &&
+            !channel.streamUrl.contains("/api/proxy-stream", ignoreCase = true)
+        ) {
+            val latest = com.example.data.ChannelRepository.getChannelById(channel.id)
+            if (latest != null && latest.streamUrl.isNotBlank()) {
+                channel.copy(
+                    streamUrl = latest.streamUrl,
+                    backupStreamUrl = latest.backupStreamUrl.ifBlank { channel.backupStreamUrl },
+                    clearKeys = channel.clearKeys + latest.clearKeys,
+                    streamFormat = latest.streamFormat.ifBlank { channel.streamFormat }
+                )
+            } else {
+                channel
+            }
         } else {
-            val lookupId = channel.episodeId.ifBlank { channel.id }
+            channel
+        }
+        val resolvedOfflineOrOnlineUrl = if (liveServerChannel.isLiveBroadcast && !liveServerChannel.id.startsWith("dl_")) {
+            liveServerChannel.streamUrl
+        } else {
+            val lookupId = liveServerChannel.episodeId.ifBlank { liveServerChannel.id }
             com.example.data.OfflineDownloadManager.resolveLocalOfflineUriIfPresent(
                 context = context,
                 rawId = lookupId,
-                fallbackStreamUrl = channel.streamUrl
+                fallbackStreamUrl = liveServerChannel.streamUrl
             )
         }
         val isLocalOfflineFile = resolvedOfflineOrOnlineUrl.startsWith("file:", ignoreCase = true) ||
                 resolvedOfflineOrOnlineUrl.startsWith("/")
-        val effectiveStreamUrl = if (isLocalOfflineFile) {
+        val effectiveStreamUrl = if (isLocalOfflineFile || resolvedOfflineOrOnlineUrl.contains("/api/proxy-stream", ignoreCase = true)) {
             resolvedOfflineOrOnlineUrl
         } else {
             com.example.data.ChannelRepository.resolvePlayableAzamManifestUrl(resolvedOfflineOrOnlineUrl)
@@ -2001,30 +2109,26 @@ class LivePlayerController(
         }
         val encodedManifestQuery = manifestUri.encodedQuery
 
-        val baseHttpDataSourceFactory = DefaultHttpDataSource.Factory()
-            .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(15_000)
-            .setReadTimeoutMs(25_000)
-            .setUserAgent(TokenManager.USER_AGENT)
-        TokenManager.injectHeadersIntoFactory(
-            baseHttpDataSourceFactory,
-            effectiveStreamUrl
+        // Use HTTP/2 connection-pooled OkHttp DataSource for direct low-latency CDN streaming
+        val baseHttpDataSourceFactory = NeliLocalStreamEngine.createPooledHttpDataSourceFactory(
+            streamUrl = effectiveStreamUrl,
+            isLive = liveServerChannel.isLiveBroadcast
         )
 
         // Use ClearKeyDecryptingDataSource for all online DASH/MPD, ClearKey, or Azam cdntoken streams.
         // Place the active channel's ClearKeys FIRST so fallbackKeyBytes in Mp4CencDecryptor uses this channel's key.
-        val resolvedChannelKeys = com.example.data.ChannelRepository.resolveClearKeysForChannel(channel)
+        val resolvedChannelKeys = com.example.data.ChannelRepository.resolveClearKeysForChannel(liveServerChannel)
         val mergedClearKeys = linkedMapOf<String, String>().apply {
-            putAll(channel.clearKeys)
+            putAll(liveServerChannel.clearKeys)
             putAll(resolvedChannelKeys)
             com.example.data.ChannelRepository.getAllKnownClearKeys().forEach { (k, v) ->
                 putIfAbsent(k, v)
             }
         }
         val needsClearKeyOrTokenWrapper = !isLocalOfflineFile && (
-            channel.isDash ||
+            liveServerChannel.isDash ||
                 effectiveStreamUrl.contains(".mpd", ignoreCase = true) ||
-                (channel.isClearKey && channel.clearKeys.isNotEmpty()) ||
+                (liveServerChannel.isClearKey && liveServerChannel.clearKeys.isNotEmpty()) ||
                 resolvedChannelKeys.isNotEmpty() ||
                 effectiveStreamUrl.contains("cdntoken=", ignoreCase = true) ||
                 effectiveStreamUrl.contains("azamtvltd.co.tz", ignoreCase = true) ||
@@ -2052,9 +2156,9 @@ class LivePlayerController(
         val extractorsFactory = sharedExtractorsFactory
 
         val liveConfiguration = MediaItem.LiveConfiguration.Builder()
-            .setTargetOffsetMs(4_000L)
-            .setMinOffsetMs(1_500L)
-            .setMaxOffsetMs(18_000L)
+            .setTargetOffsetMs(10_000L)
+            .setMinOffsetMs(4_000L)
+            .setMaxOffsetMs(30_000L)
             .build()
 
         val isLocalHlsPlaylist = isLocalOfflineFile &&
@@ -2062,17 +2166,17 @@ class LivePlayerController(
         val useProgressive = when (forcedContainerMode) {
             ForcedContainerMode.FORCE_PROGRESSIVE_MP4 -> true
             ForcedContainerMode.FORCE_HLS_M3U8 -> false
-            ForcedContainerMode.NONE -> (isLocalOfflineFile && !isLocalHlsPlaylist) || (!isLocalHlsPlaylist && channel.isMp4)
+            ForcedContainerMode.NONE -> (isLocalOfflineFile && !isLocalHlsPlaylist) || (!isLocalHlsPlaylist && liveServerChannel.isMp4)
         }
         val useDash = forcedContainerMode == ForcedContainerMode.NONE &&
                 !isLocalOfflineFile &&
-                (channel.isDash || effectiveStreamUrl.contains(".mpd", ignoreCase = true))
+                (liveServerChannel.isDash || effectiveStreamUrl.contains(".mpd", ignoreCase = true))
 
         val mainMediaSource = when {
             useProgressive -> {
                 val mediaItemBuilder = MediaItem.Builder()
                     .setUri(manifestUri)
-                    .setMediaId(channel.id)
+                    .setMediaId(liveServerChannel.id)
 
                 // For local offline files, let DefaultExtractorsFactory auto-sniff MP4, fMP4, MPEG-TS, or MKV headers
                 if (!isLocalOfflineFile && !effectiveStreamUrl.substringBefore("?").endsWith(".ts", ignoreCase = true)) {
@@ -2089,11 +2193,9 @@ class LivePlayerController(
                 val mediaItemBuilder = MediaItem.Builder()
                     .setUri(manifestUri)
                     .setMimeType(MimeTypes.APPLICATION_MPD)
-                    .setMediaId(channel.id)
-
-                if (channel.isLiveBroadcast) {
-                    mediaItemBuilder.setLiveConfiguration(liveConfiguration)
-                }
+                    .setMediaId(liveServerChannel.id)
+                // Do NOT force an aggressive 4s LiveConfiguration on DASH streams: let DashMediaSource
+                // honor the MPD's own suggestedPresentationDelay so ExoPlayer never requests unpublished 404 edge chunks.
 
                 DashMediaSource.Factory(dataSourceFactory)
                     .setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
@@ -2104,9 +2206,9 @@ class LivePlayerController(
                 val mediaItemBuilder = MediaItem.Builder()
                     .setUri(manifestUri)
                     .setMimeType(MimeTypes.APPLICATION_M3U8)
-                    .setMediaId(channel.id)
+                    .setMediaId(liveServerChannel.id)
 
-                if (channel.isLiveBroadcast) {
+                if (liveServerChannel.isLiveBroadcast) {
                     mediaItemBuilder.setLiveConfiguration(liveConfiguration)
                 }
 
@@ -2119,14 +2221,14 @@ class LivePlayerController(
 
         // Only merge a separate audio HLS playlist when playing a video-only variant (e.g. ESPN 7 fallback `-video=`)
         // Master manifests (`.isml/.m3u8`) already bundle their own audio tracks and must NOT be double-merged.
-        if (channel.audioStreamUrl.isNotBlank() && effectiveStreamUrl.contains("-video=", ignoreCase = true)) {
-            val audioUri = Uri.parse(channel.audioStreamUrl)
+        if (liveServerChannel.audioStreamUrl.isNotBlank() && effectiveStreamUrl.contains("-video=", ignoreCase = true)) {
+            val audioUri = Uri.parse(liveServerChannel.audioStreamUrl)
             val audioMediaItem = MediaItem.Builder()
                 .setUri(audioUri)
                 .setMimeType(MimeTypes.APPLICATION_M3U8)
-                .setMediaId("${channel.id}_audio")
+                .setMediaId("${liveServerChannel.id}_audio")
                 .apply {
-                    if (channel.isLiveBroadcast) {
+                    if (liveServerChannel.isLiveBroadcast) {
                         setLiveConfiguration(liveConfiguration)
                     }
                 }
@@ -2158,17 +2260,38 @@ class LivePlayerController(
                 channel.streamFormat.equals("dash", ignoreCase = true) ||
                 channel.clearKeys.isNotEmpty()
             if (!isAzamOrDashChannel) {
-                val backupUrl = channel.backupStreamUrl.takeIf { it.isNotBlank() && it != channel.streamUrl }
-                if (backupUrl != null) {
-                    val prevPrimary = channel.streamUrl
-                    channel = channel.copy(
-                        streamUrl = backupUrl,
-                        backupStreamUrl = prevPrimary
-                    )
-                    _currentChannel.value = channel
-                }
-                TokenManager.injectHeadersIntoFactory(sharedBaseHttpDataSourceFactory, channel.streamUrl)
-                loadChannelStream(player, preserveVodPosition = false)
+                Thread {
+                    try {
+                        NeliLocalStreamEngine.syncLiveChannelsFromNeliTvServerBlocking(forceRefresh = true)
+                    } catch (_: Exception) {
+                    }
+                    mainHandler.post {
+                        val activePlayer = exoPlayer ?: return@post
+                        val liveUpdated = com.example.data.ChannelRepository.getChannelById(channel.id)
+                        val serverNewUrl = liveUpdated?.streamUrl?.trim()
+                            ?.takeIf { it.isNotBlank() && it != channel.streamUrl }
+                        val backupUrl = channel.backupStreamUrl.takeIf { it.isNotBlank() && it != channel.streamUrl }
+                        val nextUrl = serverNewUrl ?: backupUrl
+                        if (nextUrl != null) {
+                            val prevPrimary = channel.streamUrl
+                            val updatedClearKeys = if (liveUpdated != null && liveUpdated.clearKeys.isNotEmpty()) {
+                                channel.clearKeys + liveUpdated.clearKeys
+                            } else {
+                                channel.clearKeys
+                            }
+                            channel = channel.copy(
+                                streamUrl = nextUrl,
+                                backupStreamUrl = prevPrimary,
+                                streamFormat = liveUpdated?.streamFormat?.ifBlank { null } ?: channel.streamFormat,
+                                clearKeys = updatedClearKeys,
+                                encryptionType = if (updatedClearKeys.isNotEmpty()) "clearkey" else (liveUpdated?.encryptionType?.ifBlank { null } ?: channel.encryptionType)
+                            )
+                            _currentChannel.value = channel
+                        }
+                        TokenManager.injectHeadersIntoFactory(sharedBaseHttpDataSourceFactory, channel.streamUrl)
+                        loadChannelStream(activePlayer, preserveVodPosition = false)
+                    }
+                }.start()
                 return
             }
             Thread {
@@ -2176,7 +2299,8 @@ class LivePlayerController(
                     TokenManager.renewCdnKeysAndChannelsBlocking(
                         failedChannel = channel,
                         httpStatusCode = 429,
-                        switchProvider = true
+                        switchProvider = true,
+                        includeBackupChannelsSync = true
                     )
                 } catch (_: Exception) {
                     null
@@ -2185,11 +2309,11 @@ class LivePlayerController(
                     val activePlayer = exoPlayer ?: return@post
                     val baseChannel = renewedChannel ?: channel
                     val backupMatch = com.example.data.ChannelRepository.findBackupChannelFor(baseChannel)
-                    val failoverUrl = baseChannel.backupStreamUrl
+                    val failoverUrl = baseChannel.streamUrl
+                        .ifBlank { baseChannel.backupStreamUrl }
                         .ifBlank { backupMatch?.streamUrl.orEmpty() }
-                        .ifBlank { baseChannel.streamUrl }
                     val mergedClearKeys = com.example.data.ChannelRepository.resolveClearKeysForChannel(
-                        baseChannel.copy(clearKeys = (backupMatch?.clearKeys ?: emptyMap()) + baseChannel.clearKeys)
+                        baseChannel.copy(clearKeys = baseChannel.clearKeys + (backupMatch?.clearKeys ?: emptyMap()))
                     )
                     val normalizedStreamUrl = com.example.data.ChannelRepository.resolvePlayableAzamManifestUrl(failoverUrl)
                     TokenManager.injectHeadersIntoFactory(sharedBaseHttpDataSourceFactory, normalizedStreamUrl)
@@ -2203,6 +2327,9 @@ class LivePlayerController(
                             }
                         },
                         clearKeys = mergedClearKeys,
+                        streamFormat = baseChannel.streamFormat
+                            .ifBlank { backupMatch?.streamFormat.orEmpty() }
+                            .ifBlank { channel.streamFormat },
                         encryptionType = if (mergedClearKeys.isNotEmpty()) "clearkey" else baseChannel.encryptionType
                     )
                     _currentChannel.value = channel

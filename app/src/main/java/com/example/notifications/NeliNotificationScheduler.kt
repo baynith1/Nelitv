@@ -16,12 +16,15 @@ import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.Typeface
+import android.media.AudioAttributes
+import android.media.RingtoneManager
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import com.example.MainActivity
 import com.example.R
 import com.example.data.ChannelRepository
 import com.example.data.MediaContentRepository
+import com.example.data.NeliWatchProgressManager
 import com.example.data.TmdbRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -46,8 +49,9 @@ import java.util.TimeZone
  */
 object NeliNotificationScheduler {
 
-    const val DAILY_NOTIFICATION_CHANNEL_ID = "neli_daily_schedule_channel"
-    const val DAILY_NOTIFICATION_CHANNEL_NAME = "Neli TV Daily Movies & Azam TV Alerts"
+    // Fresh channel ID ensures Android applies sound + vibration even on devices that previously had silent v1 channel
+    const val DAILY_NOTIFICATION_CHANNEL_ID = "neli_daily_schedule_sound_v2"
+    const val DAILY_NOTIFICATION_CHANNEL_NAME = "Neli TV Movies & Live Alerts (Sound)"
 
     const val ACTION_DAILY_NOTIFICATION = "com.example.notifications.ACTION_DAILY_NOTIFICATION"
     const val EXTRA_SLOT_ID = "extra_slot_id"
@@ -217,13 +221,21 @@ object NeliNotificationScheduler {
     fun ensureNotificationChannel(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+            val defaultSoundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+            val audioAttrs = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build()
             val channel = NotificationChannel(
                 DAILY_NOTIFICATION_CHANNEL_ID,
                 DAILY_NOTIFICATION_CHANNEL_NAME,
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "Mandatory automatic daily EAT notifications with TMDB movie posters and Azam TV / ZBC2 / Sinema Zetu / Crown TV / Wasafi TV channel logos"
+                description = "Daily movie posters and Live TV alerts with notification sound and vibration"
                 enableVibration(true)
+                vibrationPattern = longArrayOf(0L, 220L, 120L, 220L)
+                enableLights(true)
+                setSound(defaultSoundUri, audioAttrs)
             }
             nm.createNotificationChannel(channel)
         }
@@ -321,9 +333,27 @@ object NeliNotificationScheduler {
     /**
      * Dispatches the notification for the specified [slotId] and automatically schedules tomorrow's alarm.
      */
-    fun dispatchNotificationForSlot(context: Context, slotId: Int) {
+    fun dispatchNotificationForSlot(
+        context: Context,
+        slotId: Int,
+        onComplete: (() -> Unit)? = null
+    ) {
         val appContext = context.applicationContext
         ensureNotificationChannel(appContext)
+        NeliWatchProgressManager.initialize(appContext)
+        // Always prewarm cached movie catalog first so background alarms have real TMDB posters ready!
+        MediaContentRepository.initializeAndPrewarmFromCache(appContext)
+
+        val notifPrefs = NeliWatchProgressManager.preferences.value
+        val isMovieSlot = slotId == SLOT_MORNING_MOVIE || slotId == SLOT_MIDDAY_MOVIE || slotId == SLOT_NIGHT_MOVIE_AZAM_TWO
+        val isSportsSlot = slotId == SLOT_AFTERNOON_SPORTS
+        if ((isMovieSlot && !notifPrefs.dailyMovieNotificationsEnabled) ||
+            (isSportsSlot && !notifPrefs.liveSportsNotificationsEnabled)
+        ) {
+            dailySlots.find { it.slotId == slotId }?.let { spec -> scheduleSingleSlot(appContext, spec) }
+            onComplete?.invoke()
+            return
+        }
 
         val dayOfYear = Calendar.getInstance(EAT_TIME_ZONE).get(Calendar.DAY_OF_YEAR)
 
@@ -496,6 +526,12 @@ object NeliNotificationScheduler {
         dailySlots.find { it.slotId == slotId }?.let { spec ->
             scheduleSingleSlot(appContext, spec)
         }
+        if (onComplete != null) {
+            notificationScope.launch {
+                kotlinx.coroutines.delay(4_500L)
+                onComplete()
+            }
+        }
     }
 
     /**
@@ -599,6 +635,10 @@ object NeliNotificationScheduler {
     ) {
         try {
             val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+            NeliWatchProgressManager.initialize(context)
+            val soundEnabled = NeliWatchProgressManager.preferences.value.notificationSoundEnabled
+            val defaultSoundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+
             val openIntent = Intent(context, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
                 if (!launchChannelId.isNullOrBlank()) {
@@ -616,48 +656,111 @@ object NeliNotificationScheduler {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
 
-            // 1. Immediate synchronous branded notification with generated BigPicture banner & LargeIcon
-            val initialLargeIcon = renderNotificationIconBitmap(
-                sourceBitmap = localLogoBitmap,
-                title = title,
-                primaryColorHex = primaryColorHex,
-                secondaryColorHex = secondaryColorHex,
-                accentColorHex = accentColorHex,
-                isChannelLogo = isChannelLogo
-            )
-            val initialBanner = renderNotificationBannerBitmap(
-                logoOrPosterBitmap = localLogoBitmap,
-                backdropBitmap = localLogoBitmap,
-                title = title,
-                badgeLabel = badgeLabel,
-                subtitleLabel = subtitleLabel,
-                primaryColorHex = primaryColorHex,
-                secondaryColorHex = secondaryColorHex,
-                accentColorHex = accentColorHex,
-                isChannelLogo = isChannelLogo
-            )
+            fun emitNotification(primaryBmp: Bitmap?, backdropBmp: Bitmap?) {
+                val safePrimary = primaryBmp ?: localLogoBitmap ?: loadAppLogoBitmap(context)
+                val safeBackdrop = backdropBmp ?: safePrimary
 
-            val initialNotification = NotificationCompat.Builder(context, DAILY_NOTIFICATION_CHANNEL_ID)
-                .setSmallIcon(android.R.drawable.ic_media_play)
-                .setContentTitle(title)
-                .setContentText(message)
-                .setSubText(badgeLabel)
-                .setLargeIcon(initialLargeIcon)
-                .setStyle(
-                    NotificationCompat.BigPictureStyle()
-                        .bigPicture(initialBanner)
-                        .bigLargeIcon(initialLargeIcon)
-                        .setBigContentTitle(title)
-                        .setSummaryText(message)
+                val largeIcon = renderNotificationIconBitmap(
+                    sourceBitmap = safePrimary,
+                    title = title,
+                    primaryColorHex = primaryColorHex,
+                    secondaryColorHex = secondaryColorHex,
+                    accentColorHex = accentColorHex,
+                    isChannelLogo = isChannelLogo
                 )
-                .setPriority(NotificationCompat.PRIORITY_HIGH)
-                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-                .addAction(android.R.drawable.ic_media_play, "Watch ▶", pendingIntent)
-                .setAutoCancel(true)
-                .setContentIntent(pendingIntent)
-                .build()
+                val bigBanner = renderNotificationBannerBitmap(
+                    logoOrPosterBitmap = safePrimary,
+                    backdropBitmap = safeBackdrop,
+                    title = title,
+                    badgeLabel = badgeLabel,
+                    subtitleLabel = subtitleLabel,
+                    primaryColorHex = primaryColorHex,
+                    secondaryColorHex = secondaryColorHex,
+                    accentColorHex = accentColorHex,
+                    isChannelLogo = isChannelLogo
+                )
 
-            nm.notify(notificationId, initialNotification)
+                val builder = NotificationCompat.Builder(context, DAILY_NOTIFICATION_CHANNEL_ID)
+                    .setSmallIcon(android.R.drawable.ic_media_play)
+                    .setContentTitle(title)
+                    .setContentText(message)
+                    .setSubText(badgeLabel)
+                    .setLargeIcon(largeIcon)
+                    .setStyle(
+                        NotificationCompat.BigPictureStyle()
+                            .bigPicture(bigBanner)
+                            .bigLargeIcon(largeIcon)
+                            .setBigContentTitle(title)
+                            .setSummaryText(message)
+                    )
+                    .setPriority(NotificationCompat.PRIORITY_HIGH)
+                    .setCategory(NotificationCompat.CATEGORY_RECOMMENDATION)
+                    .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                    .addAction(android.R.drawable.ic_media_play, "Watch ▶", pendingIntent)
+                    .setAutoCancel(true)
+                    .setContentIntent(pendingIntent)
+
+                if (soundEnabled) {
+                    builder
+                        .setDefaults(NotificationCompat.DEFAULT_ALL)
+                        .setSound(defaultSoundUri)
+                        .setVibrate(longArrayOf(0L, 220L, 120L, 220L))
+                } else {
+                    builder.setSilent(true)
+                }
+
+                nm.notify(notificationId, builder.build())
+            }
+
+            val hasRemoteArtwork = primaryImageUrl.startsWith("http", ignoreCase = true) ||
+                backdropImageUrl.startsWith("http", ignoreCase = true) ||
+                !launchMediaId.isNullOrBlank()
+
+            if (!hasRemoteArtwork) {
+                emitNotification(localLogoBitmap, localLogoBitmap)
+            } else {
+                // Download the REAL movie poster / channel logo FIRST so the user NEVER sees a poster-less notification!
+                notificationScope.launch {
+                    var resolvedPrimaryBmp: Bitmap? = null
+                    var resolvedBackdropBmp: Bitmap? = null
+                    try {
+                        var resolvedPrimaryUrl = primaryImageUrl
+                        var resolvedBackdropUrl = backdropImageUrl
+
+                        if (!launchMediaId.isNullOrBlank()) {
+                            MediaContentRepository.getMediaById(launchMediaId)?.let { media ->
+                                if (!resolvedPrimaryUrl.startsWith("http", ignoreCase = true)) {
+                                    resolvedPrimaryUrl = MediaContentRepository.resolveGuaranteedMediaImageUrl(
+                                        media.posterUrl,
+                                        media.backdropUrl,
+                                        media.streamUrl
+                                    )
+                                }
+                                if (!resolvedPrimaryUrl.startsWith("http", ignoreCase = true)) {
+                                    val enriched = TmdbRepository.enrichMediaContent(media)
+                                    resolvedPrimaryUrl = enriched.posterUrl.ifBlank { enriched.backdropUrl }
+                                    resolvedBackdropUrl = enriched.backdropUrl.ifBlank { resolvedPrimaryUrl }
+                                }
+                            }
+                        }
+
+                        if (resolvedPrimaryUrl.startsWith("http", ignoreCase = true)) {
+                            resolvedPrimaryBmp = downloadBitmap(resolvedPrimaryUrl)
+                        }
+                        if (resolvedPrimaryBmp == null && resolvedBackdropUrl.startsWith("http", ignoreCase = true)) {
+                            resolvedPrimaryBmp = downloadBitmap(resolvedBackdropUrl)
+                        }
+                        if (resolvedBackdropUrl.startsWith("http", ignoreCase = true) && resolvedBackdropUrl != resolvedPrimaryUrl) {
+                            resolvedBackdropBmp = downloadBitmap(resolvedBackdropUrl) ?: resolvedPrimaryBmp
+                        } else {
+                            resolvedBackdropBmp = resolvedPrimaryBmp
+                        }
+                    } catch (_: Exception) {
+                    }
+
+                    emitNotification(resolvedPrimaryBmp, resolvedBackdropBmp)
+                }
+            }
 
             // Trigger floating banner across apps if permitted
             NeliFloatingOverlayService.showFloatingBannerIfPermitted(
@@ -668,75 +771,6 @@ object NeliNotificationScheduler {
                 subtitle = message.ifBlank { "Sports, Movies & More" },
                 mediaId = launchMediaId
             )
-
-            // 2. Asynchronously fetch the real TMDB poster or Channel Logo image from URL (or TMDB API) and upgrade the notification
-            if (primaryImageUrl.startsWith("http", ignoreCase = true) || !launchMediaId.isNullOrBlank()) {
-                notificationScope.launch {
-                    try {
-                        var resolvedPrimaryUrl = primaryImageUrl
-                        var resolvedBackdropUrl = backdropImageUrl
-                        if (!resolvedPrimaryUrl.startsWith("http", ignoreCase = true) && !launchMediaId.isNullOrBlank()) {
-                            MediaContentRepository.getMediaById(launchMediaId)?.let { media ->
-                                val enriched = TmdbRepository.enrichMediaContent(media)
-                                resolvedPrimaryUrl = enriched.posterUrl.ifBlank { enriched.backdropUrl }
-                                resolvedBackdropUrl = enriched.backdropUrl.ifBlank { resolvedPrimaryUrl }
-                            }
-                        }
-                        if (!resolvedPrimaryUrl.startsWith("http", ignoreCase = true)) return@launch
-
-                        val downloadedPrimary = downloadBitmap(resolvedPrimaryUrl) ?: return@launch
-                        val downloadedBackdrop = if (resolvedBackdropUrl.isNotBlank() && resolvedBackdropUrl != resolvedPrimaryUrl) {
-                            downloadBitmap(resolvedBackdropUrl) ?: downloadedPrimary
-                        } else {
-                            downloadedPrimary
-                        }
-
-                        val richLargeIcon = renderNotificationIconBitmap(
-                            sourceBitmap = downloadedPrimary,
-                            title = title,
-                            primaryColorHex = primaryColorHex,
-                            secondaryColorHex = secondaryColorHex,
-                            accentColorHex = accentColorHex,
-                            isChannelLogo = isChannelLogo
-                        )
-                        val richBanner = renderNotificationBannerBitmap(
-                            logoOrPosterBitmap = downloadedPrimary,
-                            backdropBitmap = downloadedBackdrop,
-                            title = title,
-                            badgeLabel = badgeLabel,
-                            subtitleLabel = subtitleLabel,
-                            primaryColorHex = primaryColorHex,
-                            secondaryColorHex = secondaryColorHex,
-                            accentColorHex = accentColorHex,
-                            isChannelLogo = isChannelLogo
-                        )
-
-                        val updatedNotification = NotificationCompat.Builder(context, DAILY_NOTIFICATION_CHANNEL_ID)
-                            .setSmallIcon(android.R.drawable.ic_media_play)
-                            .setContentTitle(title)
-                            .setContentText(message)
-                            .setSubText(badgeLabel)
-                            .setLargeIcon(richLargeIcon)
-                            .setStyle(
-                                NotificationCompat.BigPictureStyle()
-                                    .bigPicture(richBanner)
-                                    .bigLargeIcon(richLargeIcon)
-                                    .setBigContentTitle(title)
-                                    .setSummaryText(message)
-                            )
-                            .setOnlyAlertOnce(true)
-                            .setPriority(NotificationCompat.PRIORITY_HIGH)
-                            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-                            .addAction(android.R.drawable.ic_media_play, "Watch ▶", pendingIntent)
-                            .setAutoCancel(true)
-                            .setContentIntent(pendingIntent)
-                            .build()
-
-                        nm.notify(notificationId, updatedNotification)
-                    } catch (_: Exception) {
-                    }
-                }
-            }
         } catch (_: Exception) {
         }
     }

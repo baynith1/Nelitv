@@ -505,8 +505,17 @@ fun HomeScreen(
                             onSignIn = { email, password ->
                                 neliViewModel.signInUser(email, password)
                             },
+                            onSignInAsGuest = { guestName ->
+                                neliViewModel.signInAsGuest(guestName)
+                            },
                             onSignInWithPhone = { phone, name, password ->
                                 neliViewModel.signInWithPhone(phone, name, password)
+                            },
+                            onSignInWithPhoneCredentials = { phoneOrUsername, password ->
+                                neliViewModel.signInWithPhoneCredentials(phoneOrUsername, password)
+                            },
+                            onSignUpWithPhone = { username, phone, password ->
+                                neliViewModel.signUpWithPhone(username, phone, password)
                             },
                             onSignOut = {
                                 neliViewModel.signOutUser()
@@ -526,6 +535,30 @@ fun HomeScreen(
                                     if (existingMedia != null) {
                                         neliViewModel.openMediaDetails(existingMedia.id)
                                     }
+                                }
+                            },
+                            onResumeContinueWatching = { entry ->
+                                val matchedMedia = MediaContentRepository.getMediaById(entry.id)
+                                    ?: entry.seriesId.takeIf { it.isNotBlank() }?.let { MediaContentRepository.getMediaById(it) }
+                                if (matchedMedia != null && matchedMedia.streamUrl.isNotBlank() && !entry.isSeries) {
+                                    handleChannelSelection(matchedMedia.toPlayableChannel())
+                                } else if (entry.streamUrl.isNotBlank()) {
+                                    handleChannelSelection(
+                                        LiveChannel(
+                                            id = entry.id,
+                                            name = entry.title,
+                                            description = entry.lastLineLabel,
+                                            streamUrl = entry.streamUrl,
+                                            streamFormat = if (entry.streamUrl.contains(".m3u8", true)) "hls" else "mp4",
+                                            thumbnailUrl = entry.posterUrl,
+                                            categories = listOf(if (entry.isSeries) "series" else "movies"),
+                                            isLiveBroadcast = false,
+                                            seriesId = entry.seriesId,
+                                            episodeId = if (entry.isSeries) entry.id else ""
+                                        )
+                                    )
+                                } else if (matchedMedia != null) {
+                                    neliViewModel.openMediaDetails(matchedMedia.id)
                                 }
                             },
                             usernameUpdateMessage = usernameUpdateMessage,
@@ -611,18 +644,17 @@ fun HomeScreen(
             }
         }
     } else {
-        // Mobile Layout: Live Water-Wave Animated Background + TopNavBar + Main Content + NeliBottomBar
+        // Mobile & Tablet Layout: Full-Screen Edge-to-Edge Live Water-Wave Background + TopNavBar + Content + Floating Capsule Bottom Bar
         Box(
             modifier = modifier
                 .fillMaxSize()
                 .background(if (NeliThemeManager.isLightMode) Color(0xFFFFF7F6) else Color(0xFF060919))
+                .testTag("home_screen")
         ) {
             com.example.ui.components.NeliLiveWaterWaveBackground()
 
             Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .testTag("home_screen")
+                modifier = Modifier.fillMaxSize()
             ) {
                 TopNavBar(
                     searchQuery = searchQuery,
@@ -669,16 +701,18 @@ fun HomeScreen(
                 ) {
                     mainTabsContent()
                 }
-
-                NeliBottomBar(
-                    selectedTab = selectedTab,
-                    onTabSelected = { tab ->
-                        isSearchOpen = false
-                        neliViewModel.selectTab(tab)
-                    },
-                    activeDownloadCount = downloadingIds.size
-                )
             }
+
+            // Floating Glass Capsule Bottom Bar hovers cleanly over scrollable content
+            NeliBottomBar(
+                selectedTab = selectedTab,
+                onTabSelected = { tab ->
+                    isSearchOpen = false
+                    neliViewModel.selectTab(tab)
+                },
+                activeDownloadCount = downloadingIds.size,
+                modifier = Modifier.align(Alignment.BottomCenter)
+            )
 
             // Launch welcome / v2.5 update dialog with notification prompt
             NeliV25WelcomeUpdateDialog()
@@ -823,7 +857,7 @@ private fun LiveTvHomeTab(
             modifier = Modifier
                 .fillMaxSize()
                 .testTag("channels_grid"),
-            contentPadding = PaddingValues(bottom = 28.dp)
+            contentPadding = PaddingValues(bottom = 112.dp)
         ) {
         // 0. Subtle, non-intrusive offline connectivity banner informing why live streams might not load
         if (isOfflineMode) {
@@ -1110,7 +1144,8 @@ private fun LiveTvHeroBanner(
             .testTag("azam_priority_hero_slider")
     ) {
         val isTablet = maxWidth >= 600.dp || screenProfile.isTabletOrFoldable
-        val bannerHeight = screenProfile.heroBannerHeight
+        val isNarrow = maxWidth < 375.dp || screenProfile.isSmallPhone
+        val bannerHeight = if (isNarrow) 196.dp else screenProfile.heroBannerHeight
 
         Column(modifier = Modifier.fillMaxWidth()) {
             Box(
@@ -1120,7 +1155,7 @@ private fun LiveTvHeroBanner(
             ) {
                 HorizontalPager(
                     state = pagerState,
-                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    contentPadding = PaddingValues(horizontal = if (isNarrow) 12.dp else 16.dp),
                     pageSpacing = 12.dp,
                     beyondViewportPageCount = 0,
                     modifier = Modifier.fillMaxSize()
@@ -1182,13 +1217,13 @@ private fun LiveTvHeroBanner(
                         Row(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .padding(18.dp),
+                                .padding(horizontal = if (isNarrow) 12.dp else 18.dp, vertical = if (isNarrow) 12.dp else 16.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(16.dp)
+                            horizontalArrangement = Arrangement.spacedBy(if (isNarrow) 12.dp else 16.dp)
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(if (isTablet) 132.dp else 102.dp)
+                                    .size(if (isTablet) 132.dp else if (isNarrow) 86.dp else 102.dp)
                                     .clip(RoundedCornerShape(18.dp))
                                     .background(
                                         Brush.verticalGradient(
@@ -1196,7 +1231,7 @@ private fun LiveTvHeroBanner(
                                         )
                                     )
                                     .border(1.dp, Color(0x33283E70), RoundedCornerShape(18.dp))
-                                    .padding(10.dp),
+                                    .padding(if (isNarrow) 8.dp else 10.dp),
                                 contentAlignment = Alignment.Center
                             ) {
                                 if (!isHeroLogoLoaded) {
@@ -1204,7 +1239,7 @@ private fun LiveTvHeroBanner(
                                         imageVector = Icons.Default.Tv,
                                         contentDescription = null,
                                         tint = NeliLiveRed.copy(alpha = 0.7f),
-                                        modifier = Modifier.size(36.dp)
+                                        modifier = Modifier.size(34.dp)
                                     )
                                 }
                                 if (activeHeroLogo.isNotBlank()) {
@@ -1225,7 +1260,7 @@ private fun LiveTvHeroBanner(
 
                             Column(
                                 modifier = Modifier.weight(1f),
-                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                                verticalArrangement = Arrangement.spacedBy(if (isNarrow) 4.dp else 6.dp)
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
@@ -1236,13 +1271,16 @@ private fun LiveTvHeroBanner(
                                         modifier = Modifier
                                             .clip(RoundedCornerShape(6.dp))
                                             .background(Color(0xFF0055FF))
-                                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                                            .padding(horizontal = 7.dp, vertical = 2.dp)
                                     ) {
                                         Text(
                                             text = channel.category.uppercase(),
                                             color = Color.White,
                                             fontSize = 9.sp,
-                                            fontWeight = FontWeight.ExtraBold
+                                            fontWeight = FontWeight.ExtraBold,
+                                            maxLines = 1,
+                                            softWrap = false,
+                                            overflow = TextOverflow.Ellipsis
                                         )
                                     }
                                 }
@@ -1250,7 +1288,7 @@ private fun LiveTvHeroBanner(
                                 Text(
                                     text = channel.name,
                                     color = Color.White,
-                                    fontSize = if (isTablet) 22.sp else 19.sp,
+                                    fontSize = if (isTablet) 22.sp else if (isNarrow) 17.sp else 19.sp,
                                     fontWeight = FontWeight.ExtraBold,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
@@ -1259,7 +1297,8 @@ private fun LiveTvHeroBanner(
                                 Text(
                                     text = channel.description.ifBlank { "Watch ${channel.name} Live 24/7 in HD on Nelitv." },
                                     color = Color(0xFFB4C2DC),
-                                    fontSize = 12.sp,
+                                    fontSize = if (isNarrow) 11.sp else 12.sp,
+                                    lineHeight = if (isNarrow) 15.sp else 16.sp,
                                     maxLines = 2,
                                     overflow = TextOverflow.Ellipsis
                                 )
@@ -1278,21 +1317,27 @@ private fun LiveTvHeroBanner(
                                             )
                                         )
                                         .clickable { onPlayChannel(channel) }
-                                        .padding(horizontal = 18.dp, vertical = 9.dp),
+                                        .padding(
+                                            horizontal = if (isNarrow) 14.dp else 18.dp,
+                                            vertical = if (isNarrow) 7.dp else 9.dp
+                                        ),
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(5.dp)
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.PlayArrow,
                                         contentDescription = null,
                                         tint = Color.White,
-                                        modifier = Modifier.size(18.dp)
+                                        modifier = Modifier.size(16.dp)
                                     )
                                     Text(
                                         text = "Watch Live Now",
                                         color = Color.White,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.ExtraBold
+                                        fontSize = if (isNarrow) 11.sp else 12.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                 }
                             }

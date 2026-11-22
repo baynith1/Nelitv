@@ -24,7 +24,16 @@ class DailyNotificationReceiver : BroadcastReceiver() {
                     NeliNotificationScheduler.EXTRA_SLOT_ID,
                     NeliNotificationScheduler.SLOT_MORNING_MOVIE_SERIES
                 ) ?: NeliNotificationScheduler.SLOT_MORNING_MOVIE_SERIES
-                NeliNotificationScheduler.dispatchNotificationForSlot(context, slotId)
+                val pendingResult = try {
+                    goAsync()
+                } catch (_: Throwable) {
+                    null
+                }
+                NeliNotificationScheduler.dispatchNotificationForSlot(
+                    context = context,
+                    slotId = slotId,
+                    onComplete = { pendingResult?.finish() }
+                )
             }
         }
     }

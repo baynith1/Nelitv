@@ -1402,19 +1402,29 @@ object MediaContentRepository {
     }
 
     /**
-     * Fetches and merges all Live TV backup channels from `https://streamzone.fun/api/channels`.
-     * Existing channels receive backup stream URLs & ClearKeys for automatic failover,
-     * while any new channels from the API are added to the catalog.
+     * Fetches and merges all Live TV channels from the NeliTv App Server
+     * (`https://nelitv.online/baynithalex/api/channels`, with automatic fallback to
+     * `https://nelitv.online/api/v1/content` and `https://nelitv.online/baynithalex/api/app`).
      */
     suspend fun syncChannelsFromBackupApi(
         apiUrl: String = ChannelRepository.CHANNELS_BACKUP_API_URL
     ): List<LiveChannel> = withContext(Dispatchers.IO) {
-        try {
-            val json = fetchUrlText(apiUrl, forceRefresh = true) ?: return@withContext emptyList()
-            ChannelRepository.parseBackupChannelsApiPayload(json)
-        } catch (_: Exception) {
-            emptyList()
+        val candidates = listOf(
+            apiUrl,
+            ChannelRepository.NELITV_CONTENT_API_URL,
+            ChannelRepository.NELITV_APP_SYNC_URL
+        ).distinct()
+        for (endpoint in candidates) {
+            try {
+                val json = fetchUrlText(endpoint, forceRefresh = true) ?: continue
+                val parsed = ChannelRepository.parseBackupChannelsApiPayload(json)
+                if (parsed.isNotEmpty()) {
+                    return@withContext parsed
+                }
+            } catch (_: Exception) {
+            }
         }
+        emptyList()
     }
 
     private suspend fun syncFromRealtimeDatabase(cleanUrl: String, apiKey: String): Result<Int> = coroutineScope {
@@ -1475,15 +1485,24 @@ object MediaContentRepository {
             return cached.body
         }
         return try {
+            val effectiveUrl = com.example.player.NeliLocalStreamEngine.appendNeliTvApiKeyIfNeeded(urlStr)
             val reqBuilder = Request.Builder()
-                .url(urlStr)
+                .url(effectiveUrl)
                 .header("Accept", "application/json, text/plain, */*")
                 .header("Connection", "keep-alive")
                 .header(
                     "User-Agent",
                     "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
                 )
-            if (urlStr.contains("streamzone.fun", ignoreCase = true)) {
+            if (effectiveUrl.contains("nelitv.online", ignoreCase = true)) {
+                reqBuilder.header("Referer", "${ChannelRepository.NELITV_SERVER_BASE_URL}/")
+                reqBuilder.header("Origin", ChannelRepository.NELITV_SERVER_BASE_URL)
+                val neliApiKey = com.example.player.NeliLocalStreamEngine.getConfiguredNeliTvApiKey()
+                if (neliApiKey.isNotEmpty()) {
+                    reqBuilder.header("X-API-Key", neliApiKey)
+                    reqBuilder.header("Authorization", "Bearer $neliApiKey")
+                }
+            } else if (effectiveUrl.contains("streamzone.fun", ignoreCase = true)) {
                 reqBuilder.header("Referer", "https://streamzone.fun/")
                 reqBuilder.header("Origin", "https://streamzone.fun")
             }

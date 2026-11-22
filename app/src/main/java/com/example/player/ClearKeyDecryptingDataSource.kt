@@ -60,16 +60,22 @@ class ClearKeyDecryptingDataSource(
         val rawUriCheck = dataSpec.uri.toString()
         val isAzamUrl = rawUriCheck.contains("azamtvltd.co.tz", ignoreCase = true) ||
             rawUriCheck.contains("/live/eds/", ignoreCase = true)
-        if (isAzamUrl && com.example.data.ChannelRepository.isActiveTokenExpiringSoon(leadSeconds = 300L)) {
-            try {
-                TokenManager.renewCdnKeysAndChannelsBlocking()
-            } catch (_: Exception) {
+        if (isAzamUrl) {
+            if (com.example.data.ChannelRepository.isActiveTokenExpired()) {
+                // Only block if the active token is ACTUALLY expired — fast parallel race, no heavy channels JSON
+                try {
+                    TokenManager.fetchLiveTokenBlocking(forceRefresh = true)
+                } catch (_: Exception) {
+                }
+            } else if (com.example.data.ChannelRepository.isActiveTokenExpiringSoon(leadSeconds = 600L)) {
+                // Proactively renew in the background without ever stalling active video/audio chunks
+                TokenManager.triggerAsyncBackgroundRefresh(forceRefresh = false)
             }
         }
 
         val useLatestToken = isAzamUrl && (
             com.example.data.ChannelRepository.hasAuthoritativeLiveToken ||
-                com.example.data.ChannelRepository.isActiveTokenExpiringSoon(leadSeconds = 300L)
+                com.example.data.ChannelRepository.isActiveTokenExpired()
             )
         var effectiveDataSpec = resolveDataSpecToken(dataSpec, forceLatestRepoToken = useLatestToken)
         val uriString = effectiveDataSpec.uri.toString()
@@ -89,7 +95,27 @@ class ClearKeyDecryptingDataSource(
 
         passthroughMode = false
 
-        // Always fetch fresh MPD live manifest and media segments from upstream so live timeline advances without looping
+        // Normalize path key (strip /tok_<JWT>/ prefix) for local init-segment & MPD micro-caching
+        val cachePathKey = if (pathPart.contains("/tok_")) {
+            pathPart.substringBefore("/tok_") + "/" + pathPart.substringAfter("/tok_").substringAfter("/", "")
+        } else {
+            pathPart
+        }
+
+        // Fast-path 1: Reuse cached RAW DASH initialization segment bytes (0ms network),
+        // ALWAYS running decryptor.processMp4Segment() on a fresh copy so the active
+        // Mp4CencDecryptor instance populates its trackConfigs (KID, IV size, sample sizes).
+        val isInitSegment = !isMpd && isMp4Segment && NeliLocalStreamEngine.isDashInitSegmentPath(pathPart)
+        if (isInitSegment) {
+            val cachedRawInit = NeliLocalStreamEngine.getCachedInitSegment(cachePathKey)
+            if (cachedRawInit != null) {
+                currentUri = effectiveDataSpec.uri
+                val processedInit = decryptor?.processMp4Segment(cachedRawInit.copyOf()) ?: cachedRawInit
+                return serveTransformedBytes(processedInit, effectiveDataSpec)
+            }
+        }
+
+        // Fetch fresh live MPD manifest or media segment directly from CDN over pooled keep-alive connection
         val fullFetchSpec = effectiveDataSpec.buildUpon()
             .setPosition(0)
             .setLength(C.LENGTH_UNSET.toLong())
@@ -108,9 +134,17 @@ class ClearKeyDecryptingDataSource(
                 ?: Mp4CencDecryptor(emptyMap()).stripMpdContentProtection(xml)
             stripped.toByteArray(Charsets.UTF_8)
         } else {
+            if (isInitSegment && rawBytes.isNotEmpty()) {
+                // Save an unmodified RAW copy BEFORE in-place CENC box stripping mutates rawBytes
+                NeliLocalStreamEngine.putCachedInitSegment(cachePathKey, rawBytes.copyOf())
+            }
             decryptor?.processMp4Segment(rawBytes) ?: rawBytes
         }
 
+        return serveTransformedBytes(processedBytes, effectiveDataSpec)
+    }
+
+    private fun serveTransformedBytes(processedBytes: ByteArray, effectiveDataSpec: DataSpec): Long {
         transformedData = processedBytes
         val startOffset = effectiveDataSpec.position.toInt().coerceAtLeast(0)
         if (startOffset > processedBytes.size) {
@@ -150,12 +184,12 @@ class ClearKeyDecryptingDataSource(
                     upstream.close()
                 } catch (_: Exception) {
                 }
-                // Switch providers (aztv <-> mpingo) immediately on 429 / 401 / 403
-                val previousToken = TokenManager.currentToken
+                // Fast single-pass provider switch (aztv <-> mpingo) without blocking on slow backup channels JSON
                 TokenManager.renewCdnKeysAndChannelsBlocking(
                     failedChannel = null,
                     httpStatusCode = e.responseCode,
-                    switchProvider = isAzamStream && (e.responseCode == 429 || e.responseCode == 401 || e.responseCode == 403)
+                    switchProvider = isAzamStream && (e.responseCode == 429 || e.responseCode == 401 || e.responseCode == 403),
+                    includeBackupChannelsSync = false
                 )
                 val refreshedBaseSpec = resolveDataSpecToken(originalSpec, forceLatestRepoToken = true)
                 val retrySpec = refreshedBaseSpec.buildUpon()
@@ -169,38 +203,6 @@ class ClearKeyDecryptingDataSource(
                     if (isAzamStream) {
                         val openedAlt = tryOpenAzamAlternates(retrySpec, TokenManager.currentToken)
                         if (openedAlt != null) return openedAlt
-
-                        // If alternate provider also hit 429/403 (or token didn't change), try one fresh unexcluded fetch after a brief pause
-                        if (retryEx.responseCode == 429 || retryEx.responseCode == 401 || retryEx.responseCode == 403) {
-                            try {
-                                upstream.close()
-                            } catch (_: Exception) {
-                            }
-                            try {
-                                Thread.sleep(750L)
-                            } catch (_: InterruptedException) {
-                            }
-                            TokenManager.clearExcludedProvider()
-                            val secondToken = TokenManager.fetchLiveTokenBlocking(
-                                forceRefresh = true,
-                                bypassCooldown = true,
-                                excludeProvider = null
-                            )
-                            if (secondToken.isNotBlank() && secondToken != previousToken) {
-                                val secondSpec = resolveDataSpecToken(originalSpec, forceLatestRepoToken = true)
-                                    .buildUpon()
-                                    .setPosition(attemptSpec.position)
-                                    .setLength(attemptSpec.length)
-                                    .build()
-                                try {
-                                    val secondLen = upstream.open(secondSpec)
-                                    return secondSpec to secondLen
-                                } catch (_: HttpDataSource.InvalidResponseCodeException) {
-                                    val openedSecondAlt = tryOpenAzamAlternates(secondSpec, secondToken)
-                                    if (openedSecondAlt != null) return openedSecondAlt
-                                }
-                            }
-                        }
                     }
                     throw retryEx
                 }

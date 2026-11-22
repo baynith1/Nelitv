@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -16,6 +18,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -55,6 +58,7 @@ import androidx.compose.material.icons.filled.NetworkCell
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.PlayArrow
@@ -73,6 +77,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -100,8 +105,10 @@ import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -110,9 +117,13 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.util.lerp
+import androidx.compose.ui.zIndex
+import kotlin.math.absoluteValue
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.data.ChannelRepository
@@ -134,16 +145,22 @@ import com.example.model.MediaContent
 import com.example.ui.components.CategoryChipRow
 import com.example.ui.components.ChannelCard
 import com.example.ui.components.NeliShareApkAndAutoUpdateSection
+import com.example.ui.theme.NeliBorder
 import com.example.ui.theme.NeliCardPurple
 import com.example.ui.theme.NeliDurationViolet
 import com.example.ui.theme.NeliGenreCyan
 import com.example.ui.theme.NeliLiveRed
 import com.example.ui.theme.NeliMagenta
+import com.example.ui.theme.NeliNeonPurple
+import com.example.ui.theme.NeliResponsiveLayout
 import com.example.ui.theme.NeliSurface
+import com.example.ui.theme.NeliSurfaceHighlight
 import com.example.ui.theme.NeliSurfaceVariant
+import com.example.ui.theme.NeliTextMuted
 import com.example.ui.theme.NeliTextPrimary
 import com.example.ui.theme.NeliTextSecondary
 import com.example.ui.theme.NeliThemeManager
+import com.example.ui.theme.NeliWarmOrange
 
 @Composable
 fun MediaPosterCard(
@@ -529,7 +546,7 @@ const val DISCOVERY_MADJS_BANNER_TEXT = "Furahia Movie Nzuri kutoka kwa Madjs Wa
  * - Series are displayed in their dedicated Series sections.
  * - Adults content always displays visible Poster & Thumbnail images.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun DiscoveryTabContent(
     selectedFilter: String,
@@ -577,7 +594,7 @@ fun DiscoveryTabContent(
         MediaContentRepository.getRotatingSpotlightMovies(
             catalog = discoveryCatalog,
             rotationSeed = effectiveSeed,
-            limit = 12
+            limit = 14
         )
     }
 
@@ -612,6 +629,57 @@ fun DiscoveryTabContent(
         )
     }
 
+    // Hero 3D stacked Recommended showcase: freshly rotates a rich mix of Movies, Animations, and Series every session
+    val heroShowcaseItems = remember(selectedFilter, discoveryCatalog, rotatingSpotlightMovies, seriesList, adultList, effectiveSeed) {
+        when {
+            selectedFilter.equals("Series", ignoreCase = true) -> seriesList.take(8)
+            selectedFilter.equals("Adults", ignoreCase = true) -> adultList.take(8)
+            else -> {
+                val animations = discoveryCatalog.filter { media ->
+                    media.published && !media.isAdultContent && (
+                        media.genre.contains("animation", ignoreCase = true) ||
+                            media.genre.contains("anime", ignoreCase = true) ||
+                            media.genre.contains("cartoon", ignoreCase = true) ||
+                            media.genre.contains("family", ignoreCase = true)
+                        )
+                }
+                val rotatedAnimations = MediaContentRepository.rotateMediaListForSeed(
+                    animations,
+                    effectiveSeed + 17L,
+                    "hero_recommended_animation"
+                )
+                val rotatedMovies = MediaContentRepository.rotateMediaListForSeed(
+                    rotatingSpotlightMovies.filter { !it.isAdultContent },
+                    effectiveSeed + 31L,
+                    "hero_recommended_movies"
+                )
+                val rotatedSeries = MediaContentRepository.rotateMediaListForSeed(
+                    seriesList,
+                    effectiveSeed + 53L,
+                    "hero_recommended_series"
+                )
+                // Interleave Movie -> Animation -> Series -> Movie -> Animation so every session feels fresh & diverse
+                val mixed = mutableListOf<MediaContent>()
+                val maxRounds = 4
+                for (i in 0 until maxRounds) {
+                    rotatedMovies.getOrNull(i)?.let { mixed.add(it) }
+                    rotatedAnimations.getOrNull(i)?.let { mixed.add(it) }
+                    rotatedSeries.getOrNull(i)?.let { mixed.add(it) }
+                }
+                (mixed + rotatedMovies + rotatedSeries).distinctBy { it.id }.take(9)
+            }
+        }
+    }
+
+    // Popular vertical list items (cinema showcase below "For you")
+    val popularListItems = remember(selectedFilter, rotatingSpotlightMovies, seriesList) {
+        when {
+            selectedFilter.equals("Series", ignoreCase = true) -> seriesList.drop(2).take(4).ifEmpty { seriesList.take(4) }
+            selectedFilter.equals("Adults", ignoreCase = true) -> emptyList()
+            else -> rotatingSpotlightMovies.drop(3).take(4).ifEmpty { rotatingSpotlightMovies.take(4) }
+        }
+    }
+
     PullToRefreshBox(
         isRefreshing = isRefreshing,
         onRefresh = onRefreshDiscovery,
@@ -633,108 +701,174 @@ fun DiscoveryTabContent(
             modifier = Modifier
                 .fillMaxSize()
                 .testTag("discovery_tab_screen"),
-            contentPadding = PaddingValues(bottom = 32.dp)
+            contentPadding = PaddingValues(bottom = 116.dp)
         ) {
-            // 1. YouTube-style Top Filter Bar (All | Movies | Series | Adults)
-            item {
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+            // 1. Sleek Typographic Top Category Strip (Trending | Movies | Series | Adults 18+) + Compact Shuffle Circle
+            item(key = "discovery_top_tabs") {
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .testTag("discovery_filter_chips")
+                        .padding(start = screenProfile.horizontalPadding, end = screenProfile.horizontalPadding, top = 6.dp, bottom = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(discoverySections) { section ->
-                        val isSelected = section.equals(selectedFilter, ignoreCase = true)
-                        val badgeColor = if (section == "Adults") Color(0xFFEF4444) else NeliTextPrimary
-                        val textColor = if (isSelected) {
-                            if (section == "Adults") Color.White else NeliSurface
-                        } else {
-                            NeliTextPrimary
-                        }
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(if (isSelected) badgeColor else NeliSurfaceVariant)
-                                .clickable {
-                                    onFilterSelected(section)
-                                    onRotateMovies()
-                                }
-                                .padding(horizontal = 14.dp, vertical = 7.dp)
-                                .testTag("discovery_chip_${section.lowercase()}")
-                        ) {
-                            val countLabel = when (section) {
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(if (screenProfile.isSmallPhone) 14.dp else 18.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("discovery_filter_chips")
+                    ) {
+                        items(discoverySections) { section ->
+                            val isSelected = section.equals(selectedFilter, ignoreCase = true)
+                            val label = when (section) {
+                                "All" -> "Trending"
                                 "Movies" -> "Movies"
                                 "Series" -> "Series"
                                 "Adults" -> "Adults 18+"
-                                else -> "All"
+                                else -> section
                             }
-                            Text(
-                                text = countLabel,
-                                color = textColor,
-                                fontSize = 13.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                            )
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .clickable {
+                                        onFilterSelected(section)
+                                        onRotateMovies()
+                                    }
+                                    .padding(vertical = 6.dp, horizontal = 2.dp)
+                                    .testTag("discovery_chip_${section.lowercase()}")
+                            ) {
+                                Text(
+                                    text = label,
+                                    color = when {
+                                        isSelected && section == "Adults" -> Color(0xFFEF4444)
+                                        isSelected -> NeliTextPrimary
+                                        else -> NeliTextSecondary.copy(alpha = 0.72f)
+                                    },
+                                    fontSize = if (isSelected) {
+                                        if (screenProfile.isSmallPhone) 15.sp else 17.sp
+                                    } else {
+                                        if (screenProfile.isSmallPhone) 13.sp else 14.sp
+                                    },
+                                    fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .width(if (isSelected) 22.dp else 0.dp)
+                                        .height(3.dp)
+                                        .clip(CircleShape)
+                                        .background(
+                                            if (section == "Adults") {
+                                                Brush.horizontalGradient(listOf(Color(0xFFEF4444), NeliWarmOrange))
+                                            } else {
+                                                Brush.horizontalGradient(listOf(NeliMagenta, NeliWarmOrange))
+                                            }
+                                        )
+                                )
+                            }
                         }
+                    }
+
+                    // Compact circular shuffle button (never wraps vertically on narrow Samsung devices)
+                    Box(
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(CircleShape)
+                            .background(NeliSurfaceVariant)
+                            .border(1.dp, NeliMagenta.copy(alpha = 0.45f), CircleShape)
+                            .clickable { onRefreshDiscovery() }
+                            .testTag("discovery_rotate_movies_button"),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "Badilisha Movies",
+                            tint = NeliMagenta,
+                            modifier = Modifier.size(18.dp)
+                        )
                     }
                 }
             }
 
-            // 2. Discovery Banner ("Furahia Movie Nzuri kutoka kwa Madjs Wazuri") with quick "Badilisha" (Shuffle/Rotate) button
-            item {
+            // 2. Compact Swahili DJs Eyebrow Banner (Preserves DISCOVERY_MADJS_BANNER_TEXT, 100% Samsung-safe)
+            item(key = "discovery_madjs_eyebrow") {
                 DiscoveryMadjsBanner(
                     totalMovieCount = rotatingSpotlightMovies.size,
                     onRotateClick = onRefreshDiscovery
                 )
             }
 
-            // 2b. Rotating Spotlight Mix ("Filamu Zinazobadilika • Mpya & Bora") so users always see fresh Studio Admin & catalog movies
+            // 3. 3D Stacked Center-Focused Hero Poster Carousel (Inspired by cinema showcase in Neli TV palette)
+            if (heroShowcaseItems.isNotEmpty()) {
+                item(key = "discovery_hero_3d_carousel") {
+                    DiscoveryHeroPosterCarousel(
+                        items = heroShowcaseItems,
+                        onMediaSelected = onMediaSelected,
+                        onPlayMedia = onPlayMedia
+                    )
+                }
+            }
+
+            // 4. "For you" / "Now Showing" Tall Rounded Poster Rail
             if ((selectedFilter.equals("All", true) || selectedFilter.equals("Movies", true)) && rotatingSpotlightMovies.size > 1) {
                 item(key = "discovery_rotating_spotlight_section") {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 8.dp)
+                            .padding(top = 12.dp)
                             .testTag("discovery_rotating_spotlight_row")
                     ) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 4.dp),
+                                .padding(horizontal = screenProfile.horizontalPadding, vertical = 6.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.weight(1f)
                             ) {
+                                Text(
+                                    text = "For you",
+                                    color = NeliTextPrimary,
+                                    fontSize = if (screenProfile.isSmallPhone) 17.sp else 19.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
                                 Box(
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(NeliMagenta)
-                                        .padding(horizontal = 7.dp, vertical = 2.dp)
+                                        .clip(CircleShape)
+                                        .background(NeliMagenta.copy(alpha = 0.18f))
+                                        .border(1.dp, NeliMagenta.copy(alpha = 0.45f), CircleShape)
+                                        .padding(horizontal = 8.dp, vertical = 2.dp)
                                 ) {
                                     Text(
-                                        text = "MPYA & ZINAZOBADILIKA",
-                                        color = Color.White,
+                                        text = "SWAHILI HD",
+                                        color = NeliMagenta,
                                         fontSize = 9.sp,
-                                        fontWeight = FontWeight.ExtraBold
+                                        fontWeight = FontWeight.ExtraBold,
+                                        maxLines = 1,
+                                        softWrap = false
                                     )
                                 }
-                                Text(
-                                    text = "Chaguo la Sasa",
-                                    color = NeliTextPrimary,
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
                             }
+
+                            Spacer(modifier = Modifier.width(8.dp))
 
                             Row(
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(8.dp))
+                                    .clip(CircleShape)
                                     .background(NeliSurfaceVariant)
+                                    .border(1.dp, NeliGenreCyan.copy(alpha = 0.35f), CircleShape)
                                     .clickable { onRotateMovies() }
-                                    .padding(horizontal = 10.dp, vertical = 4.dp)
+                                    .padding(horizontal = 10.dp, vertical = 5.dp)
                                     .testTag("spotlight_shuffle_button"),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -749,27 +883,28 @@ fun DiscoveryTabContent(
                                     text = "Badilisha",
                                     color = NeliGenreCyan,
                                     fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    softWrap = false
                                 )
                             }
                         }
 
                         LazyRow(
-                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+                            contentPadding = PaddingValues(horizontal = screenProfile.horizontalPadding, vertical = 6.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             items(
                                 items = rotatingSpotlightMovies,
                                 key = { "spotlight_${it.id}" }
                             ) { movie ->
-                                MediaPosterCard(
+                                DiscoveryTallPosterCard(
                                     media = movie,
                                     onClick = { onMediaSelected(movie) }
                                 )
                             }
                         }
 
-                        // Google AdMob Banner Ad below Spotlight
                         com.example.ads.AdMobBannerAd(
                             adTag = "discovery_spotlight_banner",
                             modifier = Modifier
@@ -780,306 +915,1106 @@ fun DiscoveryTabContent(
                 }
             }
 
-        // 3. MOVIES SECTION (Grouped by First Genre) + Google AdMob Banner after EVERY category & Native Ads inside movie rows
-        if (selectedFilter.equals("All", true) || selectedFilter.equals("Movies", true)) {
-            itemsIndexed(
-                items = moviesByFirstGenre,
-                key = { _, pair -> "first_genre_${pair.first}" }
-            ) { index, (firstGenreName, genreMovies) ->
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 8.dp)
-                        .testTag("movie_first_genre_row_$firstGenreName")
-                ) {
+            // 5. "Popular" Vertical Feature List Cards (Cinema Poster + IMDb Rating + Genre Pills)
+            if (popularListItems.isNotEmpty() && !selectedFilter.equals("Adults", true)) {
+                item(key = "discovery_popular_section_header") {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = screenProfile.horizontalPadding, vertical = 4.dp),
+                            .padding(
+                                start = screenProfile.horizontalPadding,
+                                end = screenProfile.horizontalPadding,
+                                top = 14.dp,
+                                bottom = 6.dp
+                            ),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = firstGenreName,
+                            text = "Popular",
                             color = NeliTextPrimary,
-                            fontSize = if (screenProfile.isSmallPhone) 15.sp else 16.sp,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f)
+                            fontSize = if (screenProfile.isSmallPhone) 17.sp else 19.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            maxLines = 1
                         )
-
-                        Spacer(modifier = Modifier.width(8.dp))
-
                         Text(
-                            text = "${genreMovies.size}",
-                            color = NeliTextSecondary,
-                            fontSize = 12.sp
+                            text = "Top Rated",
+                            color = NeliGenreCyan,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
+                }
 
-                    LazyRow(
-                        contentPadding = PaddingValues(horizontal = screenProfile.horizontalPadding, vertical = 6.dp),
-                        horizontalArrangement = Arrangement.spacedBy(screenProfile.cardSpacing)
-                    ) {
-                        items(genreMovies, key = { "movie_${firstGenreName}_${it.id}" }) { movie ->
-                            MediaPosterCard(
-                                media = movie,
-                                onClick = { onMediaSelected(movie) }
-                            )
-                        }
-                    }
+                items(
+                    items = popularListItems,
+                    key = { "popular_list_${it.id}" }
+                ) { movie ->
+                    DiscoveryPopularListCard(
+                        media = movie,
+                        onClick = { onMediaSelected(movie) },
+                        modifier = Modifier.padding(
+                            horizontal = screenProfile.horizontalPadding,
+                            vertical = 5.dp
+                        )
+                    )
+                }
+            }
 
-                    // Google AdMob Banner Ad after every Movie category
-                    com.example.ads.AdMobBannerAd(
-                        adTag = "discovery_movie_cat_$index",
+            // 6. MOVIES SECTION (Grouped Strictly by First Genre — Zero Duplication)
+            if (selectedFilter.equals("All", true) || selectedFilter.equals("Movies", true)) {
+                itemsIndexed(
+                    items = moviesByFirstGenre,
+                    key = { _, pair -> "first_genre_${pair.first}" }
+                ) { index, (firstGenreName, genreMovies) ->
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 6.dp, bottom = 2.dp)
-                    )
-
-                    // Google AdMob Native Advanced Ad interleaved in movie rows
-                    if (index % 2 == 0) {
-                        com.example.ads.AdMobNativeCardAd(
-                            adTag = "discovery_movie_native_$index",
+                            .padding(top = 12.dp)
+                            .testTag("movie_first_genre_row_$firstGenreName")
+                    ) {
+                        Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = screenProfile.horizontalPadding, vertical = 6.dp)
-                        )
-                    }
-                }
-            }
-        }
+                                .padding(horizontal = screenProfile.horizontalPadding, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = firstGenreName,
+                                color = NeliTextPrimary,
+                                fontSize = if (screenProfile.isSmallPhone) 16.sp else 18.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
+                            )
 
-        // Google AdMob Banner Ad between Movies and Series content sections
-        item(key = "discovery_banner_between_movies_and_series") {
-            com.example.ads.AdMobBannerAd(
-                adTag = "discovery_movies_series",
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 4.dp)
-            )
-        }
+                            Spacer(modifier = Modifier.width(8.dp))
 
-        // 4. SERIES SECTION
-        if ((selectedFilter.equals("All", true) || selectedFilter.equals("Series", true)) && seriesList.isNotEmpty()) {
-            item {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 12.dp)
-                        .testTag("discovery_series_section")
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = screenProfile.horizontalPadding, vertical = 6.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Series & Episodes",
-                            color = NeliTextPrimary,
-                            fontSize = if (screenProfile.isSmallPhone) 15.sp else 17.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "${seriesList.size} Series • ${episodesCatalog.size} Eps",
-                            color = NeliGenreCyan,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
+                            Box(
+                                modifier = Modifier
+                                    .clip(CircleShape)
+                                    .background(NeliSurfaceVariant)
+                                    .padding(horizontal = 9.dp, vertical = 3.dp)
+                            ) {
+                                Text(
+                                    text = "${genreMovies.size}",
+                                    color = NeliTextSecondary,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
+                        }
 
-                    LazyRow(
-                        contentPadding = PaddingValues(horizontal = screenProfile.horizontalPadding, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(screenProfile.cardSpacing)
-                    ) {
-                        items(seriesList, key = { "disc_series_${it.id}" }) { series ->
-                            MediaPosterCard(
-                                media = series,
-                                onClick = { onMediaSelected(series) }
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = screenProfile.horizontalPadding, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(screenProfile.cardSpacing)
+                        ) {
+                            items(genreMovies, key = { "movie_${firstGenreName}_${it.id}" }) { movie ->
+                                DiscoveryTallPosterCard(
+                                    media = movie,
+                                    onClick = { onMediaSelected(movie) }
+                                )
+                            }
+                        }
+
+                        com.example.ads.AdMobBannerAd(
+                            adTag = "discovery_movie_cat_$index",
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 6.dp, bottom = 2.dp)
+                        )
+
+                        if (index % 2 == 0) {
+                            com.example.ads.AdMobNativeCardAd(
+                                adTag = "discovery_movie_native_$index",
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = screenProfile.horizontalPadding, vertical = 6.dp)
                             )
                         }
                     }
                 }
             }
-        }
 
-        // Google AdMob Banner Ad after Series section
-        item(key = "discovery_banner_between_series_and_adults") {
-            com.example.ads.AdMobBannerAd(
-                adTag = "discovery_series_adults",
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 4.dp)
-            )
-        }
-
-        // 5. ADULTS (18+) SECTION ORGANIZED BY GENRES & CATEGORIES WITH GUARANTEED POSTER & THUMBNAIL IMAGES
-        if ((selectedFilter.equals("All", true) || selectedFilter.equals("Adults", true)) && adultList.isNotEmpty()) {
-            item {
-                Column(
+            // Banner between Movies and Series
+            item(key = "discovery_banner_between_movies_and_series") {
+                com.example.ads.AdMobBannerAd(
+                    adTag = "discovery_movies_series",
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 14.dp)
-                        .testTag("discovery_adults_section")
-                ) {
-                    Row(
+                        .padding(vertical = 4.dp)
+                )
+            }
+
+            // 7. SERIES SECTION
+            if ((selectedFilter.equals("All", true) || selectedFilter.equals("Series", true)) && seriesList.isNotEmpty()) {
+                item(key = "discovery_series_section_item") {
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = screenProfile.horizontalPadding, vertical = 6.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                            .padding(top = 12.dp)
+                            .testTag("discovery_series_section")
                     ) {
                         Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = screenProfile.horizontalPadding, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(Color(0xFFEF4444))
-                                    .padding(horizontal = 8.dp, vertical = 3.dp)
-                            ) {
-                                Text(
-                                    text = "18+ ADULTS",
-                                    color = Color.White,
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    maxLines = 1
-                                )
-                            }
                             Text(
-                                text = "Adults • Genres",
+                                text = "Series & Episodes",
                                 color = NeliTextPrimary,
-                                fontSize = if (screenProfile.isSmallPhone) 14.sp else 16.sp,
+                                fontSize = if (screenProfile.isSmallPhone) 16.sp else 18.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "${seriesList.size} Series • ${episodesCatalog.size} Eps",
+                                color = NeliGenreCyan,
+                                fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
                                 maxLines = 1,
+                                softWrap = false,
                                 overflow = TextOverflow.Ellipsis
                             )
                         }
-                        Text(
-                            text = "${adultList.size}",
-                            color = NeliTextSecondary,
-                            fontSize = 12.sp
-                        )
-                    }
 
-                    // Adult Genre & Category Filter Bar (All | X Video | XXX | Porn | Erotic Romance | Firebase Categories...)
-                    LazyRow(
-                        contentPadding = PaddingValues(horizontal = screenProfile.horizontalPadding, vertical = 6.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = screenProfile.horizontalPadding, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(screenProfile.cardSpacing)
+                        ) {
+                            items(seriesList, key = { "disc_series_${it.id}" }) { series ->
+                                DiscoveryTallPosterCard(
+                                    media = series,
+                                    onClick = { onMediaSelected(series) }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            item(key = "discovery_banner_between_series_and_adults") {
+                com.example.ads.AdMobBannerAd(
+                    adTag = "discovery_series_adults",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp)
+                )
+            }
+
+            // 8. ADULTS (18+) SECTION ORGANIZED BY GENRES & CATEGORIES
+            if ((selectedFilter.equals("All", true) || selectedFilter.equals("Adults", true)) && adultList.isNotEmpty()) {
+                item(key = "discovery_adults_header_item") {
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .testTag("adult_genre_category_chips")
+                            .padding(top = 14.dp)
+                            .testTag("discovery_adults_section")
                     ) {
-                        items(adultCategories, key = { "adult_cat_chip_$it" }) { cat ->
-                            val isCatSelected = cat.equals(selectedAdultCategory, ignoreCase = true)
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(
-                                        if (isCatSelected) Color(0xFFEF4444) else NeliSurfaceVariant
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = screenProfile.horizontalPadding, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(CircleShape)
+                                        .background(Color(0xFFEF4444))
+                                        .padding(horizontal = 8.dp, vertical = 3.dp)
+                                ) {
+                                    Text(
+                                        text = "18+ ADULTS",
+                                        color = Color.White,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        maxLines = 1,
+                                        softWrap = false
                                     )
-                                    .clickable { selectedAdultCategory = cat }
-                                    .padding(horizontal = 12.dp, vertical = 6.dp)
-                                    .testTag("adult_cat_chip_${cat.lowercase()}")
-                            ) {
+                                }
                                 Text(
-                                    text = cat,
-                                    color = if (isCatSelected) Color.White else NeliTextPrimary,
-                                    fontSize = 12.sp,
-                                    fontWeight = if (isCatSelected) FontWeight.Bold else FontWeight.Medium,
-                                    maxLines = 1
+                                    text = "Adults • Genres",
+                                    color = NeliTextPrimary,
+                                    fontSize = if (screenProfile.isSmallPhone) 15.sp else 17.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
+                            Text(
+                                text = "${adultList.size}",
+                                color = NeliTextSecondary,
+                                fontSize = 12.sp,
+                                maxLines = 1
+                            )
+                        }
+
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = screenProfile.horizontalPadding, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("adult_genre_category_chips")
+                        ) {
+                            items(adultCategories, key = { "adult_cat_chip_$it" }) { cat ->
+                                val isCatSelected = cat.equals(selectedAdultCategory, ignoreCase = true)
+                                Box(
+                                    modifier = Modifier
+                                        .clip(CircleShape)
+                                        .background(
+                                            if (isCatSelected) Color(0xFFEF4444) else NeliSurfaceVariant
+                                        )
+                                        .clickable { selectedAdultCategory = cat }
+                                        .padding(horizontal = 13.dp, vertical = 6.dp)
+                                        .testTag("adult_cat_chip_${cat.lowercase()}")
+                                ) {
+                                    Text(
+                                        text = cat,
+                                        color = if (isCatSelected) Color.White else NeliTextPrimary,
+                                        fontSize = 12.sp,
+                                        fontWeight = if (isCatSelected) FontWeight.Bold else FontWeight.Medium,
+                                        maxLines = 1,
+                                        softWrap = false
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                itemsIndexed(
+                    items = adultsByGenreAndCategory,
+                    key = { _, pair -> "adult_genre_section_${pair.first}" }
+                ) { idx, (adultCategoryName, categoryItems) ->
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp)
+                            .testTag("adult_genre_row_$adultCategoryName")
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = screenProfile.horizontalPadding, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(CircleShape)
+                                        .background(Color(0x33EF4444))
+                                        .padding(horizontal = 7.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = "18+",
+                                        color = Color(0xFFEF4444),
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        maxLines = 1,
+                                        softWrap = false
+                                    )
+                                }
+                                Text(
+                                    text = adultCategoryName,
+                                    color = NeliTextPrimary,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            Text(
+                                text = "${categoryItems.size}",
+                                color = NeliTextSecondary,
+                                fontSize = 12.sp
+                            )
+                        }
+
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = screenProfile.horizontalPadding, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(screenProfile.cardSpacing)
+                        ) {
+                            items(categoryItems, key = { "disc_adult_${adultCategoryName}_${it.id}" }) { adultMedia ->
+                                AdultMediaPosterThumbnailCard(
+                                    media = adultMedia,
+                                    onSelectDetails = { onMediaSelected(adultMedia) },
+                                    onPlayDirect = { onPlayMedia(adultMedia) }
+                                )
+                            }
+                        }
+
+                        com.example.ads.AdMobBannerAd(
+                            adTag = "discovery_adult_cat_$idx",
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 6.dp, bottom = 2.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 3D Stacked Center-Focused Hero Poster Carousel for Discovery.
+ * Side posters subtly peek and tilt behind the active center card, with centered year,
+ * bold title, translucent metadata pills, and Neli gradient dot indicators below.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun DiscoveryHeroPosterCarousel(
+    items: List<MediaContent>,
+    onMediaSelected: (MediaContent) -> Unit,
+    onPlayMedia: (MediaContent) -> Unit
+) {
+    if (items.isEmpty()) return
+    val context = LocalContext.current
+    val isLight = NeliThemeManager.isLightMode
+    val initialPage = if (items.size >= 3) 1 else 0
+    val pagerState = rememberPagerState(initialPage = initialPage, pageCount = { items.size })
+    val currentHero = items[pagerState.currentPage.coerceIn(0, items.lastIndex)]
+
+    // Automatically slide to the next recommended movie/animation/series every 3 seconds
+    LaunchedEffect(pagerState, items.size) {
+        if (items.size > 1) {
+            while (true) {
+                kotlinx.coroutines.delay(3_000L)
+                if (!pagerState.isScrollInProgress) {
+                    val nextPage = (pagerState.currentPage + 1) % items.size
+                    try {
+                        pagerState.animateScrollToPage(nextPage)
+                    } catch (_: Throwable) {
+                    }
+                }
+            }
+        }
+    }
+
+    val heroCategoryLabel = remember(currentHero.id, currentHero.genre, currentHero.type, currentHero.isAdultContent) {
+        when {
+            currentHero.isAdultContent -> "18+ EXCLUSIVE"
+            currentHero.genre.contains("animation", ignoreCase = true) ||
+                currentHero.genre.contains("anime", ignoreCase = true) ||
+                currentHero.genre.contains("cartoon", ignoreCase = true) -> "ANIMATION"
+            currentHero.isSeries -> "SERIES"
+            else -> "MOVIE"
+        }
+    }
+
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 4.dp, bottom = 6.dp)
+            .testTag("discovery_hero_carousel")
+    ) {
+        val narrow = NeliResponsiveLayout.isNarrowViewport(maxWidth.value.toInt())
+        val cardWidth = (maxWidth * if (narrow) 0.56f else 0.54f).coerceIn(176.dp, 242.dp)
+        val sidePadding = ((maxWidth - cardWidth) / 2f).coerceAtLeast(24.dp)
+
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            // Glowing RECOMMENDED spotlight header bar
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(
+                            Brush.horizontalGradient(
+                                listOf(NeliMagenta.copy(alpha = 0.24f), NeliWarmOrange.copy(alpha = 0.20f))
+                            )
+                        )
+                        .border(1.dp, NeliMagenta.copy(alpha = 0.65f), CircleShape)
+                        .padding(horizontal = 11.dp, vertical = 5.dp)
+                        .testTag("discovery_recommended_badge")
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(7.dp)
+                            .clip(CircleShape)
+                            .background(NeliMagenta)
+                    )
+                    Text(
+                        text = "RECOMMENDED",
+                        color = if (isLight) NeliMagenta else Color.White,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Black,
+                        letterSpacing = 0.9.sp
+                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(NeliGenreCyan.copy(alpha = 0.16f))
+                        .border(1.dp, NeliGenreCyan.copy(alpha = 0.55f), CircleShape)
+                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        text = "$heroCategoryLabel • AUTO",
+                        color = NeliGenreCyan,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        letterSpacing = 0.6.sp
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            HorizontalPager(
+                state = pagerState,
+                contentPadding = PaddingValues(horizontal = sidePadding),
+                pageSpacing = (-22).dp,
+                beyondViewportPageCount = 2,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(cardWidth * 1.46f + 16.dp)
+            ) { page ->
+                val media = items[page]
+                val rawOffset = ((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction)
+                val absOffset = rawOffset.absoluteValue.coerceIn(0f, 1.5f)
+                val scale = lerp(0.83f, 1f, 1f - absOffset.coerceAtMost(1f))
+                val cardAlpha = lerp(0.54f, 1f, 1f - absOffset.coerceAtMost(1f))
+                val rotation = (-rawOffset * 6.5f).coerceIn(-9f, 9f)
+                val elevationZ = 10f - absOffset * 5f
+
+                val posterUrl = remember(media.id, media.posterUrl, media.backdropUrl, media.streamUrl) {
+                    MediaContentRepository.resolveGuaranteedMediaImageUrl(
+                        media.posterUrl,
+                        media.backdropUrl,
+                        media.streamUrl
+                    )
+                }
+                val posterReq = remember(media.id, posterUrl) {
+                    ImageRequest.Builder(context)
+                        .data(posterUrl)
+                        .size(480, 720)
+                        .crossfade(true)
+                        .build()
+                }
+
+                Box(
+                    modifier = Modifier
+                        .zIndex(elevationZ)
+                        .graphicsLayer {
+                            scaleX = scale
+                            scaleY = scale
+                            alpha = cardAlpha
+                            rotationZ = rotation
+                        }
+                        .width(cardWidth)
+                        .aspectRatio(0.68f)
+                        .shadow(
+                            elevation = if (absOffset < 0.3f) 22.dp else 8.dp,
+                            shape = RoundedCornerShape(26.dp),
+                            ambientColor = NeliMagenta.copy(alpha = 0.45f),
+                            spotColor = NeliMagenta.copy(alpha = 0.5f)
+                        )
+                        .clip(RoundedCornerShape(26.dp))
+                        .background(NeliSurfaceVariant)
+                        .border(
+                            width = if (absOffset < 0.3f) 1.5.dp else 1.dp,
+                            brush = if (absOffset < 0.3f) {
+                                Brush.linearGradient(
+                                    listOf(
+                                        NeliMagenta.copy(alpha = 0.78f),
+                                        NeliWarmOrange.copy(alpha = 0.55f),
+                                        NeliGenreCyan.copy(alpha = 0.45f)
+                                    )
+                                )
+                            } else {
+                                Brush.linearGradient(
+                                    listOf(
+                                        Color.White.copy(alpha = 0.14f),
+                                        Color.White.copy(alpha = 0.04f)
+                                    )
+                                )
+                            },
+                            shape = RoundedCornerShape(26.dp)
+                        )
+                        .clickable { onMediaSelected(media) }
+                        .testTag("hero_carousel_card_${media.id}")
+                ) {
+                    AsyncImage(
+                        model = posterReq,
+                        contentDescription = media.title,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+
+                    // Subtle bottom cinema vignette
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(74.dp)
+                            .align(Alignment.BottomCenter)
+                            .background(
+                                Brush.verticalGradient(
+                                    listOf(Color.Transparent, Color(0xCC060812))
+                                )
+                            )
+                    )
+
+                    // Top-left Swahili / Adult pill on active card
+                    if (absOffset < 0.45f) {
+                        if (media.isAdultContent) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopStart)
+                                    .padding(12.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xEEEF4444))
+                                    .padding(horizontal = 9.dp, vertical = 4.dp)
+                            ) {
+                                Text(
+                                    text = "18+ ADULT",
+                                    color = Color.White,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
+                        } else if (media.narrated && media.narrationLanguage.isNotBlank()) {
+                            Row(
+                                modifier = Modifier
+                                    .align(Alignment.TopStart)
+                                    .padding(12.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xCC0B1020))
+                                    .border(1.dp, NeliGenreCyan.copy(alpha = 0.55f), CircleShape)
+                                    .padding(horizontal = 9.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.GraphicEq,
+                                    contentDescription = null,
+                                    tint = NeliGenreCyan,
+                                    modifier = Modifier.size(11.dp)
+                                )
+                                Text(
+                                    text = media.narrationLanguage.uppercase(),
+                                    color = Color.White,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
+                        }
+
+                        // Compact quick-play button on bottom-right of active hero poster
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(12.dp)
+                                .size(38.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    Brush.linearGradient(listOf(NeliMagenta, NeliWarmOrange))
+                                )
+                                .clickable { onPlayMedia(media) },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.PlayArrow,
+                                contentDescription = "Play ${media.title}",
+                                tint = Color.White,
+                                modifier = Modifier.size(22.dp)
+                            )
                         }
                     }
                 }
             }
 
-            // Organized Adult Genre & Category Rows + Banner after each category
-            itemsIndexed(
-                items = adultsByGenreAndCategory,
-                key = { _, pair -> "adult_genre_section_${pair.first}" }
-            ) { idx, (adultCategoryName, categoryItems) ->
-                Column(
+            Spacer(modifier = Modifier.height(6.dp))
+
+            // Centered Release Year
+            Text(
+                text = currentHero.releaseYear.ifBlank { "2025" },
+                color = NeliTextSecondary,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1
+            )
+
+            Spacer(modifier = Modifier.height(3.dp))
+
+            // Centered Bold Title
+            Text(
+                text = currentHero.title,
+                color = NeliTextPrimary,
+                fontSize = if (narrow) 18.sp else 21.sp,
+                fontWeight = FontWeight.ExtraBold,
+                textAlign = TextAlign.Center,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp)
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Centered Translucent Metadata Pills (Genre • Duration/Swahili • ★ Rating)
+            val pillBg = if (isLight) NeliSurfaceVariant else Color(0xFF1A213C).copy(alpha = 0.92f)
+            val pillBorder = if (isLight) NeliBorder else Color.White.copy(alpha = 0.12f)
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
+            ) {
+                Box(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 8.dp)
-                        .testTag("adult_genre_row_$adultCategoryName")
+                        .clip(CircleShape)
+                        .background(pillBg)
+                        .border(1.dp, pillBorder, CircleShape)
+                        .padding(horizontal = 12.dp, vertical = 5.dp)
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = screenProfile.horizontalPadding, vertical = 4.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(Color(0x33EF4444))
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                            ) {
-                                Text(
-                                    text = "18+",
-                                    color = Color(0xFFEF4444),
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.ExtraBold
-                                )
-                            }
-                            Text(
-                                text = adultCategoryName,
-                                color = NeliTextPrimary,
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                        Text(
-                            text = "${categoryItems.size}",
-                            color = NeliTextSecondary,
-                            fontSize = 12.sp
-                        )
-                    }
+                    Text(
+                        text = currentHero.primaryGenre.ifBlank { "Cinema" },
+                        color = NeliTextPrimary,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
 
-                    LazyRow(
-                        contentPadding = PaddingValues(horizontal = screenProfile.horizontalPadding, vertical = 6.dp),
-                        horizontalArrangement = Arrangement.spacedBy(screenProfile.cardSpacing)
-                    ) {
-                        items(categoryItems, key = { "disc_adult_${adultCategoryName}_${it.id}" }) { adultMedia ->
-                            AdultMediaPosterThumbnailCard(
-                                media = adultMedia,
-                                onSelectDetails = { onMediaSelected(adultMedia) },
-                                onPlayDirect = { onPlayMedia(adultMedia) }
-                            )
-                        }
-                    }
+                Box(
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(pillBg)
+                        .border(1.dp, pillBorder, CircleShape)
+                        .padding(horizontal = 12.dp, vertical = 5.dp)
+                ) {
+                    Text(
+                        text = currentHero.duration.ifBlank { if (currentHero.isSeries) "Series" else "HD" },
+                        color = NeliTextPrimary,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
 
-                    com.example.ads.AdMobBannerAd(
-                        adTag = "discovery_adult_cat_$idx",
+                Row(
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(pillBg)
+                        .border(1.dp, NeliMagenta.copy(alpha = 0.35f), CircleShape)
+                        .padding(horizontal = 12.dp, vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Star,
+                        contentDescription = null,
+                        tint = Color(0xFFFFB800),
+                        modifier = Modifier.size(12.dp)
+                    )
+                    Text(
+                        text = currentHero.rating.ifBlank { "8.0" },
+                        color = NeliTextPrimary,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Sleek Dot Indicators
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                items.forEachIndexed { idx, _ ->
+                    val isActive = idx == pagerState.currentPage
+                    Box(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 6.dp, bottom = 2.dp)
+                            .width(if (isActive) 18.dp else 5.dp)
+                            .height(5.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (isActive) {
+                                    Brush.horizontalGradient(listOf(NeliMagenta, NeliWarmOrange))
+                                } else {
+                                    Brush.horizontalGradient(
+                                        listOf(
+                                            NeliTextMuted.copy(alpha = 0.45f),
+                                            NeliTextMuted.copy(alpha = 0.45f)
+                                        )
+                                    )
+                                }
+                            )
                     )
                 }
             }
         }
+    }
+}
+
+/**
+ * Modern Tall Cinema Poster Card for "For you" and First-Genre horizontal rails.
+ * Clean rounded artwork with Swahili/Type badge, crisp title & gold star rating below.
+ */
+@Composable
+private fun DiscoveryTallPosterCard(
+    media: MediaContent,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val screenProfile = rememberNeliScreenProfile()
+    val cardWidth = if (screenProfile.isSmallPhone) 124.dp else 138.dp
+    val primaryImageUrl = remember(media.id, media.posterUrl, media.backdropUrl, media.streamUrl) {
+        MediaContentRepository.resolveGuaranteedMediaImageUrl(
+            media.posterUrl,
+            media.backdropUrl,
+            media.streamUrl
+        )
+    }
+    val posterRequest = remember(media.id, primaryImageUrl) {
+        ImageRequest.Builder(context)
+            .data(primaryImageUrl)
+            .size(300, 450)
+            .crossfade(false)
+            .build()
+    }
+
+    Column(
+        modifier = modifier
+            .width(cardWidth)
+            .tvGeminiFocusable(
+                shape = RoundedCornerShape(18.dp),
+                focusScale = 1.06f,
+                borderWidth = 2.dp,
+                onClick = onClick
+            )
+            .clickable(onClick = onClick)
+            .testTag("media_card_${media.id}"),
+        verticalArrangement = Arrangement.spacedBy(7.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(2f / 3f)
+                .clip(RoundedCornerShape(18.dp))
+                .background(NeliSurfaceVariant)
+                .border(
+                    width = 1.dp,
+                    color = if (media.isAdultContent) Color(0x66EF4444) else NeliBorder.copy(alpha = 0.85f),
+                    shape = RoundedCornerShape(18.dp)
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.Movie,
+                contentDescription = null,
+                tint = NeliMagenta.copy(alpha = 0.3f),
+                modifier = Modifier.size(30.dp)
+            )
+            AsyncImage(
+                model = posterRequest,
+                contentDescription = media.title,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+            // Subtle bottom vignette
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .align(Alignment.BottomCenter)
+                    .background(
+                        Brush.verticalGradient(listOf(Color.Transparent, Color(0xBF060812)))
+                    )
+            )
+
+            // Top-left Swahili or Series/18+ pill
+            when {
+                media.isAdultContent -> {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(8.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xEEEF4444))
+                            .padding(horizontal = 7.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = "18+",
+                            color = Color.White,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
+                }
+                media.narrated && media.narrationLanguage.isNotBlank() -> {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(8.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xCC0B1020))
+                            .border(0.8.dp, NeliGenreCyan.copy(alpha = 0.6f), CircleShape)
+                            .padding(horizontal = 7.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = media.narrationLanguage.uppercase(),
+                            color = NeliGenreCyan,
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
+                }
+                media.isSeries -> {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(8.dp)
+                            .clip(CircleShape)
+                            .background(NeliNeonPurple.copy(alpha = 0.9f))
+                            .padding(horizontal = 7.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = "SERIES",
+                            color = Color.White,
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
+                }
+            }
+        }
+
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                text = media.title,
+                color = NeliTextPrimary,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Star,
+                    contentDescription = null,
+                    tint = Color(0xFFFFB800),
+                    modifier = Modifier.size(12.dp)
+                )
+                Text(
+                    text = "${media.rating.ifBlank { "7.8" }}/10",
+                    color = NeliTextSecondary,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    softWrap = false
+                )
+                Text(
+                    text = "• ${media.releaseYear}",
+                    color = NeliTextMuted,
+                    fontSize = 10.sp,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Cinema "Popular" Horizontal Feature Card (Poster thumbnail on left + Title, IMDb rating, Genre pills, Duration on right).
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun DiscoveryPopularListCard(
+    media: MediaContent,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val primaryImageUrl = remember(media.id, media.posterUrl, media.backdropUrl, media.streamUrl) {
+        MediaContentRepository.resolveGuaranteedMediaImageUrl(
+            media.posterUrl,
+            media.backdropUrl,
+            media.streamUrl
+        )
+    }
+    val posterRequest = remember(media.id, primaryImageUrl) {
+        ImageRequest.Builder(context)
+            .data(primaryImageUrl)
+            .size(220, 330)
+            .crossfade(false)
+            .build()
+    }
+    val genreTags = remember(media.id, media.genre, media.primaryGenre) {
+        media.genre.split(",", "/", "•", "|")
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .ifEmpty { listOf(media.primaryGenre.ifBlank { "Cinema" }) }
+            .take(3)
+    }
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .tvCardGrow(shape = RoundedCornerShape(18.dp), onClick = onClick)
+            .clip(RoundedCornerShape(18.dp))
+            .background(NeliSurface)
+            .border(1.dp, NeliBorder.copy(alpha = 0.9f), RoundedCornerShape(18.dp))
+            .clickable(onClick = onClick)
+            .padding(10.dp)
+            .testTag("popular_movie_card_${media.id}"),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .width(74.dp)
+                .aspectRatio(2f / 3f)
+                .clip(RoundedCornerShape(13.dp))
+                .background(NeliSurfaceVariant)
+        ) {
+            AsyncImage(
+                model = posterRequest,
+                contentDescription = media.title,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text(
+                text = media.title,
+                color = NeliTextPrimary,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.ExtraBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(5.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Star,
+                    contentDescription = null,
+                    tint = Color(0xFFFFB800),
+                    modifier = Modifier.size(14.dp)
+                )
+                Text(
+                    text = "${media.rating.ifBlank { "8.0" }}/10 IMDb",
+                    color = NeliTextSecondary,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    softWrap = false
+                )
+            }
+
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                genreTags.forEach { tag ->
+                    Box(
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .background(NeliMagenta.copy(alpha = 0.14f))
+                            .border(0.8.dp, NeliMagenta.copy(alpha = 0.35f), CircleShape)
+                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                    ) {
+                        Text(
+                            text = tag.uppercase(),
+                            color = if (NeliThemeManager.isLightMode) NeliMagenta else Color(0xFFFFB3D9),
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
+                }
+            }
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(
+                    text = media.duration.ifBlank { "HD" },
+                    color = NeliTextMuted,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    softWrap = false
+                )
+                if (media.narrated && media.narrationLanguage.isNotBlank()) {
+                    Text(
+                        text = "• ${media.narrationLanguage}",
+                        color = NeliGenreCyan,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
         }
     }
 }
@@ -1089,94 +2024,59 @@ private fun DiscoveryMadjsBanner(
     totalMovieCount: Int = 0,
     onRotateClick: () -> Unit = {}
 ) {
-    Box(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 6.dp)
-            .clip(RoundedCornerShape(16.dp))
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .clip(CircleShape)
             .background(
-                Brush.linearGradient(
+                Brush.horizontalGradient(
                     colors = listOf(
-                        Color(0xFF2B0B3F),
-                        Color(0xFF141B36),
-                        Color(0xFF0E121B)
+                        NeliMagenta.copy(alpha = 0.16f),
+                        NeliNeonPurple.copy(alpha = 0.14f),
+                        NeliSurfaceVariant.copy(alpha = 0.8f)
                     )
                 )
             )
-            .border(1.dp, Color(0x44A855F7), RoundedCornerShape(16.dp))
-            .padding(horizontal = 16.dp, vertical = 14.dp)
-            .testTag("discovery_madjs_banner")
+            .border(1.dp, NeliMagenta.copy(alpha = 0.32f), CircleShape)
+            .clickable { onRotateClick() }
+            .padding(horizontal = 12.dp, vertical = 7.dp)
+            .testTag("discovery_madjs_banner"),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            modifier = Modifier.fillMaxWidth()
+        Box(
+            modifier = Modifier
+                .size(22.dp)
+                .clip(CircleShape)
+                .background(Brush.linearGradient(listOf(NeliMagenta, NeliWarmOrange))),
+            contentAlignment = Alignment.Center
         ) {
-            Box(
-                modifier = Modifier
-                    .size(44.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Color(0xFFFF0033)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.GraphicEq,
-                    contentDescription = "Swahili DJs",
-                    tint = Color.White,
-                    modifier = Modifier.size(24.dp)
-                )
-            }
-
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(3.dp)
-            ) {
-                Text(
-                    text = DISCOVERY_MADJS_BANNER_TEXT,
-                    color = Color.White,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.ExtraBold
-                )
-                Text(
-                    text = if (totalMovieCount > 0) {
-                        "Sinema na Series zilizotafsiriwa kwa Kiswahili • HD"
-                    } else {
-                        "Sinema na Series zilizotafsiriwa kwa Kiswahili • HD"
-                    },
-                    color = NeliGenreCyan,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium
-                )
-            }
-
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(Color(0x33A855F7))
-                    .border(1.dp, Color(0x66A855F7), RoundedCornerShape(10.dp))
-                    .clickable { onRotateClick() }
-                    .padding(horizontal = 10.dp, vertical = 8.dp)
-                    .testTag("discovery_rotate_movies_button"),
-                contentAlignment = Alignment.Center
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Refresh,
-                        contentDescription = "Badilisha Movies",
-                        tint = Color.White,
-                        modifier = Modifier.size(14.dp)
-                    )
-                    Text(
-                        text = "Badilisha",
-                        color = Color.White,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.ExtraBold
-                    )
-                }
-            }
+            Icon(
+                imageVector = Icons.Default.GraphicEq,
+                contentDescription = "Swahili DJs",
+                tint = Color.White,
+                modifier = Modifier.size(13.dp)
+            )
+        }
+        Text(
+            text = DISCOVERY_MADJS_BANNER_TEXT,
+            color = NeliTextPrimary,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
+        )
+        if (totalMovieCount > 0) {
+            Text(
+                text = "HD",
+                color = NeliGenreCyan,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.ExtraBold,
+                maxLines = 1,
+                softWrap = false
+            )
         }
     }
 }
@@ -1371,7 +2271,7 @@ fun DownloadTabContent(
                 .padding(horizontal = screenProfile.horizontalPadding)
                 .testTag("download_tab_screen"),
             verticalArrangement = Arrangement.spacedBy(screenProfile.cardSpacing),
-            contentPadding = PaddingValues(top = 12.dp, bottom = 100.dp)
+            contentPadding = PaddingValues(top = 12.dp, bottom = 116.dp)
         ) {
             if (isOfflineMode) {
                 item {
@@ -1925,11 +2825,15 @@ fun AccountTabContent(
     onDismissGoogleSignInSheet: () -> Unit = {},
     onSignUp: (realName: String, email: String, password: String) -> Unit,
     onSignIn: (email: String, password: String) -> Unit,
+    onSignInAsGuest: (guestName: String) -> Unit = {},
     onSignInWithPhone: (phoneNumber: String, realName: String, password: String) -> Unit = { _, _, _ -> },
+    onSignInWithPhoneCredentials: (phoneOrUsername: String, password: String) -> Unit = { _, _ -> },
+    onSignUpWithPhone: (username: String, phoneNumber: String, password: String) -> Unit = { _, _, _ -> },
     onSignOut: () -> Unit,
     onClearAuthError: () -> Unit,
     onUpdateNetworkPreferences: (networkMode: String, allowMobileData: Boolean) -> Unit,
     onPlayWatchlistItem: (WatchlistItemEntity) -> Unit,
+    onResumeContinueWatching: (com.example.data.ContinueWatchingEntry) -> Unit = {},
     usernameUpdateMessage: String? = null,
     onUpdateUsername: (String) -> Unit = {},
     onClearUsernameUpdateMessage: () -> Unit = {},
@@ -2275,7 +3179,7 @@ fun AccountTabContent(
             .padding(horizontal = screenProfile.horizontalPadding)
             .testTag("account_tab_screen"),
         verticalArrangement = Arrangement.spacedBy(screenProfile.cardSpacing),
-        contentPadding = PaddingValues(top = 12.dp, bottom = 100.dp)
+        contentPadding = PaddingValues(top = 12.dp, bottom = 116.dp)
     ) {
         if (currentUser != null) {
             // Logged-in User Profile Card
@@ -2369,8 +3273,27 @@ fun AccountTabContent(
                                     )
                                 }
                             }
+                            val cwEntries by com.example.data.NeliWatchProgressManager.continueWatching.collectAsState()
+                            val loyaltyPoints = remember(cwEntries.size, watchlist.size, downloadsCount, isVerifiedPremiumMember) {
+                                com.example.data.NeliWatchProgressManager.computeLoyaltyPoints(
+                                    continueWatchingCount = cwEntries.size,
+                                    watchlistCount = watchlist.size,
+                                    downloadsCount = downloadsCount,
+                                    isPremium = isVerifiedPremiumMember
+                                )
+                            }
+                            val loyaltyTier = remember(loyaltyPoints, isVerifiedPremiumMember) {
+                                com.example.data.NeliWatchProgressManager.resolveLoyaltyTierLabel(loyaltyPoints, isVerifiedPremiumMember)
+                            }
+                            val displayIdentifier = remember(currentUser.email) {
+                                if (currentUser.email.endsWith("@nelitv.phone", ignoreCase = true)) {
+                                    "Phone • ${currentUser.email.substringBefore("@")}"
+                                } else {
+                                    currentUser.email
+                                }
+                            }
                             Text(
-                                text = currentUser.email,
+                                text = displayIdentifier,
                                 color = NeliGenreCyan,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Medium,
@@ -2378,11 +3301,20 @@ fun AccountTabContent(
                                 overflow = TextOverflow.Ellipsis
                             )
                             Text(
+                                text = "$loyaltyTier • $loyaltyPoints pts",
+                                color = Color(0xFFFBBF24),
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.testTag("account_loyalty_points_label")
+                            )
+                            Text(
                                 text = when {
                                     isSpecialAdFreeUser -> "Special VIP Ad-Free Account (Bila Matangazo)"
                                     isFreeForeverVipUser -> "Free Forever VIP • No Ads (Max 2 Devices)"
                                     isVerifiedPremiumMember -> "Muda Uliobaki: ${subState.formatLiveCountdown(accountCurrentTimeMs)}"
-                                    else -> "Free User • Account Synced"
+                                    else -> "Free Streaming Member • Account Synced"
                                 },
                                 color = if (isVerifiedPremiumMember) Color(0xFFFF4DA6) else NeliTextSecondary,
                                 fontSize = 11.sp,
@@ -2604,23 +3536,27 @@ fun AccountTabContent(
                                 onSignInWithGoogle()
                             },
                             shape = RoundedCornerShape(12.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
                             modifier = Modifier
                                 .weight(1f)
-                                .height(46.dp)
+                                .heightIn(min = 46.dp)
                                 .testTag("switch_account_button")
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Person,
                                 contentDescription = null,
                                 tint = NeliGenreCyan,
-                                modifier = Modifier.size(18.dp)
+                                modifier = Modifier.size(16.dp)
                             )
-                            Spacer(modifier = Modifier.width(6.dp))
+                            Spacer(modifier = Modifier.width(5.dp))
                             Text(
                                 text = "Switch Account",
                                 color = Color.White,
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 12.sp
+                                fontSize = 12.sp,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
 
@@ -2631,30 +3567,34 @@ fun AccountTabContent(
                                 onSignOut()
                             },
                             shape = RoundedCornerShape(12.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
                             modifier = Modifier
                                 .weight(1f)
-                                .height(46.dp)
+                                .heightIn(min = 46.dp)
                                 .testTag("sign_out_button")
                         ) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.Logout,
                                 contentDescription = null,
                                 tint = NeliMagenta,
-                                modifier = Modifier.size(18.dp)
+                                modifier = Modifier.size(16.dp)
                             )
-                            Spacer(modifier = Modifier.width(6.dp))
+                            Spacer(modifier = Modifier.width(5.dp))
                             Text(
                                 text = "Sign Out",
                                 color = Color.White,
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 12.sp
+                                fontSize = 12.sp,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }
                 }
             }
         } else {
-            // When user is logged out, show Google Account Sign In AND By Email (Login / Sign Up)
+            // When user is logged out, show Google Account Sign In, Phone Number, AND By Email (Login / Sign Up)
             item {
                 NeliGoogleAccountAuthSection(
                     authError = authError,
@@ -2665,14 +3605,37 @@ fun AccountTabContent(
                     onCompleteGoogleSignIn = onCompleteGoogleSignIn,
                     onSignInByEmail = onSignIn,
                     onSignUpByEmail = onSignUp,
+                    onSignInByPhone = onSignInWithPhoneCredentials,
+                    onSignUpByPhone = onSignUpWithPhone,
+                    onSignInAsGuest = onSignInAsGuest,
                     onClearAuthError = onClearAuthError
                 )
             }
         }
 
-        // Share APK (Scan to Download QR + Share Link) ABOVE Home Screen Widget & Check/Auto-Update from GitHub Release
+        // 1. Share APK (Display QR Code for Share APK & Auto-Update)
         item {
             NeliShareApkAndAutoUpdateSection()
+        }
+
+        // 2. Subscription (Streaming): Plan Tier, Renewal Date & Step-by-Step Phone Payment Guide
+        item {
+            NeliAccountSubscriptionSection(
+                subState = subState,
+                isVerifiedPremiumMember = isVerifiedPremiumMember,
+                isFreeForeverVip = isFreeForeverVipUser,
+                isSpecialAdFree = isSpecialAdFreeUser,
+                nowMs = accountCurrentTimeMs
+            )
+        }
+
+        // 3. Library & Activity: Continue Watching (with exact last line + %), Watchlist, Favorites & Ratings
+        item {
+            NeliAccountLibraryAndActivitySection(
+                watchlist = watchlist,
+                onResumeContinueWatching = onResumeContinueWatching,
+                onPlayWatchlistItem = onPlayWatchlistItem
+            )
         }
 
         // Theme Colour Changer Card (Black Mode <-> White Mode)
@@ -3068,7 +4031,17 @@ fun AccountTabContent(
                         )
                     )
                 }
+
+                HorizontalDivider(color = Color(0x22FFFFFF))
+
+                // Audio Quality & Language Track Preference
+                NeliAccountAudioPreferenceRow()
             }
+        }
+
+        // Account & Security: Credentials, Connected Device/Session & Notification Toggles
+        item {
+            NeliAccountSecurityAndNotificationsSection(currentUser = currentUser)
         }
 
         // Information & Relevant Pages (About Us, Help & FAQ, Terms & Privacy)
@@ -3078,48 +4051,9 @@ fun AccountTabContent(
             )
         }
 
-        // My Watchlist Section
-        if (watchlist.isNotEmpty()) {
-            item {
-                Text(
-                    text = "My Watchlist (${watchlist.size})",
-                    color = NeliTextPrimary,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-            items(watchlist, key = { it.id }) { wItem ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(NeliSurface)
-                        .border(1.dp, Color(0x33A855F7), RoundedCornerShape(14.dp))
-                        .clickable { onPlayWatchlistItem(wItem) }
-                        .padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = wItem.title,
-                            color = NeliTextPrimary,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp
-                        )
-                        Text(
-                            text = "${wItem.genre} • ${wItem.duration}",
-                            color = NeliGenreCyan,
-                            fontSize = 11.sp
-                        )
-                    }
-                    Icon(
-                        imageVector = Icons.Default.PlayArrow,
-                        contentDescription = "Play",
-                        tint = NeliMagenta
-                    )
-                }
-            }
+        // Watch NeliTv on PC & Desktop Section (moved from Top Header Bar to the bottom of Account Page)
+        item {
+            NeliWatchOnPcAccountSection()
         }
     }
 }
@@ -3138,10 +4072,19 @@ fun NeliGoogleAccountAuthSection(
     onCompleteGoogleSignIn: (email: String, displayName: String) -> Unit,
     onSignInByEmail: (emailOrUsername: String, password: String) -> Unit = { _, _ -> },
     onSignUpByEmail: (username: String, email: String, password: String) -> Unit = { _, _, _ -> },
+    onSignInByPhone: (phoneOrUsername: String, password: String) -> Unit = { _, _ -> },
+    onSignUpByPhone: (username: String, phoneNumber: String, password: String) -> Unit = { _, _, _ -> },
+    onSignInAsGuest: (guestName: String) -> Unit = {},
     onClearAuthError: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    var selectedTab by rememberSaveable { mutableStateOf("GOOGLE") } // "GOOGLE" or "EMAIL"
+    var selectedTab by rememberSaveable { mutableStateOf("GOOGLE") } // "GOOGLE", "PHONE", or "EMAIL"
+    var isPhoneSignUp by rememberSaveable { mutableStateOf(false) }
+    var phoneSignUpUsername by rememberSaveable { mutableStateOf("") }
+    var phoneOrUsernameInput by rememberSaveable { mutableStateOf("") }
+    var phonePasswordInput by rememberSaveable { mutableStateOf("") }
+    var isPhonePasswordVisible by rememberSaveable { mutableStateOf(false) }
+
     var isEmailSignUp by rememberSaveable { mutableStateOf(false) }
     var emailSignUpUsername by rememberSaveable { mutableStateOf("") }
     var emailOrUsernameInput by rememberSaveable { mutableStateOf("") }
@@ -3179,7 +4122,11 @@ fun NeliGoogleAccountAuthSection(
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    imageVector = if (selectedTab == "EMAIL") Icons.Default.Email else Icons.Default.Person,
+                    imageVector = when (selectedTab) {
+                        "EMAIL" -> Icons.Default.Email
+                        "PHONE" -> Icons.Default.Phone
+                        else -> Icons.Default.Person
+                    },
                     contentDescription = null,
                     tint = Color.White,
                     modifier = Modifier.size(24.dp)
@@ -3196,7 +4143,7 @@ fun NeliGoogleAccountAuthSection(
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = "Choose Google Account or Email (Synced with Firebase)",
+                    text = "Choose Google, Phone Number, or Email",
                     color = NeliGenreCyan,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
@@ -3206,7 +4153,7 @@ fun NeliGoogleAccountAuthSection(
             }
         }
 
-        // Method Selector: Google | By Email
+        // Method Selector: Google | Phone | By Email
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -3230,6 +4177,27 @@ fun NeliGoogleAccountAuthSection(
             ) {
                 Text(
                     text = "Google",
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    maxLines = 1
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(if (selectedTab == "PHONE") Color(0xFF10B981) else Color.Transparent)
+                    .clickable {
+                        selectedTab = "PHONE"
+                        onClearAuthError()
+                    }
+                    .padding(vertical = 10.dp)
+                    .testTag("auth_method_phone_tab"),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "Phone",
                     color = Color.White,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.ExtraBold,
@@ -3426,6 +4394,200 @@ fun NeliGoogleAccountAuthSection(
                                 )
                             }
                         }
+                    }
+                }
+            }
+        } else if (selectedTab == "PHONE") {
+            // PHONE NUMBER SECTION: Login (Phone or Username + Password) OR Sign Up (Username + Phone + Password)
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("account_phone_auth_section"),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            isPhoneSignUp = false
+                            onClearAuthError()
+                        },
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(
+                            1.dp,
+                            if (!isPhoneSignUp) Color(0xFF34D399) else Color(0x44A855F7)
+                        ),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = if (!isPhoneSignUp) Color(0x2610B981) else Color.Transparent
+                        ),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(42.dp)
+                            .testTag("account_phone_login_mode_btn")
+                    ) {
+                        Text(
+                            text = "Login",
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            isPhoneSignUp = true
+                            onClearAuthError()
+                        },
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(
+                            1.dp,
+                            if (isPhoneSignUp) Color(0xFF34D399) else Color(0x44A855F7)
+                        ),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = if (isPhoneSignUp) Color(0x2610B981) else Color.Transparent
+                        ),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(42.dp)
+                            .testTag("account_phone_signup_mode_btn")
+                    ) {
+                        Text(
+                            text = "Sign Up",
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                if (isPhoneSignUp) {
+                    OutlinedTextField(
+                        value = phoneSignUpUsername,
+                        onValueChange = {
+                            phoneSignUpUsername = it
+                            onClearAuthError()
+                        },
+                        label = { Text("Username") },
+                        placeholder = { Text("Choose a username") },
+                        leadingIcon = {
+                            Icon(Icons.Default.Person, contentDescription = null, tint = Color(0xFF34D399))
+                        },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Color(0xFF34D399),
+                            unfocusedBorderColor = Color(0x44A855F7),
+                            focusedTextColor = NeliTextPrimary,
+                            unfocusedTextColor = NeliTextPrimary
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("account_phone_username_input")
+                    )
+                }
+
+                OutlinedTextField(
+                    value = phoneOrUsernameInput,
+                    onValueChange = {
+                        phoneOrUsernameInput = it
+                        onClearAuthError()
+                    },
+                    label = { Text(if (isPhoneSignUp) "Phone Number" else "Phone Number or Username") },
+                    placeholder = { Text(if (isPhoneSignUp) "0712345678" else "0712345678 or username") },
+                    leadingIcon = {
+                        Icon(Icons.Default.Phone, contentDescription = null, tint = Color(0xFF34D399))
+                    },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = if (isPhoneSignUp) KeyboardType.Phone else KeyboardType.Text,
+                        imeAction = ImeAction.Next
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Color(0xFF34D399),
+                        unfocusedBorderColor = Color(0x44A855F7),
+                        focusedTextColor = NeliTextPrimary,
+                        unfocusedTextColor = NeliTextPrimary
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("account_phone_identifier_input")
+                )
+
+                OutlinedTextField(
+                    value = phonePasswordInput,
+                    onValueChange = {
+                        phonePasswordInput = it
+                        onClearAuthError()
+                    },
+                    label = { Text("Password") },
+                    leadingIcon = {
+                        Icon(Icons.Default.Lock, contentDescription = null, tint = Color(0xFF34D399))
+                    },
+                    trailingIcon = {
+                        IconButton(onClick = { isPhonePasswordVisible = !isPhonePasswordVisible }) {
+                            Icon(
+                                imageVector = if (isPhonePasswordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                contentDescription = if (isPhonePasswordVisible) "Hide Password" else "Show Password",
+                                tint = NeliTextSecondary
+                            )
+                        }
+                    },
+                    visualTransformation = if (isPhonePasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Password,
+                        imeAction = ImeAction.Done
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Color(0xFF34D399),
+                        unfocusedBorderColor = Color(0x44A855F7),
+                        focusedTextColor = NeliTextPrimary,
+                        unfocusedTextColor = NeliTextPrimary
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("account_phone_password_input")
+                )
+
+                Button(
+                    onClick = {
+                        if (!isAuthLoading) {
+                            if (isPhoneSignUp) {
+                                onSignUpByPhone(
+                                    phoneSignUpUsername.trim(),
+                                    phoneOrUsernameInput.trim(),
+                                    phonePasswordInput
+                                )
+                            } else {
+                                onSignInByPhone(phoneOrUsernameInput.trim(), phonePasswordInput)
+                            }
+                        }
+                    },
+                    enabled = !isAuthLoading,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp)
+                        .testTag("account_phone_submit_button")
+                ) {
+                    if (isAuthLoading) {
+                        CircularProgressIndicator(
+                            color = Color.White,
+                            strokeWidth = 2.dp,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    } else {
+                        Text(
+                            text = if (isPhoneSignUp) "Sign Up with Phone" else "Login with Phone",
+                            color = Color.White,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.ExtraBold
+                        )
                     }
                 }
             }

@@ -272,15 +272,55 @@ fun PlayerScreen(
     val lockAllForFree by com.example.data.NeliAdminManager.areAllChannelsLocked.collectAsState()
     val lockAllAzamForFree by com.example.data.NeliAdminManager.areAllAzamChannelsLocked.collectAsState()
     val lockedChannelIds by com.example.data.NeliAdminManager.lockedChannelIds.collectAsState()
-    var resizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FILL) }
-    // Always open every channel or movie in Full Screen Landscape until the user explicitly switches to Portrait mode
+    // Default to RESIZE_MODE_FIT so people & content keep natural proportions with zero stretching on tablets and phones
+    var resizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
+    // Player is ALWAYS Full-Screen Cinema Mode (never collapses into half-screen portrait mode)
     var orientationMode by remember(channel.id) {
         mutableStateOf(PlayerOrientationMode.LOCKED_LANDSCAPE)
     }
-    val isPortraitYoutubeMode = !orientationMode.isLandscapeLocked
+    val isPortraitYoutubeMode = false
     var showOrientationStatusBadge by remember { mutableStateOf(false) }
     var orientationBadgeTriggerToken by remember { mutableLongStateOf(0L) }
     val activeExoPlayer = remember(playerController) { playerController.initializePlayer() }
+
+    // Continue Watching: auto-resume saved position for Movies/Episodes & record playback progress every 5s
+    val watchProgressMediaId = remember(activeChannel.id, activeChannel.episodeId, activeChannel.seriesId) {
+        activeChannel.episodeId.ifBlank { activeChannel.id.removePrefix("dl_").removePrefix("ep_") }
+    }
+    var hasAppliedSavedResume by remember(watchProgressMediaId) { mutableStateOf(false) }
+    LaunchedEffect(watchProgressMediaId, activeChannel.isLiveBroadcast, playbackInfo.duration) {
+        if (!activeChannel.isLiveBroadcast && !hasAppliedSavedResume && playbackInfo.duration > 30_000L) {
+            hasAppliedSavedResume = true
+            val savedResumeMs = com.example.data.NeliWatchProgressManager.getResumePositionMs(context, watchProgressMediaId)
+            if (savedResumeMs > 5_000L && savedResumeMs < playbackInfo.duration - 15_000L) {
+                playerController.seekTo(savedResumeMs)
+            }
+        }
+    }
+    LaunchedEffect(watchProgressMediaId, activeChannel.isLiveBroadcast, activeChannel.name) {
+        if (!activeChannel.isLiveBroadcast) {
+            while (true) {
+                delay(5_000L)
+                val info = playerController.playbackInfo.value
+                if (info.duration > 15_000L && info.currentPosition > 5_000L) {
+                    com.example.data.NeliWatchProgressManager.recordPlaybackProgress(
+                        context = context,
+                        id = watchProgressMediaId,
+                        title = activeChannel.name,
+                        subtitle = activeChannel.description,
+                        posterUrl = activeChannel.thumbnailUrl,
+                        genre = activeChannel.categories.firstOrNull().orEmpty(),
+                        isLiveBroadcast = false,
+                        positionMs = info.currentPosition,
+                        durationMs = info.duration,
+                        streamUrl = activeChannel.streamUrl,
+                        seriesId = activeChannel.seriesId,
+                        isSeries = isSeriesVod || activeChannel.seriesId.isNotBlank()
+                    )
+                }
+            }
+        }
+    }
 
     // Real-time subscription expiry and admin lock enforcement while watching a Live TV channel:
     // As soon as Admin locks this channel or Azam channels, or subscription expires, Free Users are immediately blocked.
@@ -311,11 +351,17 @@ fun PlayerScreen(
             activity,
             PlayerOrientationMode.LOCKED_LANDSCAPE
         )
+        // On Tablets and phones alike, explicitly request sensor-landscape so Android never traps the player in portrait
+        try {
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        } catch (_: Exception) {
+        }
     }
 
-    val updateOrientationMode: (PlayerOrientationMode) -> Unit = { newMode ->
-        orientationMode = newMode
-        PlayerGestureHelper.saveAndApplyOrientationMode(context, activity, newMode)
+    val updateOrientationMode: (PlayerOrientationMode) -> Unit = { _ ->
+        // Always stay full-screen landscape cinema mode
+        orientationMode = PlayerOrientationMode.LOCKED_LANDSCAPE
+        PlayerGestureHelper.saveAndApplyOrientationMode(context, activity, PlayerOrientationMode.LOCKED_LANDSCAPE)
         showOrientationStatusBadge = true
         orientationBadgeTriggerToken = System.nanoTime()
     }
@@ -481,23 +527,55 @@ fun PlayerScreen(
     val isTvDevice = com.example.ui.tv.NeliTvDetector.isTelevision(context)
     LaunchedEffect(orientationMode, isTvDevice) {
         if (!isTvDevice) {
-            activity?.requestedOrientation = orientationMode.activityOrientationConstant
+            val targetOrientation = orientationMode.activityOrientationConstant
+            if (activity != null && activity.requestedOrientation != targetOrientation) {
+                view.post {
+                    try {
+                        if (activity.requestedOrientation != targetOrientation) {
+                            activity.requestedOrientation = targetOrientation
+                        }
+                    } catch (_: Exception) {
+                    }
+                }
+            }
         }
     }
 
     DisposableEffect(playerController, isTvDevice) {
         val window = activity?.window
         window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        if (!isTvDevice) {
-            activity?.requestedOrientation = orientationMode.activityOrientationConstant
-        }
 
         val insetsController = window?.let { WindowCompat.getInsetsController(it, view) }
         insetsController?.systemBarsBehavior =
             WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        insetsController?.hide(WindowInsetsCompat.Type.systemBars())
+        view.post {
+            try {
+                insetsController?.hide(WindowInsetsCompat.Type.systemBars())
+            } catch (_: Exception) {
+            }
+        }
 
         onDispose {
+            // Save final Continue Watching checkpoint before leaving PlayerScreen
+            if (!activeChannel.isLiveBroadcast) {
+                val info = playerController.playbackInfo.value
+                if (info.duration > 15_000L && info.currentPosition > 5_000L) {
+                    com.example.data.NeliWatchProgressManager.recordPlaybackProgress(
+                        context = context,
+                        id = watchProgressMediaId,
+                        title = activeChannel.name,
+                        subtitle = activeChannel.description,
+                        posterUrl = activeChannel.thumbnailUrl,
+                        genre = activeChannel.categories.firstOrNull().orEmpty(),
+                        isLiveBroadcast = false,
+                        positionMs = info.currentPosition,
+                        durationMs = info.duration,
+                        streamUrl = activeChannel.streamUrl,
+                        seriesId = activeChannel.seriesId,
+                        isSeries = isSeriesVod || activeChannel.seriesId.isNotBlank()
+                    )
+                }
+            }
             if (ownsController) {
                 playerController.release()
             }
@@ -507,13 +585,25 @@ fun PlayerScreen(
                 win.attributes = attrs
             }
             window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-            window?.decorView?.let { decor ->
-                decor.scrollTo(0, 0)
-                decor.translationY = 0f
-            }
-            insetsController?.show(WindowInsetsCompat.Type.systemBars())
-            if (!isTvDevice) {
-                activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            window?.decorView?.post {
+                try {
+                    window.decorView.scrollTo(0, 0)
+                    window.decorView.translationY = 0f
+                    // Keep app immersive full-screen (swipe to show system bars for 5s)
+                    insetsController?.systemBarsBehavior =
+                        WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                    insetsController?.hide(WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.navigationBars())
+                    val isTablet = context.resources.configuration.smallestScreenWidthDp >= 600
+                    val desiredExitOrientation = when {
+                        isTvDevice -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                        isTablet -> ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+                        else -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                    }
+                    if (activity != null && activity.requestedOrientation != desiredExitOrientation) {
+                        activity.requestedOrientation = desiredExitOrientation
+                    }
+                } catch (_: Exception) {
+                }
             }
         }
     }
@@ -545,7 +635,10 @@ fun PlayerScreen(
                         isPictureInPicture = inPip
                     )
                     if (!inPip && !isTvDevice) {
-                        activity?.requestedOrientation = orientationMode.activityOrientationConstant
+                        val targetOrientation = orientationMode.activityOrientationConstant
+                        if (activity != null && activity.requestedOrientation != targetOrientation) {
+                            activity.requestedOrientation = targetOrientation
+                        }
                     }
                     if (wasPausedByLifecycle) {
                         wasPausedByLifecycle = false
@@ -578,12 +671,6 @@ fun PlayerScreen(
                 if (ownsController) {
                     playerController.release()
                 }
-                activity?.window?.let { win ->
-                    win.decorView.scrollTo(0, 0)
-                    win.decorView.translationY = 0f
-                    WindowCompat.getInsetsController(win, view).show(WindowInsetsCompat.Type.systemBars())
-                }
-                activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
                 onBack()
             }
         }
@@ -647,7 +734,13 @@ fun PlayerScreen(
             }
             AndroidView(
                 factory = { ctx ->
-                    PlayerView(ctx).apply {
+                    val playerView = try {
+                        android.view.LayoutInflater.from(ctx)
+                            .inflate(com.example.R.layout.neli_texture_player_view, null, false) as PlayerView
+                    } catch (_: Throwable) {
+                        PlayerView(ctx)
+                    }
+                    playerView.apply {
                         useController = false
                         keepScreenOn = true
                         setShutterBackgroundColor(android.graphics.Color.BLACK)
@@ -2476,14 +2569,18 @@ fun EmbeddedChannelWebViewPlayer(
 
     DisposableEffect(channel.id, reloadToken) {
         val originalOrientation = activity?.requestedOrientation
-        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-        // Completely hide status bar and system navigation bars (Immersive Sticky Mode)
-        activity?.window?.let { win ->
-            androidx.core.view.WindowCompat.setDecorFitsSystemWindows(win, false)
-            val insetsController = androidx.core.view.WindowCompat.getInsetsController(win, win.decorView)
-            insetsController.systemBarsBehavior =
-                androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            insetsController.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+        activity?.window?.decorView?.post {
+            try {
+                if (activity.requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE) {
+                    activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                }
+                val win = activity.window
+                val insetsController = androidx.core.view.WindowCompat.getInsetsController(win, win.decorView)
+                insetsController.systemBarsBehavior =
+                    androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                insetsController.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+            } catch (_: Throwable) {
+            }
         }
         onDispose {
             try {
@@ -2493,13 +2590,6 @@ fun EmbeddedChannelWebViewPlayer(
             customFullscreenView = null
             customViewCallback = null
             try {
-                if (originalOrientation != null) {
-                    activity?.requestedOrientation = originalOrientation
-                }
-                activity?.window?.let { win ->
-                    val insetsController = androidx.core.view.WindowCompat.getInsetsController(win, win.decorView)
-                    insetsController.show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
-                }
                 webViewRef?.let { wv ->
                     wv.stopLoading()
                     wv.onPause()
@@ -2509,6 +2599,17 @@ fun EmbeddedChannelWebViewPlayer(
                     wv.destroy()
                 }
                 webViewRef = null
+                activity?.window?.decorView?.post {
+                    try {
+                        if (originalOrientation != null && activity.requestedOrientation != originalOrientation) {
+                            activity.requestedOrientation = originalOrientation
+                        }
+                        val win = activity.window
+                        val insetsController = androidx.core.view.WindowCompat.getInsetsController(win, win.decorView)
+                        insetsController.show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+                    } catch (_: Throwable) {
+                    }
+                }
             } catch (_: Throwable) {
             }
         }

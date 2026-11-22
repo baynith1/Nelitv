@@ -75,14 +75,69 @@ class MainActivity : ComponentActivity() {
     private var pendingLaunchTab by mutableStateOf<String?>(null)
     private var isHardwareTv by mutableStateOf(false)
     private var isTvEnvironment by mutableStateOf(false)
+    // Increments on cold launch (value=1) and whenever returning to app after >= 4 hours even without closing
+    private var recommendedOverlayTriggerTick by mutableStateOf(1)
+
+    private var immersiveAutoHideJob: kotlinx.coroutines.Job? = null
+    private var isTabletDevice: Boolean = false
+
+    private fun hideSystemBarsImmersive() {
+        try {
+            WindowCompat.setDecorFitsSystemWindows(window, false)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                window.attributes = window.attributes.apply {
+                    layoutInDisplayCutoutMode =
+                        WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                }
+            }
+            WindowCompat.getInsetsController(window, window.decorView).apply {
+                systemBarsBehavior =
+                    WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                hide(WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.navigationBars())
+            }
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun scheduleImmersiveBarsAutoHide(delayMs: Long = 5_000L) {
+        immersiveAutoHideJob?.cancel()
+        immersiveAutoHideJob = lifecycleScope.launch {
+            kotlinx.coroutines.delay(delayMs)
+            hideSystemBarsImmersive()
+        }
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) {
+            hideSystemBarsImmersive()
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        hideSystemBarsImmersive()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         NativeLogSuppressor.suppressNonFatalNativeLogs()
         super.onCreate(savedInstanceState)
         NeliThemeManager.initialize(this)
+        com.example.data.NeliWatchProgressManager.initialize(this)
         enableEdgeToEdge()
+        hideSystemBarsImmersive()
 
-        // Check for android.hardware.type.television to dynamically adjust the UI layout & remote scaling
+        // Swipe from status bar or navigation bar edge reveals system bars, then auto-hides after 5 seconds
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(window.decorView) { view, insets ->
+            val statusVisible = insets.isVisible(WindowInsetsCompat.Type.statusBars())
+            val navVisible = insets.isVisible(WindowInsetsCompat.Type.navigationBars())
+            if (statusVisible || navVisible) {
+                scheduleImmersiveBarsAutoHide(5_000L)
+            }
+            androidx.core.view.ViewCompat.onApplyWindowInsets(view, insets)
+        }
+
+        // Check for android.hardware.type.television and Tablet form factor to dynamically adjust layout & orientation
         val pm = packageManager
         isHardwareTv = pm.hasSystemFeature("android.hardware.type.television") ||
             pm.hasSystemFeature(PackageManager.FEATURE_TELEVISION) ||
@@ -90,11 +145,29 @@ class MainActivity : ComponentActivity() {
             pm.hasSystemFeature("android.software.leanback") ||
             (getSystemService(android.content.Context.UI_MODE_SERVICE) as? android.app.UiModeManager)?.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
         isTvEnvironment = isHardwareTv || NeliThemeManager.forceTvMode == true
+        isTabletDevice = resources.configuration.smallestScreenWidthDp >= 600
 
         if (isTvEnvironment) {
             try {
-                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                if (requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE) {
+                    requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                }
                 window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            } catch (_: Exception) {
+            }
+        } else if (isTabletDevice) {
+            // Never lock tablets to portrait so browsing adapts naturally and video opens smoothly in full landscape
+            try {
+                if (requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR) {
+                    requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+                }
+            } catch (_: Exception) {
+            }
+        } else {
+            try {
+                if (requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_PORTRAIT) {
+                    requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                }
             } catch (_: Exception) {
             }
         }
@@ -113,23 +186,18 @@ class MainActivity : ComponentActivity() {
         } catch (_: Exception) {
         }
 
-        try {
-            val controller = WindowCompat.getInsetsController(window, window.decorView)
-            controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            controller.hide(WindowInsetsCompat.Type.systemBars())
-        } catch (_: Exception) {
-        }
         extractDeepLinkFromIntent(intent)
 
         // Schedule AdMob SDK init (mobile/tablet only — never on Smart TV), notifications, Firebase sync, and update check
-        // off the main thread so MainActivity's initial SurfaceSyncGroup frame transaction completes smoothly without stalls.
+        // off the main thread AFTER initial window draw so MainActivity's SurfaceSyncGroup completes immediately.
         if (!isTvEnvironment) {
             lifecycleScope.launch(Dispatchers.IO) {
-                kotlinx.coroutines.delay(400L)
+                kotlinx.coroutines.delay(1_200L)
                 NeliAdManager.initialize(this@MainActivity)
             }
         }
         lifecycleScope.launch(Dispatchers.Default) {
+            kotlinx.coroutines.delay(600L)
             com.example.data.NeliFirebaseSyncManager.initialize(this@MainActivity)
             NeliNotificationScheduler.scheduleAllDailyNotifications(this@MainActivity)
             NeliHomeWidgetProvider.ensureWidgetAutomaticallyPinnedAndUpdated(this@MainActivity)
@@ -148,7 +216,9 @@ class MainActivity : ComponentActivity() {
             LaunchedEffect(tvConfig.isTelevision) {
                 if (tvConfig.isTelevision) {
                     try {
-                        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                        if (requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE) {
+                            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                        }
                         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                     } catch (_: Exception) {
                     }
@@ -179,6 +249,7 @@ class MainActivity : ComponentActivity() {
                             pendingChannelId = pendingLaunchChannelId,
                             pendingMovieId = pendingLaunchMovieId,
                             pendingTab = pendingLaunchTab,
+                            recommendedOverlayTriggerTick = recommendedOverlayTriggerTick,
                             onConsumeDeepLink = {
                                 pendingLaunchChannelId = null
                                 pendingLaunchMovieId = null
@@ -205,6 +276,9 @@ class MainActivity : ComponentActivity() {
         }
         if (wasInBackground) {
             wasInBackground = false
+            if (com.example.ui.components.NeliRecommendedEntryManager.shouldTriggerAfterResume(this)) {
+                recommendedOverlayTriggerTick += 1
+            }
             // Show Google AdMob App Open Ad when user returns to the app (strictly skipped on TV / VIP / Ad-Free)
             if (!isTvEnvironment && !com.example.ui.tv.NeliTvDetector.isTelevision(this)) {
                 NeliAdManager.showAppOpenAdIfAvailable(this)
@@ -330,6 +404,7 @@ fun NeliApp(
     pendingChannelId: String? = null,
     pendingMovieId: String? = null,
     pendingTab: String? = null,
+    recommendedOverlayTriggerTick: Int = 1,
     onConsumeDeepLink: () -> Unit = {},
     onActivePlaybackChanged: (Boolean) -> Unit = {},
     onRequestSystemPipOutsideApp: () -> Unit = {},
@@ -449,25 +524,32 @@ fun NeliApp(
         val currentCtrl = sharedPlayerController
         val showFullPlayer = currentChan != null && currentCtrl != null
 
+        var wasInFullPlayer by remember { mutableStateOf(false) }
         LaunchedEffect(showFullPlayer, isSystemInPipMode) {
-            if (!showFullPlayer && !isSystemInPipMode) {
+            if (showFullPlayer) {
+                wasInFullPlayer = true
+            } else if (wasInFullPlayer && !isSystemInPipMode) {
+                wasInFullPlayer = false
                 val act = context as? Activity
-                act?.let { a ->
+                act?.window?.decorView?.post {
                     try {
                         val isTv = com.example.ui.tv.NeliTvDetector.isTelevision(context)
-                        val desiredOrientation = if (!isTv) {
-                            ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-                        } else {
-                            ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                        val isTablet = context.resources.configuration.smallestScreenWidthDp >= 600
+                        val desiredOrientation = when {
+                            isTv -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                            isTablet -> ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+                            else -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
                         }
-                        if (a.requestedOrientation != desiredOrientation) {
-                            a.requestedOrientation = desiredOrientation
+                        if (act.requestedOrientation != desiredOrientation) {
+                            act.requestedOrientation = desiredOrientation
                         }
-                        a.window?.decorView?.let { decor ->
+                        act.window?.decorView?.let { decor ->
                             decor.scrollTo(0, 0)
                             decor.translationY = 0f
-                            WindowCompat.getInsetsController(a.window, decor).apply {
-                                show(WindowInsetsCompat.Type.systemBars())
+                            WindowCompat.getInsetsController(act.window, decor).apply {
+                                systemBarsBehavior =
+                                    WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                                hide(WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.navigationBars())
                                 val isLight = NeliThemeManager.isLightMode
                                 isAppearanceLightStatusBars = isLight
                                 isAppearanceLightNavigationBars = isLight
@@ -505,6 +587,7 @@ fun NeliApp(
         }
 
         val currentUser by neliViewModel.currentUser.collectAsState()
+        val mediaCatalog by neliViewModel.mediaCatalog.collectAsState()
         val hasResolvedInitialAuth by neliViewModel.hasResolvedInitialAuth.collectAsState()
         val isAuthLoading by neliViewModel.isAuthLoading.collectAsState()
         val authError by neliViewModel.authError.collectAsState()
@@ -513,6 +596,80 @@ fun NeliApp(
         val needsMandatorySignIn = !isTvMode &&
             hasResolvedInitialAuth &&
             requiresMandatoryGoogleSignIn(currentUser, isTelevision = isTvMode)
+
+        // YouTube-style silent Google auto-login attempt when unauthenticated on launch
+        LaunchedEffect(hasResolvedInitialAuth, needsMandatorySignIn, isTvMode) {
+            if (!isTvMode && hasResolvedInitialAuth && needsMandatorySignIn) {
+                neliViewModel.trySilentGoogleAutoSignIn(context)
+            }
+        }
+
+        // First-Time Welcome Screen vs Returning User "Continue enjoying our app" Greeting
+        val onboardingPrefs = remember(context) {
+            context.getSharedPreferences("neli_onboarding_welcome_prefs", android.content.Context.MODE_PRIVATE)
+        }
+        var hadSeenAuthPageThisSession by remember { mutableStateOf(false) }
+        var showFirstTimeWelcome by remember { mutableStateOf(false) }
+        var showReturningContinueBanner by remember { mutableStateOf(false) }
+        var hasEvaluatedSessionGreeting by remember { mutableStateOf(false) }
+
+        LaunchedEffect(hasResolvedInitialAuth, needsMandatorySignIn, currentUser?.uid, isTvMode) {
+            if (!isTvMode && hasResolvedInitialAuth) {
+                if (needsMandatorySignIn) {
+                    hadSeenAuthPageThisSession = true
+                } else if (currentUser != null && !hasEvaluatedSessionGreeting) {
+                    hasEvaluatedSessionGreeting = true
+                    val hasCompletedWelcomeBefore = onboardingPrefs.getBoolean("has_completed_first_welcome", false)
+                    if (hadSeenAuthPageThisSession && !hasCompletedWelcomeBefore) {
+                        showFirstTimeWelcome = true
+                    } else {
+                        // Existing / updated user who already had an account -> clean "Continue enjoying our app"
+                        onboardingPrefs.edit().putBoolean("has_completed_first_welcome", true).apply()
+                        showReturningContinueBanner = true
+                    }
+                }
+            }
+        }
+
+        // Transparent Recommended Movie Overlay on every cold launch (even after closing app from Recents)
+        // AND automatically every 4 hours when returning even without closing the app!
+        var lastHandledOverlayTick by remember { mutableStateOf(0) }
+        var activeRecommendedOverlayMovie by remember { mutableStateOf<com.example.model.MediaContent?>(null) }
+
+        LaunchedEffect(
+            recommendedOverlayTriggerTick,
+            hasResolvedInitialAuth,
+            needsMandatorySignIn,
+            showFirstTimeWelcome,
+            showFullPlayer,
+            mediaCatalog.size,
+            currentUser?.uid
+        ) {
+            if (!isTvMode &&
+                hasResolvedInitialAuth &&
+                !needsMandatorySignIn &&
+                !showFirstTimeWelcome &&
+                !showFullPlayer &&
+                mediaCatalog.isNotEmpty() &&
+                recommendedOverlayTriggerTick > lastHandledOverlayTick
+            ) {
+                val userKey = currentUser?.uid?.takeIf { it.isNotBlank() }
+                    ?: com.example.ui.components.NeliRecommendedEntryManager.getOrCreateDeviceSalt(context).toString()
+                val picked = com.example.ui.components.NeliRecommendedEntryManager.pickRecommendedMovieForUser(
+                    context = context,
+                    catalog = mediaCatalog,
+                    userIdentifier = userKey
+                )
+                if (picked != null) {
+                    lastHandledOverlayTick = recommendedOverlayTriggerTick
+                    activeRecommendedOverlayMovie = picked
+                    com.example.ui.components.NeliRecommendedEntryManager.markOverlayShown(
+                        context = context,
+                        movieId = picked.id
+                    )
+                }
+            }
+        }
 
         // Trigger Google AdMob App Open Ad once on cold app entry when user is signed in, not on TV, and not in player
         var hasShownLaunchAppOpenAd by remember { mutableStateOf(false) }
@@ -525,7 +682,7 @@ fun NeliApp(
             }
         }
 
-        // Unclosable mandatory Sign-In popup on Mobile/Tablet only (strictly disabled on Smart TV / Android TV).
+        // Full-Page Onboarding Sign-Up / Login (NOT a popup) on Mobile/Tablet (disabled on Smart TV)
         if (needsMandatorySignIn && !showFullPlayer) {
             MandatoryGoogleSignInDialog(
                 isLoading = isAuthLoading,
@@ -534,6 +691,51 @@ fun NeliApp(
                 onSignInWithEmail = { email, password -> neliViewModel.signInUser(email, password) },
                 onSignUpWithEmail = { realName, email, password ->
                     neliViewModel.signUpUser(realName, email, password)
+                },
+                onSignInWithPhone = { phoneOrUsername, password ->
+                    neliViewModel.signInWithPhoneCredentials(phoneOrUsername, password)
+                },
+                onSignUpWithPhone = { username, phone, password ->
+                    neliViewModel.signUpWithPhone(username, phone, password)
+                },
+                onClearError = { neliViewModel.clearAuthError() }
+            )
+        } else if (showFirstTimeWelcome && !showFullPlayer) {
+            com.example.ui.components.NeliFirstTimeWelcomeScreen(
+                userName = currentUser?.realName.orEmpty(),
+                onStartWatching = {
+                    onboardingPrefs.edit().putBoolean("has_completed_first_welcome", true).apply()
+                    showFirstTimeWelcome = false
+                }
+            )
+        }
+
+        // Returning / Updated user subtle greeting: "Continue enjoying our app"
+        if (!needsMandatorySignIn && !showFirstTimeWelcome && !showFullPlayer) {
+            com.example.ui.components.NeliReturningUserContinueBanner(
+                visible = showReturningContinueBanner,
+                userName = currentUser?.realName.orEmpty(),
+                onDismiss = { showReturningContinueBanner = false },
+                modifier = Modifier.align(androidx.compose.ui.Alignment.TopCenter)
+            )
+        }
+
+        // Transparent Recommended Movie Overlay with prominent X close button
+        val overlayMovie = activeRecommendedOverlayMovie
+        if (overlayMovie != null && !needsMandatorySignIn && !showFirstTimeWelcome && !showFullPlayer) {
+            com.example.ui.components.NeliRecommendedEntryOverlay(
+                movie = overlayMovie,
+                visible = true,
+                onWatchNow = { chosen ->
+                    activeRecommendedOverlayMovie = null
+                    startOrSwitchChannel(chosen.toPlayableChannel())
+                },
+                onOpenDetails = { chosen ->
+                    activeRecommendedOverlayMovie = null
+                    neliViewModel.openMediaDetails(chosen.id)
+                },
+                onDismiss = {
+                    activeRecommendedOverlayMovie = null
                 }
             )
         }

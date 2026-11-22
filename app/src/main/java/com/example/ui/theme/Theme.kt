@@ -59,10 +59,27 @@ fun NeliTVTheme(
     } else {
         NeliDarkColorScheme
     }
+    val currentDensity = androidx.compose.ui.platform.LocalDensity.current
+    val screenProfile = rememberNeliScreenProfile()
+    val maxAllowedFontScale = if (screenProfile.isSmallPhone || screenProfile.widthDp < 380) 1.02f else 1.08f
+    val adaptiveDensity = androidx.compose.runtime.remember(
+        currentDensity.density,
+        currentDensity.fontScale,
+        maxAllowedFontScale
+    ) {
+        androidx.compose.ui.unit.Density(
+            density = currentDensity.density,
+            fontScale = currentDensity.fontScale.coerceIn(0.85f, maxAllowedFontScale)
+        )
+    }
 
-    MaterialTheme(
-        colorScheme = activeColorScheme,
-        typography = Typography,
-        content = content
-    )
+    androidx.compose.runtime.CompositionLocalProvider(
+        androidx.compose.ui.platform.LocalDensity provides adaptiveDensity
+    ) {
+        MaterialTheme(
+            colorScheme = activeColorScheme,
+            typography = Typography,
+            content = content
+        )
+    }
 }

@@ -120,23 +120,12 @@ fun TopNavBar(
     val isLightMode = NeliThemeManager.isLightMode
     val headerBgColor = if (isLightMode) Color(0xFFFFFFFF) else Color.Transparent
     val isTvDevice = LocalTvConfiguration.current.isTvDevice
-    var showWatchOnPcDialog by remember { mutableStateOf(false) }
 
-    // Guaranteed status bar top safe padding so header never collides with mobile status banner
-    // even immediately after returning from fullscreen video when WindowInsets.statusBars is transiently 0.dp
-    val systemStatusBarResDp = remember(context) {
-        val resId = context.resources.getIdentifier("status_bar_height", "dimen", "android")
-        if (resId > 0) {
-            val px = context.resources.getDimensionPixelSize(resId)
-            val density = context.resources.displayMetrics.density.coerceAtLeast(1f)
-            (px / density).dp
-        } else {
-            32.dp
-        }
-    }
-    val systemStatusBarTop = WindowInsets.statusBars.union(WindowInsets.displayCutout).asPaddingValues().calculateTopPadding()
-    val minSafeTop = if (systemStatusBarResDp < 32.dp) 32.dp else systemStatusBarResDp
-    val safeTopPadding = if (systemStatusBarTop < minSafeTop) minSafeTop else systemStatusBarTop
+    // Respect display cutout / camera notch while letting the app fill the full screen edge-to-edge
+    // when system status bars auto-hide in immersive mode.
+    val cutoutTop = WindowInsets.displayCutout.asPaddingValues().calculateTopPadding()
+    val statusTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val safeTopPadding = maxOf(cutoutTop, statusTop, 8.dp)
 
     LaunchedEffect(isSearchOpen) {
         if (isSearchOpen) {
@@ -201,31 +190,7 @@ fun TopNavBar(
                 }
             }
 
-            // Right: Watch on PC button followed immediately by glowing Smart Cast button (hidden on TV devices)
-            if (!isTvDevice) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    IconButton(
-                        onClick = { showWatchOnPcDialog = true },
-                        modifier = Modifier
-                            .size(38.dp)
-                            .clip(CircleShape)
-                            .background(Color(0x2A0055FF))
-                            .border(1.5.dp, Color(0xFF00E5FF), CircleShape)
-                            .testTag("watch_on_pc_header_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Laptop,
-                            contentDescription = "Watch on PC",
-                            tint = Color(0xFF00E5FF),
-                            modifier = Modifier.size(19.dp)
-                        )
-                    }
-
-                }
-            }
+            // Watch on PC info has been moved to the bottom of the Account page for a cleaner top header.
         }
 
         AnimatedVisibility(
@@ -293,144 +258,5 @@ fun TopNavBar(
             color = NeliBorder,
             thickness = 1.dp
         )
-    }
-
-    if (showWatchOnPcDialog) {
-        Dialog(
-            onDismissRequest = { showWatchOnPcDialog = false },
-            properties = DialogProperties(usePlatformDefaultWidth = false)
-        ) {
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth(0.92f)
-                    .widthIn(max = 500.dp)
-                    .clip(RoundedCornerShape(22.dp))
-                    .border(1.5.dp, Color(0xFF00E5FF), RoundedCornerShape(22.dp)),
-                color = Color(0xFF0C101D),
-                shape = RoundedCornerShape(22.dp)
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(20.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(40.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0x2600E5FF)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Laptop,
-                                    contentDescription = null,
-                                    tint = Color(0xFF00E5FF),
-                                    modifier = Modifier.size(22.dp)
-                                )
-                            }
-                            Column {
-                                Text(
-                                    text = "Nelitv on PC & Desktop",
-                                    color = Color.White,
-                                    fontSize = 17.sp,
-                                    fontWeight = FontWeight.Black
-                                )
-                                Text(
-                                    text = "Nelitv.online • Web App & PC Software",
-                                    color = Color(0xFF00E5FF),
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            }
-                        }
-                        IconButton(onClick = { showWatchOnPcDialog = false }) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "Close",
-                                tint = NeliTextSecondary
-                            )
-                        }
-                    }
-
-                    Text(
-                        text = "Nelitv inapatikana kwenye Kompyuta (PC & Laptop), Desktop na Web Browser! Unaweza kutazama moja kwa moja mtandaoni au kupakua software ya kompyuta (.exe).",
-                        color = NeliTextSecondary,
-                        fontSize = 13.sp,
-                        lineHeight = 18.sp
-                    )
-
-                    // Option 1: Web App (Nelitv.online)
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(Color(0xFF141A2E))
-                            .border(1.dp, Color(0x4400E5FF), RoundedCornerShape(14.dp))
-                            .padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.OpenInBrowser,
-                                contentDescription = null,
-                                tint = Color(0xFF00E5FF),
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Text(
-                                text = "1. Nelitv Web App (Browser)",
-                                color = Color.White,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                        Text(
-                            text = "Fungua mtandao kwenye Chrome, Edge au Firefox: Nelitv.online",
-                            color = NeliTextSecondary,
-                            fontSize = 12.sp
-                        )
-                        Button(
-                            onClick = {
-                                val webIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://nelitv.online"))
-                                context.startActivity(webIntent)
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF)),
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(42.dp)
-                                .testTag("open_web_app_button")
-                        ) {
-                            Text(
-                                text = "Fungua Nelitv.online",
-                                color = Color.Black,
-                                fontWeight = FontWeight.Black,
-                                fontSize = 13.sp
-                            )
-                        }
-                    }
-
-                    OutlinedButton(
-                        onClick = { showWatchOnPcDialog = false },
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Funga", color = NeliTextSecondary)
-                    }
-                }
-            }
-        }
     }
 }

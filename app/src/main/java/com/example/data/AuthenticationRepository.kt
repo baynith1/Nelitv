@@ -402,6 +402,126 @@ class AuthenticationRepository(
     }
 
     /**
+     * Registers a new user with Username, Phone Number, and Password using the exact same
+     * validation, password hashing, and Firebase/Room sync pipeline as Email Sign-Up.
+     */
+    suspend fun signUpWithPhoneNumber(
+        username: String,
+        phoneNumber: String,
+        password: String
+    ): Result<UserAccountEntity> = withContext(Dispatchers.IO) {
+        val cleanName = username.trim()
+        val cleanPhone = phoneNumber.filter { it.isDigit() }
+        val cleanPassword = password.trim()
+
+        if (cleanName.length < 2) {
+            return@withContext Result.failure(
+                IllegalArgumentException("Please enter a username (at least 2 characters).")
+            )
+        }
+        if (cleanPhone.length < 9) {
+            return@withContext Result.failure(
+                IllegalArgumentException("Please enter a valid phone number (e.g. 0712345678).")
+            )
+        }
+        if (cleanPassword.length < 6) {
+            return@withContext Result.failure(
+                IllegalArgumentException("Password must be at least 6 characters.")
+            )
+        }
+
+        val phoneEmail = "$cleanPhone@nelitv.phone"
+        AuthRepository.signUpWithEmailAndPassword(
+            context = context,
+            dao = dao,
+            realName = cleanName,
+            email = phoneEmail,
+            password = cleanPassword
+        )
+    }
+
+    /**
+     * Logs in an existing user via Phone Number OR Username + Password using the same
+     * verification mechanism as Email Login.
+     */
+    suspend fun signInWithPhoneNumber(
+        phoneOrUsername: String,
+        password: String
+    ): Result<UserAccountEntity> = withContext(Dispatchers.IO) {
+        val rawIdentifier = phoneOrUsername.trim()
+        val cleanPassword = password.trim()
+
+        if (rawIdentifier.isBlank()) {
+            return@withContext Result.failure(
+                IllegalArgumentException("Please enter your phone number or username.")
+            )
+        }
+        if (cleanPassword.isEmpty()) {
+            return@withContext Result.failure(
+                IllegalArgumentException("Please enter your password.")
+            )
+        }
+
+        val digitsOnly = rawIdentifier.filter { it.isDigit() }
+        val looksLikePhone = !rawIdentifier.contains("@") &&
+            digitsOnly.length >= 9 &&
+            rawIdentifier.all { it.isDigit() || it == '+' || it == ' ' || it == '-' || it == '(' || it == ')' }
+
+        val resolvedEmail = if (looksLikePhone) {
+            "$digitsOnly@nelitv.phone"
+        } else {
+            AuthRepository.resolveEmailForLoginIdentifier(dao, rawIdentifier)
+                ?: return@withContext Result.failure(
+                    IllegalArgumentException("Account not found for \"$rawIdentifier\". Please check your phone/username or Sign Up.")
+                )
+        }
+
+        AuthRepository.signInWithEmailAndPassword(
+            context = context,
+            dao = dao,
+            email = resolvedEmail,
+            password = cleanPassword
+        )
+    }
+
+    /**
+     * Signs in or registers a user immediately as a Guest using ONLY their display name (no password or email required).
+     * Persists a local Room session without calling unprovisioned Firebase Anonymous Auth.
+     */
+    suspend fun signInAsGuest(
+        guestName: String
+    ): Result<UserAccountEntity> = withContext(Dispatchers.IO) {
+        val cleanName = guestName.trim()
+        if (cleanName.length < 2) {
+            return@withContext Result.failure(
+                IllegalArgumentException("Tafadhali andika jina lako (angalau herufi 2).")
+            )
+        }
+        val normalizedKey = AuthRepository.normalizeUsernameKey(cleanName)
+            .ifBlank { "guest_${System.currentTimeMillis()}" }
+        val guestEmail = "$normalizedKey@guest.nelitv.online"
+        val existing = dao.getAccountByEmail(guestEmail)
+        val guestUid = existing?.uid ?: "guest_${
+            java.util.UUID.nameUUIDFromBytes(guestEmail.toByteArray()).toString().replace("-", "").take(16)
+        }"
+        val now = System.currentTimeMillis()
+        val guestAccount = UserAccountEntity(
+            uid = guestUid,
+            realName = cleanName,
+            email = guestEmail,
+            passwordHash = "guest_account",
+            idToken = "guest_local_session",
+            refreshToken = "",
+            isLoggedIn = true,
+            createdAt = existing?.createdAt ?: now,
+            lastLoginAt = now
+        )
+        dao.logoutAllUsers()
+        dao.upsertUserAccount(guestAccount)
+        Result.success(guestAccount)
+    }
+
+    /**
      * Sends a password reset email to [email] via Firebase Auth or Firebase IdentityToolkit REST API.
      */
     suspend fun sendPasswordResetEmail(email: String): Result<Unit> = withContext(Dispatchers.IO) {

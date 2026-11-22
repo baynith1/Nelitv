@@ -234,16 +234,18 @@ fun ChannelCard(
             }
 
             // Channel Avatar + Title & Category Row
+            val cardProfile = com.example.ui.theme.rememberNeliScreenProfile()
+            val compactCard = cardProfile.isSmallPhone || cardProfile.widthDp < 380
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                    .padding(horizontal = if (compactCard) 8.dp else 12.dp, vertical = if (compactCard) 8.dp else 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.spacedBy(if (compactCard) 7.dp else 10.dp)
             ) {
                 Box(
                     modifier = Modifier
-                        .size(34.dp)
+                        .size(if (compactCard) 28.dp else 34.dp)
                         .clip(CircleShape)
                         .background(Color(0xFF161E38))
                         .border(1.dp, Color(0x33FFFFFF), CircleShape)
@@ -253,8 +255,10 @@ fun ChannelCard(
                     Text(
                         text = channelInitials,
                         color = Color.White,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.ExtraBold
+                        fontSize = if (compactCard) 9.5.sp else 11.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        maxLines = 1,
+                        softWrap = false
                     )
                 }
 
@@ -262,16 +266,16 @@ fun ChannelCard(
                     Text(
                         text = channel.name,
                         color = Color.White,
-                        fontSize = 14.sp,
+                        fontSize = if (compactCard) 13.sp else 14.sp,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = "${channel.category.replaceFirstChar { it.uppercase() }} • Live",
+                        text = channel.category.replaceFirstChar { it.uppercase() },
                         color = Color(0xFF8E9BAE),
-                        fontSize = 11.sp,
+                        fontSize = if (compactCard) 10.sp else 11.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )

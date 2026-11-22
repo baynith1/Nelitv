@@ -792,6 +792,26 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun signInAsGuest(guestName: String) {
+        viewModelScope.launch {
+            _isAuthLoading.value = true
+            _authError.value = null
+            _googleFallbackMessage.value = null
+            val result = authenticationRepository.signInAsGuest(guestName)
+            _isAuthLoading.value = false
+            result.onSuccess { user ->
+                com.example.data.NeliSubscriptionManager.switchActiveAccount(
+                    context = appContext,
+                    uid = user.uid,
+                    email = user.email,
+                    realName = user.realName
+                )
+            }.onFailure { err ->
+                _authError.value = err.message ?: "Tafadhali andika jina lako (angalau herufi 2)."
+            }
+        }
+    }
+
     fun updateUsername(newUsername: String) {
         viewModelScope.launch {
             _isAuthLoading.value = true
@@ -844,6 +864,79 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
                 _authError.value = err.message ?: "Haikuweza kuingia kwa namba ya simu."
             }
         }
+    }
+
+    fun signUpWithPhone(username: String, phoneNumber: String, password: String) {
+        viewModelScope.launch {
+            _isAuthLoading.value = true
+            _authError.value = null
+            _googleFallbackMessage.value = null
+            val result = authenticationRepository.signUpWithPhoneNumber(
+                username = username,
+                phoneNumber = phoneNumber,
+                password = password
+            )
+            _isAuthLoading.value = false
+            result.onSuccess { user ->
+                val cleanPhone = phoneNumber.filter { it.isDigit() }
+                NeliSubscriptionManager.switchActiveAccount(
+                    context = appContext,
+                    uid = user.uid,
+                    email = user.email,
+                    realName = user.realName
+                )
+                if (cleanPhone.length >= 9) {
+                    viewModelScope.launch(Dispatchers.IO) {
+                        val subResult = NeliSupabaseSyncManager.querySubscriptionByPhone(cleanPhone)
+                        subResult.onSuccess { record ->
+                            if (record != null && record.isActive) {
+                                NeliSubscriptionManager.activateVerifiedSubscriptionFromSupabase(appContext, record)
+                            }
+                        }
+                    }
+                }
+            }.onFailure { err ->
+                _authError.value = err.message ?: "Unable to create phone account."
+            }
+        }
+    }
+
+    fun signInWithPhoneCredentials(phoneOrUsername: String, password: String) {
+        viewModelScope.launch {
+            _isAuthLoading.value = true
+            _authError.value = null
+            _googleFallbackMessage.value = null
+            val result = authenticationRepository.signInWithPhoneNumber(
+                phoneOrUsername = phoneOrUsername,
+                password = password
+            )
+            _isAuthLoading.value = false
+            result.onSuccess { user ->
+                val cleanPhone = user.email.substringBefore("@").filter { it.isDigit() }
+                NeliSubscriptionManager.switchActiveAccount(
+                    context = appContext,
+                    uid = user.uid,
+                    email = user.email,
+                    realName = user.realName
+                )
+                if (cleanPhone.length >= 9) {
+                    viewModelScope.launch(Dispatchers.IO) {
+                        val subResult = NeliSupabaseSyncManager.querySubscriptionByPhone(cleanPhone)
+                        subResult.onSuccess { record ->
+                            if (record != null && record.isActive) {
+                                NeliSubscriptionManager.activateVerifiedSubscriptionFromSupabase(appContext, record)
+                            }
+                        }
+                    }
+                }
+            }.onFailure { err ->
+                _authError.value = err.message ?: "Invalid phone/username or password."
+            }
+        }
+    }
+
+    fun trySilentGoogleAutoSignIn(uiContext: Context) {
+        attemptAutoGoogleSignInIfNeeded(uiContext)
     }
 
     fun signOutUser() {

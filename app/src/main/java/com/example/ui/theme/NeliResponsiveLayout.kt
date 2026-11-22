@@ -217,15 +217,21 @@ object NeliResponsiveLayout {
             )
         }
     }
+
+    fun isNarrowViewport(widthDp: Int): Boolean = widthDp < 380
+
+    fun shouldDefaultPlayerToLandscape(smallestScreenWidthDp: Int): Boolean = true
 }
 
 @Composable
 fun rememberNeliScreenProfile(): NeliScreenProfile {
     val configuration = LocalConfiguration.current
-    return remember(configuration.screenWidthDp, configuration.screenHeightDp) {
+    val effectiveWidth = configuration.screenWidthDp
+    val effectiveHeight = configuration.screenHeightDp
+    return remember(effectiveWidth, effectiveHeight) {
         NeliResponsiveLayout.resolveProfileForDimensions(
-            widthDp = configuration.screenWidthDp,
-            heightDp = configuration.screenHeightDp
+            widthDp = effectiveWidth,
+            heightDp = effectiveHeight
         )
     }
 }

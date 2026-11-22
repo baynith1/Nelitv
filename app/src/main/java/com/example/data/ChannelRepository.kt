@@ -14,33 +14,29 @@ object ChannelRepository {
 
     const val DEFAULT_AZAM_CDN_HOST = "https://cdnedgch2.azamtvltd.co.tz"
     const val DEFAULT_AZAM_CDN_TOKEN =
-        "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJleHAiOiIxNzkwOTQ2OTQzIiwic2lwIjoiIiwicGF0aCI6IiIsInNlc3Npb25fY2RuX2lkIjoiZTZhZTQ3MzliNmY4ZjhiNyIsInNlc3Npb25faWQiOiIiLCJjbGllbnRfaWQiOiI0ODQwODMyIiwiZGV2aWNlX2lkIjoiIiwibWF4X3Nlc3Npb25zIjowLCJzZXNzaW9uX2R1cmF0aW9uIjowLCJ1cmwiOiJodHRwczovLzEwMi4yMDguMjQ0LjkiLCJzZXNzaW9uX3RpbWVvdXQiOjAsImF1ZCI6IjciLCJzb3VyY2VzIjpbM119.FbnzSDR1Vi6Yfo4Qys6fBQV04WVdcCBFcCAI-Hgy9YvhRjwqp6uhKmXKPQZinjuWAzt5Hu17E4gnZCFzv6KtYQ=="
-    const val AZAM_SPORT_1_TOKEN =
-        "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJleHAiOiIxNzkwODc0MjkxIiwic2lwIjoiIiwicGF0aCI6IiIsInNlc3Npb25fY2RuX2lkIjoiNGVhN2EwM2VmN2EwMzQwNSIsInNlc3Npb25faWQiOiIiLCJjbGllbnRfaWQiOiI0ODUxNDgzIiwiZGV2aWNlX2lkIjoiIiwibWF4X3Nlc3Npb25zIjowLCJzZXNzaW9uX2R1cmF0aW9uIjowLCJ1cmwiOiJodHRwczovLzEwMi4yMDguMjQ0LjkiLCJzZXNzaW9uX3RpbWVvdXQiOjAsImF1ZCI6IjciLCJzb3VyY2VzIjpbM119.2Qx1WInw0wNDddGQfHfh8kA-fAbrvjRYWxGBvt7ZBXIv2N5XwlHSSJAR_mTeeflTZKmr3b5IxZxvdQf6_JcNcQ=="
-    const val AZAM_SPORT_2_TOKEN =
-        "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJleHAiOiIxNzkwODc0MjkzIiwic2lwIjoiIiwicGF0aCI6IiIsInNlc3Npb25fY2RuX2lkIjoiZDVkNzgyZmM4MDhmNjhhYiIsInNlc3Npb25faWQiOiIiLCJjbGllbnRfaWQiOiI0ODUxNDgzIiwiZGV2aWNlX2lkIjoiIiwibWF4X3Nlc3Npb25zIjowLCJzZXNzaW9uX2R1cmF0aW9uIjowLCJ1cmwiOiJodHRwczovLzEwMi4yMDguMjQ0LjkiLCJzZXNzaW9uX3RpbWVvdXQiOjAsImF1ZCI6IjciLCJzb3VyY2VzIjpbM119.ySUpwzClcOiz0j0aV6T43cuw2Rc1vRUKAkHc7DofPiQNL-n3kKtLxKjBjPnefshiCeQ3aMyAUtzDiQ0gO7Ru3g=="
-    const val AZAM_SPORT_3_TOKEN =
-        "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJleHAiOiIxNzkwODc0Mjk2Iiwic2lwIjoiIiwicGF0aCI6IiIsInNlc3Npb25fY2RuX2lkIjoiZWE3ZDAyYzNlN2UyOWUzMSIsInNlc3Npb25faWQiOiIiLCJjbGllbnRfaWQiOiI0ODUxNDgzIiwiZGV2aWNlX2lkIjoiIiwibWF4X3Nlc3Npb25zIjowLCJzZXNzaW9uX2R1cmF0aW9uIjowLCJ1cmwiOiJodHRwczovLzEwMi4yMDguMjQ0LjkiLCJzZXNzaW9uX3RpbWVvdXQiOjAsImF1ZCI6IjciLCJzb3VyY2VzIjpbM119.Jxy_beEHRKb4_7EzBLl-JKWYdukRW7glsVmRrowjF_gf7ytaKkHLIxlF_Ni5XA6sptKMvWhr4Qv8BT6iGj3fcg=="
-    const val AZAM_SPORT_4_TOKEN =
-        "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJleHAiOiIxNzkwODc0Mjk3Iiwic2lwIjoiIiwicGF0aCI6IiIsInNlc3Npb25fY2RuX2lkIjoiZjgyZmFlMzg1MWJmMGUwYiIsInNlc3Npb25faWQiOiIiLCJjbGllbnRfaWQiOiI0ODUxNDgzIiwiZGV2aWNlX2lkIjoiIiwibWF4X3Nlc3Npb25zIjowLCJzZXNzaW9uX2R1cmF0aW9uIjowLCJ1cmwiOiJodHRwczovLzEwMi4yMDguMjQ0LjkiLCJzZXNzaW9uX3RpbWVvdXQiOjAsImF1ZCI6IjciLCJzb3VyY2VzIjpbM119.1es6sojSGK2bFlDIO6ti-AQf_YfnYA_1go9dHk_uUwFHMVpVJq8JYUxcckKwA6hBOfNv4CP9fmnZc4RBIKFMiQ=="
-    const val AZAM_SPORT_5_TOKEN =
-        "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJleHAiOiIxNzkwODMxMTI0Iiwic2lwIjoiIiwicGF0aCI6IiIsInNlc3Npb25fY2RuX2lkIjoiZDg5NmIyMjljMzhiYTc4ZiIsInNlc3Npb25faWQiOiIiLCJjbGllbnRfaWQiOiI0ODUxNDgzIiwiZGV2aWNlX2lkIjoiIiwibWF4X3Nlc3Npb25zIjowLCJzZXNzaW9uX2R1cmF0aW9uIjowLCJ1cmwiOiJodHRwczovLzEwMi4yMDguMjQ0LjkiLCJzZXNzaW9uX3RpbWVvdXQiOjAsImF1ZCI6IjciLCJzb3VyY2VzIjpbM119.EdIV5dQmapQhFTEtHzbapvQGP0WzUXXnKc3PlPWWWk788OS2N8Mu4fc45MDiaPo_zRACmfRzZwgk-IH0BRA74Q=="
-    const val AZAM_ONE_TOKEN =
-        "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJleHAiOiIxNzkwODc0Mjk4Iiwic2lwIjoiIiwicGF0aCI6IiIsInNlc3Npb25fY2RuX2lkIjoiOWRiYjRjYWM3ZGE4MWM4ZCIsInNlc3Npb25faWQiOiIiLCJjbGllbnRfaWQiOiI0ODUxNDgzIiwiZGV2aWNlX2lkIjoiIiwibWF4X3Nlc3Npb25zIjowLCJzZXNzaW9uX2R1cmF0aW9uIjowLCJ1cmwiOiJodHRwczovLzEwMi4yMDguMjQ0LjkiLCJzZXNzaW9uX3RpbWVvdXQiOjAsImF1ZCI6IjciLCJzb3VyY2VzIjpbM119.NFjc0OiEJehylTD_Ili4gC-9EvzGsb7LmWJxtFgvEOsTIVIipARWhtoAm1J3U4xtogCiXYU3uZY1fD1mhnX-1Q=="
-    const val AZAM_TWO_TOKEN =
-        "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJleHAiOiIxNzkwODc0MzAwIiwic2lwIjoiIiwicGF0aCI6IiIsInNlc3Npb25fY2RuX2lkIjoiZWYwM2JhZjI3OWE4NTI1NiIsInNlc3Npb25faWQiOiIiLCJjbGllbnRfaWQiOiI0ODUxNDgzIiwiZGV2aWNlX2lkIjoiIiwibWF4X3Nlc3Npb25zIjowLCJzZXNzaW9uX2R1cmF0aW9uIjowLCJ1cmwiOiJodHRwczovLzEwMi4yMDguMjQ0LjkiLCJzZXNzaW9uX3RpbWVvdXQiOjAsImF1ZCI6IjciLCJzb3VyY2VzIjpbM119.b-YVd1deg7AEi6pODOndBm5IxXHpBoXK_e1LnM9cbaled0nlItj3_Dxz6ktE2YXboPnoIuWrdr0f2AMa-46esw=="
-    const val SINEMA_ZETU_TOKEN =
-        "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJleHAiOiIxNzkwODc0MzAyIiwic2lwIjoiIiwicGF0aCI6IiIsInNlc3Npb25fY2RuX2lkIjoiYWQ2NTc1OGZlMjc0NWRhZiIsInNlc3Npb25faWQiOiIiLCJjbGllbnRfaWQiOiI0ODUxNDgzIiwiZGV2aWNlX2lkIjoiIiwibWF4X3Nlc3Npb25zIjowLCJzZXNzaW9uX2R1cmF0aW9uIjowLCJ1cmwiOiJodHRwczovLzEwMi4yMDguMjQ0LjkiLCJzZXNzaW9uX3RpbWVvdXQiOjAsImF1ZCI6IjciLCJzb3VyY2VzIjpbM119.xIO2NbWKCzsUvnaovYl2ob-epo1u3kXYWG3OyJ9Y2oTwKoBGm94LcRWYZgRoQpwFlunKFHVP1xAi7D7j83Mveg=="
-    const val UTV_TOKEN =
-        "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJleHAiOiIxNzkwODc0MzA2Iiwic2lwIjoiIiwicGF0aCI6IiIsInNlc3Npb25fY2RuX2lkIjoiMjdiNTg2MTk3ZDVlYzM1NiIsInNlc3Npb25faWQiOiIiLCJjbGllbnRfaWQiOiI0ODUxNDgzIiwiZGV2aWNlX2lkIjoiIiwibWF4X3Nlc3Npb25zIjowLCJzZXNzaW9uX2R1cmF0aW9uIjowLCJ1cmwiOiJodHRwczovLzEwMi4yMDguMjQ0LjkiLCJzZXNzaW9uX3RpbWVvdXQiOjAsImF1ZCI6IjciLCJzb3VyY2VzIjpbM119.IXI1wtDp9Xme9wwND-sPnYPurlKijYVOWBUxl6jD8nsd4EUTRbHBuui8BNGxMYP2DmOnCv3VMA54F2MwMt3Iiw=="
-    const val AZAM_SECONDARY_CDN_TOKEN =
-        "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJleHAiOiIxNzkwOTQ2OTQzIiwic2lwIjoiIiwicGF0aCI6IiIsInNlc3Npb25fY2RuX2lkIjoiZTZhZTQ3MzliNmY4ZjhiNyIsInNlc3Npb25faWQiOiIiLCJjbGllbnRfaWQiOiI0ODQwODMyIiwiZGV2aWNlX2lkIjoiIiwibWF4X3Nlc3Npb25zIjowLCJzZXNzaW9uX2R1cmF0aW9uIjowLCJ1cmwiOiJodHRwczovLzEwMi4yMDguMjQ0LjkiLCJzZXNzaW9uX3RpbWVvdXQiOjAsImF1ZCI6IjciLCJzb3VyY2VzIjpbM119.FbnzSDR1Vi6Yfo4Qys6fBQV04WVdcCBFcCAI-Hgy9YvhRjwqp6uhKmXKPQZinjuWAzt5Hu17E4gnZCFzv6KtYQ=="
-    const val AZAM_SECONDARY_CDN_TOKEN_ENCODED =
-        "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJleHAiOiIxNzkwOTQ2OTQzIiwic2lwIjoiIiwicGF0aCI6IiIsInNlc3Npb25fY2RuX2lkIjoiZTZhZTQ3MzliNmY4ZjhiNyIsInNlc3Npb25faWQiOiIiLCJjbGllbnRfaWQiOiI0ODQwODMyIiwiZGV2aWNlX2lkIjoiIiwibWF4X3Nlc3Npb25zIjowLCJzZXNzaW9uX2R1cmF0aW9uIjowLCJ1cmwiOiJodHRwczovLzEwMi4yMDguMjQ0LjkiLCJzZXNzaW9uX3RpbWVvdXQiOjAsImF1ZCI6IjciLCJzb3VyY2VzIjpbM119.FbnzSDR1Vi6Yfo4Qys6fBQV04WVdcCBFcCAI-Hgy9YvhRjwqp6uhKmXKPQZinjuWAzt5Hu17E4gnZCFzv6KtYQ%3D%3D"
-    const val DEFAULT_AZAM_CDN_SOURCE = "cache"
-    const val DEFAULT_AZAM_CDN_PROVIDER = "aztv"
-    const val DEFAULT_TOKEN_ENDPOINT_URL = "https://streamzone.fun/api/cdn-token"
-    const val DEFAULT_CHANNELS_BACKUP_API_URL = "https://streamzone.fun/api/channels"
+        "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCIsImtpZCI6IjEifQ.eyJleHAiOiIxNzk1MTcyNjMxIiwic2lwIjoiIiwicGF0aCI6IiIsInNlc3Npb25fY2RuX2lkIjoiZTZjOTExNDJjYWVkZjJkMiIsInNlc3Npb25faWQiOiIiLCJjbGllbnRfaWQiOiI0ODUxNDgzIiwiZGV2aWNlX2lkIjoiIiwibWF4X3Nlc3Npb25zIjowLCJ1cmwiOiJodHRwczovLzEwLjY0LjEzMi4xNDYiLCJzZXNzaW9uX3RpbWVvdXQiOjAsImF1ZCI6IjciLCJzb3VyY2VzIjpbM119.M0qxGnpi1jmW_zSFwxhs2YUIvf7kgQuLRb3frhOzWiYEA1gZRTpEntZeuDCDQVzwSQ993Uk_t3kLuZp3MwD-jA"
+    const val AZAM_SPORT_1_TOKEN = DEFAULT_AZAM_CDN_TOKEN
+    const val AZAM_SPORT_2_TOKEN = DEFAULT_AZAM_CDN_TOKEN
+    const val AZAM_SPORT_3_TOKEN = DEFAULT_AZAM_CDN_TOKEN
+    const val AZAM_SPORT_4_TOKEN = DEFAULT_AZAM_CDN_TOKEN
+    const val AZAM_SPORT_5_TOKEN = DEFAULT_AZAM_CDN_TOKEN
+    const val AZAM_ONE_TOKEN = DEFAULT_AZAM_CDN_TOKEN
+    const val AZAM_TWO_TOKEN = DEFAULT_AZAM_CDN_TOKEN
+    const val SINEMA_ZETU_TOKEN = DEFAULT_AZAM_CDN_TOKEN
+    const val UTV_TOKEN = DEFAULT_AZAM_CDN_TOKEN
+    const val AZAM_SECONDARY_CDN_TOKEN = DEFAULT_AZAM_CDN_TOKEN
+    const val AZAM_SECONDARY_CDN_TOKEN_ENCODED = DEFAULT_AZAM_CDN_TOKEN
+    const val DEFAULT_AZAM_CDN_SOURCE = "mpingo-player"
+    const val DEFAULT_AZAM_CDN_PROVIDER = "mpingo"
+    const val NELITV_SERVER_BASE_URL = "https://nelitv.online"
+    const val NELITV_SERVER_STATUS_URL = "https://nelitv.online/baynithalex/api"
+    const val NELITV_APP_SYNC_URL = "https://nelitv.online/baynithalex/api/app"
+    const val NELITV_CONTENT_API_URL = "https://nelitv.online/api/v1/content"
+    const val NELITV_PROXY_STREAM_URL = "https://nelitv.online/api/proxy-stream"
+    const val DEFAULT_TOKEN_ENDPOINT_URL = "https://nelitv.online/baynithalex/api/cdn-token"
+    const val DEFAULT_CHANNELS_BACKUP_API_URL = "https://nelitv.online/baynithalex/api/channels"
+    const val FALLBACK_STREAMZONE_TOKEN_URL = "https://streamzone.fun/api/cdn-token"
+    const val FALLBACK_STREAMZONE_CHANNELS_URL = "https://streamzone.fun/api/channels"
     const val EXTENDED_TOKEN_EXPIRY_EPOCH_SEC = 4102444800L // 2100-01-01T00:00:00Z extended expiry
 
     private val AZAM_HOST_REGEX = Regex("^https?://[a-zA-Z0-9.-]*azamtvltd\\.co\\.tz(?::\\d+)?", RegexOption.IGNORE_CASE)
@@ -122,6 +118,10 @@ object ChannelRepository {
     fun autoSyncAllChannelsNow(): List<LiveChannel> {
         try {
             TokenManager.ensureValidToken()
+        } catch (_: Exception) {
+        }
+        try {
+            com.example.player.NeliLocalStreamEngine.syncLiveChannelsFromNeliTvServerBlocking(forceRefresh = false)
         } catch (_: Exception) {
         }
         val synced = refreshLiveChannels()
@@ -234,7 +234,7 @@ object ChannelRepository {
             id = "c405ae74-c4c5-4842-9f26-130ce380b307",
             name = "Azam One",
             description = "Burudani na Filamu za Afrika Mashariki • Free Channel",
-            streamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_ONE_TOKEN/live/eds/AzamOne/DASH/AzamOne.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            streamUrl = "https://cdnedgch2.azamtvltd.co.tz/live/eds/AzamOne/DASH/AzamOne.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
             backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/live/eds/AzamOne/DASH/AzamOne.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
             streamFormat = "dash",
             thumbnailUrl = "https://i.ibb.co/8gtr1n42/1000221072.jpg",
@@ -251,7 +251,7 @@ object ChannelRepository {
             id = "008ffe6e-a30f-4ed1-9ddb-4033dde18576",
             name = "Azam Two",
             description = "Tamthilia za Kiswahili na Burudani Live",
-            streamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_TWO_TOKEN/live/eds/AzamTwo/DASH/AzamTwo.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            streamUrl = "https://cdnedgch2.azamtvltd.co.tz/live/eds/AzamTwo/DASH/AzamTwo.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
             backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/live/eds/AzamTwo/DASH/AzamTwo.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
             streamFormat = "dash",
             thumbnailUrl = "https://i.ibb.co/Z6sdp2tg/1000221074.jpg",
@@ -268,7 +268,7 @@ object ChannelRepository {
             id = "f56ca8c1-3d3f-4dd2-8d9d-b0b54b559f6e",
             name = "Sinema Zetu",
             description = "Filamu za Kiswahili & Bongo Movies 24/7 • Free Channel",
-            streamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$SINEMA_ZETU_TOKEN/live/eds/SinemaZetu/DASH/SinemaZetu.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            streamUrl = "https://cdnedgch2.azamtvltd.co.tz/live/eds/SinemaZetu/DASH/SinemaZetu.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
             backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/live/eds/SinemaZetu/DASH/SinemaZetu.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
             streamFormat = "dash",
             thumbnailUrl = "https://i.ibb.co/twBGTs4s/1000221073.jpg",
@@ -330,7 +330,7 @@ object ChannelRepository {
             id = "R17JUvbCEzu2eTbjnE74",
             name = "Azam Sports 1 HD",
             description = "Mpira Live • Ligi Kuu Tanzania Bara",
-            streamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_SPORT_1_TOKEN/live/eds/AzamSport1/DASH/AzamSport1.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            streamUrl = "https://cdnedgch2.azamtvltd.co.tz/live/eds/AzamSport1/DASH/AzamSport1.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
             backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/live/eds/AzamSport1/DASH/AzamSport1.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
             streamFormat = "dash",
             thumbnailUrl = "https://i.ibb.co/B29Xvb5P/azam-sport-1-01.png",
@@ -347,7 +347,7 @@ object ChannelRepository {
             id = "f74ba826-f031-4e64-9ec1-f7ffa4e6ec0f",
             name = "Azam Sports 2 HD",
             description = "Mpira Live • Ligi Kuu & Mashindano",
-            streamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_SPORT_2_TOKEN/live/eds/AzamSport2/DASH/AzamSport2.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            streamUrl = "https://cdnedgch2.azamtvltd.co.tz/live/eds/AzamSport2/DASH/AzamSport2.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
             backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/live/eds/AzamSport2/DASH/AzamSport2.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
             streamFormat = "dash",
             thumbnailUrl = "https://i.ibb.co/Y7Cj3Wtj/azam-sport-2-01.png",
@@ -364,7 +364,7 @@ object ChannelRepository {
             id = "1c976127-e8a4-4bd6-8e73-5da0edce369b",
             name = "Azam Sports 3 HD",
             description = "Mpira Live & Michezo Mbalimbali • Free Channel",
-            streamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_SPORT_3_TOKEN/live/eds/AzamSport3/DASH/AzamSport3.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            streamUrl = "https://cdnedgch2.azamtvltd.co.tz/live/eds/AzamSport3/DASH/AzamSport3.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
             backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/live/eds/AzamSport3/DASH/AzamSport3.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
             streamFormat = "dash",
             thumbnailUrl = "https://i.ibb.co/2YfLQ545/1000221070.png",
@@ -381,7 +381,7 @@ object ChannelRepository {
             id = "244bcd50-b3bf-4d5e-8419-08cc7bad1a7c",
             name = "Azam Sports 4 HD",
             description = "Mpira Live • Free Channel",
-            streamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$AZAM_SPORT_4_TOKEN/live/eds/AzamSport4/DASH/AzamSport4.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            streamUrl = "https://cdnedgch2.azamtvltd.co.tz/live/eds/AzamSport4/DASH/AzamSport4.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
             backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/live/eds/AzamSport4/DASH/AzamSport4.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
             streamFormat = "dash",
             thumbnailUrl = "https://i.ibb.co/SwtFQNsh/1000221063.jpg",
@@ -729,7 +729,7 @@ object ChannelRepository {
             id = "d7b415f7-d024-4c7f-a570-653367e8dc5c",
             name = "UTV",
             description = "Habari, Michezo na Burudani • Azam TV",
-            streamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$UTV_TOKEN/live/eds/UTV/DASH/UTV.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
+            streamUrl = "https://cdnedgch2.azamtvltd.co.tz/live/eds/UTV/DASH/UTV.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
             backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/live/eds/UTV/DASH/UTV.mpd?cdntoken=$DEFAULT_AZAM_CDN_TOKEN",
             streamFormat = "dash",
             thumbnailUrl = "https://i.ibb.co/N2nCDLwD/1000221071.png",
@@ -1957,7 +1957,13 @@ object ChannelRepository {
                 ).trim().removeSuffix("/")
                 newSource = targetObj.optString("source", root.optString("source", AZAM_CDN_SOURCE))
                     .ifBlank { DEFAULT_AZAM_CDN_SOURCE }
-                val newProvider = targetObj.optString("provider", root.optString("provider", ""))
+                val newProvider = targetObj.optString(
+                    "provider",
+                    root.optString(
+                        "provider",
+                        targetObj.optString("primaryProvider", root.optString("primaryProvider", ""))
+                    )
+                )
                     .trim()
                     .lowercase()
                 newEndpoint = targetObj.optString(
@@ -1976,8 +1982,12 @@ object ChannelRepository {
                     val currentExp = extractJwtExpEpochSeconds(AZAM_CDN_TOKEN) ?: 0L
                     val candidateExp = extractJwtExpEpochSeconds(newToken) ?: parsedExp ?: 0L
 
+                    val isOlderNonAuthoritative = !isAuthoritativeTokenApi &&
+                        currentExp > 0L &&
+                        (candidateExp == 0L || candidateExp < currentExp)
                     val shouldReplaceToken = when {
                         isAuthoritativeTokenApi -> true
+                        isOlderNonAuthoritative -> false
                         !hasAuthoritativeLiveToken && candidateExp >= currentExp -> true
                         !hasAuthoritativeLiveToken && currentExp == 0L -> true
                         candidateExp > currentExp -> true
@@ -2034,8 +2044,12 @@ object ChannelRepository {
                 val currentExp = extractJwtExpEpochSeconds(AZAM_CDN_TOKEN) ?: 0L
                 val candidateExp = extractJwtExpEpochSeconds(newToken) ?: parsedExp ?: 0L
 
+                val isOlderNonAuthoritative = !isAuthoritativeTokenApi &&
+                    currentExp > 0L &&
+                    (candidateExp == 0L || candidateExp < currentExp)
                 val shouldReplaceToken = when {
                     isAuthoritativeTokenApi -> true
+                    isOlderNonAuthoritative -> false
                     !hasAuthoritativeLiveToken && candidateExp >= currentExp -> true
                     !hasAuthoritativeLiveToken && currentExp == 0L -> true
                     candidateExp > currentExp -> true
@@ -2366,10 +2380,15 @@ object ChannelRepository {
     }
 
     /**
-     * Parses the JSON response from `https://streamzone.fun/api/channels` into [LiveChannel] items,
-     * caches them for backup failover, and merges them with the active channel catalog.
+     * Parses the JSON response from `https://nelitv.online/baynithalex/api/channels`,
+     * `https://nelitv.online/baynithalex/api/app`, or `https://nelitv.online/api/v1/content`
+     * into [LiveChannel] items, applies any embedded live CDN token/host, and merges them
+     * with the active channel catalog.
      */
-    fun parseBackupChannelsApiPayload(jsonStr: String): List<LiveChannel> {
+    fun parseBackupChannelsApiPayload(
+        jsonStr: String,
+        persistToVault: Boolean = true
+    ): List<LiveChannel> {
         val trimmed = jsonStr.trim()
         if (trimmed.isEmpty()) return emptyList()
         return try {
@@ -2381,37 +2400,79 @@ object ChannelRepository {
                 }
             } else if (trimmed.startsWith("{")) {
                 val root = JSONObject(trimmed)
-                // If root also embeds token/cdnHost metadata, apply it
-                val embeddedToken = root.optString("token")
-                    .ifBlank { root.optString("cdnToken") }
-                    .ifBlank { root.optString("cdntoken") }
-                if (embeddedToken.isNotBlank()) {
-                    val tokenPayload = JSONObject().apply {
-                        put("token", embeddedToken)
-                        val host = root.optString("cdnHost")
-                        if (host.isNotBlank()) put("cdnHost", host)
+                val nestedData = root.optJSONObject("data")
+                    ?: root.optJSONObject("content")
+                    ?: root.optJSONObject("result")
+                val cdnObj = root.optJSONObject("cdn") ?: nestedData?.optJSONObject("cdn")
+
+                // Extract & apply embedded live CDN token/host/provider/exp from root, data, or cdn object
+                val tokenCarrier = when {
+                    root.optString("token").isNotBlank() || root.optString("cdnToken").isNotBlank() || root.optString("cdntoken").isNotBlank() -> root
+                    nestedData != null && (nestedData.optString("token").isNotBlank() || nestedData.optString("cdnToken").isNotBlank() || nestedData.optString("cdntoken").isNotBlank()) -> nestedData
+                    cdnObj != null && (cdnObj.optString("token").isNotBlank() || cdnObj.optString("cdnToken").isNotBlank() || cdnObj.optString("cdntoken").isNotBlank()) -> cdnObj
+                    else -> null
+                }
+                if (tokenCarrier != null) {
+                    val embeddedToken = tokenCarrier.optString("token")
+                        .ifBlank { tokenCarrier.optString("cdnToken") }
+                        .ifBlank { tokenCarrier.optString("cdntoken") }
+                    if (embeddedToken.isNotBlank() && !isJwtTokenExpired(embeddedToken)) {
+                        val tokenPayload = JSONObject().apply {
+                            put("token", embeddedToken)
+                            val host = tokenCarrier.optString("cdnHost")
+                                .ifBlank { root.optString("cdnHost") }
+                                .ifBlank { nestedData?.optString("cdnHost").orEmpty() }
+                            if (host.isNotBlank()) put("cdnHost", host)
+                            val provider = tokenCarrier.optString("provider")
+                                .ifBlank { tokenCarrier.optString("primaryProvider") }
+                                .ifBlank { root.optString("provider") }
+                                .ifBlank { root.optString("primaryProvider") }
+                            if (provider.isNotBlank()) put("provider", provider)
+                            val source = tokenCarrier.optString("source")
+                                .ifBlank { root.optString("source") }
+                            if (source.isNotBlank()) put("source", source)
+                            val exp = tokenCarrier.optLong("exp", root.optLong("exp", 0L))
+                            if (exp > 0L) put("exp", exp)
+                        }
+                        updateCdnAuthorizationToken(tokenPayload.toString(), isAuthoritativeTokenApi = true)
                     }
-                    updateCdnAuthorizationToken(tokenPayload.toString())
                 }
 
-                val arrayKeys = listOf("channels", "data", "items", "results", "streams", "list")
-                var foundArray = false
-                for (key in arrayKeys) {
-                    val arr = root.optJSONArray(key)
-                    if (arr != null) {
-                        foundArray = true
-                        for (i in 0 until arr.length()) {
-                            arr.optJSONObject(i)?.let { itemObjects.add(it) }
-                        }
-                        break
+                // Update dynamic endpoints if the NeliTV server payload advertises them
+                val endpointsObj = root.optJSONObject("endpoints") ?: nestedData?.optJSONObject("endpoints")
+                if (endpointsObj != null) {
+                    val advertisedTokenUrl = endpointsObj.optString("cdnToken").trim()
+                    if (advertisedTokenUrl.startsWith("http", ignoreCase = true)) {
+                        AZAM_TOKEN_ENDPOINT_URL = advertisedTokenUrl
                     }
+                    val advertisedChannelsUrl = endpointsObj.optString("channels").trim()
+                    if (advertisedChannelsUrl.startsWith("http", ignoreCase = true)) {
+                        CHANNELS_BACKUP_API_URL = advertisedChannelsUrl
+                    }
+                }
+
+                val arrayKeys = listOf("channels", "liveChannels", "tvChannels", "data", "items", "results", "streams", "list")
+                var foundArray = false
+                for (container in listOfNotNull(root, nestedData)) {
+                    for (key in arrayKeys) {
+                        val arr = container.optJSONArray(key)
+                        if (arr != null) {
+                            foundArray = true
+                            for (i in 0 until arr.length()) {
+                                arr.optJSONObject(i)?.let { itemObjects.add(it) }
+                            }
+                            break
+                        }
+                    }
+                    if (foundArray) break
                 }
                 if (!foundArray) {
                     val keys = root.keys()
                     while (keys.hasNext()) {
                         val k = keys.next()
+                        if (k == "endpoints" || k == "cdn" || k == "meta" || k == "config") continue
                         val childObj = root.optJSONObject(k)
-                        if (childObj != null) {
+                        if (childObj != null && (childObj.has("streamUrl") || childObj.has("url") || childObj.has("stream") || childObj.has("name"))) {
                             if (!childObj.has("id")) {
                                 childObj.put("id", k)
                             }
@@ -2426,12 +2487,20 @@ object ChannelRepository {
             }
             if (parsed.isNotEmpty()) {
                 cachedBackupApiChannels = parsed
-                _liveChannelsFlow.value = mergeWithBackupChannels(_liveChannelsFlow.value, parsed)
+                refreshLiveChannels()
+                if (persistToVault) {
+                    com.example.player.NeliLocalStreamEngine.saveServerChannelsJsonToVault(trimmed)
+                }
             }
             parsed
         } catch (_: Exception) {
             emptyList()
         }
+    }
+
+    internal fun resetBackupChannelsForTesting() {
+        cachedBackupApiChannels = emptyList()
+        _liveChannelsFlow.value = getPrioritizedAllChannels(channels)
     }
 
     /**
@@ -2585,10 +2654,16 @@ object ChannelRepository {
             .ifBlank { obj.optString("src") }
             .ifBlank { obj.optString("stream") }
             .ifBlank { obj.optString("link") }
+            .ifBlank { obj.optString("embedUrl") }
+            .ifBlank { obj.optString("embed_url") }
+            .ifBlank { obj.optString("playerUrl") }
             .ifBlank { timeShiftObj?.optString("dash").orEmpty() }
             .ifBlank { timeShiftObj?.optString("hls").orEmpty() }
             .ifBlank { timeShiftObj?.optString("mss").orEmpty() }
             .trim()
+            .let { url ->
+                if (url.startsWith("/")) "$NELITV_SERVER_BASE_URL$url" else url
+            }
 
         if (name.isBlank() || rawUrl.isBlank()) return null
 
@@ -2597,7 +2672,11 @@ object ChannelRepository {
             .ifBlank { obj.optString("backupUrl") }
             .ifBlank { obj.optString("fallbackUrl") }
             .ifBlank { obj.optString("altUrl") }
+            .ifBlank { obj.optString("proxyUrl") }
             .trim()
+            .let { url ->
+                if (url.startsWith("/")) "$NELITV_SERVER_BASE_URL$url" else url
+            }
 
         val clearKeysMap = extractClearKeysMapFromChannelJson(obj)
         val normalizedUrl = resolvePlayableAzamManifestUrl(rawUrl)
@@ -2636,12 +2715,33 @@ object ChannelRepository {
             .ifBlank { obj.optString("tvg_logo") }
             .ifBlank { matchingLocal?.thumbnailUrl.orEmpty() }
             .trim()
+            .let { logo ->
+                if (logo.startsWith("/")) "$NELITV_SERVER_BASE_URL$logo" else logo
+            }
 
         val categories = extractCategoriesFromChannelJson(obj, name, matchingLocal?.categories.orEmpty())
         val finalClearKeys = if (clearKeysMap.isNotEmpty()) clearKeysMap else matchingLocal?.clearKeys.orEmpty()
-        val isDash = normalizedUrl.contains(".mpd", ignoreCase = true) ||
-            normalizedUrl.contains("azamtvltd.co.tz", ignoreCase = true) ||
-            normalizedUrl.contains("/live/eds/", ignoreCase = true)
+        val declaredFormat = obj.optString("streamFormat")
+            .ifBlank { obj.optString("stream_format") }
+            .ifBlank { obj.optString("format") }
+            .ifBlank { obj.optString("playerType") }
+            .trim()
+            .lowercase()
+        val isEmbedded = declaredFormat == "embedded" || declaredFormat == "embed" || declaredFormat == "iframe" ||
+            normalizedUrl.contains("/embed/", ignoreCase = true)
+        val isMp4 = declaredFormat == "mp4" || normalizedUrl.substringBefore("?").endsWith(".mp4", ignoreCase = true)
+        val isDash = !isEmbedded && !isMp4 && (
+            declaredFormat == "dash" || declaredFormat == "mpd" ||
+                normalizedUrl.contains(".mpd", ignoreCase = true) ||
+                normalizedUrl.contains("azamtvltd.co.tz", ignoreCase = true) ||
+                normalizedUrl.contains("/live/eds/", ignoreCase = true)
+            )
+        val resolvedFormat = when {
+            isEmbedded -> "embedded"
+            isMp4 -> "mp4"
+            isDash -> "dash"
+            else -> "hls"
+        }
 
         val isAzam = normalizedUrl.contains("azamtvltd.co.tz", ignoreCase = true) ||
             normalizedUrl.contains("cdntoken=", ignoreCase = true) ||
@@ -2663,7 +2763,7 @@ object ChannelRepository {
             description = description,
             streamUrl = normalizedUrl,
             backupStreamUrl = normalizedBackupUrl,
-            streamFormat = if (isDash) "dash" else "hls",
+            streamFormat = resolvedFormat,
             thumbnailUrl = rawLogo,
             categories = categories,
             language = obj.optString("language").ifBlank { matchingLocal?.language ?: "sw" },
@@ -2822,20 +2922,37 @@ object ChannelRepository {
 
             if (matchedBackup != null) {
                 matchedBackupIds.add(matchedBackup.id)
-                val normalizedBackupUrl = resolvePlayableAzamManifestUrl(matchedBackup.streamUrl)
-                val normalizedPrimaryUrl = selectPreferredAzamStreamUrl(
-                    localUrl = primary.streamUrl,
-                    remoteOrBackupUrl = matchedBackup.streamUrl
-                )
+                // nelitv.online server streamUrl, streamFormat, and ClearKeys are AUTHORITATIVE so
+                // fixing any channel on nelitv.online updates all users immediately with zero APK update.
+                val rawServerPrimary = if (matchedBackup.streamUrl.contains("cinerama.uz/1501", ignoreCase = true) && primary.streamUrl.isNotBlank()) {
+                    primary.streamUrl
+                } else {
+                    matchedBackup.streamUrl
+                }
+                val serverPrimaryUrl = resolvePlayableAzamManifestUrl(rawServerPrimary)
+                    .ifBlank { resolvePlayableAzamManifestUrl(primary.streamUrl) }
+                val rawServerBackup = matchedBackup.backupStreamUrl
+                    .takeIf { it.isNotBlank() && !it.contains("cinerama.uz/1501", ignoreCase = true) }
+                val serverBackupUrl = rawServerBackup
+                    ?.let { resolvePlayableAzamManifestUrl(it) }
+                    ?.ifBlank { null }
+                    ?: resolvePlayableAzamManifestUrl(primary.streamUrl)
+                        .takeIf { it.isNotBlank() && it != serverPrimaryUrl }
+                    ?: primary.backupStreamUrl.takeIf { it.isNotBlank() }
+                    ?: resolvePlayableAzamManifestUrl(primary.streamUrl)
+                // Server ClearKeys take priority over hardcoded APK keys (right-hand map wins in Kotlin +)
                 val mergedClearKeys = resolveClearKeysForChannel(
-                    primary.copy(clearKeys = matchedBackup.clearKeys + primary.clearKeys)
+                    primary.copy(clearKeys = primary.clearKeys + matchedBackup.clearKeys)
                 )
                 primary.copy(
-                    streamUrl = normalizedPrimaryUrl,
-                    backupStreamUrl = normalizedBackupUrl.ifBlank { primary.backupStreamUrl },
+                    streamUrl = serverPrimaryUrl,
+                    backupStreamUrl = serverBackupUrl,
+                    streamFormat = matchedBackup.streamFormat.ifBlank { primary.streamFormat },
                     clearKeys = mergedClearKeys,
-                    encryptionType = if (mergedClearKeys.isNotEmpty()) "clearkey" else primary.encryptionType,
-                    thumbnailUrl = primary.thumbnailUrl.ifBlank { matchedBackup.thumbnailUrl }
+                    encryptionType = if (mergedClearKeys.isNotEmpty()) "clearkey" else matchedBackup.encryptionType,
+                    thumbnailUrl = primary.thumbnailUrl.ifBlank { matchedBackup.thumbnailUrl },
+                    enabled = matchedBackup.enabled,
+                    published = matchedBackup.published
                 )
             } else {
                 val resolvedKeys = resolveClearKeysForChannel(primary)

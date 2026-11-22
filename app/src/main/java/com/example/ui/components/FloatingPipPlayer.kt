@@ -381,7 +381,13 @@ fun SystemPipPlayerView(
     ) {
         AndroidView(
             factory = { ctx ->
-                PlayerView(ctx).apply {
+                val playerView = try {
+                    android.view.LayoutInflater.from(ctx)
+                        .inflate(com.example.R.layout.neli_texture_player_view, null, false) as PlayerView
+                } catch (_: Throwable) {
+                    PlayerView(ctx)
+                }
+                playerView.apply {
                     useController = false
                     keepScreenOn = true
                     setShutterBackgroundColor(android.graphics.Color.BLACK)
@@ -429,7 +435,13 @@ private fun PipPlayerSurfaceAndControls(
     Box(modifier = Modifier.fillMaxSize()) {
         AndroidView(
             factory = { ctx ->
-                PlayerView(ctx).apply {
+                val playerView = try {
+                    android.view.LayoutInflater.from(ctx)
+                        .inflate(com.example.R.layout.neli_texture_player_view, null, false) as PlayerView
+                } catch (_: Throwable) {
+                    PlayerView(ctx)
+                }
+                playerView.apply {
                     useController = false
                     keepScreenOn = true
                     resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM

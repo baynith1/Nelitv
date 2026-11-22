@@ -161,15 +161,17 @@ object NeliFirebaseSyncManager {
                 }
             }
 
-            if (!tokenFetched.isNullOrBlank()) {
+            if (!tokenFetched.isNullOrBlank() && !ChannelRepository.isJwtTokenExpired(tokenFetched)) {
                 val host = cdnHostFetched ?: ChannelRepository.DEFAULT_AZAM_CDN_HOST
-                ChannelRepository.updateCdnAuthorizationToken(
+                val applied = ChannelRepository.updateCdnAuthorizationToken(
                     jsonStr = """{"token":"$tokenFetched","cdnHost":"$host"}""",
-                    isAuthoritativeTokenApi = true
+                    isAuthoritativeTokenApi = false
                 )
-                TokenManager.syncStateFromRepository()
-                Log.d(TAG, "24/7 background service refreshed Azam token successfully from Firebase (30 min interval)")
-                true
+                if (applied) {
+                    TokenManager.syncStateFromRepository()
+                    Log.d(TAG, "24/7 background service refreshed Azam token successfully from Firebase")
+                }
+                applied
             } else {
                 false
             }
@@ -279,14 +281,16 @@ object NeliFirebaseSyncManager {
                     try {
                         val token = snapshot.child("token").getValue(String::class.java)
                             ?: snapshot.getValue(String::class.java)
-                        if (!token.isNullOrBlank()) {
+                        if (!token.isNullOrBlank() && !ChannelRepository.isJwtTokenExpired(token)) {
                             val cdnHost = snapshot.child("cdnHost").getValue(String::class.java)
                                 ?: ChannelRepository.DEFAULT_AZAM_CDN_HOST
-                            ChannelRepository.updateCdnAuthorizationToken(
+                            val applied = ChannelRepository.updateCdnAuthorizationToken(
                                 jsonStr = """{"token":"$token","cdnHost":"$cdnHost"}""",
-                                isAuthoritativeTokenApi = true
+                                isAuthoritativeTokenApi = false
                             )
-                            TokenManager.syncStateFromRepository()
+                            if (applied) {
+                                TokenManager.syncStateFromRepository()
+                            }
                         }
                     } catch (e: Throwable) {
                         Log.e(TAG, "Error updating token from RTDB", e)
