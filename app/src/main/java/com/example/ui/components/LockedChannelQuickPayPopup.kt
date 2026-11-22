@@ -7,6 +7,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -29,15 +30,19 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.WorkspacePremium
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
@@ -46,6 +51,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -64,6 +70,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.data.HarakaPayRepository
 import com.example.data.NeliSubscriptionManager
+import com.example.data.NeliSupabaseSyncManager
 import com.example.data.SubscriptionPlanType
 import com.example.data.local.UserAccountEntity
 import com.example.model.LiveChannel
@@ -72,10 +79,12 @@ import com.example.ui.theme.NeliMagenta
 import com.example.ui.theme.NeliTextPrimary
 import com.example.ui.theme.NeliTextSecondary
 import com.example.ui.theme.NeliWarmOrange
+import kotlinx.coroutines.launch
 
 private enum class QuickPayPopupStep {
     SELECT_PLAN,
     ENTER_PHONE,
+    ENTER_PAID_NUMBER,
     VERIFY_PAYMENT
 }
 
@@ -96,6 +105,7 @@ fun LockedChannelQuickPayPopup(
     onPaymentUnlockedChannel: (LiveChannel) -> Unit
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val subState by NeliSubscriptionManager.subscriptionState.collectAsState()
 
     var currentStep by remember(channel.id) { mutableStateOf(QuickPayPopupStep.SELECT_PLAN) }
@@ -104,6 +114,8 @@ fun LockedChannelQuickPayPopup(
         mutableStateOf(subState.phoneNumber.ifBlank { subState.pendingPhone })
     }
     var phoneError by remember(channel.id) { mutableStateOf<String?>(null) }
+    var paidLookupError by remember(channel.id) { mutableStateOf<String?>(null) }
+    var isVerifyingPaidNumber by remember(channel.id) { mutableStateOf(false) }
     var normalizedPhoneForUssd by remember(channel.id) { mutableStateOf("") }
     val wasAlreadyActiveBeforePopup = remember(channel.id) {
         NeliSubscriptionManager.isPremiumMemberActive(context = context)
@@ -175,6 +187,10 @@ fun LockedChannelQuickPayPopup(
                                     phoneError = null
                                     currentStep = QuickPayPopupStep.ENTER_PHONE
                                 },
+                                onAlreadyPaidClick = {
+                                    paidLookupError = null
+                                    currentStep = QuickPayPopupStep.ENTER_PAID_NUMBER
+                                },
                                 onDismiss = onDismiss
                             )
                         }
@@ -206,6 +222,76 @@ fun LockedChannelQuickPayPopup(
                             )
                         }
 
+                        QuickPayPopupStep.ENTER_PAID_NUMBER -> {
+                            EnterPaidNumberPopupStepContent(
+                                savedPhoneNumber = subState.phoneNumber,
+                                isFreeForever = subState.isFreeForeverAccount,
+                                phoneInput = phoneInput,
+                                lookupError = paidLookupError,
+                                isChecking = isVerifyingPaidNumber,
+                                onPhoneChange = { raw ->
+                                    phoneInput = raw.filter { it.isDigit() || it == '+' }.take(13)
+                                    paidLookupError = null
+                                },
+                                onBackToPlans = {
+                                    paidLookupError = null
+                                    currentStep = QuickPayPopupStep.SELECT_PLAN
+                                },
+                                onRemoveCurrentNumber = {
+                                    NeliSubscriptionManager.removeSavedPaymentNumber(context)
+                                    phoneInput = ""
+                                    paidLookupError = null
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        "Namba imeondolewa. Weka namba mpya iliyolipiwa.",
+                                        android.widget.Toast.LENGTH_SHORT
+                                    ).show()
+                                },
+                                onUnlockWithPaidNumber = {
+                                    val normalized = HarakaPayRepository.normalizeTzPhoneNumber(phoneInput)
+                                    if (!HarakaPayRepository.isValidTzPhoneNumber(normalized)) {
+                                        paidLookupError = "Weka namba sahihi ya simu uliyolipia (mf. 0712345678)."
+                                        return@EnterPaidNumberPopupStepContent
+                                    }
+                                    paidLookupError = null
+                                    isVerifyingPaidNumber = true
+                                    scope.launch {
+                                        val lookup = NeliSupabaseSyncManager.querySubscriptionByPhone(normalized)
+                                        isVerifyingPaidNumber = false
+                                        val record = lookup.getOrNull()
+                                        if (record != null && record.isActive) {
+                                            NeliSubscriptionManager.activateVerifiedSubscriptionFromSupabase(
+                                                context = context,
+                                                record = record
+                                            )
+                                            if (currentUser != null && currentUser.email.isNotBlank()) {
+                                                NeliSubscriptionManager.linkUserAccountToSubscription(
+                                                    context = context,
+                                                    uid = currentUser.uid,
+                                                    email = currentUser.email,
+                                                    realName = currentUser.realName
+                                                )
+                                            }
+                                            android.widget.Toast.makeText(
+                                                context,
+                                                "Karibu Active Member! Channel za VIP zimefunguliwa.",
+                                                android.widget.Toast.LENGTH_SHORT
+                                            ).show()
+                                            onPaymentUnlockedChannel(channel)
+                                        } else {
+                                            paidLookupError =
+                                                "Namba $normalized haijalipiwa au kifurushi kimeisha. Lipia sasa kufungua VIP."
+                                        }
+                                    }
+                                },
+                                onSwitchToPay = {
+                                    paidLookupError = null
+                                    currentStep = QuickPayPopupStep.SELECT_PLAN
+                                },
+                                onDismiss = onDismiss
+                            )
+                        }
+
                         QuickPayPopupStep.VERIFY_PAYMENT -> {
                             // Handled above by NeliPaymentVerificationPopup
                             Spacer(modifier = Modifier.height(1.dp))
@@ -223,6 +309,7 @@ private fun SelectPlanPopupStepContent(
     selectedPlan: SubscriptionPlanType,
     onSelectPlan: (SubscriptionPlanType) -> Unit,
     onPayClick: () -> Unit,
+    onAlreadyPaidClick: () -> Unit,
     onDismiss: () -> Unit
 ) {
     Column(
@@ -396,6 +483,37 @@ private fun SelectPlanPopupStepContent(
                 fontWeight = FontWeight.Black
             )
         }
+
+        // Secondary action: Already Paid -> Enter / Swap Paid VIP Number directly inside popup
+        OutlinedButton(
+            onClick = onAlreadyPaidClick,
+            shape = RoundedCornerShape(14.dp),
+            border = BorderStroke(1.1.dp, Color(0x8800E5FF)),
+            colors = ButtonDefaults.outlinedButtonColors(
+                containerColor = Color(0x1600E5FF),
+                contentColor = NeliGenreCyan
+            ),
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 48.dp)
+                .testTag("quick_pay_already_paid_button")
+        ) {
+            Icon(
+                imageVector = Icons.Default.LockOpen,
+                contentDescription = null,
+                tint = NeliGenreCyan,
+                modifier = Modifier.size(17.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "Nimeshalipa? Weka Namba ya VIP",
+                color = NeliGenreCyan,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.ExtraBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
     }
 }
 
@@ -560,6 +678,241 @@ private fun EnterPhonePopupStepContent(
                 fontSize = 15.sp,
                 fontWeight = FontWeight.Black
             )
+        }
+    }
+}
+
+@Composable
+private fun EnterPaidNumberPopupStepContent(
+    savedPhoneNumber: String,
+    isFreeForever: Boolean,
+    phoneInput: String,
+    lookupError: String?,
+    isChecking: Boolean,
+    onPhoneChange: (String) -> Unit,
+    onBackToPlans: () -> Unit,
+    onRemoveCurrentNumber: () -> Unit,
+    onUnlockWithPaidNumber: () -> Unit,
+    onSwitchToPay: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("quick_pay_step_enter_paid_number"),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        // Header: Back | INGIA VIP Pill | X Close Button
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            IconButton(
+                onClick = onBackToPlans,
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(CircleShape)
+                    .background(Color(0x22FFFFFF))
+                    .testTag("quick_pay_paid_back_button")
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Rudi Vifurushi",
+                    tint = Color.White,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+
+            Box(
+                modifier = Modifier
+                    .clip(CircleShape)
+                    .background(Color(0x2400E5FF))
+                    .border(1.dp, Color(0x8800E5FF), CircleShape)
+                    .padding(horizontal = 10.dp, vertical = 5.dp)
+            ) {
+                Text(
+                    text = "INGIA VIP",
+                    color = NeliGenreCyan,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Black,
+                    maxLines = 1
+                )
+            }
+
+            IconButton(
+                onClick = onDismiss,
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(CircleShape)
+                    .background(Color(0x22FFFFFF))
+                    .testTag("quick_pay_paid_close_button")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Funga",
+                    tint = Color.White,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
+
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(
+                text = "Weka Namba Iliyolipiwa",
+                color = Color.White,
+                fontSize = 17.5.sp,
+                fontWeight = FontWeight.Black,
+                textAlign = TextAlign.Center
+            )
+            Text(
+                text = "Andika namba ya simu uliyolipia ili kufungua channel ZOTE za VIP au ubadilishe namba.",
+                color = NeliTextSecondary,
+                fontSize = 11.5.sp,
+                lineHeight = 16.sp,
+                textAlign = TextAlign.Center
+            )
+        }
+
+        OutlinedTextField(
+            value = phoneInput,
+            onValueChange = onPhoneChange,
+            label = { Text("Namba Iliyolipiwa (mf. 0712345678)") },
+            placeholder = { Text("07XXXXXXXX / 06XXXXXXXX") },
+            leadingIcon = {
+                Icon(
+                    imageVector = Icons.Default.PhoneAndroid,
+                    contentDescription = null,
+                    tint = NeliGenreCyan
+                )
+            },
+            isError = lookupError != null,
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+            shape = RoundedCornerShape(14.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = NeliGenreCyan,
+                unfocusedBorderColor = Color(0x55FFFFFF),
+                errorBorderColor = Color(0xFFFB7185),
+                focusedTextColor = NeliTextPrimary,
+                unfocusedTextColor = NeliTextPrimary,
+                focusedLabelColor = NeliGenreCyan,
+                unfocusedLabelColor = NeliTextSecondary,
+                cursorColor = NeliGenreCyan
+            ),
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("quick_pay_paid_phone_input")
+        )
+
+        if (lookupError != null) {
+            Text(
+                text = lookupError,
+                color = Color(0xFFFB7185),
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center
+            )
+        }
+
+        Button(
+            onClick = onUnlockWithPaidNumber,
+            enabled = !isChecking,
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 50.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(
+                    Brush.horizontalGradient(listOf(Color(0xFF00B4D8), Color(0xFF7C3AED)))
+                )
+                .testTag("quick_pay_unlock_paid_button"),
+            shape = RoundedCornerShape(14.dp),
+            contentPadding = PaddingValues(0.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent)
+        ) {
+            if (isChecking) {
+                CircularProgressIndicator(
+                    color = Color.White,
+                    strokeWidth = 2.4.dp,
+                    modifier = Modifier.size(19.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Inakagua VIP...",
+                    color = Color.White,
+                    fontSize = 14.5.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Default.LockOpen,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Fungua VIP",
+                    color = Color.White,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Black
+                )
+            }
+        }
+
+        if (lookupError != null) {
+            OutlinedButton(
+                onClick = onSwitchToPay,
+                shape = RoundedCornerShape(14.dp),
+                border = BorderStroke(1.dp, Color(0x99FBBF24)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp)
+                    .testTag("quick_pay_paid_switch_to_plans_button")
+            ) {
+                Text(
+                    text = "Lipia Kifurushi Sasa",
+                    color = Color(0xFFFDE68A),
+                    fontSize = 13.5.sp,
+                    fontWeight = FontWeight.ExtraBold
+                )
+            }
+        }
+
+        if (savedPhoneNumber.isNotBlank() && !isFreeForever) {
+            OutlinedButton(
+                onClick = onRemoveCurrentNumber,
+                shape = RoundedCornerShape(14.dp),
+                border = BorderStroke(1.dp, Color(0xAAFB7185)),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    containerColor = Color(0x18FB7185),
+                    contentColor = Color(0xFFFDA4AF)
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp)
+                    .testTag("quick_pay_remove_current_number_button")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.DeleteOutline,
+                    contentDescription = "Remove Number",
+                    tint = Color(0xFFFB7185),
+                    modifier = Modifier.size(17.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "Remove Number ($savedPhoneNumber)",
+                    color = Color(0xFFFDA4AF),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
     }
 }

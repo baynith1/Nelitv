@@ -265,11 +265,18 @@ object NeliSubscriptionManager {
     private const val KEY_LINKED_EMAIL = "linked_user_email"
     private const val KEY_LINKED_NAME = "linked_user_name"
     private const val KEY_REQUIRES_POST_PAYMENT_AUTH = "requires_post_payment_auth"
+    private const val KEY_NUMBER_MANUALLY_REMOVED = "number_manually_removed"
 
     private const val KEY_PENDING_ORDER_ID = "pending_order_id"
     private const val KEY_PENDING_PLAN_ID = "pending_plan_id"
     private const val KEY_PENDING_PHONE = "pending_phone"
     private const val KEY_PENDING_AMOUNT = "pending_amount_tzs"
+
+    fun isNumberManuallyRemoved(context: Context): Boolean {
+        return context.applicationContext
+            .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getBoolean(KEY_NUMBER_MANUALLY_REMOVED, false)
+    }
 
     private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -435,7 +442,7 @@ object NeliSubscriptionManager {
                             email = "",
                             realName = ""
                         )
-                    } else {
+                    } else if (!prefs.getBoolean(KEY_NUMBER_MANUALLY_REMOVED, false)) {
                         NeliFirebaseSyncManager.syncUserSubscriptionFromFirebase(
                             context = context,
                             uid = activeUser.uid,
@@ -655,7 +662,7 @@ object NeliSubscriptionManager {
             .remove(KEY_PENDING_AMOUNT)
             .apply()
 
-        if (!accountState.isVerified) {
+        if (!accountState.isVerified && !isNumberManuallyRemoved(context)) {
             ioScope.launch {
                 try {
                     val dao = NeliDatabase.getInstance(context).mediaDao()
@@ -683,7 +690,7 @@ object NeliSubscriptionManager {
             }
         }
 
-        if (cleanEmail.isNotBlank()) {
+        if (cleanEmail.isNotBlank() && !isNumberManuallyRemoved(context)) {
             ioScope.launch {
                 NeliFirebaseSyncManager.syncUserSubscriptionFromFirebase(
                     context = context,
@@ -700,6 +707,7 @@ object NeliSubscriptionManager {
      * Restores verified subscription state received from Firebase Realtime Database / Firestore.
      */
     fun restoreSubscriptionFromCloud(context: Context, cloudState: PremiumSubscriptionState) {
+        if (isNumberManuallyRemoved(context)) return
         _subscriptionState.value = cloudState
         val cleanEmail = cloudState.linkedUserEmail.trim().lowercase()
         if (cleanEmail.isNotBlank()) {
@@ -886,6 +894,7 @@ object NeliSubscriptionManager {
 
         val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit()
+            .putBoolean(KEY_NUMBER_MANUALLY_REMOVED, false)
             .putBoolean(KEY_IS_VERIFIED, true)
             .putString(KEY_PLAN_ID, plan.id)
             .putString(KEY_PLAN_TITLE, plan.titleSwahili)
@@ -982,6 +991,7 @@ object NeliSubscriptionManager {
 
         val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit()
+            .putBoolean(KEY_NUMBER_MANUALLY_REMOVED, false)
             .putBoolean(KEY_IS_VERIFIED, true)
             .putString(KEY_PLAN_ID, record.planId)
             .putString(KEY_PLAN_TITLE, plan.titleSwahili)
@@ -1031,6 +1041,68 @@ object NeliSubscriptionManager {
             }
         }
         return newState
+    }
+
+    /**
+     * Removes the saved VIP payment phone number from THIS device and immediately closes/locks
+     * all VIP channels until the user enters another paid phone number or purchases a package.
+     * Cloud payment history in Supabase is intentionally preserved so the number can be re-entered
+     * later or used on another device.
+     */
+    fun removeSavedPaymentNumber(context: Context): PremiumSubscriptionState {
+        val current = _subscriptionState.value
+        val detectedIp = current.deviceIpAddress.ifBlank { resolveDeviceIpAddress(context) }
+        val deviceId = current.deviceId.ifBlank { resolveDeviceIdentityId(context) }
+        val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit()
+            .putBoolean(KEY_NUMBER_MANUALLY_REMOVED, true)
+            .putBoolean(KEY_IS_VERIFIED, false)
+            .remove(KEY_PLAN_ID)
+            .remove(KEY_PLAN_TITLE)
+            .remove(KEY_AMOUNT_TZS)
+            .remove(KEY_PHONE)
+            .remove(KEY_ORDER_ID)
+            .remove(KEY_ACTIVATED_AT)
+            .remove(KEY_EXPIRES_AT)
+            .putBoolean(KEY_REQUIRES_POST_PAYMENT_AUTH, false)
+            .remove(KEY_PENDING_ORDER_ID)
+            .remove(KEY_PENDING_PLAN_ID)
+            .remove(KEY_PENDING_PHONE)
+            .remove(KEY_PENDING_AMOUNT)
+            .apply()
+
+        val clearedState = PremiumSubscriptionState(
+            isVerified = false,
+            planId = "",
+            planTitle = "",
+            amountTzs = 0,
+            phoneNumber = "",
+            orderId = "",
+            deviceIpAddress = detectedIp,
+            deviceId = deviceId,
+            activatedAtMs = 0L,
+            expiresAtMs = 0L,
+            linkedUserUid = current.linkedUserUid,
+            linkedUserEmail = current.linkedUserEmail,
+            linkedUserName = current.linkedUserName,
+            requiresPostPaymentAuth = false,
+            pendingOrderId = "",
+            pendingPlanId = "",
+            pendingPhone = "",
+            pendingAmountTzs = 0
+        )
+        _subscriptionState.value = clearedState
+        if (clearedState.linkedUserEmail.isNotBlank()) {
+            saveAccountSubscriptionToPrefs(context, clearedState.linkedUserEmail, clearedState)
+        }
+        ioScope.launch {
+            try {
+                val dao = NeliDatabase.getInstance(context).mediaDao()
+                saveRealSubscriptionDataByDeviceIp(dao, clearedState)
+            } catch (_: Throwable) {
+            }
+        }
+        return clearedState
     }
 
     /**
@@ -1100,7 +1172,7 @@ object NeliSubscriptionManager {
                     val dao = NeliDatabase.getInstance(context).mediaDao()
                     if (updated.isVerified) {
                         saveRealSubscriptionDataByDeviceIp(dao, updated)
-                    } else if (cleanEmail.isNotBlank()) {
+                    } else if (cleanEmail.isNotBlank() && !isNumberManuallyRemoved(context)) {
                         val existingSub = dao.getDeviceSubscriptionByUserEmail(cleanEmail)
                         val now = System.currentTimeMillis()
                         if (existingSub != null && existingSub.isVerified && existingSub.expiresAtMs > now) {
@@ -1166,6 +1238,7 @@ object NeliSubscriptionManager {
         context: Context,
         dao: NeliMediaDao
     ): Boolean {
+        if (isNumberManuallyRemoved(context)) return false
         val now = System.currentTimeMillis()
         val ip = _subscriptionState.value.deviceIpAddress.ifBlank { resolveDeviceIpAddress(context) }
         val existing = dao.getDeviceSubscriptionByIp(ip) ?: dao.getLatestDeviceSubscription()

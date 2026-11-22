@@ -272,6 +272,7 @@ fun HomeScreen(
 
     // Sync active VIP subscription from Supabase across all devices on launch/account change
     LaunchedEffect(subState.phoneNumber, currentUser?.email) {
+        if (NeliSubscriptionManager.isNumberManuallyRemoved(context)) return@LaunchedEffect
         val savedPhone = subState.phoneNumber.trim()
         val userEmail = currentUser?.email?.trim().orEmpty()
         val record = when {
