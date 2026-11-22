@@ -492,9 +492,11 @@ object TokenManager {
             if (effectiveBaseUrl != DEFAULT_TOKEN_ENDPOINT_URL_FALLBACK()) {
                 add(buildTokenApiUrl(DEFAULT_TOKEN_API_URL, forceRefresh = forceRefresh, excludeProvider = cleanExclude, nowMs = now + 2L))
             }
+            // Race StreamZone fast CDN token endpoint (~200ms) alongside NeliTv (~120ms-4.4s) so Live TV starts immediately
+            add(buildTokenApiUrl(ChannelRepository.FALLBACK_STREAMZONE_TOKEN_URL, forceRefresh = forceRefresh, excludeProvider = cleanExclude, nowMs = now + 3L))
             if (cleanExclude == null) {
-                add(ChannelRepository.NELITV_SERVER_STATUS_URL)
                 add(ChannelRepository.NELITV_APP_SYNC_URL)
+                add(ChannelRepository.NELITV_SERVER_STATUS_URL)
                 add(ChannelRepository.NELITV_CONTENT_API_URL)
             }
         }.distinct()

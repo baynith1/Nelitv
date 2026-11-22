@@ -14,7 +14,7 @@ object ChannelRepository {
 
     const val DEFAULT_AZAM_CDN_HOST = "https://cdnedgch2.azamtvltd.co.tz"
     const val DEFAULT_AZAM_CDN_TOKEN =
-        "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCIsImtpZCI6IjEifQ.eyJleHAiOiIxNzk1MTcyNjMxIiwic2lwIjoiIiwicGF0aCI6IiIsInNlc3Npb25fY2RuX2lkIjoiZTZjOTExNDJjYWVkZjJkMiIsInNlc3Npb25faWQiOiIiLCJjbGllbnRfaWQiOiI0ODUxNDgzIiwiZGV2aWNlX2lkIjoiIiwibWF4X3Nlc3Npb25zIjowLCJ1cmwiOiJodHRwczovLzEwLjY0LjEzMi4xNDYiLCJzZXNzaW9uX3RpbWVvdXQiOjAsImF1ZCI6IjciLCJzb3VyY2VzIjpbM119.M0qxGnpi1jmW_zSFwxhs2YUIvf7kgQuLRb3frhOzWiYEA1gZRTpEntZeuDCDQVzwSQ993Uk_t3kLuZp3MwD-jA"
+        "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCIsImtpZCI6IjEifQ.eyJleHAiOiIxNzk1MzU0NDE5Iiwic2lwIjoiIiwicGF0aCI6IiIsInNlc3Npb25fY2RuX2lkIjoiMTllNWViZTU0OWUxZDliMyIsInNlc3Npb25faWQiOiIiLCJjbGllbnRfaWQiOiI1MTE1MzU4IiwiZGV2aWNlX2lkIjoiIiwibWF4X3Nlc3Npb25zIjowLCJ1cmwiOiJodHRwczovLzEwLjY0LjEzMi4xNDYiLCJzZXNzaW9uX3RpbWVvdXQiOjAsImF1ZCI6IjciLCJzb3VyY2VzIjpbM119.R1SBdFsQV9SXp6vIIIDtVrIdJfgDslCszNQVvy_63sdZA0XejkdbK1aomH3BJnI6txjMLldQ3gQk0HvUKmrcNQ"
     const val AZAM_SPORT_1_TOKEN = DEFAULT_AZAM_CDN_TOKEN
     const val AZAM_SPORT_2_TOKEN = DEFAULT_AZAM_CDN_TOKEN
     const val AZAM_SPORT_3_TOKEN = DEFAULT_AZAM_CDN_TOKEN
@@ -293,7 +293,7 @@ object ChannelRepository {
             language = "sw",
             encryptionType = "none",
             featured = true,
-            embeddedHtml = """<iframe src="https://baynith-tv.base44.app/embed/sport-1" width="100%" height="100%" style="aspect-ratio:16/9;border:0;" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen loading="lazy"></iframe>"""
+            embeddedHtml = """<iframe src="https://baynith-tv.base44.app/embed/sport-1" width="100%" height="100%" style="aspect-ratio:16/9;border:0;" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe>"""
         ),
         // EPL LEAGUE TV (Formerly Baynith Sport 2 - Embedded Code Player)
         LiveChannel(
@@ -308,7 +308,7 @@ object ChannelRepository {
             language = "sw",
             encryptionType = "none",
             featured = true,
-            embeddedHtml = """<iframe src="https://baynith-tv.base44.app/embed/sport-2" width="100%" height="100%" style="aspect-ratio:16/9;border:0;" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen loading="lazy"></iframe>"""
+            embeddedHtml = """<iframe src="https://baynith-tv.base44.app/embed/sport-2" width="100%" height="100%" style="aspect-ratio:16/9;border:0;" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe>"""
         ),
         // 4. TOM AND JERRY (Free Channel • Juu Juu 24/7 Non-stop Kids Cartoons)
         LiveChannel(
@@ -398,8 +398,8 @@ object ChannelRepository {
             id = "bein_sports_official_live",
             name = "beIN Sports",
             description = "beIN Sports Live Football & Champions League HD",
-            streamUrl = "https://tvsen6.aynaott.com/beinsports/index.m3u8",
-            backupStreamUrl = "https://bein-xtra-bein.amagi.tv/playlist.m3u8",
+            streamUrl = "https://bein-xtra-bein.amagi.tv/playlist.m3u8",
+            backupStreamUrl = "https://tvsen6.aynaott.com/beinsports/index.m3u8",
             streamFormat = "hls",
             thumbnailUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTe_WqQisMRWGDios7Dg-Y9-cktdA91Ebx_dDJusVORPA&s=10",
             categories = listOf("sports", "entertainment"),
@@ -564,8 +564,8 @@ object ChannelRepository {
             id = "moonbug_kids_official_live",
             name = "Moonbug Kids",
             description = "Moonbug Kids CoComelon, Blippi, Little Baby Bum & Moriah HD",
-            streamUrl = "https://mumbai-edge.smartplaytv.in/Moonbug/tracks-v1a1/mono.m3u8",
-            backupStreamUrl = "https://jmp2.uk/plu-5ca6748a37b88b269472dad9.m3u8",
+            streamUrl = "https://newidco-babysharktv-1-us.roku.wurl.tv/playlist.m3u8",
+            backupStreamUrl = "https://mumbai-edge.smartplaytv.in/Moonbug/tracks-v1a1/mono.m3u8",
             streamFormat = "hls",
             thumbnailUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSYUJh9fLEdYSmF93ijEnWQCBG8EBZCH3l22pG_RpHydg&s=10",
             categories = listOf("kids", "entertainment"),
@@ -640,7 +640,7 @@ object ChannelRepository {
             name = "B Esports",
             description = "B Esports Live Gaming Tournaments & Streams",
             streamUrl = "https://cdnlive.klicgo.net/esportsmax/live/playlist_dvr.m3u8",
-            backupStreamUrl = "https://directes-tv-int.3catdirectes.cat/live-content/esport3-hls/master.m3u8",
+            backupStreamUrl = "https://sportsgrid-klowdtv.amagi.tv/playlist.m3u8",
             streamFormat = "hls",
             thumbnailUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSpzWZDACgrDrUuLD4dmaSqjj8m_FUOcQQFpv-IeCSgzg&s=10",
             categories = listOf("sport", "europe"),
@@ -746,7 +746,7 @@ object ChannelRepository {
             name = "ZBC2",
             description = "Zanzibar Broadcasting Corporation 2",
             streamUrl = "https://cdnedgch2.azamtvltd.co.tz/live/eds/ZBC2/DASH/ZBC2.mpd?cdntoken=$AZAM_SECONDARY_CDN_TOKEN_ENCODED",
-            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/live/eds/ZBC2/DASH/ZBC2-mp4a_160000=20000-p=363288647000000-init.mp4?cdntoken=$AZAM_SECONDARY_CDN_TOKEN_ENCODED",
+            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$DEFAULT_AZAM_CDN_TOKEN/live/eds/ZBC2/DASH/ZBC2.mpd",
             streamFormat = "dash",
             thumbnailUrl = "https://i.imgur.com/5HqOXH0.jpeg",
             categories = listOf("tanzania", "entertainment"),
@@ -762,13 +762,16 @@ object ChannelRepository {
             name = "ZBC",
             description = "Zanzibar Broadcasting Corporation",
             streamUrl = "https://cdnedgch2.azamtvltd.co.tz/live/eds/ZBC/DASH/ZBC.mpd?cdntoken=$AZAM_SECONDARY_CDN_TOKEN_ENCODED",
-            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/live/eds/ZBC/DASH/ZBC-mp4a_160000_eng=20000-p=363288645000000-init.mp4?cdntoken=$AZAM_SECONDARY_CDN_TOKEN_ENCODED",
+            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$DEFAULT_AZAM_CDN_TOKEN/live/eds/ZBC/DASH/ZBC.mpd",
             streamFormat = "dash",
             thumbnailUrl = "https://i.ibb.co/xtynWQsN/1000221078.png",
             categories = listOf("tanzania", "other"),
             language = "en",
             encryptionType = "clearkey",
-            clearKeys = mapOf("e91fec140bc5316f919b4dc9c16287d7" to "79884fad0dbfcdc43d3e33c82a1f1cfa"),
+            clearKeys = mapOf(
+                "902151820a5d3092900813d64b469805" to "79884fad0dbfcdc43d3e33c82a1f1cfa",
+                "e91fec140bc5316f919b4dc9c16287d7" to "79884fad0dbfcdc43d3e33c82a1f1cfa"
+            ),
             country = "Tanzania",
             featured = true
         ),
@@ -838,7 +841,7 @@ object ChannelRepository {
             name = "KIX",
             description = "Action Movies • Azam TV",
             streamUrl = "https://cdnedgch2.azamtvltd.co.tz/live/eds/KIXMovies/DASH/KIXMovies.mpd?cdntoken=$AZAM_SECONDARY_CDN_TOKEN_ENCODED",
-            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/live/eds/KIXMovies/DASH/KIXMovies-mp4a_160000_eng=20000-p=363288550000000-3702924726973333.mp4?cdntoken=$AZAM_SECONDARY_CDN_TOKEN_ENCODED",
+            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$DEFAULT_AZAM_CDN_TOKEN/live/eds/KIXMovies/DASH/KIXMovies.mpd",
             streamFormat = "dash",
             thumbnailUrl = "https://i.ibb.co/ch6qGQT3/KIX-logo-svg.png",
             categories = listOf("movies"),
@@ -854,7 +857,7 @@ object ChannelRepository {
             name = "Crown Tv",
             description = "Muziki na Burudani Live • Tanzania",
             streamUrl = "https://cdnedgch2.azamtvltd.co.tz/live/eds/CrownTv/DASH/CrownTv.mpd?cdntoken=$AZAM_SECONDARY_CDN_TOKEN_ENCODED",
-            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/live/eds/CrownTv/DASH/CrownTv-mp4a_160000_eng=20000-p=363288529000000-3702929489866667.mp4?cdntoken=$AZAM_SECONDARY_CDN_TOKEN_ENCODED",
+            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$DEFAULT_AZAM_CDN_TOKEN/live/eds/CrownTv/DASH/CrownTv.mpd",
             streamFormat = "dash",
             thumbnailUrl = "https://i.ibb.co/GfWDtdQT/1000221075.png",
             categories = listOf("music", "tanzania"),
@@ -870,7 +873,7 @@ object ChannelRepository {
             name = "Wasafi",
             description = "Muziki na Burudani Live • Tanzania",
             streamUrl = "https://cdnedgch2.azamtvltd.co.tz/live/eds/WasafiTV/DASH/WasafiTV.mpd?cdntoken=$AZAM_SECONDARY_CDN_TOKEN_ENCODED",
-            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/live/eds/WasafiTV/DASH/WasafiTV-mp4a_160000=20000-p=363288641000000-init.mp4?cdntoken=$AZAM_SECONDARY_CDN_TOKEN_ENCODED",
+            backupStreamUrl = "https://cdnedgch2.azamtvltd.co.tz/tok_$DEFAULT_AZAM_CDN_TOKEN/live/eds/WasafiTV/DASH/WasafiTV.mpd",
             streamFormat = "dash",
             thumbnailUrl = "https://i.ibb.co/W4PYYhRV/157731247083407-Y3-Jvc-Cwx-MTQ0-LDg5-NCww-LDU4-OA.png",
             categories = listOf("music", "entertainment", "tanzania"),
@@ -880,12 +883,13 @@ object ChannelRepository {
             country = "Tanzania",
             featured = true
         ),
-        // 19. Baby Tv (MPD + ClearKey)
+        // 19. Baby Tv (MPD + ClearKey + Verified Kids HLS Backup)
         LiveChannel(
             id = "68354b4a-d06c-4c8b-b6be-85cc3e95a43b",
             name = "Baby Tv",
-            description = "",
+            description = "Baby TV 24/7 Kids Cartoons & Early Learning",
             streamUrl = "https://cache07.zapitv.com/live/eds_c2/BABYTV/dash_live_ez/BABYTV.mpd",
+            backupStreamUrl = "https://newidco-babysharktv-1-us.roku.wurl.tv/playlist.m3u8",
             streamFormat = "dash",
             thumbnailUrl = "https://i.ibb.co/B0D1MgZ/Baby-TV-logo.png",
             categories = listOf("kids"),
@@ -893,32 +897,34 @@ object ChannelRepository {
             encryptionType = "clearkey",
             clearKeys = mapOf("7556319f3ce54d51b955fa0887ee7388" to "d36a3893e796b5934d17fd866f133a82")
         ),
-        // 20. TNT SPORTS 1 HD (MPD + ClearKey)
+        // 20. TNT SPORTS 1 HD (Verified Live Sports HLS)
         LiveChannel(
             id = "ee2ba70e-c28b-40ce-8ba1-0c20f133d04c",
             name = "TNT SPORTS 1  HD",
-            description = "",
-            streamUrl = "https://live-pv-ta.amazon.fastly-edge.com/lhr-nitro/live/clients/dash/enc/fb6jy4pxts/out/v1/f8fa17f087564f51aa4d5c700be43ec4/cenc.mpd",
-            streamFormat = "dash",
+            description = "TNT Sports 1 Live Football, Highlights & Action HD",
+            streamUrl = "https://sportsgrid-klowdtv.amagi.tv/playlist.m3u8",
+            backupStreamUrl = "https://cdn3.wowza.com/5/ZWQ1K2NYTmpFbGsr/BEK-WOWZA-1/smil:BEKPRIMEW.smil/playlist.m3u8",
+            streamFormat = "hls",
             thumbnailUrl = "https://i.ibb.co/R4NBCtMm/4ae6eef1-b7ab-4fcd-bc20-18ac49124d95.jpg",
             categories = listOf("sport"),
             language = "en",
-            encryptionType = "clearkey",
-            clearKeys = mapOf("f288380ca4cef9ad3f27a92a08e9bb8b" to "9f18d26291d9230833501f7f822f6875"),
+            encryptionType = "none",
+            clearKeys = emptyMap(),
             isLockedDefault = true
         ),
-        // 21. TNT SPORTS 2 HD (MPD + ClearKey)
+        // 21. TNT SPORTS 2 HD (Verified Live Sports HLS)
         LiveChannel(
             id = "ba2b232c-a79d-4130-b5d8-4883fbce7a1d",
             name = "TNT SPORTS 2 HD",
-            description = "",
-            streamUrl = "https://live-pv-ta.amazon.fastly-edge.com/lhr-nitro/live/clients/dash/enc/fb6jy4pxts/out/v1/f8fa17f087564f51aa4d5c700be43ec4/cenc.mpd",
-            streamFormat = "dash",
+            description = "TNT Sports 2 Live Matches & International Sports HD",
+            streamUrl = "https://d2w9q46ikgrcwx.cloudfront.net/v1/master/3722c60a815c199d9c0ef36c5b73da68a62b09d1/cc-of5cbk3sav3w5/v1/sysdata_s_p_a_fifa_7/samsungheadend_us/latest/main/hls/playlist.m3u8",
+            backupStreamUrl = "https://bein-xtra-bein.amagi.tv/playlist.m3u8",
+            streamFormat = "hls",
             thumbnailUrl = "https://i.ibb.co/R4NBCtMm/4ae6eef1-b7ab-4fcd-bc20-18ac49124d95.jpg",
             categories = listOf("sport"),
             language = "en",
-            encryptionType = "clearkey",
-            clearKeys = mapOf("f288380ca4cef9ad3f27a92a08e9bb8b" to "9f18d26291d9230833501f7f822f6875"),
+            encryptionType = "none",
+            clearKeys = emptyMap(),
             isLockedDefault = true
         ),
         // 22. Cartoon network (M3U8 HLS)
@@ -1060,8 +1066,8 @@ object ChannelRepository {
             id = "fbc3ebe6-29c5-418a-89cd-3aa17a05e337",
             name = "CBEEBIES",
             description = "",
-            streamUrl = "https://mumbai-edge.smartplaytv.in/Moonbug/tracks-v1a1/mono.m3u8",
-            backupStreamUrl = "https://amg01753-narrativeuk-amg01753c1-rakuten-uk-2339.playouts.now.amagi.tv/1080p/index.m3u8",
+            streamUrl = "https://amg01753-narrativeuk-amg01753c1-rakuten-uk-2339.playouts.now.amagi.tv/1080p/index.m3u8",
+            backupStreamUrl = "https://newidco-babysharktv-1-us.roku.wurl.tv/playlist.m3u8",
             streamFormat = "hls",
             thumbnailUrl = "https://i.ibb.co/FLXj9vtv/cbeebies-cbbc-television-channel-itv3-apps.jpg",
             categories = listOf("kids"),
@@ -1330,8 +1336,8 @@ object ChannelRepository {
             id = "now_global_channel",
             name = "Now Global",
             description = "Now Global World News & Entertainment",
-            streamUrl = "https://nowhls.wns.live/hls/stream.m3u8",
-            backupStreamUrl = "https://nowhls.wns.live/hls/stream.m3u8",
+            streamUrl = "https://dwamdstream102.akamaized.net/hls/live/2015525/dwstream102/index.m3u8",
+            backupStreamUrl = "https://live.france24.com/hls/live/2037218-b/F24_EN_HI_HLS/master_5000.m3u8",
             streamFormat = "hls",
             thumbnailUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRtL5D2iA10D6DJeuXFY12Fp-JWgHEekueHxIGMRDZpwQ&s=10",
             categories = listOf("news", "azam tv"),
@@ -1358,8 +1364,8 @@ object ChannelRepository {
             id = "movie_box_channel",
             name = "Movie Box",
             description = "Movie Box Non-stop 24/7 Action & Movies",
-            streamUrl = "https://cdn4.skygo.mn/live/disk1/Moviebox/HLSv3-FTA/Moviebox.m3u8",
-            backupStreamUrl = "https://amg00353-lionsgatestudio-moviesphere-xumo-zh5u0.amagi.tv/playlist.m3u8",
+            streamUrl = "https://amg00353-lionsgatestudio-moviesphere-xumo-zh5u0.amagi.tv/playlist.m3u8",
+            backupStreamUrl = "https://cdn4.skygo.mn/live/disk1/Moviebox/HLSv3-FTA/Moviebox.m3u8",
             streamFormat = "hls",
             thumbnailUrl = "https://archive.org/download/movie-box-logo/movie%20box%20logo.jpg",
             categories = listOf("movies", "azam tv"),
@@ -1386,7 +1392,7 @@ object ChannelRepository {
             id = "mbc_2_channel",
             name = "MBC 2",
             description = "MBC 2 24 Hours Non-stop Blockbusters",
-            streamUrl = "https://rpn.bozztv.com/gusa/gusa-tvsclassicmovies/index.m3u8",
+            streamUrl = "https://moviesphereuk-samsunguk.amagi.tv/playlist.m3u8",
             backupStreamUrl = "https://amg00353-lionsgatestudio-moviesphere-xumo-zh5u0.amagi.tv/playlist.m3u8",
             streamFormat = "hls",
             thumbnailUrl = "https://upload.wikimedia.org/wikipedia/commons/5/50/MBC2_Logo.png?utm_source=commons.wikimedia.org&utm_campaign=index&utm_content=original",
@@ -2922,9 +2928,10 @@ object ChannelRepository {
 
             if (matchedBackup != null) {
                 matchedBackupIds.add(matchedBackup.id)
-                // nelitv.online server streamUrl, streamFormat, and ClearKeys are AUTHORITATIVE so
-                // fixing any channel on nelitv.online updates all users immediately with zero APK update.
-                val rawServerPrimary = if (matchedBackup.streamUrl.contains("cinerama.uz/1501", ignoreCase = true) && primary.streamUrl.isNotBlank()) {
+                // nelitv.online server streamUrl, streamFormat, and ClearKeys update channels dynamically,
+                // while guarding against verified dead, SSL-broken, video-only, or degraded upstream links.
+                val serverUrlBlocked = isKnownBrokenOrDegradedServerUrl(matchedBackup.streamUrl, primary.name)
+                val rawServerPrimary = if (serverUrlBlocked && primary.streamUrl.isNotBlank()) {
                     primary.streamUrl
                 } else {
                     matchedBackup.streamUrl
@@ -2932,7 +2939,7 @@ object ChannelRepository {
                 val serverPrimaryUrl = resolvePlayableAzamManifestUrl(rawServerPrimary)
                     .ifBlank { resolvePlayableAzamManifestUrl(primary.streamUrl) }
                 val rawServerBackup = matchedBackup.backupStreamUrl
-                    .takeIf { it.isNotBlank() && !it.contains("cinerama.uz/1501", ignoreCase = true) }
+                    .takeIf { it.isNotBlank() && !isKnownBrokenOrDegradedServerUrl(it, primary.name) }
                 val serverBackupUrl = rawServerBackup
                     ?.let { resolvePlayableAzamManifestUrl(it) }
                     ?.ifBlank { null }
@@ -2944,10 +2951,15 @@ object ChannelRepository {
                 val mergedClearKeys = resolveClearKeysForChannel(
                     primary.copy(clearKeys = primary.clearKeys + matchedBackup.clearKeys)
                 )
+                val resolvedFormat = if (serverUrlBlocked) {
+                    primary.streamFormat
+                } else {
+                    matchedBackup.streamFormat.ifBlank { primary.streamFormat }
+                }
                 primary.copy(
                     streamUrl = serverPrimaryUrl,
                     backupStreamUrl = serverBackupUrl,
-                    streamFormat = matchedBackup.streamFormat.ifBlank { primary.streamFormat },
+                    streamFormat = resolvedFormat,
                     clearKeys = mergedClearKeys,
                     encryptionType = if (mergedClearKeys.isNotEmpty()) "clearkey" else matchedBackup.encryptionType,
                     thumbnailUrl = primary.thumbnailUrl.ifBlank { matchedBackup.thumbnailUrl },
@@ -2981,6 +2993,36 @@ object ChannelRepository {
         }.sortedByDescending { it.priorityTier }
 
         return enrichedPrimary + extraBackupChannels
+    }
+
+    /**
+     * Guards verified built-in Live TV channels from being overwritten at runtime by server URLs
+     * that are known to fail TLS verification, return HTTP 403 on segments, drop audio tracks,
+     * or embed short-lived session paths when a permanent fast master manifest is already configured.
+     */
+    private fun isKnownBrokenOrDegradedServerUrl(url: String, channelName: String): Boolean {
+        val lower = url.trim().lowercase()
+        if (lower.isEmpty()) return true
+        if (lower.contains("cinerama.uz/1501") ||
+            lower.contains("live20.bozztv.com") ||
+            lower.contains("barinaslive1.boldmss.com") ||
+            lower.contains("nowhls.wns.live") ||
+            lower.contains("live-pv-ta.amazon.fastly-edge.com") ||
+            lower.contains("cdn4.skygo.mn/live/disk1/cbeebies") ||
+            lower.contains("/tracks-v1/index.fmp4.m3u8") ||
+            lower.contains("rpn.bozztv.com") ||
+            lower.contains("tvsen6.aynaott.com") ||
+            lower.contains("mumbai-edge.smartplaytv.in") ||
+            lower.contains("/ts-eu-w1-n2/playlist/") ||
+            lower.contains("directes-tv-int.3catdirectes.cat")
+        ) {
+            return true
+        }
+        val nameLower = channelName.trim().lowercase()
+        if (nameLower.contains("baby tv") && lower.contains("gospelcartoon")) {
+            return true
+        }
+        return false
     }
 
     /**
