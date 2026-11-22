@@ -272,9 +272,9 @@ fun PlayerScreen(
     val lockAllForFree by com.example.data.NeliAdminManager.areAllChannelsLocked.collectAsState()
     val lockAllAzamForFree by com.example.data.NeliAdminManager.areAllAzamChannelsLocked.collectAsState()
     val lockedChannelIds by com.example.data.NeliAdminManager.lockedChannelIds.collectAsState()
-    // Default to RESIZE_MODE_FIT so people & content keep natural proportions with zero stretching on tablets and phones
-    var resizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
-    // Player is ALWAYS Full-Screen Cinema Mode (never collapses into half-screen portrait mode)
+    // Default to RESIZE_MODE_FILL so Live TV & Movies fill the whole landscape screen cleanly in 16:9 widescreen
+    var resizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FILL) }
+    // Player is ALWAYS Full-Screen Landscape Cinema Mode for Live TV and Movies
     var orientationMode by remember(channel.id) {
         mutableStateOf(PlayerOrientationMode.LOCKED_LANDSCAPE)
     }
@@ -351,11 +351,6 @@ fun PlayerScreen(
             activity,
             PlayerOrientationMode.LOCKED_LANDSCAPE
         )
-        // On Tablets and phones alike, explicitly request sensor-landscape so Android never traps the player in portrait
-        try {
-            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-        } catch (_: Exception) {
-        }
     }
 
     val updateOrientationMode: (PlayerOrientationMode) -> Unit = { _ ->
@@ -544,6 +539,28 @@ fun PlayerScreen(
     DisposableEffect(playerController, isTvDevice) {
         val window = activity?.window
         window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        // Span whole landscape screen edge-to-edge including camera cutout margins for true full-screen 16:9 cinema
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+            window?.let { win ->
+                val attrs = win.attributes
+                if (attrs.layoutInDisplayCutoutMode !=
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                ) {
+                    attrs.layoutInDisplayCutoutMode =
+                        WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                    win.attributes = attrs
+                }
+            }
+        }
+        if (!isTvDevice && activity != null &&
+            activity.requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE &&
+            activity.requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        ) {
+            try {
+                activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+            } catch (_: Exception) {
+            }
+        }
 
         val insetsController = window?.let { WindowCompat.getInsetsController(it, view) }
         insetsController?.systemBarsBehavior =
@@ -581,18 +598,18 @@ fun PlayerScreen(
             }
             window?.let { win ->
                 val attrs = win.attributes
-                attrs.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
-                win.attributes = attrs
+                if (attrs.screenBrightness != WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE) {
+                    attrs.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+                    win.attributes = attrs
+                }
             }
             window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             window?.decorView?.post {
                 try {
                     window.decorView.scrollTo(0, 0)
                     window.decorView.translationY = 0f
-                    // Keep app immersive full-screen (swipe to show system bars for 5s)
-                    insetsController?.systemBarsBehavior =
-                        WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-                    insetsController?.hide(WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.navigationBars())
+                    // Restore status bar & navigation bar when leaving video player back to browse pages
+                    insetsController?.show(WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.navigationBars())
                     val isTablet = context.resources.configuration.smallestScreenWidthDp >= 600
                     val desiredExitOrientation = when {
                         isTvDevice -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
@@ -1670,7 +1687,7 @@ fun PlayerScreen(
                                         )
                                         Text(
                                             text = when (resizeMode) {
-                                                AspectRatioFrameLayout.RESIZE_MODE_FILL -> "Full"
+                                                AspectRatioFrameLayout.RESIZE_MODE_FILL -> "16:9 Full"
                                                 AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> "Zoom"
                                                 else -> "Fit"
                                             },
@@ -1745,7 +1762,7 @@ fun PlayerScreen(
                 modifier = Modifier.align(Alignment.CenterEnd)
             ) {
                 val resizeModeLabel = when (resizeMode) {
-                    AspectRatioFrameLayout.RESIZE_MODE_FILL -> "Full Screen"
+                    AspectRatioFrameLayout.RESIZE_MODE_FILL -> "16:9 Full Screen"
                     AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> "Zoom"
                     else -> "Fit"
                 }

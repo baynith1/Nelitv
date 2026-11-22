@@ -48,6 +48,7 @@ import androidx.compose.material.icons.filled.Laptop
 import androidx.compose.material.icons.filled.OpenInBrowser
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Tv
+import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material.icons.filled.WorkspacePremium
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -111,6 +112,7 @@ fun TopNavBar(
     isCastActive: Boolean = false,
     onCastClick: () -> Unit = {},
     onPremiumClick: () -> Unit = {},
+    isActiveMember: Boolean = false,
     adminSmsMessage: String = "",
     modifier: Modifier = Modifier
 ) {
@@ -121,11 +123,10 @@ fun TopNavBar(
     val headerBgColor = if (isLightMode) Color(0xFFFFFFFF) else Color.Transparent
     val isTvDevice = LocalTvConfiguration.current.isTvDevice
 
-    // Respect display cutout / camera notch while letting the app fill the full screen edge-to-edge
-    // when system status bars auto-hide in immersive mode.
+    // Always sit cleanly below the visible Android status bar & display cutout on Home, Discovery, Search, Download & Account
     val cutoutTop = WindowInsets.displayCutout.asPaddingValues().calculateTopPadding()
     val statusTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-    val safeTopPadding = maxOf(cutoutTop, statusTop, 8.dp)
+    val safeTopPadding = maxOf(cutoutTop, statusTop) + 4.dp
 
     LaunchedEffect(isSearchOpen) {
         if (isSearchOpen) {
@@ -190,7 +191,83 @@ fun TopNavBar(
                 }
             }
 
-            // Watch on PC info has been moved to the bottom of the Account page for a cleaner top header.
+            // Right: Shows "Active Member" badge while VIP is active; reverts automatically to VIP Crown logo when expired
+            if (!isTvDevice) {
+                if (isActiveMember) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp),
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .background(
+                                androidx.compose.ui.graphics.Brush.horizontalGradient(
+                                    listOf(Color(0x3810B981), Color(0x3800E5FF))
+                                )
+                            )
+                            .border(
+                                width = 1.2.dp,
+                                brush = androidx.compose.ui.graphics.Brush.horizontalGradient(
+                                    listOf(Color(0xFF34D399), Color(0xFF00E5FF))
+                                ),
+                                shape = CircleShape
+                            )
+                            .clickable { onPremiumClick() }
+                            .padding(horizontal = 11.dp, vertical = 7.dp)
+                            .testTag("header_active_member_badge")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Verified,
+                            contentDescription = "Active Member",
+                            tint = Color(0xFF34D399),
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = "Active Member",
+                            color = Color(0xFFA7F3D0),
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 0.2.sp,
+                            maxLines = 1
+                        )
+                    }
+                } else {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp),
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .background(
+                                androidx.compose.ui.graphics.Brush.horizontalGradient(
+                                    listOf(Color(0x38FFB800), Color(0x38FF007A))
+                                )
+                            )
+                            .border(
+                                width = 1.2.dp,
+                                brush = androidx.compose.ui.graphics.Brush.horizontalGradient(
+                                    listOf(Color(0xFFFFD54F), Color(0xFFFF2E7E))
+                                ),
+                                shape = CircleShape
+                            )
+                            .clickable { onPremiumClick() }
+                            .padding(horizontal = 12.dp, vertical = 8.dp)
+                            .testTag("header_premium_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.WorkspacePremium,
+                            contentDescription = "NeliTv Premium VIP",
+                            tint = Color(0xFFFFD54F),
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Text(
+                            text = "VIP",
+                            color = Color(0xFFFFE57F),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 0.5.sp
+                        )
+                    }
+                }
+            }
         }
 
         AnimatedVisibility(

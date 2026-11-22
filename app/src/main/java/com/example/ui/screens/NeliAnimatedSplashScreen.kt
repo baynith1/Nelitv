@@ -33,16 +33,19 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
@@ -88,17 +91,14 @@ private data class SoaringPosterSpec(
 )
 
 /**
- * 10-Second Cinematic Splash Screen for NeliTv:
- * 1. Background displays real movie posters from the app (`MediaContentRepository.mediaCatalog`),
- *    simultaneously ORBITING ("zinazunguka") in a graceful 3D tilted cinema carousel ring AND
- *    SOARING UPWARD ("zinapaa") in layered parallax flight lanes with gentle 3D sway.
- * 2. Centerpiece performs the signature NeliTv Logo REFILL animation:
- *    - The glowing neon rainbow squircle border progressively traces around the frame (`PathMeasure`)
- *      with a luminous comet head.
- *    - The official NeliTv logo (`R.drawable.neli_logo`) starts as a ghostly silhouette and
- *      smoothly refills from bottom to top (0% -> 100%) with an animated liquid wave crest & glow.
- * 3. Runs for a full 10 seconds (`NELI_SPLASH_TOTAL_DURATION_MS`) with brand wordmark, tagline,
- *    smooth progress bar, and a subtle top-right Skip pill for users who wish to enter early.
+ * 10-Second Cinematic Splash Screen for NeliTv (Zero-Stall Draw/GraphicsLayer Architecture):
+ * - All high-frequency animation values are read exclusively inside `graphicsLayer` and `Canvas`
+ *   draw scopes (never in the root composition scope), eliminating 60fps tree recompositions
+ *   and preventing SurfaceSyncGroup 1000ms transaction timeouts on cold launch.
+ * - Background displays real movie posters from the app orbiting ("zinazunguka") and soaring
+ *   upward ("zinapaa") in smooth 3D parallax lanes.
+ * - Centerpiece performs the signature NeliTv Logo REFILL animation with progressive rainbow
+ *   squircle trace and liquid wave crest.
  */
 @Composable
 fun NeliAnimatedSplashScreen(
@@ -108,8 +108,13 @@ fun NeliAnimatedSplashScreen(
     val density = LocalDensity.current
     val liveCatalog by MediaContentRepository.mediaCatalog.collectAsState()
 
-    // Prewarm real app movie posters from cache immediately
+    // Defer mounting heavy network poster cards slightly so MainActivity's very first frame
+    // and SurfaceSyncGroup transaction complete in < 16ms.
+    var mountPosterLayer by remember { mutableStateOf(false) }
+
     LaunchedEffect(Unit) {
+        delay(180L)
+        mountPosterLayer = true
         launch(Dispatchers.IO) {
             try {
                 MediaContentRepository.initializeAndPrewarmFromCache(context)
@@ -126,56 +131,53 @@ fun NeliAnimatedSplashScreen(
                 if (url.startsWith("http", ignoreCase = true)) url else null
             }
             .distinct()
-            .take(18)
+            .take(16)
 
         val fallbackCinemaPosters = listOf(
-            "https://image.tmdb.org/t/p/w500/8cdWjvZQUExUUTzyp4t6EDMubfO.jpg",
-            "https://image.tmdb.org/t/p/w500/kDp1vUBnMpe8ak4rjgl3cLELqjU.jpg",
-            "https://image.tmdb.org/t/p/w500/vpnVM9B6NMmQpWeZvzLvDESb2QY.jpg",
-            "https://image.tmdb.org/t/p/w500/gKkl37BQuKTanygYQG1pyYgLVgf.jpg",
-            "https://image.tmdb.org/t/p/w500/wWba3TaojhK7NdycRhoQpsG0FaH.jpg",
-            "https://image.tmdb.org/t/p/w500/1pdfLvkbY9ohJlCjQH2CZjjYVvJ.jpg",
-            "https://image.tmdb.org/t/p/w500/z1p34vh7dEOnLDmyCrlUVLuoDzd.jpg",
-            "https://image.tmdb.org/t/p/w500/qhb1qOilapbapxWQn9jtRCMwXJF.jpg",
-            "https://image.tmdb.org/t/p/w500/iuFNMS8U5cb6xfzi51Dbkovj7vM.jpg",
-            "https://image.tmdb.org/t/p/w500/sh7Rg8Er3tFcN9BpKIPOMvALgZd.jpg",
-            "https://image.tmdb.org/t/p/w500/d5NXSklXo0qyIYkgV94XAgMIckC.jpg",
-            "https://image.tmdb.org/t/p/w500/rCzpDGLbOoPwLjy3OAm5NUPOTrC.jpg"
+            "https://image.tmdb.org/t/p/w342/8cdWjvZQUExUUTzyp4t6EDMubfO.jpg",
+            "https://image.tmdb.org/t/p/w342/kDp1vUBnMpe8ak4rjgl3cLELqjU.jpg",
+            "https://image.tmdb.org/t/p/w342/vpnVM9B6NMmQpWeZvzLvDESb2QY.jpg",
+            "https://image.tmdb.org/t/p/w342/gKkl37BQuKTanygYQG1pyYgLVgf.jpg",
+            "https://image.tmdb.org/t/p/w342/wWba3TaojhK7NdycRhoQpsG0FaH.jpg",
+            "https://image.tmdb.org/t/p/w342/1pdfLvkbY9ohJlCjQH2CZjjYVvJ.jpg",
+            "https://image.tmdb.org/t/p/w342/z1p34vh7dEOnLDmyCrlUVLuoDzd.jpg",
+            "https://image.tmdb.org/t/p/w342/qhb1qOilapbapxWQn9jtRCMwXJF.jpg",
+            "https://image.tmdb.org/t/p/w342/iuFNMS8U5cb6xfzi51Dbkovj7vM.jpg",
+            "https://image.tmdb.org/t/p/w342/sh7Rg8Er3tFcN9BpKIPOMvALgZd.jpg",
+            "https://image.tmdb.org/t/p/w342/d5NXSklXo0qyIYkgV94XAgMIckC.jpg",
+            "https://image.tmdb.org/t/p/w342/rCzpDGLbOoPwLjy3OAm5NUPOTrC.jpg"
         )
 
-        (realCatalogPosters + fallbackCinemaPosters).distinct().take(18)
+        (realCatalogPosters + fallbackCinemaPosters).distinct().take(16)
     }
 
     val soaringSpecs = remember {
         listOf(
-            SoaringPosterSpec(0.10f, 0.05f, 1.00f, 84f, -9f, 12f, 0.72f),
-            SoaringPosterSpec(0.32f, 0.42f, 0.85f, 74f, 6f, 16f, 0.58f),
-            SoaringPosterSpec(0.56f, 0.74f, 1.12f, 88f, -6f, 14f, 0.68f),
-            SoaringPosterSpec(0.82f, 0.22f, 0.94f, 82f, 10f, 15f, 0.74f),
-            SoaringPosterSpec(0.20f, 0.63f, 1.06f, 78f, 8f, 10f, 0.62f),
-            SoaringPosterSpec(0.72f, 0.88f, 0.88f, 76f, -8f, 13f, 0.60f),
-            SoaringPosterSpec(0.45f, 0.16f, 0.78f, 68f, 5f, 11f, 0.50f),
-            SoaringPosterSpec(0.90f, 0.55f, 1.04f, 80f, -11f, 12f, 0.66f)
+            SoaringPosterSpec(0.10f, 0.05f, 1.00f, 82f, -9f, 12f, 0.72f),
+            SoaringPosterSpec(0.32f, 0.42f, 0.85f, 74f, 6f, 15f, 0.58f),
+            SoaringPosterSpec(0.56f, 0.74f, 1.12f, 86f, -6f, 14f, 0.68f),
+            SoaringPosterSpec(0.84f, 0.22f, 0.94f, 80f, 10f, 14f, 0.74f),
+            SoaringPosterSpec(0.22f, 0.63f, 1.06f, 76f, 8f, 10f, 0.62f),
+            SoaringPosterSpec(0.74f, 0.88f, 0.88f, 76f, -8f, 13f, 0.60f)
         )
     }
 
-    // 10-second choreographed animatables
+    // 10-second choreographed animatables (read inside draw/graphicsLayer phases only)
     val backdropAlpha = remember { Animatable(0f) }
     val logoContainerAlpha = remember { Animatable(0f) }
     val logoScale = remember { Animatable(0.84f) }
-    val borderTraceProgress = remember { Animatable(0f) } // 0 -> 1 traces neon squircle border
-    val logoRefillProgress = remember { Animatable(0f) }  // 0 -> 1 liquid refill from bottom to top
+    val borderTraceProgress = remember { Animatable(0f) }
+    val logoRefillProgress = remember { Animatable(0f) }
     val climaxBurst = remember { Animatable(0f) }
     val textAlpha = remember { Animatable(0f) }
     val textSlideY = remember { Animatable(26f) }
     val overallProgress = remember { Animatable(0f) }
     val exitFadeAlpha = remember { Animatable(1f) }
 
-    // Continuous smooth orbital + soaring + liquid wave motion for the entire 10 seconds
+    // Keep State<Float> references (DO NOT delegate with `by` here) so reading happens only in draw/graphicsLayer!
     val infiniteTransition = rememberInfiniteTransition(label = "splash_cinema_motion")
 
-    // Posters orbiting around the center (full 360° revolution every 7.8s)
-    val orbitAngleDeg by infiniteTransition.animateFloat(
+    val orbitAngleState: State<Float> = infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 360f,
         animationSpec = infiniteRepeatable(
@@ -185,8 +187,7 @@ fun NeliAnimatedSplashScreen(
         label = "poster_orbit_angle"
     )
 
-    // Posters soaring continuously upward from bottom to top
-    val soarCycle by infiniteTransition.animateFloat(
+    val soarCycleState: State<Float> = infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
@@ -196,8 +197,7 @@ fun NeliAnimatedSplashScreen(
         label = "poster_soar_cycle"
     )
 
-    // Liquid refill crest wave phase
-    val liquidWavePhase by infiniteTransition.animateFloat(
+    val liquidWavePhaseState: State<Float> = infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = (2.0 * PI).toFloat(),
         animationSpec = infiniteRepeatable(
@@ -207,8 +207,7 @@ fun NeliAnimatedSplashScreen(
         label = "liquid_wave_phase"
     )
 
-    // Subtle shimmer & breathing aura after refill completes
-    val auraPulse by infiniteTransition.animateFloat(
+    val auraPulseState: State<Float> = infiniteTransition.animateFloat(
         initialValue = 0.88f,
         targetValue = 1.08f,
         animationSpec = infiniteRepeatable(
@@ -218,7 +217,7 @@ fun NeliAnimatedSplashScreen(
         label = "aura_pulse"
     )
 
-    val dotsCycle by infiniteTransition.animateFloat(
+    val dotsCycleState: State<Float> = infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 8f,
         animationSpec = infiniteRepeatable(
@@ -237,14 +236,15 @@ fun NeliAnimatedSplashScreen(
             )
         }
 
-        // Act 1 (0.0s -> 1.4s): Orbiting & soaring movie posters fade in across the cinema canvas
+        // Act 1: Orbiting & soaring movie posters fade in smoothly after first frame settles
         launch {
+            delay(200L)
             backdropAlpha.animateTo(1f, animationSpec = tween(900, easing = FastOutSlowInEasing))
         }
 
         delay(800L)
 
-        // Act 2 (0.8s -> 6.4s): Signature NeliTv Logo Container emerges + Border Trace + Liquid Refill (0% -> 100%)
+        // Act 2: Signature NeliTv Logo Container emerges + Border Trace + Liquid Refill (0% -> 100%)
         launch {
             logoContainerAlpha.animateTo(1f, animationSpec = tween(700, easing = FastOutSlowInEasing))
         }
@@ -257,18 +257,18 @@ fun NeliAnimatedSplashScreen(
 
         delay(450L)
 
-        // Play studio cinematic intro chime as the refill builds momentum
+        // Studio intro chime
         launch {
             NeliIntroAudioSynthesizer.playIntroChime()
         }
 
-        // Smooth bottom-to-top liquid refill of the NeliTv logo (1.25s -> 6.25s = 5.0 seconds lush refill)
+        // Smooth bottom-to-top liquid refill of the NeliTv logo (5.0 seconds)
         logoRefillProgress.animateTo(
             targetValue = 1f,
             animationSpec = tween(durationMillis = 5000, easing = FastOutSlowInEasing)
         )
 
-        // Act 3 (6.25s -> 7.6s): 100% Refill Climax! Shockwave + neon bloom + brand wordmark reveal
+        // Act 3: 100% Refill Climax! Shockwave + neon bloom + brand wordmark reveal
         launch {
             logoScale.animateTo(1.06f, animationSpec = tween(260, easing = FastOutSlowInEasing))
             logoScale.animateTo(1.0f, animationSpec = tween(420, easing = FastOutSlowInEasing))
@@ -283,7 +283,7 @@ fun NeliAnimatedSplashScreen(
             textSlideY.animateTo(0f, animationSpec = tween(650, easing = FastOutSlowInEasing))
         }
 
-        // Act 4 (6.25s -> 9.6s): Majestic hold while orbiting & soaring posters continue showcasing movies
+        // Act 4: Hold while orbiting & soaring posters continue showcasing movies
         delay(3300L)
 
         // Smooth cinema fade-out right into the 10-second finish mark
@@ -291,102 +291,118 @@ fun NeliAnimatedSplashScreen(
         onSplashFinished()
     }
 
+    // Reusable native Skia drawing paths (zero allocation per frame)
+    val reusableWavePath = remember { Path() }
+    val reusableCrestPath = remember { Path() }
+    val reusableFullSquircle = remember { Path() }
+    val reusablePartialPath = remember { Path() }
+    val reusablePathMeasure = remember { PathMeasure() }
+
+    val rainbowColors = remember {
+        listOf(
+            Color(0xFFFF9500),
+            Color(0xFFFF007A),
+            Color(0xFF9D00FF),
+            Color(0xFF00E5FF),
+            Color(0xFFFF9500)
+        )
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFF040612))
-            .alpha(exitFadeAlpha.value)
+            .graphicsLayer { alpha = exitFadeAlpha.value }
             .testTag("animated_splash_screen"),
         contentAlignment = Alignment.Center
     ) {
         // LAYER 1: Real Movie Posters SOARING UPWARD ("zinapaa") & ORBITING ("zinazunguka")
-        BoxWithConstraints(
-            modifier = Modifier
-                .fillMaxSize()
-                .alpha(backdropAlpha.value)
-        ) {
-            val widthPx = with(density) { maxWidth.toPx() }
-            val heightPx = with(density) { maxHeight.toPx() }
+        // Mounted after Frame 1 completes; transforms update strictly in GPU graphicsLayer phase!
+        if (mountPosterLayer) {
+            BoxWithConstraints(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer { alpha = backdropAlpha.value }
+            ) {
+                val widthPx = with(density) { maxWidth.toPx() }
+                val heightPx = with(density) { maxHeight.toPx() }
 
-            // Sub-layer 1A: Floating Movie Posters soaring smoothly from bottom -> top with gentle sway
-            soaringSpecs.forEachIndexed { idx, spec ->
-                val posterUrl = splashPosters[idx % splashPosters.size]
-                val progress = (soarCycle * spec.speedMultiplier + spec.phaseOffset) % 1f
-                val cardHeightPx = with(density) { (spec.widthDp / 0.67f).dp.toPx() }
-                val travelSpan = heightPx + cardHeightPx * 2.1f
-                val yPx = (heightPx + cardHeightPx * 0.6f) - (progress * travelSpan)
-                val swayPx = with(density) {
-                    (sin((progress * 2.0 * PI + idx).toDouble()).toFloat() * spec.swayAmplitudeDp).dp.toPx()
-                }
-                val xPx = (widthPx * spec.laneFractionX) - with(density) { (spec.widthDp / 2f).dp.toPx() } + swayPx
-                // Softly fade in at bottom and fade out at top edge
-                val edgeFade = when {
-                    progress < 0.12f -> progress / 0.12f
-                    progress > 0.86f -> ((1f - progress) / 0.14f).coerceIn(0f, 1f)
-                    else -> 1f
-                }
+                // Sub-layer 1A: Floating Movie Posters soaring smoothly from bottom -> top with gentle sway
+                soaringSpecs.forEachIndexed { idx, spec ->
+                    key("soar_$idx") {
+                        val posterUrl = splashPosters[idx % splashPosters.size]
+                        val cardWidthPx = with(density) { spec.widthDp.dp.toPx() }
+                        val cardHeightPx = with(density) { (spec.widthDp / 0.67f).dp.toPx() }
+                        val swayMaxPx = with(density) { spec.swayAmplitudeDp.dp.toPx() }
+                        val travelSpan = heightPx + cardHeightPx * 2.1f
+                        val baseX = (widthPx * spec.laneFractionX) - (cardWidthPx / 2f)
 
-                SplashFloatingPosterCard(
-                    posterUrl = posterUrl,
-                    widthDp = spec.widthDp,
-                    accentMagenta = idx % 2 == 0,
-                    modifier = Modifier.graphicsLayer {
-                        translationX = xPx
-                        translationY = yPx
-                        rotationZ = spec.tiltZ + sin((progress * 2.0 * PI).toDouble()).toFloat() * 5f
-                        rotationY = cos((progress * 2.0 * PI + idx).toDouble()).toFloat() * 14f
-                        alpha = spec.depthAlpha * edgeFade
-                        cameraDistance = 14f * density.density
+                        SplashFloatingPosterCard(
+                            posterUrl = posterUrl,
+                            widthDp = spec.widthDp,
+                            accentMagenta = idx % 2 == 0,
+                            modifier = Modifier.graphicsLayer {
+                                val progress = (soarCycleState.value * spec.speedMultiplier + spec.phaseOffset) % 1f
+                                val yPx = (heightPx + cardHeightPx * 0.6f) - (progress * travelSpan)
+                                val swayPx = sin((progress * 2.0 * PI + idx).toDouble()).toFloat() * swayMaxPx
+                                val edgeFade = when {
+                                    progress < 0.12f -> progress / 0.12f
+                                    progress > 0.86f -> ((1f - progress) / 0.14f).coerceIn(0f, 1f)
+                                    else -> 1f
+                                }
+                                translationX = baseX + swayPx
+                                translationY = yPx
+                                rotationZ = spec.tiltZ + sin((progress * 2.0 * PI).toDouble()).toFloat() * 5f
+                                rotationY = cos((progress * 2.0 * PI + idx).toDouble()).toFloat() * 14f
+                                alpha = spec.depthAlpha * edgeFade
+                                cameraDistance = 14f * density.density
+                            }
+                        )
                     }
-                )
-            }
+                }
 
-            // Sub-layer 1B: 3D Tilted Orbital Ring of Real Movie Posters Revolving Around the Center ("zinazunguka")
-            val orbitCount = 8
-            val radiusX = widthPx * 0.43f
-            val radiusY = heightPx * 0.25f
-            val centerX = widthPx / 2f
-            val centerY = heightPx * 0.46f
-
-            // Compute orbital positions sorted back-to-front so nearer posters layer cleanly above farther ones
-            val orbitItems = (0 until orbitCount).map { slot ->
-                val angleRad = Math.toRadians((orbitAngleDeg + slot * (360f / orbitCount)).toDouble())
-                val sinA = sin(angleRad).toFloat()
-                val cosA = cos(angleRad).toFloat()
-                // Depth factor in [0f..1f] where 1f is frontmost and 0f is furthest back
-                val depth = (sinA + 1f) / 2f
-                Triple(slot, angleRad, depth)
-            }.sortedBy { it.third }
-
-            orbitItems.forEach { (slot, angleRad, depth) ->
-                val posterUrl = splashPosters[(slot + soaringSpecs.size) % splashPosters.size]
-                val cardW = 86f
+                // Sub-layer 1B: 3D Tilted Orbital Ring of Real Movie Posters ("zinazunguka")
+                // Fixed composition order (zero node recreation!) with smooth GPU perspective transforms.
+                val orbitCount = 6
+                val radiusX = widthPx * 0.42f
+                val radiusY = heightPx * 0.24f
+                val centerX = widthPx / 2f
+                val centerY = heightPx * 0.46f
+                val cardW = 84f
                 val cardWPx = with(density) { cardW.dp.toPx() }
                 val cardHPx = with(density) { (cardW / 0.67f).dp.toPx() }
 
-                val cosA = cos(angleRad).toFloat()
-                val sinA = sin(angleRad).toFloat()
-                // Subtle diagonal tilt on the orbit + gentle vertical breathing float
-                val posX = centerX + cosA * radiusX - (cardWPx / 2f)
-                val posY = centerY + sinA * radiusY + (cosA * heightPx * 0.055f) - (cardHPx / 2f)
-                val perspectiveScale = 0.66f + (depth * 0.44f)
-                val perspectiveAlpha = 0.34f + (depth * 0.56f)
+                for (slot in 0 until orbitCount) {
+                    key("orbit_$slot") {
+                        val posterUrl = splashPosters[(slot + soaringSpecs.size) % splashPosters.size]
+                        val slotOffsetDeg = slot * (360f / orbitCount)
 
-                SplashFloatingPosterCard(
-                    posterUrl = posterUrl,
-                    widthDp = cardW,
-                    accentMagenta = slot % 2 == 1,
-                    modifier = Modifier.graphicsLayer {
-                        translationX = posX
-                        translationY = posY
-                        scaleX = perspectiveScale
-                        scaleY = perspectiveScale
-                        rotationY = -cosA * 28f
-                        rotationZ = cosA * 10f
-                        alpha = perspectiveAlpha
-                        cameraDistance = 16f * density.density
+                        SplashFloatingPosterCard(
+                            posterUrl = posterUrl,
+                            widthDp = cardW,
+                            accentMagenta = slot % 2 == 1,
+                            modifier = Modifier.graphicsLayer {
+                                val angleRad = Math.toRadians((orbitAngleState.value + slotOffsetDeg).toDouble())
+                                val cosA = cos(angleRad).toFloat()
+                                val sinA = sin(angleRad).toFloat()
+                                val depth = (sinA + 1f) / 2f
+                                val posX = centerX + cosA * radiusX - (cardWPx / 2f)
+                                val posY = centerY + sinA * radiusY + (cosA * heightPx * 0.055f) - (cardHPx / 2f)
+                                val perspectiveScale = 0.66f + (depth * 0.44f)
+                                val perspectiveAlpha = 0.34f + (depth * 0.56f)
+
+                                translationX = posX
+                                translationY = posY
+                                scaleX = perspectiveScale
+                                scaleY = perspectiveScale
+                                rotationY = -cosA * 26f
+                                rotationZ = cosA * 9f
+                                alpha = perspectiveAlpha
+                                cameraDistance = 16f * density.density
+                            }
+                        )
                     }
-                )
+                }
             }
         }
 
@@ -405,28 +421,12 @@ fun NeliAnimatedSplashScreen(
                 )
         )
 
-        // Subtle Top-Right "Skip" pill (accessible after first second without accidental tap exits)
-        if (overallProgress.value > 0.12f) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .statusBarsPadding()
-                    .padding(top = 14.dp, end = 16.dp)
-                    .clip(CircleShape)
-                    .background(Color(0x66121730))
-                    .border(1.dp, Color(0x55FFFFFF), CircleShape)
-                    .clickable { onSplashFinished() }
-                    .padding(horizontal = 14.dp, vertical = 7.dp)
-                    .testTag("splash_skip_button")
-            ) {
-                Text(
-                    text = "Skip",
-                    color = Color.White.copy(alpha = 0.88f),
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
-        }
+        // Subtle Top-Right "Skip" pill (isolated scope using derivedStateOf)
+        SplashSkipButtonOverlay(
+            overallProgressProvider = { overallProgress.value },
+            onSkip = onSplashFinished,
+            modifier = Modifier.align(Alignment.TopEnd)
+        )
 
         // LAYER 3: Centerpiece — Signature NeliTv Logo REFILL Animation + Wordmark
         Column(
@@ -436,41 +436,43 @@ fun NeliAnimatedSplashScreen(
                 .padding(horizontal = 24.dp)
                 .navigationBarsPadding()
         ) {
-            val fillPct = logoRefillProgress.value.coerceIn(0f, 1f)
-            val tracePct = borderTraceProgress.value.coerceIn(0f, 1f)
-
             Box(
                 modifier = Modifier
                     .size(230.dp)
-                    .scale(logoScale.value)
-                    .alpha(logoContainerAlpha.value),
+                    .graphicsLayer {
+                        val s = logoScale.value
+                        scaleX = s
+                        scaleY = s
+                        alpha = logoContainerAlpha.value
+                    },
                 contentAlignment = Alignment.Center
             ) {
-                // Radiant Ambient Neon Aura that intensifies as the logo refills to 100%
+                // Zero-cost Radiant Ambient Neon Aura (multi-stop radialGradient instead of expensive RenderEffect blur)
                 Box(
                     modifier = Modifier
-                        .size(182.dp)
-                        .scale(if (fillPct >= 0.99f) auraPulse else 0.88f + 0.12f * fillPct)
-                        .clip(RoundedCornerShape(46.dp))
+                        .size(226.dp)
+                        .graphicsLayer {
+                            val fillPct = logoRefillProgress.value.coerceIn(0f, 1f)
+                            val auraScale = if (fillPct >= 0.99f) auraPulseState.value else 0.88f + 0.12f * fillPct
+                            scaleX = auraScale
+                            scaleY = auraScale
+                            alpha = 0.22f + 0.56f * fillPct
+                        }
                         .background(
-                            Brush.sweepGradient(
-                                listOf(
-                                    Color(0xFFFF9500),
-                                    Color(0xFFFF007A),
-                                    Color(0xFF9D00FF),
-                                    Color(0xFF00E5FF),
-                                    Color(0xFFFF9500)
-                                )
-                            )
+                            Brush.radialGradient(
+                                0.0f to Color(0xAAFF007A),
+                                0.42f to Color(0x669D00FF),
+                                0.72f to Color(0x3300E5FF),
+                                1.0f to Color.Transparent
+                            ),
+                            shape = CircleShape
                         )
-                        .blur(30.dp)
-                        .alpha(0.18f + 0.48f * fillPct)
                 )
 
-                // Expanding Neon Shockwave Ring at 100% refill completion
-                val burst = climaxBurst.value
-                if (burst in 0.01f..0.99f) {
-                    Canvas(modifier = Modifier.fillMaxSize()) {
+                // Expanding Neon Shockwave Ring at 100% refill completion (draw-phase only)
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val burst = climaxBurst.value
+                    if (burst in 0.01f..0.99f) {
                         val radius = 74.dp.toPx() + 48.dp.toPx() * burst
                         drawCircle(
                             brush = Brush.sweepGradient(
@@ -514,41 +516,39 @@ fun NeliAnimatedSplashScreen(
                             .padding(8.dp)
                             .clip(RoundedCornerShape(32.dp))
                             .drawWithContent {
+                                val fillPct = logoRefillProgress.value.coerceIn(0f, 1f)
                                 if (fillPct <= 0.005f) return@drawWithContent
                                 val w = size.width
                                 val h = size.height
                                 val waterTopY = h * (1f - fillPct)
                                 val waveAmp = if (fillPct in 0.02f..0.98f) 6.dp.toPx() else 0f
+                                val phase = liquidWavePhaseState.value
 
-                                val wavePath = Path().apply {
-                                    moveTo(0f, h)
-                                    lineTo(0f, waterTopY)
-                                    val steps = 28
-                                    for (s in 0..steps) {
-                                        val x = (w * s) / steps
-                                        val waveY = waterTopY + sin((x / w) * 2.2 * PI + liquidWavePhase).toFloat() * waveAmp
-                                        lineTo(x, waveY)
-                                    }
-                                    lineTo(w, h)
-                                    close()
+                                reusableWavePath.reset()
+                                reusableWavePath.moveTo(0f, h)
+                                reusableWavePath.lineTo(0f, waterTopY)
+                                val steps = 20
+                                for (s in 0..steps) {
+                                    val x = (w * s) / steps
+                                    val waveY = waterTopY + sin((x / w) * 2.2 * PI + phase).toFloat() * waveAmp
+                                    reusableWavePath.lineTo(x, waveY)
                                 }
+                                reusableWavePath.lineTo(w, h)
+                                reusableWavePath.close()
 
-                                clipPath(wavePath) {
+                                clipPath(reusableWavePath) {
                                     this@drawWithContent.drawContent()
                                 }
 
-                                // Glowing liquid surface crest riding smoothly upward during refill
                                 if (fillPct in 0.02f..0.98f) {
-                                    val crestPath = Path().apply {
-                                        val steps = 28
-                                        for (s in 0..steps) {
-                                            val x = (w * s) / steps
-                                            val waveY = waterTopY + sin((x / w) * 2.2 * PI + liquidWavePhase).toFloat() * waveAmp
-                                            if (s == 0) moveTo(x, waveY) else lineTo(x, waveY)
-                                        }
+                                    reusableCrestPath.reset()
+                                    for (s in 0..steps) {
+                                        val x = (w * s) / steps
+                                        val waveY = waterTopY + sin((x / w) * 2.2 * PI + phase).toFloat() * waveAmp
+                                        if (s == 0) reusableCrestPath.moveTo(x, waveY) else reusableCrestPath.lineTo(x, waveY)
                                     }
                                     drawPath(
-                                        path = crestPath,
+                                        path = reusableCrestPath,
                                         brush = Brush.horizontalGradient(
                                             listOf(
                                                 Color(0xFFFFA800),
@@ -566,49 +566,39 @@ fun NeliAnimatedSplashScreen(
 
                     // 3) Progressive Neon Rainbow Border Trace (`PathMeasure` refill around the squircle)
                     Canvas(modifier = Modifier.fillMaxSize()) {
+                        val tracePct = borderTraceProgress.value.coerceIn(0f, 1f)
                         val strokeW = 4.2.dp.toPx()
                         val half = strokeW / 2f
-                        val fullSquircle = Path().apply {
-                            addRoundRect(
-                                RoundRect(
-                                    rect = Rect(half, half, size.width - half, size.height - half),
-                                    cornerRadius = CornerRadius(40.dp.toPx(), 40.dp.toPx())
-                                )
+                        reusableFullSquircle.reset()
+                        reusableFullSquircle.addRoundRect(
+                            RoundRect(
+                                rect = Rect(half, half, size.width - half, size.height - half),
+                                cornerRadius = CornerRadius(40.dp.toPx(), 40.dp.toPx())
                             )
-                        }
+                        )
 
                         // Subtle unlit track
                         drawPath(
-                            path = fullSquircle,
+                            path = reusableFullSquircle,
                             color = Color.White.copy(alpha = 0.12f),
                             style = Stroke(width = strokeW)
                         )
 
                         // Animated traced rainbow border
                         if (tracePct > 0.01f) {
-                            val measure = PathMeasure()
-                            measure.setPath(fullSquircle, forceClosed = true)
-                            val partialPath = Path()
-                            val stopDist = measure.length * tracePct
-                            measure.getSegment(0f, stopDist, partialPath, true)
+                            reusablePathMeasure.setPath(reusableFullSquircle, forceClosed = true)
+                            reusablePartialPath.reset()
+                            val stopDist = reusablePathMeasure.length * tracePct
+                            reusablePathMeasure.getSegment(0f, stopDist, reusablePartialPath, true)
 
                             drawPath(
-                                path = partialPath,
-                                brush = Brush.sweepGradient(
-                                    listOf(
-                                        Color(0xFFFF9500),
-                                        Color(0xFFFF007A),
-                                        Color(0xFF9D00FF),
-                                        Color(0xFF00E5FF),
-                                        Color(0xFFFF9500)
-                                    )
-                                ),
+                                path = reusablePartialPath,
+                                brush = Brush.sweepGradient(rainbowColors),
                                 style = Stroke(width = strokeW, cap = StrokeCap.Round)
                             )
 
-                            // Glowing comet head leading the border trace
                             if (tracePct < 0.99f) {
-                                val tip = measure.getPosition(stopDist)
+                                val tip = reusablePathMeasure.getPosition(stopDist)
                                 drawCircle(
                                     color = Color.White,
                                     radius = 5.5.dp.toPx(),
@@ -627,24 +617,20 @@ fun NeliAnimatedSplashScreen(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // Refill percentage pill during the fill stage -> transforms smoothly into the brand reveal
-            if (fillPct < 0.995f && logoContainerAlpha.value > 0.1f) {
-                Text(
-                    text = "Loading NeliTv • ${(fillPct * 100).toInt()}%",
-                    color = Color(0xFF00E5FF).copy(alpha = 0.92f),
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 0.6.sp
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-            }
+            // Isolated integer-percent counter (only recomposes this single Text when % integer changes)
+            SplashRefillPercentLabel(
+                fillProgressProvider = { logoRefillProgress.value },
+                containerAlphaProvider = { logoContainerAlpha.value }
+            )
 
-            // Brand Title & Tagline
+            // Brand Title & Tagline (transforms read strictly in graphicsLayer phase)
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier
-                    .alpha(textAlpha.value.coerceAtLeast(if (fillPct > 0.25f) (fillPct * 0.45f) else 0f))
-                    .graphicsLayer { translationY = textSlideY.value * (1f - fillPct * 0.5f) }
+                modifier = Modifier.graphicsLayer {
+                    val fillPct = logoRefillProgress.value.coerceIn(0f, 1f)
+                    alpha = textAlpha.value.coerceAtLeast(if (fillPct > 0.25f) (fillPct * 0.45f) else 0f)
+                    translationY = textSlideY.value * (1f - fillPct * 0.5f)
+                }
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -679,50 +665,108 @@ fun NeliAnimatedSplashScreen(
 
                 Spacer(modifier = Modifier.height(22.dp))
 
-                // Smooth 10-second neon progress strip + orbiting cinema dots
-                Box(
+                // Smooth 10-second neon progress strip drawn on Canvas (zero layout recomposition)
+                Canvas(
                     modifier = Modifier
                         .width(176.dp)
                         .height(4.dp)
                         .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.14f))
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth(overallProgress.value.coerceIn(0.02f, 1f))
-                            .height(4.dp)
-                            .clip(CircleShape)
-                            .background(
-                                Brush.horizontalGradient(
-                                    listOf(
-                                        Color(0xFFFF9500),
-                                        Color(0xFFFF007A),
-                                        Color(0xFF00E5FF)
-                                    )
-                                )
+                    drawRect(color = Color.White.copy(alpha = 0.14f))
+                    val barW = size.width * overallProgress.value.coerceIn(0.02f, 1f)
+                    drawRect(
+                        brush = Brush.horizontalGradient(
+                            listOf(
+                                Color(0xFFFF9500),
+                                Color(0xFFFF007A),
+                                Color(0xFF00E5FF)
                             )
+                        ),
+                        size = size.copy(width = barW)
                     )
                 }
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(7.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    val activeIndex = dotsCycle.toInt() % 8
-                    for (i in 0 until 8) {
-                        val isHighlighted = i == activeIndex
-                        val dotColor = if (i < 4) Color(0xFFFF2A85) else Color(0xFF00E5FF)
-                        Box(
-                            modifier = Modifier
-                                .size(if (isHighlighted) 7.5.dp else 5.dp)
-                                .clip(CircleShape)
-                                .background(if (isHighlighted) dotColor else dotColor.copy(alpha = 0.35f))
-                        )
-                    }
-                }
+                // Isolated cinema dots row (only updates when active integer dot index changes)
+                SplashCinemaDotsRow(dotsCycleProvider = { dotsCycleState.value })
             }
+        }
+    }
+}
+
+@Composable
+private fun SplashSkipButtonOverlay(
+    overallProgressProvider: () -> Float,
+    onSkip: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val showSkip by remember { derivedStateOf { overallProgressProvider() > 0.12f } }
+    if (showSkip) {
+        Box(
+            modifier = modifier
+                .statusBarsPadding()
+                .padding(top = 14.dp, end = 16.dp)
+                .clip(CircleShape)
+                .background(Color(0x66121730))
+                .border(1.dp, Color(0x55FFFFFF), CircleShape)
+                .clickable { onSkip() }
+                .padding(horizontal = 14.dp, vertical = 7.dp)
+                .testTag("splash_skip_button")
+        ) {
+            Text(
+                text = "Skip",
+                color = Color.White.copy(alpha = 0.88f),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+    }
+}
+
+@Composable
+private fun SplashRefillPercentLabel(
+    fillProgressProvider: () -> Float,
+    containerAlphaProvider: () -> Float
+) {
+    val percentInt by remember {
+        derivedStateOf { (fillProgressProvider().coerceIn(0f, 1f) * 100f).toInt() }
+    }
+    val isVisible by remember {
+        derivedStateOf { fillProgressProvider() < 0.995f && containerAlphaProvider() > 0.1f }
+    }
+    if (isVisible) {
+        Text(
+            text = "Loading NeliTv • $percentInt%",
+            color = Color(0xFF00E5FF).copy(alpha = 0.92f),
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 0.6.sp
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+    }
+}
+
+@Composable
+private fun SplashCinemaDotsRow(
+    dotsCycleProvider: () -> Float
+) {
+    val activeIndex by remember {
+        derivedStateOf { dotsCycleProvider().toInt() % 8 }
+    }
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(7.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        for (i in 0 until 8) {
+            val isHighlighted = i == activeIndex
+            val dotColor = if (i < 4) Color(0xFFFF2A85) else Color(0xFF00E5FF)
+            Box(
+                modifier = Modifier
+                    .size(if (isHighlighted) 7.5.dp else 5.dp)
+                    .clip(CircleShape)
+                    .background(if (isHighlighted) dotColor else dotColor.copy(alpha = 0.35f))
+            )
         }
     }
 }
@@ -738,8 +782,8 @@ private fun SplashFloatingPosterCard(
     val request = remember(posterUrl) {
         ImageRequest.Builder(context)
             .data(posterUrl)
-            .size(260, 390)
-            .crossfade(true)
+            .size(160, 240)
+            .crossfade(false)
             .build()
     }
     Box(

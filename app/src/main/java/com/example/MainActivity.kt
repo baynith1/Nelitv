@@ -78,68 +78,55 @@ class MainActivity : ComponentActivity() {
     // Increments on cold launch (value=1) and whenever returning to app after >= 4 hours even without closing
     private var recommendedOverlayTriggerTick by mutableStateOf(1)
 
-    private var immersiveAutoHideJob: kotlinx.coroutines.Job? = null
     private var isTabletDevice: Boolean = false
+    private var isFullScreenPlayerActive: Boolean = false
 
-    private fun hideSystemBarsImmersive() {
+    private fun configureBrowseWindowStatusBar() {
         try {
-            WindowCompat.setDecorFitsSystemWindows(window, false)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                window.attributes = window.attributes.apply {
-                    layoutInDisplayCutoutMode =
-                        WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
-                }
-            }
-            WindowCompat.getInsetsController(window, window.decorView).apply {
-                systemBarsBehavior =
-                    WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-                hide(WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.navigationBars())
+            val decor = window.decorView
+            WindowCompat.getInsetsController(window, decor).apply {
+                show(WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.navigationBars())
+                val isLight = NeliThemeManager.isLightMode
+                isAppearanceLightStatusBars = isLight
+                isAppearanceLightNavigationBars = isLight
             }
         } catch (_: Exception) {
         }
     }
 
-    private fun scheduleImmersiveBarsAutoHide(delayMs: Long = 5_000L) {
-        immersiveAutoHideJob?.cancel()
-        immersiveAutoHideJob = lifecycleScope.launch {
-            kotlinx.coroutines.delay(delayMs)
-            hideSystemBarsImmersive()
-        }
-    }
-
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) {
-            hideSystemBarsImmersive()
+        if (hasFocus && !isFullScreenPlayerActive) {
+            window.decorView.post {
+                if (!isFullScreenPlayerActive) {
+                    configureBrowseWindowStatusBar()
+                }
+            }
         }
     }
 
     override fun onResume() {
         super.onResume()
-        hideSystemBarsImmersive()
+        if (!isFullScreenPlayerActive) {
+            window.decorView.post {
+                if (!isFullScreenPlayerActive) {
+                    configureBrowseWindowStatusBar()
+                }
+            }
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         NativeLogSuppressor.suppressNonFatalNativeLogs()
         super.onCreate(savedInstanceState)
         NeliThemeManager.initialize(this)
-        com.example.data.NeliWatchProgressManager.initialize(this)
         enableEdgeToEdge()
-        hideSystemBarsImmersive()
-
-        // Swipe from status bar or navigation bar edge reveals system bars, then auto-hides after 5 seconds
-        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(window.decorView) { view, insets ->
-            val statusVisible = insets.isVisible(WindowInsetsCompat.Type.statusBars())
-            val navVisible = insets.isVisible(WindowInsetsCompat.Type.navigationBars())
-            if (statusVisible || navVisible) {
-                scheduleImmersiveBarsAutoHide(5_000L)
-            }
-            androidx.core.view.ViewCompat.onApplyWindowInsets(view, insets)
-        }
+        configureBrowseWindowStatusBar()
 
         // Check for android.hardware.type.television and Tablet form factor to dynamically adjust layout & orientation
         val pm = packageManager
         isHardwareTv = pm.hasSystemFeature("android.hardware.type.television") ||
+            @Suppress("DEPRECATION")
             pm.hasSystemFeature(PackageManager.FEATURE_TELEVISION) ||
             pm.hasSystemFeature(PackageManager.FEATURE_LEANBACK) ||
             pm.hasSystemFeature("android.software.leanback") ||
@@ -188,8 +175,11 @@ class MainActivity : ComponentActivity() {
 
         extractDeepLinkFromIntent(intent)
 
-        // Schedule AdMob SDK init (mobile/tablet only — never on Smart TV), notifications, Firebase sync, and update check
+        // Offload SharedPreferences JSON parsing, AdMob SDK init, notifications, Firebase sync, and update check
         // off the main thread AFTER initial window draw so MainActivity's SurfaceSyncGroup completes immediately.
+        lifecycleScope.launch(Dispatchers.IO) {
+            com.example.data.NeliWatchProgressManager.initialize(this@MainActivity)
+        }
         if (!isTvEnvironment) {
             lifecycleScope.launch(Dispatchers.IO) {
                 kotlinx.coroutines.delay(1_200L)
@@ -228,8 +218,12 @@ class MainActivity : ComponentActivity() {
             LaunchedEffect(isLightMode) {
                 try {
                     WindowCompat.getInsetsController(window, window.decorView).apply {
-                        isAppearanceLightStatusBars = isLightMode
-                        isAppearanceLightNavigationBars = isLightMode
+                        if (isAppearanceLightStatusBars != isLightMode) {
+                            isAppearanceLightStatusBars = isLightMode
+                        }
+                        if (isAppearanceLightNavigationBars != isLightMode) {
+                            isAppearanceLightNavigationBars = isLightMode
+                        }
                     }
                 } catch (_: Exception) {
                 }
@@ -258,6 +252,14 @@ class MainActivity : ComponentActivity() {
                             onActivePlaybackChanged = { isActive ->
                                 hasActivePlaybackForPip = isActive
                                 updateSystemPipParams(isActive)
+                            },
+                            onFullScreenPlayerStateChanged = { inPlayer ->
+                                isFullScreenPlayerActive = inPlayer
+                                if (!inPlayer) {
+                                    window.decorView.post {
+                                        configureBrowseWindowStatusBar()
+                                    }
+                                }
                             },
                             onRequestSystemPipOutsideApp = {
                                 enterSystemPipIfSupported()
@@ -407,6 +409,7 @@ fun NeliApp(
     recommendedOverlayTriggerTick: Int = 1,
     onConsumeDeepLink: () -> Unit = {},
     onActivePlaybackChanged: (Boolean) -> Unit = {},
+    onFullScreenPlayerStateChanged: (Boolean) -> Unit = {},
     onRequestSystemPipOutsideApp: () -> Unit = {},
     neliViewModel: NeliViewModel = viewModel()
 ) {
@@ -526,6 +529,7 @@ fun NeliApp(
 
         var wasInFullPlayer by remember { mutableStateOf(false) }
         LaunchedEffect(showFullPlayer, isSystemInPipMode) {
+            onFullScreenPlayerStateChanged(showFullPlayer && !isSystemInPipMode)
             if (showFullPlayer) {
                 wasInFullPlayer = true
             } else if (wasInFullPlayer && !isSystemInPipMode) {
@@ -547,9 +551,7 @@ fun NeliApp(
                             decor.scrollTo(0, 0)
                             decor.translationY = 0f
                             WindowCompat.getInsetsController(act.window, decor).apply {
-                                systemBarsBehavior =
-                                    WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-                                hide(WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.navigationBars())
+                                show(WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.navigationBars())
                                 val isLight = NeliThemeManager.isLightMode
                                 isAppearanceLightStatusBars = isLight
                                 isAppearanceLightNavigationBars = isLight
@@ -631,9 +633,9 @@ fun NeliApp(
             }
         }
 
-        // Transparent Recommended Movie Overlay on every cold launch (even after closing app from Recents)
-        // AND automatically every 4 hours when returning even without closing the app!
-        var lastHandledOverlayTick by remember { mutableStateOf(0) }
+        // Transparent Recommended Movie Overlay — ONLY during the 4 East Africa Time windows:
+        // Saa 4:00 Asubuhi (10:00 EAT), Saa 8:00 Mchana (14:00 EAT), Saa 10:00 Jioni (16:00 EAT), Saa 2:00 Usiku (20:00 EAT).
+        // Never pops up annoyingly outside these 4 scheduled windows!
         var activeRecommendedOverlayMovie by remember { mutableStateOf<com.example.model.MediaContent?>(null) }
 
         LaunchedEffect(
@@ -650,23 +652,29 @@ fun NeliApp(
                 !needsMandatorySignIn &&
                 !showFirstTimeWelcome &&
                 !showFullPlayer &&
-                mediaCatalog.isNotEmpty() &&
-                recommendedOverlayTriggerTick > lastHandledOverlayTick
+                mediaCatalog.isNotEmpty()
             ) {
-                val userKey = currentUser?.uid?.takeIf { it.isNotBlank() }
-                    ?: com.example.ui.components.NeliRecommendedEntryManager.getOrCreateDeviceSalt(context).toString()
-                val picked = com.example.ui.components.NeliRecommendedEntryManager.pickRecommendedMovieForUser(
-                    context = context,
-                    catalog = mediaCatalog,
-                    userIdentifier = userKey
-                )
-                if (picked != null) {
-                    lastHandledOverlayTick = recommendedOverlayTriggerTick
-                    activeRecommendedOverlayMovie = picked
-                    com.example.ui.components.NeliRecommendedEntryManager.markOverlayShown(
-                        context = context,
-                        movieId = picked.id
-                    )
+                while (true) {
+                    val dueSlotHourEat = com.example.ui.components.NeliRecommendedEntryManager.getActivePopupSlotIfDue(context)
+                    if (dueSlotHourEat != null && activeRecommendedOverlayMovie == null) {
+                        val userKey = currentUser?.uid?.takeIf { it.isNotBlank() }
+                            ?: com.example.ui.components.NeliRecommendedEntryManager.getOrCreateDeviceSalt(context).toString()
+                        val picked = com.example.ui.components.NeliRecommendedEntryManager.pickRecommendedMovieForUser(
+                            context = context,
+                            catalog = mediaCatalog,
+                            userIdentifier = userKey,
+                            slotHourEat = dueSlotHourEat
+                        )
+                        if (picked != null) {
+                            activeRecommendedOverlayMovie = picked
+                            com.example.ui.components.NeliRecommendedEntryManager.markSlotHandled(
+                                context = context,
+                                slotHourEat = dueSlotHourEat,
+                                movieId = picked.id
+                            )
+                        }
+                    }
+                    kotlinx.coroutines.delay(60_000L)
                 }
             }
         }

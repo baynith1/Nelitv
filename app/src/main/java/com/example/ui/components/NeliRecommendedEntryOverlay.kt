@@ -68,14 +68,31 @@ import java.util.Calendar
 import kotlin.math.abs
 
 /**
- * Manages the Transparent Recommended Movie Entry Overlay rules:
- * 1. Triggers on EVERY fresh cold launch (whenever the user closed the app, including from Recents).
- * 2. Triggers automatically on resume whenever >= 4 hours have passed since the last display,
- *    even if the user never fully closed the app.
- * 3. Picks a unique, non-repeating movie every day personalized per user/device salt so
- *    different users receive different movie recommendations every day.
+ * Manages the Scheduled Recommended Movie Popup & Missed-Window Notification rules in East Africa Time (`Africa/Dar_es_Salaam`, UTC+3):
+ *
+ * Strictly 4 daily windows (never interrupts the user on random opens):
+ * - Saa 4:00 Asubuhi -> 10:00 EAT (`10:00 – 10:59 EAT`)
+ * - Saa 8:00 Mchana  -> 14:00 EAT (`14:00 – 14:59 EAT`)
+ * - Saa 10:00 Jioni  -> 16:00 EAT (`16:00 – 16:59 EAT`)
+ * - Saa 2:00 Usiku   -> 20:00 EAT (`20:00 – 20:59 EAT`)
+ *
+ * - If the user opens the app during one of these 4 windows and hasn't seen that slot yet today,
+ *   the transparent Recommended Movie popup appears ONCE and marks that slot handled.
+ * - If the window passes without the user opening the app, `NeliNotificationScheduler` automatically
+ *   delivers that exact slot's Recommended Movie as a rich poster notification with sound and marks the slot handled.
  */
 object NeliRecommendedEntryManager {
+
+    val EAT_TIME_ZONE: java.util.TimeZone = java.util.TimeZone.getTimeZone("Africa/Dar_es_Salaam")
+
+    /**
+     * Exact East Africa Time (24-hour) slots:
+     * - 10 = Saa 4:00 Asubuhi (10:00 AM EAT)
+     * - 14 = Saa 8:00 Mchana  (2:00 PM EAT)
+     * - 16 = Saa 10:00 Jioni  (4:00 PM EAT)
+     * - 20 = Saa 2:00 Usiku   (8:00 PM EAT)
+     */
+    val DAILY_POPUP_HOURS_EAT: List<Int> = listOf(10, 14, 16, 20)
 
     const val FOUR_HOURS_MS = 4L * 60L * 60L * 1000L
     private const val PREFS_NAME = "neli_recommended_entry_prefs"
@@ -83,15 +100,66 @@ object NeliRecommendedEntryManager {
     private const val KEY_DEVICE_SALT = "device_recommendation_salt"
     private const val KEY_SESSION_COUNTER = "recommended_session_counter"
     private const val KEY_LAST_MOVIE_ID = "last_recommended_movie_id"
+    private const val KEY_HANDLED_SLOT_PREFIX = "handled_eat_slot_"
+
+    fun buildDailySlotKey(slotHourEat: Int, nowMs: Long = System.currentTimeMillis()): String {
+        val cal = Calendar.getInstance(EAT_TIME_ZONE).apply { timeInMillis = nowMs }
+        val year = cal.get(Calendar.YEAR)
+        val doy = cal.get(Calendar.DAY_OF_YEAR)
+        return "${KEY_HANDLED_SLOT_PREFIX}${year}_${doy}_$slotHourEat"
+    }
+
+    fun getSlotSwahiliLabel(slotHourEat: Int): String = when (slotHourEat) {
+        10 -> "Saa 4:00 Asubuhi (EAT)"
+        14 -> "Saa 8:00 Mchana (EAT)"
+        16 -> "Saa 10:00 Jioni (EAT)"
+        20 -> "Saa 2:00 Usiku (EAT)"
+        else -> "Pendekezo la Leo"
+    }
+
+    fun hasHandledSlotToday(
+        context: Context,
+        slotHourEat: Int,
+        nowMs: Long = System.currentTimeMillis()
+    ): Boolean {
+        val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getBoolean(buildDailySlotKey(slotHourEat, nowMs), false)
+    }
+
+    /**
+     * Returns the currently active EAT slot hour (`10`, `14`, `16`, or `20`) ONLY if the current
+     * East Africa Time falls within that 1-hour window AND that slot has not yet been shown as a popup
+     * or sent as a missed-window notification today. Otherwise returns `null` (no popup!).
+     */
+    fun getActivePopupSlotIfDue(
+        context: Context,
+        nowMs: Long = System.currentTimeMillis()
+    ): Int? {
+        val cal = Calendar.getInstance(EAT_TIME_ZONE).apply { timeInMillis = nowMs }
+        val currentHourEat = cal.get(Calendar.HOUR_OF_DAY)
+        if (currentHourEat !in DAILY_POPUP_HOURS_EAT) return null
+        return if (!hasHandledSlotToday(context, currentHourEat, nowMs)) currentHourEat else null
+    }
 
     fun shouldTriggerAfterResume(
         context: Context,
         nowMs: Long = System.currentTimeMillis()
-    ): Boolean {
+    ): Boolean = getActivePopupSlotIfDue(context, nowMs) != null
+
+    fun markSlotHandled(
+        context: Context,
+        slotHourEat: Int,
+        movieId: String,
+        nowMs: Long = System.currentTimeMillis()
+    ) {
         val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val lastShown = prefs.getLong(KEY_LAST_SHOWN_MS, 0L)
-        if (lastShown <= 0L) return true
-        return (nowMs - lastShown) >= FOUR_HOURS_MS
+        val nextSession = prefs.getInt(KEY_SESSION_COUNTER, 0) + 1
+        prefs.edit()
+            .putBoolean(buildDailySlotKey(slotHourEat, nowMs), true)
+            .putLong(KEY_LAST_SHOWN_MS, nowMs)
+            .putInt(KEY_SESSION_COUNTER, nextSession)
+            .putString(KEY_LAST_MOVIE_ID, movieId)
+            .apply()
     }
 
     fun markOverlayShown(
@@ -99,13 +167,9 @@ object NeliRecommendedEntryManager {
         movieId: String,
         nowMs: Long = System.currentTimeMillis()
     ) {
-        val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val nextSession = prefs.getInt(KEY_SESSION_COUNTER, 0) + 1
-        prefs.edit()
-            .putLong(KEY_LAST_SHOWN_MS, nowMs)
-            .putInt(KEY_SESSION_COUNTER, nextSession)
-            .putString(KEY_LAST_MOVIE_ID, movieId)
-            .apply()
+        val cal = Calendar.getInstance(EAT_TIME_ZONE).apply { timeInMillis = nowMs }
+        val currentHourEat = cal.get(Calendar.HOUR_OF_DAY)
+        markSlotHandled(context, currentHourEat, movieId, nowMs)
     }
 
     fun getOrCreateDeviceSalt(context: Context): Int {
@@ -119,13 +183,14 @@ object NeliRecommendedEntryManager {
     }
 
     /**
-     * Picks a fresh non-adult movie with artwork tailored to the current day + user/device salt + session count.
+     * Picks a fresh non-adult movie with artwork tailored to the current EAT day + slot hour + user/device salt.
      */
     fun pickRecommendedMovieForUser(
         context: Context,
         catalog: List<MediaContent>,
         userIdentifier: String = "",
-        nowMs: Long = System.currentTimeMillis()
+        nowMs: Long = System.currentTimeMillis(),
+        slotHourEat: Int? = null
     ): MediaContent? {
         val eligible = catalog.filter {
             it.published && !it.isAdultContent &&
@@ -138,13 +203,13 @@ object NeliRecommendedEntryManager {
 
         val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val salt = getOrCreateDeviceSalt(context)
-        val sessionCount = prefs.getInt(KEY_SESSION_COUNTER, 0)
         val lastMovieId = prefs.getString(KEY_LAST_MOVIE_ID, "").orEmpty()
 
-        val cal = Calendar.getInstance().apply { timeInMillis = nowMs }
+        val cal = Calendar.getInstance(EAT_TIME_ZONE).apply { timeInMillis = nowMs }
         val dayKey = cal.get(Calendar.YEAR) * 400 + cal.get(Calendar.DAY_OF_YEAR)
+        val effectiveSlot = slotHourEat ?: cal.get(Calendar.HOUR_OF_DAY)
         val userHash = if (userIdentifier.isNotBlank()) abs(userIdentifier.lowercase().hashCode()) else 0
-        val combinedSeed = abs(dayKey * 37 + salt * 13 + userHash * 7 + sessionCount * 19)
+        val combinedSeed = abs(dayKey * 37 + salt * 13 + userHash * 7 + effectiveSlot * 23)
 
         var chosenIndex = combinedSeed % eligible.size
         if (eligible.size > 1 && eligible[chosenIndex].id == lastMovieId) {

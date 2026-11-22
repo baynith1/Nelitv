@@ -170,7 +170,8 @@ fun HomeScreen(
     val adminSmsMessage = activeAdminSms?.message.orEmpty()
     val adminBannerPlacement by NeliAdminManager.adminBannerPlacement.collectAsState()
     val subState by NeliSubscriptionManager.subscriptionState.collectAsState()
-    val isPremiumActive = subState.isActiveNow
+    val isPremiumActive = subState.isActiveNow ||
+        com.example.data.NeliFreeForeverAccountsManager.isSpecialAdFreeUser(currentUser)
     val lockedChannelIds by NeliAdminManager.lockedChannelIds.collectAsState()
     val lockAllForFree by NeliAdminManager.areAllChannelsLocked.collectAsState()
 
@@ -244,6 +245,8 @@ fun HomeScreen(
         }
     }
 
+    var showPremiumPage by remember { mutableStateOf(false) }
+
     if (showCastDialog) {
         NeliCastModalSheet(
             availableChannels = liveChannels.ifEmpty { ChannelRepository.getPrioritizedAllChannels() },
@@ -252,12 +255,25 @@ fun HomeScreen(
             onGoToPremium = {
                 showCastDialog = false
                 isSearchOpen = false
-                neliViewModel.selectTab(BottomNavTab.SEARCH)
+                showPremiumPage = true
             },
             onSelectChannelToWatchAndCast = { selectedCh ->
                 onChannelSelected(selectedCh)
             }
         )
+    }
+
+    if (showPremiumPage) {
+        NeliNewPremiumScreen(
+            currentUser = currentUser,
+            onBackToHome = {
+                showPremiumPage = false
+                isSearchOpen = false
+                neliViewModel.selectTab(BottomNavTab.HOME)
+            },
+            modifier = modifier.fillMaxSize()
+        )
+        return
     }
 
     // Handle back button:
@@ -687,8 +703,9 @@ fun HomeScreen(
                     onPremiumClick = {
                         isSearchOpen = false
                         searchQuery = ""
-                        neliViewModel.selectTab(BottomNavTab.SEARCH)
+                        showPremiumPage = true
                     },
+                    isActiveMember = isPremiumActive,
                     isCastActive = isCastActive,
                     onCastClick = { showCastDialog = true },
                     adminSmsMessage = adminSmsMessage

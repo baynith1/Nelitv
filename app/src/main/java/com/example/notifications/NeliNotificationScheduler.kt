@@ -63,6 +63,13 @@ object NeliNotificationScheduler {
     const val SLOT_NIGHT_MOVIE_AZAM_TWO = 105           // Saa 2:00 Usiku (20:00 EAT) -> Movie #3 & Azam Two
     const val SLOT_LATE_NIGHT_SINEMA_ZETU = 106         // Saa 4:00 Usiku (22:00 EAT) -> Sinema Zetu & Azam Two
 
+    // Missed Movie Popup Fallback Notification Slots (15 minutes after each EAT popup window:
+    // Saa 4 Asubuhi [10:15], Saa 8 Mchana [14:15], Saa 10 Jioni [16:15], Saa 2 Usiku [20:15])
+    const val SLOT_MISSED_MOVIE_POPUP_10_EAT = 210
+    const val SLOT_MISSED_MOVIE_POPUP_14_EAT = 214
+    const val SLOT_MISSED_MOVIE_POPUP_16_EAT = 216
+    const val SLOT_MISSED_MOVIE_POPUP_20_EAT = 220
+
     // Backward-compatible slot aliases
     const val SLOT_MORNING_MOVIE_SERIES = SLOT_MORNING_MOVIE
     const val SLOT_MIDDAY_AZAM_LIVE = SLOT_MIDDAY_MOVIE
@@ -215,6 +222,31 @@ object NeliNotificationScheduler {
             hour24Eat = 22,
             minuteEat = 0,
             swahiliLabel = "Saa 4:00 Usiku (EAT) • Sinema Zetu & Azam Two Usiku"
+        ),
+        // Missed Movie Popup fallback notifications (only fire if user did NOT open app during that EAT window)
+        DailySlotSpec(
+            slotId = SLOT_MISSED_MOVIE_POPUP_10_EAT,
+            hour24Eat = 10,
+            minuteEat = 15,
+            swahiliLabel = "Saa 4:15 Asubuhi (EAT) • Missed Movie Popup Alert"
+        ),
+        DailySlotSpec(
+            slotId = SLOT_MISSED_MOVIE_POPUP_14_EAT,
+            hour24Eat = 14,
+            minuteEat = 15,
+            swahiliLabel = "Saa 8:15 Mchana (EAT) • Missed Movie Popup Alert"
+        ),
+        DailySlotSpec(
+            slotId = SLOT_MISSED_MOVIE_POPUP_16_EAT,
+            hour24Eat = 16,
+            minuteEat = 15,
+            swahiliLabel = "Saa 10:15 Jioni (EAT) • Missed Movie Popup Alert"
+        ),
+        DailySlotSpec(
+            slotId = SLOT_MISSED_MOVIE_POPUP_20_EAT,
+            hour24Eat = 20,
+            minuteEat = 15,
+            swahiliLabel = "Saa 2:15 Usiku (EAT) • Missed Movie Popup Alert"
         )
     )
 
@@ -345,7 +377,12 @@ object NeliNotificationScheduler {
         MediaContentRepository.initializeAndPrewarmFromCache(appContext)
 
         val notifPrefs = NeliWatchProgressManager.preferences.value
-        val isMovieSlot = slotId == SLOT_MORNING_MOVIE || slotId == SLOT_MIDDAY_MOVIE || slotId == SLOT_NIGHT_MOVIE_AZAM_TWO
+        val isMissedPopupSlot = slotId == SLOT_MISSED_MOVIE_POPUP_10_EAT ||
+            slotId == SLOT_MISSED_MOVIE_POPUP_14_EAT ||
+            slotId == SLOT_MISSED_MOVIE_POPUP_16_EAT ||
+            slotId == SLOT_MISSED_MOVIE_POPUP_20_EAT
+        val isMovieSlot = isMissedPopupSlot ||
+            slotId == SLOT_MORNING_MOVIE || slotId == SLOT_MIDDAY_MOVIE || slotId == SLOT_NIGHT_MOVIE_AZAM_TWO
         val isSportsSlot = slotId == SLOT_AFTERNOON_SPORTS
         if ((isMovieSlot && !notifPrefs.dailyMovieNotificationsEnabled) ||
             (isSportsSlot && !notifPrefs.liveSportsNotificationsEnabled)
@@ -519,6 +556,53 @@ object NeliNotificationScheduler {
                     launchMediaId = null,
                     launchChannelId = sinemaZetuSpec.channelId
                 )
+            }
+
+            SLOT_MISSED_MOVIE_POPUP_10_EAT,
+            SLOT_MISSED_MOVIE_POPUP_14_EAT,
+            SLOT_MISSED_MOVIE_POPUP_16_EAT,
+            SLOT_MISSED_MOVIE_POPUP_20_EAT -> {
+                val popupHourEat = when (slotId) {
+                    SLOT_MISSED_MOVIE_POPUP_10_EAT -> 10
+                    SLOT_MISSED_MOVIE_POPUP_14_EAT -> 14
+                    SLOT_MISSED_MOVIE_POPUP_16_EAT -> 16
+                    else -> 20
+                }
+                // Only send notification if the scheduled window passed AND user has NOT opened the app to see the popup!
+                if (!com.example.ui.components.NeliRecommendedEntryManager.hasHandledSlotToday(appContext, popupHourEat)) {
+                    val saltKey = com.example.ui.components.NeliRecommendedEntryManager.getOrCreateDeviceSalt(appContext).toString()
+                    val pickedMovie = com.example.ui.components.NeliRecommendedEntryManager.pickRecommendedMovieForUser(
+                        context = appContext,
+                        catalog = MediaContentRepository.mediaCatalog.value,
+                        userIdentifier = saltKey,
+                        slotHourEat = popupHourEat
+                    )
+                    if (pickedMovie != null) {
+                        val slotLabel = com.example.ui.components.NeliRecommendedEntryManager.getSlotSwahiliLabel(popupHourEat)
+                        val poster = pickedMovie.posterUrl.ifBlank { pickedMovie.backdropUrl }
+                        com.example.ui.components.NeliRecommendedEntryManager.markSlotHandled(
+                            context = appContext,
+                            slotHourEat = popupHourEat,
+                            movieId = pickedMovie.id
+                        )
+                        postRichMediaNotification(
+                            context = appContext,
+                            notificationId = slotId,
+                            title = "🎬 Pendekezo la Movie: ${pickedMovie.title}",
+                            message = "Usikose ${pickedMovie.title} (${pickedMovie.releaseYear}) — $slotLabel. Gusa kutazama sasa!",
+                            badgeLabel = "RECOMMENDED • ${slotLabel.uppercase()}",
+                            subtitleLabel = "${pickedMovie.genre} • ★ ${pickedMovie.rating}",
+                            primaryImageUrl = poster,
+                            backdropImageUrl = pickedMovie.backdropUrl,
+                            primaryColorHex = 0xFF140B29.toInt(),
+                            secondaryColorHex = 0xFF8B00FF.toInt(),
+                            accentColorHex = 0xFFFF007A.toInt(),
+                            isChannelLogo = false,
+                            launchMediaId = pickedMovie.id,
+                            launchChannelId = null
+                        )
+                    }
+                }
             }
         }
 

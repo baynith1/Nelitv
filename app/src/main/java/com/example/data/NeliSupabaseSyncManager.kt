@@ -139,70 +139,105 @@ object NeliSupabaseSyncManager {
         isTvDevice: Boolean = false
     ) {
         scope.launch {
-            try {
-                val cleanPhone = phoneNumber.trim()
-                if (cleanPhone.isBlank()) return@launch
+            syncSubscriptionAndPaymentNow(
+                phoneNumber = phoneNumber,
+                planId = planId,
+                amountTzs = amountTzs,
+                orderId = orderId,
+                activatedAtMs = activatedAtMs,
+                expiresAtMs = expiresAtMs,
+                userEmail = userEmail,
+                userId = userId,
+                providerReference = providerReference,
+                isTvDevice = isTvDevice
+            )
+        }
+    }
 
-                val deviceType = if (isTvDevice) "Smart TV (Android Leanback)" else "Android Phone / Mobile"
+    /**
+     * Production suspending Supabase writer for `public.nelitv_subscriptions` and `public.nelitv_payments`.
+     * Returns true if at least one table write succeeded on Supabase.
+     */
+    suspend fun syncSubscriptionAndPaymentNow(
+        phoneNumber: String,
+        planId: String,
+        amountTzs: Int,
+        orderId: String,
+        activatedAtMs: Long,
+        expiresAtMs: Long,
+        userEmail: String = "",
+        userId: String = "",
+        providerReference: String = "",
+        isTvDevice: Boolean = false
+    ): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val cleanPhone = phoneNumber.trim()
+            if (cleanPhone.isBlank()) return@withContext false
 
-                // 1. Upsert into public.nelitv_subscriptions
-                val subJson = JSONObject().apply {
-                    put("phone_number", cleanPhone)
-                    put("plan_id", planId)
-                    put("premium_status", "active")
-                    put("amount_paid", amountTzs.toDouble())
-                    put("activated_at", formatIsoUtc(activatedAtMs))
-                    put("expires_at", formatIsoUtc(expiresAtMs))
-                    put("last_device_type", deviceType)
-                    put("updated_at", formatIsoUtc(System.currentTimeMillis()))
-                    if (userId.isNotBlank()) put("user_id", userId)
-                    if (userEmail.isNotBlank()) put("user_email", userEmail)
-                }
+            val deviceType = if (isTvDevice) "Smart TV (Android Leanback)" else "Android Phone / Mobile"
+            var anySuccess = false
 
-                val subRequest = Request.Builder()
-                    .url("$SUPABASE_URL/rest/v1/nelitv_subscriptions?on_conflict=phone_number")
-                    .addHeader("apikey", SUPABASE_ANON_KEY)
-                    .addHeader("Authorization", "Bearer $SUPABASE_ANON_KEY")
-                    .addHeader("Content-Type", "application/json")
-                    .addHeader("Prefer", "resolution=merge-duplicates,return=representation")
-                    .post(subJson.toString().toRequestBody(JSON_MEDIA_TYPE))
-                    .build()
-
-                httpClient.newCall(subRequest).execute().use { resp ->
-                    val body = resp.body?.string().orEmpty()
-                    Log.d(TAG, "Supabase subscription upsert response code=${resp.code}: $body")
-                }
-
-                // 2. Insert into public.nelitv_payments
-                val payJson = JSONObject().apply {
-                    put("order_id", orderId.ifBlank { "ORD-${System.currentTimeMillis()}" })
-                    put("phone_number", cleanPhone)
-                    put("amount", amountTzs.toDouble())
-                    put("plan_id", planId)
-                    put("status", "completed")
-                    put("payment_method", "harakapay")
-                    put("provider_reference", providerReference.ifBlank { "HPAY-${orderId}" })
-                    put("completed_at", formatIsoUtc(System.currentTimeMillis()))
-                    if (userId.isNotBlank()) put("user_id", userId)
-                    if (userEmail.isNotBlank()) put("user_email", userEmail)
-                }
-
-                val payRequest = Request.Builder()
-                    .url("$SUPABASE_URL/rest/v1/nelitv_payments")
-                    .addHeader("apikey", SUPABASE_ANON_KEY)
-                    .addHeader("Authorization", "Bearer $SUPABASE_ANON_KEY")
-                    .addHeader("Content-Type", "application/json")
-                    .addHeader("Prefer", "resolution=merge-duplicates,return=representation")
-                    .post(payJson.toString().toRequestBody(JSON_MEDIA_TYPE))
-                    .build()
-
-                httpClient.newCall(payRequest).execute().use { resp ->
-                    val body = resp.body?.string().orEmpty()
-                    Log.d(TAG, "Supabase payment record response code=${resp.code}: $body")
-                }
-            } catch (e: Throwable) {
-                Log.e(TAG, "Error syncing subscription & payment to Supabase", e)
+            // 1. Upsert into public.nelitv_subscriptions
+            val subJson = JSONObject().apply {
+                put("phone_number", cleanPhone)
+                put("plan_id", planId)
+                put("premium_status", "active")
+                put("amount_paid", amountTzs.toDouble())
+                put("activated_at", formatIsoUtc(activatedAtMs))
+                put("expires_at", formatIsoUtc(expiresAtMs))
+                put("last_device_type", deviceType)
+                put("updated_at", formatIsoUtc(System.currentTimeMillis()))
+                if (userId.isNotBlank()) put("user_id", userId)
+                if (userEmail.isNotBlank()) put("user_email", userEmail)
             }
+
+            val subRequest = Request.Builder()
+                .url("$SUPABASE_URL/rest/v1/nelitv_subscriptions?on_conflict=phone_number")
+                .addHeader("apikey", SUPABASE_ANON_KEY)
+                .addHeader("Authorization", "Bearer $SUPABASE_ANON_KEY")
+                .addHeader("Content-Type", "application/json")
+                .addHeader("Prefer", "resolution=merge-duplicates,return=representation")
+                .post(subJson.toString().toRequestBody(JSON_MEDIA_TYPE))
+                .build()
+
+            httpClient.newCall(subRequest).execute().use { resp ->
+                val body = resp.body?.string().orEmpty()
+                Log.d(TAG, "Supabase subscription upsert response code=${resp.code}: $body")
+                if (resp.isSuccessful) anySuccess = true
+            }
+
+            // 2. Insert into public.nelitv_payments
+            val payJson = JSONObject().apply {
+                put("order_id", orderId.ifBlank { "ORD-${System.currentTimeMillis()}" })
+                put("phone_number", cleanPhone)
+                put("amount", amountTzs.toDouble())
+                put("plan_id", planId)
+                put("status", "completed")
+                put("payment_method", "harakapay")
+                put("provider_reference", providerReference.ifBlank { "HPAY-$orderId" })
+                put("completed_at", formatIsoUtc(System.currentTimeMillis()))
+                if (userId.isNotBlank()) put("user_id", userId)
+                if (userEmail.isNotBlank()) put("user_email", userEmail)
+            }
+
+            val payRequest = Request.Builder()
+                .url("$SUPABASE_URL/rest/v1/nelitv_payments")
+                .addHeader("apikey", SUPABASE_ANON_KEY)
+                .addHeader("Authorization", "Bearer $SUPABASE_ANON_KEY")
+                .addHeader("Content-Type", "application/json")
+                .addHeader("Prefer", "resolution=merge-duplicates,return=representation")
+                .post(payJson.toString().toRequestBody(JSON_MEDIA_TYPE))
+                .build()
+
+            httpClient.newCall(payRequest).execute().use { resp ->
+                val body = resp.body?.string().orEmpty()
+                Log.d(TAG, "Supabase payment record response code=${resp.code}: $body")
+                if (resp.isSuccessful) anySuccess = true
+            }
+            anySuccess
+        } catch (e: Throwable) {
+            Log.e(TAG, "Error syncing subscription & payment to Supabase", e)
+            false
         }
     }
 

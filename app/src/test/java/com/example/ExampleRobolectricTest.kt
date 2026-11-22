@@ -2938,8 +2938,25 @@ class ExampleRobolectricTest {
             com.example.data.NeliWatchProgressManager.continueWatching.value.any { it.id == "mov_cw_test_1" }
         )
 
-        // 2. Transparent Recommended Movie Entry Overlay: triggers on first entry, waits 4 hours on resume, and varies across users
-        val baseNowMs = 1_750_000_000_000L
+        // 2. Scheduled Recommended Movie Popup: ONLY at 4 East Africa Time windows (10:00, 14:00, 16:00, 20:00 EAT)
+        assertEquals(
+            listOf(10, 14, 16, 20),
+            com.example.ui.components.NeliRecommendedEntryManager.DAILY_POPUP_HOURS_EAT
+        )
+        val eatTz = java.util.TimeZone.getTimeZone("Africa/Dar_es_Salaam")
+        val eat10AmMs = java.util.Calendar.getInstance(eatTz).apply {
+            set(2026, java.util.Calendar.NOVEMBER, 25, 10, 5, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+        }.timeInMillis
+        val eat11AmMs = java.util.Calendar.getInstance(eatTz).apply {
+            set(2026, java.util.Calendar.NOVEMBER, 25, 11, 20, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+        }.timeInMillis
+        val eat2PmMs = java.util.Calendar.getInstance(eatTz).apply {
+            set(2026, java.util.Calendar.NOVEMBER, 25, 14, 10, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+        }.timeInMillis
+
         val catalog = (1..12).map { idx ->
             com.example.model.MediaContent(
                 id = "rec_movie_$idx",
@@ -2955,29 +2972,30 @@ class ExampleRobolectricTest {
                 published = true
             )
         }
+        // Outside scheduled hours (11:20 EAT) -> must NOT pop up
+        assertEquals(null, com.example.ui.components.NeliRecommendedEntryManager.getActivePopupSlotIfDue(context, eat11AmMs))
+        // Inside Saa 4 Asubuhi (10:05 EAT) -> due once
+        assertEquals(10, com.example.ui.components.NeliRecommendedEntryManager.getActivePopupSlotIfDue(context, eat10AmMs))
         val pickUserA = com.example.ui.components.NeliRecommendedEntryManager.pickRecommendedMovieForUser(
             context = context,
             catalog = catalog,
             userIdentifier = "user_alpha_tz",
-            nowMs = baseNowMs
+            nowMs = eat10AmMs,
+            slotHourEat = 10
         )
         assertNotNull(pickUserA)
-        com.example.ui.components.NeliRecommendedEntryManager.markOverlayShown(context, pickUserA!!.id, nowMs = baseNowMs)
+        com.example.ui.components.NeliRecommendedEntryManager.markSlotHandled(context, 10, pickUserA!!.id, nowMs = eat10AmMs)
+        // Re-opening app within 10:00 EAT window after seeing it -> must NOT pop up again!
+        assertEquals(null, com.example.ui.components.NeliRecommendedEntryManager.getActivePopupSlotIfDue(context, eat10AmMs + 60_000L))
+        // Next window (Saa 8 Mchana / 14:10 EAT) -> due cleanly!
+        assertEquals(14, com.example.ui.components.NeliRecommendedEntryManager.getActivePopupSlotIfDue(context, eat2PmMs))
 
-        // 2 hours later -> must NOT re-trigger yet on resume
-        org.junit.Assert.assertFalse(
-            com.example.ui.components.NeliRecommendedEntryManager.shouldTriggerAfterResume(
-                context = context,
-                nowMs = baseNowMs + (2L * 60L * 60L * 1000L)
-            )
-        )
-        // 4 hours + 1 second later -> MUST trigger automatically on resume
-        assertTrue(
-            com.example.ui.components.NeliRecommendedEntryManager.shouldTriggerAfterResume(
-                context = context,
-                nowMs = baseNowMs + com.example.ui.components.NeliRecommendedEntryManager.FOUR_HOURS_MS + 1_000L
-            )
-        )
+        // Verify missed-popup notification slots exist for all 4 EAT windows (10:15, 14:15, 16:15, 20:15)
+        val schedSlots = com.example.notifications.NeliNotificationScheduler.dailySlots
+        assertTrue(schedSlots.any { it.slotId == com.example.notifications.NeliNotificationScheduler.SLOT_MISSED_MOVIE_POPUP_10_EAT && it.hour24Eat == 10 })
+        assertTrue(schedSlots.any { it.slotId == com.example.notifications.NeliNotificationScheduler.SLOT_MISSED_MOVIE_POPUP_14_EAT && it.hour24Eat == 14 })
+        assertTrue(schedSlots.any { it.slotId == com.example.notifications.NeliNotificationScheduler.SLOT_MISSED_MOVIE_POPUP_16_EAT && it.hour24Eat == 16 })
+        assertTrue(schedSlots.any { it.slotId == com.example.notifications.NeliNotificationScheduler.SLOT_MISSED_MOVIE_POPUP_20_EAT && it.hour24Eat == 20 })
 
         // 3. Phone Number Sign-Up & Sign-In (supports both Phone Number or Username + Password)
         val db = androidx.room.Room.inMemoryDatabaseBuilder(
@@ -3021,8 +3039,12 @@ class ExampleRobolectricTest {
             com.example.notifications.NeliNotificationScheduler.DAILY_NOTIFICATION_CHANNEL_ID
         )
 
-        // 5. Cinematic 10-second splash duration with logo refill & orbiting/soaring movie posters
+        // 5. Cinematic 10-second splash duration + Production HarakaPay & Supabase connections + Channels remain unlocked
         assertEquals(10_000L, com.example.ui.screens.NELI_SPLASH_TOTAL_DURATION_MS)
+        assertTrue(com.example.data.NeliSupabaseSyncManager.SUPABASE_URL.startsWith("https://"))
+        assertTrue(com.example.data.NeliSupabaseSyncManager.SUPABASE_ANON_KEY.isNotBlank())
+        assertTrue(com.example.data.HarakaPayRepository.resolveApiKey().startsWith("hpk_"))
+        org.junit.Assert.assertFalse(com.example.data.NeliAdminManager.isChannelLockedForUser("azam_sports_1"))
     }
 }
 
