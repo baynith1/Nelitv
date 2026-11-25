@@ -62,8 +62,7 @@ val TvNavItems = listOf(
     TvNavItem(BottomNavTab.HOME, "Home", Icons.Default.Home, "tv_nav_home"),
     TvNavItem(BottomNavTab.DISCOVERY, "Discovery", Icons.Default.Explore, "tv_nav_discovery"),
     TvNavItem(BottomNavTab.SEARCH, "Search", Icons.Default.Search, "tv_nav_search"),
-    TvNavItem(BottomNavTab.DOWNLOAD, "Downloads", Icons.Default.Download, "tv_nav_downloads"),
-    TvNavItem(BottomNavTab.ACCOUNT, "Account", Icons.Default.Person, "tv_nav_account")
+    TvNavItem(BottomNavTab.DOWNLOAD, "Downloads", Icons.Default.Download, "tv_nav_downloads")
 )
 
 /**
@@ -219,9 +218,10 @@ fun NeliTvSideNavigationRail(
                     .padding(horizontal = 8.dp)
             ) {
                 Text(
-                    text = "D-Pad & Remote Ready",
-                    color = NeliTextSecondary.copy(alpha = 0.5f),
-                    fontSize = 11.sp
+                    text = "FREE TV • Remote Ready",
+                    color = NeliGenreCyan.copy(alpha = 0.75f),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold
                 )
             }
         }

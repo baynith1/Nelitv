@@ -12,6 +12,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
+import android.provider.Settings
 import androidx.core.content.FileProvider
 import java.io.File
 import java.security.MessageDigest
@@ -847,12 +848,9 @@ object NeliAppUpdateManager {
                 val totalLength = body?.contentLength() ?: 28_000_000L
                 val cleanTag = versionTag.trim().removePrefix("v").ifBlank { "update" }
                 val downloadFileName = "Nelitv-v$cleanTag.apk"
-                val publicDownloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-                val destination = if (publicDownloadsDir != null && publicDownloadsDir.exists()) {
-                    File(publicDownloadsDir, downloadFileName)
-                } else {
-                    File(context.cacheDir, downloadFileName)
-                }
+                // Always write to app-private cacheDir (covered by file_paths.xml <cache-path>)
+                // so Android 10-15 & Android TV never fail with Scoped Storage EACCES/SecurityException.
+                val destination = File(context.cacheDir, downloadFileName)
                 if (destination.exists()) destination.delete()
 
                 body?.byteStream()?.use { input ->
@@ -875,21 +873,11 @@ object NeliAppUpdateManager {
                     }
                 }
 
-                // Notify Android MediaScanner / DownloadManager of the new file in Downloads
-                try {
-                    android.media.MediaScannerConnection.scanFile(
-                        context,
-                        arrayOf(destination.absolutePath),
-                        arrayOf("application/vnd.android.package-archive"),
-                        null
-                    )
-                } catch (_: Exception) {
-                }
-
                 downloadedApkFile = destination
                 _inAppDownloadProgress.value = 1.0f
                 _isInAppDownloadComplete.value = true
-                _apkDownloadStatusMessage.value = "Upakuaji umekamilika ($downloadFileName)! Binya 'UPDATE' kuendelea."
+                _apkDownloadStatusMessage.value =
+                    "Upakuaji umekamilika ($downloadFileName)! Bonyeza SANIKISHA ili kusasisha sasa hivi."
             } catch (e: Exception) {
                 _inAppDownloadProgress.value = null
                 _apkDownloadStatusMessage.value = "Hitilafu wakati wa kupakua: ${e.message}"
@@ -903,17 +891,48 @@ object NeliAppUpdateManager {
     fun installDownloadedApkNow(context: Context) {
         val file = downloadedApkFile ?: File(context.cacheDir, "Nelitv-update.apk")
         if (!file.exists() || file.length() <= 0L) {
-            downloadAndInstallApk(context)
+            downloadApkWithProgress(context)
             return
         }
         val cleanTag = _releaseInfo.value.versionTag.trim().ifBlank { CURRENT_APP_VERSION_TAG }
+        val pendingFp = buildReleaseFingerprint(
+            cleanTag,
+            _releaseInfo.value.publishedAt,
+            _releaseInfo.value.apkDownloadUrl
+        )
         try {
             context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 .edit()
                 .putString(KEY_PENDING_UPDATE_TAG, cleanTag)
+                .putString(KEY_PENDING_UPDATE_FINGERPRINT, pendingFp)
                 .apply()
         } catch (_: Exception) {
         }
+
+        // On Android 8+ / Android TV, prompt user to allow unknown app installs if not yet granted,
+        // keeping the dialog open so pressing SANIKISHA right after returning installs immediately.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !context.packageManager.canRequestPackageInstalls()) {
+            _apkDownloadStatusMessage.value =
+                "Ruhusu 'Install unknown apps' kwa Nelitv kisha bonyeza SANIKISHA tena."
+            try {
+                val permIntent = Intent(
+                    Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                    Uri.parse("package:${context.packageName}")
+                ).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(permIntent)
+            } catch (_: Exception) {
+                // Some TV OEMs allow direct install intent without a dedicated settings screen; fall through
+                launchApkInstallerIntent(context, file)
+            }
+            return
+        }
+
+        launchApkInstallerIntent(context, file)
+    }
+
+    private fun launchApkInstallerIntent(context: Context, file: File) {
         val apkUri = try {
             FileProvider.getUriForFile(
                 context,
@@ -923,16 +942,29 @@ object NeliAppUpdateManager {
         } catch (_: Exception) {
             Uri.fromFile(file)
         }
-        val installIntent = Intent(Intent.ACTION_VIEW).apply {
+        val viewInstallIntent = Intent(Intent.ACTION_VIEW).apply {
             setDataAndType(apkUri, "application/vnd.android.package-archive")
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         try {
-            context.startActivity(installIntent)
-            _showHomepageUpdatePopup.value = false
+            _apkDownloadStatusMessage.value = "Inafungua kisakinishi cha Nelitv..."
+            context.startActivity(viewInstallIntent)
         } catch (e: Exception) {
-            android.util.Log.e("NeliAppUpdateManager", "Failed to start install intent: ${e.message}")
+            try {
+                @Suppress("DEPRECATION")
+                val fallbackIntent = Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
+                    data = apkUri
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
+                }
+                context.startActivity(fallbackIntent)
+            } catch (fallbackEx: Exception) {
+                _apkDownloadStatusMessage.value =
+                    "Imeshindikana kufungua kisakinishi: ${fallbackEx.message ?: e.message}"
+                android.util.Log.e("NeliAppUpdateManager", "Failed to start install intent: ${fallbackEx.message}")
+            }
         }
     }
 

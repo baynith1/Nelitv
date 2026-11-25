@@ -67,13 +67,16 @@ fun ChannelCard(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val isTvDevice = remember(context, com.example.ui.theme.NeliThemeManager.forceTvMode) {
+        com.example.ui.tv.NeliTvDetector.isTelevision(context)
+    }
     val lockedChannelIds by NeliAdminManager.lockedChannelIds.collectAsState()
     val lockAllForFree by NeliAdminManager.areAllChannelsLocked.collectAsState()
     val lockAllAzamForFree by NeliAdminManager.areAllAzamChannelsLocked.collectAsState()
     val subState by NeliSubscriptionManager.subscriptionState.collectAsState()
     val isPremiumActive = subState.isActiveNow
-    val isLockedByAdmin = remember(channel.id, lockAllForFree, lockAllAzamForFree, lockedChannelIds) {
-        NeliAdminManager.isChannelLockedByAdmin(channel.id, channel)
+    val isLockedByAdmin = remember(channel.id, lockAllForFree, lockAllAzamForFree, lockedChannelIds, isTvDevice) {
+        !isTvDevice && NeliAdminManager.isChannelLockedByAdmin(channel.id, channel)
     }
     val isLockedForCurrentUser = isLockedByAdmin && !isPremiumActive
 
@@ -197,8 +200,8 @@ fun ChannelCard(
                     }
                 }
 
-                // Top-left Lock / VIP Unlocked badge when Admin locks channel
-                if (isLockedByAdmin) {
+                // Top-left Lock / VIP Unlocked badge when Admin locks channel (hidden on Free Smart TV)
+                if (isLockedByAdmin && !isTvDevice) {
                     Row(
                         modifier = Modifier
                             .align(Alignment.TopStart)

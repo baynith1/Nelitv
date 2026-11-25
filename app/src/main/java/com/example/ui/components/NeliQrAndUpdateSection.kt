@@ -42,6 +42,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -52,6 +53,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
@@ -74,6 +77,9 @@ import com.example.ui.theme.NeliSurface
 import com.example.ui.theme.NeliSurfaceVariant
 import com.example.ui.theme.NeliTextPrimary
 import com.example.ui.theme.NeliTextSecondary
+import com.example.ui.tv.NeliTvDetector
+import com.example.ui.tv.tvButtonGrow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
@@ -1287,8 +1293,26 @@ fun NeliHomepageAutoUpdatePopupDialog() {
     val isMandatory by NeliAppUpdateManager.isMandatoryUpdateRequired.collectAsState()
     val inAppProgress by NeliAppUpdateManager.inAppDownloadProgress.collectAsState()
     val isDownloadComplete by NeliAppUpdateManager.isInAppDownloadComplete.collectAsState()
+    val isTvDevice = remember(context) { NeliTvDetector.isTelevision(context) }
+    val downloadFocusRequester = remember { FocusRequester() }
+    val installFocusRequester = remember { FocusRequester() }
 
     if (!releaseInfo.isNewUpdateAvailable) return
+
+    // Auto-focus the Update or Sanikisha button on Android TV so remote growing halo appears immediately
+    LaunchedEffect(releaseInfo.isNewUpdateAvailable, isDownloadComplete, inAppProgress, isTvDevice) {
+        if (isTvDevice) {
+            delay(120L)
+            try {
+                if (isDownloadComplete) {
+                    installFocusRequester.requestFocus()
+                } else if (inAppProgress == null) {
+                    downloadFocusRequester.requestFocus()
+                }
+            } catch (_: Exception) {
+            }
+        }
+    }
 
     Dialog(
         onDismissRequest = {
@@ -1454,7 +1478,7 @@ fun NeliHomepageAutoUpdatePopupDialog() {
                 )
             }
 
-            // Dynamic Download / Update Button
+            // Dynamic Download / Sanikisha Button with Android TV Remote Growing Effect + Auto-Focus
             if (isDownloadComplete) {
                 Button(
                     onClick = {
@@ -1464,21 +1488,30 @@ fun NeliHomepageAutoUpdatePopupDialog() {
                     shape = RoundedCornerShape(14.dp),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(52.dp)
+                        .height(54.dp)
+                        .focusRequester(installFocusRequester)
+                        .tvButtonGrow(
+                            shape = RoundedCornerShape(14.dp),
+                            focusScale = 1.08f,
+                            onClick = {
+                                NeliAppUpdateManager.installDownloadedApkNow(context)
+                            }
+                        )
                         .testTag("mandatory_install_update_button")
                 ) {
                     Icon(
                         imageVector = Icons.Default.CheckCircle,
                         contentDescription = null,
                         tint = Color.White,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(22.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "UPDATE (SAKINISHA SASISHO)",
+                        text = "SANIKISHA",
                         color = Color.White,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Black
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Black,
+                        letterSpacing = 0.6.sp
                     )
                 }
             } else if (inAppProgress != null && inAppProgress!! < 1.0f) {
@@ -1486,13 +1519,13 @@ fun NeliHomepageAutoUpdatePopupDialog() {
                     onClick = { },
                     enabled = false,
                     colors = ButtonDefaults.buttonColors(
-                        disabledContainerColor = NeliMagenta.copy(alpha = 0.5f),
+                        disabledContainerColor = NeliMagenta.copy(alpha = 0.55f),
                         disabledContentColor = Color.White
                     ),
                     shape = RoundedCornerShape(14.dp),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(52.dp)
+                        .height(54.dp)
                         .testTag("downloading_progress_button")
                 ) {
                     CircularProgressIndicator(
@@ -1521,21 +1554,34 @@ fun NeliHomepageAutoUpdatePopupDialog() {
                     shape = RoundedCornerShape(14.dp),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(52.dp)
+                        .height(54.dp)
+                        .focusRequester(downloadFocusRequester)
+                        .tvButtonGrow(
+                            shape = RoundedCornerShape(14.dp),
+                            focusScale = 1.07f,
+                            onClick = {
+                                NeliAppUpdateManager.downloadApkWithProgress(
+                                    context = context,
+                                    apkUrl = releaseInfo.apkDownloadUrl,
+                                    versionTag = releaseInfo.versionTag
+                                )
+                            }
+                        )
                         .testTag("mandatory_download_update_button")
                 ) {
                     Icon(
                         imageVector = Icons.Default.Download,
                         contentDescription = null,
                         tint = Color.White,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(22.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "DOWNLOAD UPDATE",
+                        text = "UPDATE SASA",
                         color = Color.White,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Black
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Black,
+                        letterSpacing = 0.5.sp
                     )
                 }
             }

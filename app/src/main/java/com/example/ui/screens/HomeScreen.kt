@@ -137,8 +137,18 @@ fun HomeScreen(
     onConsumeInitialShowPremium: () -> Unit = {}
 ) {
     val context = LocalContext.current
+    val isTvDevice = remember(context, NeliThemeManager.forceTvMode) {
+        NeliTvDetector.isTelevision(context)
+    }
     val isOfflineMode by neliViewModel.isOfflineMode.collectAsState()
     val selectedTab by neliViewModel.selectedTab.collectAsState()
+
+    // Android Smart TV is 100% free with no Account/Login/Premium screen
+    LaunchedEffect(isTvDevice, selectedTab) {
+        if (isTvDevice && selectedTab == BottomNavTab.ACCOUNT) {
+            neliViewModel.selectTab(BottomNavTab.HOME)
+        }
+    }
 
     var searchQuery by rememberSaveable { mutableStateOf("") }
     val selectedLiveCategory by neliViewModel.selectedLiveCategory.collectAsState()
@@ -237,7 +247,7 @@ fun HomeScreen(
                     // Stream and audio play on the Smart TV; phone acts as remote control and remains free for user
                 } else {
                     val activity = com.example.data.AuthenticationRepository.findActivity(context)
-                    if (activity != null && !isLocalOfflineFile) {
+                    if (activity != null && !isLocalOfflineFile && !NeliTvDetector.isTelevision(context)) {
                         NeliAdManager.showChannelOpeningAd(activity, ch.name, ch.id) {
                             onChannelSelected(ch)
                         }
@@ -263,12 +273,15 @@ fun HomeScreen(
         }
     }
 
-    var showPremiumPage by remember { mutableStateOf(initialShowPremium) }
+    var showPremiumPage by remember { mutableStateOf(initialShowPremium && !isTvDevice) }
 
-    LaunchedEffect(initialShowPremium) {
-        if (initialShowPremium) {
+    LaunchedEffect(initialShowPremium, isTvDevice) {
+        if (initialShowPremium && !isTvDevice) {
             showPremiumPage = true
             isSearchOpen = false
+            onConsumeInitialShowPremium()
+        } else if (isTvDevice && showPremiumPage) {
+            showPremiumPage = false
             onConsumeInitialShowPremium()
         }
     }
@@ -293,9 +306,9 @@ fun HomeScreen(
         }
     }
 
-    // Smooth 3-Step In-Place VIP Payment Popup (Select Plan -> Enter Phone -> Verify USSD -> Auto-Unlock & Play)
+    // Smooth 3-Step In-Place VIP Payment Popup (Mobile/Tablet only — Smart TV is 100% free)
     val lockedPrompt = lockedChannelToPrompt
-    if (lockedPrompt != null) {
+    if (lockedPrompt != null && !isTvDevice) {
         com.example.ui.components.LockedChannelQuickPayPopup(
             channel = lockedPrompt,
             currentUser = currentUser,
@@ -321,7 +334,9 @@ fun HomeScreen(
             onGoToPremium = {
                 showCastDialog = false
                 isSearchOpen = false
-                showPremiumPage = true
+                if (!isTvDevice) {
+                    showPremiumPage = true
+                }
             },
             onSelectChannelToWatchAndCast = { selectedCh ->
                 onChannelSelected(selectedCh)
@@ -329,7 +344,7 @@ fun HomeScreen(
         )
     }
 
-    if (showPremiumPage) {
+    if (showPremiumPage && !isTvDevice) {
         NeliNewPremiumScreen(
             currentUser = currentUser,
             onBackToHome = {
@@ -419,10 +434,6 @@ fun HomeScreen(
             )
         }
         return
-    }
-
-    val isTvDevice = remember(context, NeliThemeManager.forceTvMode) {
-        NeliTvDetector.isTelevision(context)
     }
 
     val mainTabsContent: @Composable () -> Unit = {
@@ -538,7 +549,7 @@ fun HomeScreen(
                                 onConfirmDownload = { chosenQuality ->
                                     pendingQuickDownloadMedia = null
                                     val act = com.example.data.AuthenticationRepository.findActivity(context)
-                                    if (act != null && !isOfflineMode) {
+                                    if (act != null && !isOfflineMode && !isTvDevice) {
                                         NeliAdManager.showDownloadRewardedAd(act) {
                                             neliViewModel.addDownload(quickMedia, chosenQuality)
                                         }
@@ -678,10 +689,9 @@ fun HomeScreen(
         Box(
             modifier = modifier
                 .fillMaxSize()
-                .background(NeliBackground)
+                .background(Color(0xFF060919))
                 .testTag("home_screen_tv")
         ) {
-            com.example.ui.components.NeliLiveWaterWaveBackground()
             Row(modifier = Modifier.fillMaxSize()) {
             NeliTvSideNavigationRail(
                 selectedTab = selectedTab,
@@ -1655,7 +1665,7 @@ private fun HomepageLiveChannelCard(
                 }
             }
 
-            if (isLockedByAdmin) {
+            if (isLockedByAdmin && !NeliTvDetector.isTelevision(context)) {
                 Row(
                     modifier = Modifier
                         .align(Alignment.TopStart)

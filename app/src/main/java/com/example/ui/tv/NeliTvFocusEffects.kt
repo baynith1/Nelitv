@@ -161,21 +161,24 @@ fun Modifier.growingInteractiveEffect(
         label = "neli_growing_scale"
     )
 
-    val infiniteTransition = rememberInfiniteTransition(label = "halo_transition")
-    val haloAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.65f,
-        targetValue = 1.0f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1100, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "halo_pulse"
-    )
-
-    val geminiBrush = remember(haloAlpha) {
-        Brush.sweepGradient(
-            colors = GeminiFocusGradientColors.map { it.copy(alpha = haloAlpha) }
+    val geminiBrush = if (isFocused && showHaloGlow) {
+        val infiniteTransition = rememberInfiniteTransition(label = "halo_transition")
+        val haloAlpha by infiniteTransition.animateFloat(
+            initialValue = 0.65f,
+            targetValue = 1.0f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(1100, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "halo_pulse"
         )
+        remember(haloAlpha) {
+            Brush.sweepGradient(
+                colors = GeminiFocusGradientColors.map { it.copy(alpha = haloAlpha) }
+            )
+        }
+    } else {
+        null
     }
 
     return this
@@ -189,7 +192,7 @@ fun Modifier.growingInteractiveEffect(
         }
         .focusable(interactionSource = interactionSource)
         .then(
-            if (isFocused && showHaloGlow) {
+            if (isFocused && showHaloGlow && geminiBrush != null) {
                 Modifier
                     .shadow(
                         elevation = 16.dp,

@@ -1530,13 +1530,13 @@ class LivePlayerController(
         trackSelector = selector
 
         val loadControl = if (channel.isLiveBroadcast) {
-            // Fast live-edge DefaultLoadControl so DASH/HLS playback starts in 1-2 seconds
+            // Ultra-fast live-edge DefaultLoadControl so DASH/HLS playback starts in ~1s on Smart TV & Mobile
             DefaultLoadControl.Builder()
                 .setBufferDurationsMs(
                     /* minBufferMs = */ 2_500,
                     /* maxBufferMs = */ 15_000,
-                    /* bufferForPlaybackMs = */ 1_000,
-                    /* bufferForPlaybackAfterRebufferMs = */ 1_500
+                    /* bufferForPlaybackMs = */ 600,
+                    /* bufferForPlaybackAfterRebufferMs = */ 1_200
                 )
                 .setBackBuffer(
                     /* backBufferDurationMs = */ 2_000,
@@ -2203,18 +2203,21 @@ class LivePlayerController(
         }
         val encodedManifestQuery = manifestUri.encodedQuery
 
-        // Configure DefaultHttpDataSource.Factory with cross-protocol redirects + server headers
-        // (including X-Neli-Client: nelitv-app & X-Neli-Api-Key when calling proxy URLs)
+        // Use NeliLocalStreamEngine's pooled 16-socket HTTP keep-alive OkHttp DataSource so MPD + init + video/audio
+        // chunks reuse warm TLS sockets to cdnHost (eliminating per-segment handshake delays on Android TV & mobile).
         val streamHeaders = LinkedHashMap<String, String>().apply {
             putAll(TokenManager.buildExoPlayerHeaders(streamUrl = effectiveStreamUrl))
             putAll(com.example.data.NeliTvRepository.buildStreamPlayerHeaders(effectiveStreamUrl))
         }
-        val baseHttpDataSourceFactory = DefaultHttpDataSource.Factory()
-            .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(10_000)
-            .setReadTimeoutMs(15_000)
-            .setUserAgent(com.example.data.NeliTvRepository.getPlayerUserAgent())
-            .setDefaultRequestProperties(streamHeaders)
+        val baseHttpDataSourceFactory = NeliLocalStreamEngine.createPooledHttpDataSourceFactory(
+            streamUrl = effectiveStreamUrl,
+            isLive = liveServerChannel.isLiveBroadcast
+        ).let { pooledFactory ->
+            if (pooledFactory is HttpDataSource.Factory) {
+                pooledFactory.setDefaultRequestProperties(streamHeaders)
+            }
+            pooledFactory
+        }
 
         // Merge channel-specific clearKeys with global /baynithalex/api/app clearKeys so multi-KID streams
         // (such as ZBC) always decrypt reliably.
@@ -2265,9 +2268,9 @@ class LivePlayerController(
         val extractorsFactory = sharedExtractorsFactory
 
         val liveConfiguration = MediaItem.LiveConfiguration.Builder()
-            .setTargetOffsetMs(8_000L)
-            .setMinOffsetMs(3_000L)
-            .setMaxOffsetMs(25_000L)
+            .setTargetOffsetMs(4_000L)
+            .setMinOffsetMs(2_000L)
+            .setMaxOffsetMs(15_000L)
             .build()
 
         val mainMediaSource = when {
@@ -2292,7 +2295,12 @@ class LivePlayerController(
                     .setMimeType(MimeTypes.APPLICATION_MPD)
                     .setMediaId(liveServerChannel.id)
 
+                if (liveServerChannel.isLiveBroadcast) {
+                    mediaItemBuilder.setLiveConfiguration(liveConfiguration)
+                }
+
                 DashMediaSource.Factory(dataSourceFactory)
+                    .setFallbackTargetLiveOffsetMs(4_000L)
                     .setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
                     .createMediaSource(mediaItemBuilder.build())
             }

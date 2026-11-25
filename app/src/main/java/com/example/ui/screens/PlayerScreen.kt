@@ -86,11 +86,19 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.focusable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -101,6 +109,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.example.ui.tv.tvButtonGrow
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -746,11 +755,128 @@ fun PlayerScreen(
         mutableStateOf("All")
     }
 
+    val tvPlayerRootFocusRequester = remember { FocusRequester() }
+    val tvRetryFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(isTvDevice, activeChannel.id, uiState is PlayerUiState.Error) {
+        if (isTvDevice) {
+            try {
+                if (uiState is PlayerUiState.Error) {
+                    tvRetryFocusRequester.requestFocus()
+                } else {
+                    tvPlayerRootFocusRequester.requestFocus()
+                }
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    val switchLiveChannelByOffset: (Int) -> Unit = { offset ->
+        if (activeChannel.isLiveBroadcast && allLiveChannels.size > 1) {
+            val idx = allLiveChannels.indexOfFirst { it.id == activeChannel.id }
+            val nextIdx = if (idx >= 0) {
+                (idx + offset + allLiveChannels.size) % allLiveChannels.size
+            } else {
+                0
+            }
+            val nextCh = allLiveChannels[nextIdx]
+            if (nextCh.id != activeChannel.id) {
+                playerController.switchChannel(nextCh)
+                areControlsVisible = true
+            }
+        }
+    }
+
     Column(
         modifier = modifier
             .fillMaxSize()
             .background(if (isPortraitYoutubeMode) NeliBackground else Color.Black)
             .then(if (isPortraitYoutubeMode) Modifier.statusBarsPadding() else Modifier)
+            .focusRequester(tvPlayerRootFocusRequester)
+            .focusable()
+            .onPreviewKeyEvent { keyEvent ->
+                if (!isTvDevice || keyEvent.type != KeyEventType.KeyUp) {
+                    return@onPreviewKeyEvent false
+                }
+                when (keyEvent.key) {
+                    Key.Back, Key.Escape -> {
+                        handleExit()
+                        true
+                    }
+                    Key.DirectionCenter, Key.Enter, Key.NumPadEnter, Key.MediaPlayPause -> {
+                        when {
+                            uiState is PlayerUiState.Error -> {
+                                playerController.retry()
+                                true
+                            }
+                            !activeChannel.isLiveBroadcast -> {
+                                playerController.togglePlayPause()
+                                areControlsVisible = true
+                                true
+                            }
+                            else -> {
+                                areControlsVisible = !areControlsVisible
+                                true
+                            }
+                        }
+                    }
+                    Key.DirectionLeft, Key.MediaRewind -> {
+                        if (!activeChannel.isLiveBroadcast) {
+                            playerController.seekRelative(-10_000L)
+                            areControlsVisible = true
+                            true
+                        } else if (!areControlsVisible) {
+                            switchLiveChannelByOffset(-1)
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                    Key.DirectionRight, Key.MediaFastForward -> {
+                        if (!activeChannel.isLiveBroadcast) {
+                            playerController.seekRelative(10_000L)
+                            areControlsVisible = true
+                            true
+                        } else if (!areControlsVisible) {
+                            switchLiveChannelByOffset(1)
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                    Key.ChannelUp, Key.PageUp -> {
+                        if (activeChannel.isLiveBroadcast) {
+                            switchLiveChannelByOffset(1)
+                            true
+                        } else false
+                    }
+                    Key.ChannelDown, Key.PageDown -> {
+                        if (activeChannel.isLiveBroadcast) {
+                            switchLiveChannelByOffset(-1)
+                            true
+                        } else false
+                    }
+                    Key.DirectionUp -> {
+                        if (!areControlsVisible && activeChannel.isLiveBroadcast) {
+                            switchLiveChannelByOffset(1)
+                            true
+                        } else {
+                            areControlsVisible = true
+                            false
+                        }
+                    }
+                    Key.DirectionDown -> {
+                        if (!areControlsVisible && activeChannel.isLiveBroadcast) {
+                            switchLiveChannelByOffset(-1)
+                            true
+                        } else {
+                            areControlsVisible = true
+                            false
+                        }
+                    }
+                    else -> false
+                }
+            }
             .testTag("player_screen")
     ) {
         // Video Player Container:
@@ -776,9 +902,14 @@ fun PlayerScreen(
             }
             AndroidView(
                 factory = { ctx ->
+                    val layoutResId = if (isTvDevice) {
+                        com.example.R.layout.neli_surface_player_view
+                    } else {
+                        com.example.R.layout.neli_texture_player_view
+                    }
                     val playerView = try {
                         android.view.LayoutInflater.from(ctx)
-                            .inflate(com.example.R.layout.neli_texture_player_view, null, false) as PlayerView
+                            .inflate(layoutResId, null, false) as PlayerView
                     } catch (_: Throwable) {
                         PlayerView(ctx)
                     }
@@ -1407,7 +1538,13 @@ fun PlayerScreen(
                                                     onClick = { playerController.retry() },
                                                     colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta),
                                                     shape = RoundedCornerShape(10.dp),
-                                                    modifier = Modifier.testTag("retry_stream_button")
+                                                    modifier = Modifier
+                                                        .focusRequester(tvRetryFocusRequester)
+                                                        .tvButtonGrow(
+                                                            shape = RoundedCornerShape(10.dp),
+                                                            onClick = { playerController.retry() }
+                                                        )
+                                                        .testTag("retry_stream_button")
                                                 ) {
                                                     Icon(
                                                         imageVector = Icons.Default.Refresh,
@@ -1426,7 +1563,11 @@ fun PlayerScreen(
 
                                                 OutlinedButton(
                                                     onClick = handleExit,
-                                                    shape = RoundedCornerShape(10.dp)
+                                                    shape = RoundedCornerShape(10.dp),
+                                                    modifier = Modifier.tvButtonGrow(
+                                                        shape = RoundedCornerShape(10.dp),
+                                                        onClick = handleExit
+                                                    )
                                                 ) {
                                                     Text(
                                                         text = "Rudi",

@@ -291,6 +291,10 @@ object NeliAdminManager {
         nowMs: Long = System.currentTimeMillis(),
         context: Context? = null
     ): Boolean {
+        // Android Smart TV is 100% free: no login, no premium account, no locked channels
+        if (context != null && com.example.ui.tv.NeliTvDetector.isTelevision(context)) {
+            return false
+        }
         val cleanId = channelId.trim()
         if (cleanId.startsWith("dl_", ignoreCase = true) || cleanId.startsWith("vod_", ignoreCase = true)) {
             return false
