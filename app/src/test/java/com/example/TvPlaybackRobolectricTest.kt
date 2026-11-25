@@ -249,4 +249,60 @@ class TvPlaybackRobolectricTest {
             controller.release()
         }
     }
+
+    @Test
+    fun `smart tv unstable wifi resilience uses caching dns and retries transient segment drops without restarting`() {
+        // 1. Verify liveStreamHttpClient uses NeliCachingDns for 0ms cached CDN DNS lookups on flaky TV routers
+        assertTrue(
+            "Live TV OkHttpClient must use NeliCachingDns",
+            NeliLocalStreamEngine.liveStreamHttpClient.dns === NeliLocalStreamEngine.NeliCachingDns
+        )
+        val loopbackAddresses = NeliLocalStreamEngine.NeliCachingDns.lookup("localhost")
+        assertTrue("NeliCachingDns must resolve hostnames cleanly", loopbackAddresses.isNotEmpty())
+
+        // 2. Verify LiveStreamLoadErrorHandlingPolicy retries transient Wi-Fi/socket errors up to 6 times
+        val policy = LivePlayerController.LiveStreamLoadErrorHandlingPolicy()
+        assertEquals(
+            "Transient TV Wi-Fi drops must allow 6 segment retries before tearing down playback",
+            6,
+            policy.getMinimumLoadableRetryCount(androidx.media3.common.C.DATA_TYPE_MEDIA)
+        )
+        val dummyLoadEvent = androidx.media3.exoplayer.source.LoadEventInfo(
+            1L,
+            androidx.media3.datasource.DataSpec(android.net.Uri.parse("https://1445733302.rsc.cdn77.org/live/seg.m4s")),
+            0L
+        )
+        val dummyMediaLoad = androidx.media3.exoplayer.source.MediaLoadData(androidx.media3.common.C.DATA_TYPE_MEDIA)
+        val timeoutRetryDelay = policy.getRetryDelayMsFor(
+            androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy.LoadErrorInfo(
+                dummyLoadEvent,
+                dummyMediaLoad,
+                java.net.SocketTimeoutException("TV Wi-Fi blip"),
+                1
+            )
+        )
+        assertTrue("Transient socket timeout must schedule fast retry (> 0ms)", timeoutRetryDelay in 1L..2_000L)
+
+        val forbiddenException = androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException(
+            403,
+            "Forbidden",
+            null,
+            emptyMap(),
+            androidx.media3.datasource.DataSpec(android.net.Uri.parse("https://1445733302.rsc.cdn77.org/live/seg.m4s")),
+            ByteArray(0)
+        )
+        val forbiddenDelay = policy.getRetryDelayMsFor(
+            androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy.LoadErrorInfo(
+                dummyLoadEvent,
+                dummyMediaLoad,
+                forbiddenException,
+                1
+            )
+        )
+        assertEquals(
+            "HTTP 403 must fail fast (TIME_UNSET) to trigger instant proxy failover",
+            androidx.media3.common.C.TIME_UNSET,
+            forbiddenDelay
+        )
+    }
 }

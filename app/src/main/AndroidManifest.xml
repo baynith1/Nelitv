@@ -40,10 +40,12 @@
     <application
         android:name=".NeliApplication"
         android:allowBackup="true"
+        android:banner="@drawable/tv_banner"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
+        android:logo="@drawable/tv_banner"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:usesCleartextTraffic="true"
@@ -66,8 +68,11 @@
 
         <activity
             android:name=".MainActivity"
+            android:banner="@drawable/tv_banner"
             android:exported="true"
+            android:icon="@mipmap/ic_launcher"
             android:label="@string/app_name"
+            android:logo="@drawable/tv_banner"
             android:launchMode="singleTask"
             android:resizeableActivity="true"
             android:supportsPictureInPicture="true"

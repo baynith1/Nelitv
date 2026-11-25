@@ -14,6 +14,7 @@ import com.example.BuildConfig
 import com.example.data.ChannelRepository
 import okhttp3.Call
 import okhttp3.ConnectionPool
+import okhttp3.Dns
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
 import okhttp3.Request
@@ -22,6 +23,8 @@ import okhttp3.ResponseBody
 import java.io.IOException
 import java.io.InputStream
 import java.io.InterruptedIOException
+import java.net.InetAddress
+import java.net.UnknownHostException
 import java.util.concurrent.Callable
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutorCompletionService
@@ -81,18 +84,55 @@ object NeliLocalStreamEngine {
     private val sharedConnectionPool = ConnectionPool(16, 5, TimeUnit.MINUTES)
 
     /**
+     * Thread-safe DNS cache (5-minute TTL + stale-on-error fallback) so Android Smart TVs on
+     * unstable Wi-Fi routers do not stall for 2-6 seconds re-resolving CDN hostnames on every reconnect.
+     */
+    internal object NeliCachingDns : Dns {
+        private const val DNS_TTL_MS = 5 * 60 * 1_000L
+
+        private data class CachedEntry(
+            val addresses: List<InetAddress>,
+            val resolvedAtMs: Long
+        )
+
+        private val cache = ConcurrentHashMap<String, CachedEntry>()
+
+        override fun lookup(hostname: String): List<InetAddress> {
+            val key = hostname.trim().lowercase()
+            val now = System.currentTimeMillis()
+            val cached = cache[key]
+            if (cached != null && (now - cached.resolvedAtMs) < DNS_TTL_MS && cached.addresses.isNotEmpty()) {
+                return cached.addresses
+            }
+            return try {
+                val fresh = Dns.SYSTEM.lookup(hostname)
+                if (fresh.isNotEmpty()) {
+                    cache[key] = CachedEntry(fresh, now)
+                }
+                fresh
+            } catch (e: UnknownHostException) {
+                if (cached != null && cached.addresses.isNotEmpty()) {
+                    cached.addresses
+                } else {
+                    throw e
+                }
+            }
+        }
+    }
+
+    /**
      * Pooled HTTP/1.1 keep-alive client for Live TV manifests and segments.
-     * Using HTTP/1.1 with a 16-socket ConnectionPool gives zero-overhead TLS socket reuse
-     * for concurrent audio+video DASH chunks without HTTP/2 single-socket head-of-line stalls
-     * or CDN PROTOCOL_ERROR resets, and avoids killing live streams via callTimeout.
+     * Uses a 16-socket ConnectionPool + [NeliCachingDns] + resilient timeouts for unstable Smart TV Wi-Fi
+     * so concurrent audio+video DASH/HLS chunks reuse warm TLS sockets without stalling on DNS or micro-drops.
      */
     val liveStreamHttpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
             .connectionPool(sharedConnectionPool)
+            .dns(NeliCachingDns)
             .protocols(listOf(Protocol.HTTP_1_1))
-            .connectTimeout(6, TimeUnit.SECONDS)
-            .readTimeout(12, TimeUnit.SECONDS)
-            .writeTimeout(8, TimeUnit.SECONDS)
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(18, TimeUnit.SECONDS)
+            .writeTimeout(10, TimeUnit.SECONDS)
             .followRedirects(true)
             .followSslRedirects(true)
             .retryOnConnectionFailure(true)

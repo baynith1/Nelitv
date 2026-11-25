@@ -6,8 +6,11 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.media.AudioManager
 import android.net.ConnectivityManager
+import android.net.Network
 import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.net.Uri
+import android.net.wifi.WifiManager
 import android.os.BatteryManager
 import android.os.Build
 import android.os.Handler
@@ -334,6 +337,18 @@ class LivePlayerController(
         const val ADAPTIVE_BUFFERED_FRACTION_TO_LIVE_EDGE = 0.65f
 
         /**
+         * Smart TV Anti-Buffering ABR tuning (for home Wi-Fi that fluctuates or drops packets):
+         * - Leaves 35% bandwidth headroom (0.65f) so Wi-Fi dips never empty the buffer.
+         * - Requires 15s of proven stable throughput before stepping resolution UP (stops HD/SD ping-pong).
+         * - Drops down quickly (3s) when Wi-Fi weakens so video keeps playing continuously.
+         */
+        const val TV_ADAPTIVE_MIN_DURATION_FOR_QUALITY_INCREASE_MS = 15_000
+        const val TV_ADAPTIVE_MAX_DURATION_FOR_QUALITY_DECREASE_MS = 3_000
+        const val TV_ADAPTIVE_MIN_DURATION_TO_RETAIN_AFTER_DISCARD_MS = 10_000
+        const val TV_ADAPTIVE_BANDWIDTH_FRACTION = 0.65f
+        const val TV_ADAPTIVE_BUFFERED_FRACTION_TO_LIVE_EDGE = 0.75f
+
+        /**
          * Battery thresholds for Battery-Aware Adaptive Playback CPU optimization.
          */
         const val LOW_BATTERY_THRESHOLD_PCT = 25
@@ -554,10 +569,128 @@ class LivePlayerController(
         }
     }
 
+    // Smart TV High-Performance Wi-Fi Lock & Automatic Network Reconnect Watchdog
+    private var tvWifiLock: WifiManager.WifiLock? = null
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    @Volatile
+    private var isDeviceCurrentlyOnline: Boolean = true
+    private var lastBandwidthAdaptationRealtimeMs: Long = 0L
+
+    private fun isSmartTvDevice(): Boolean {
+        return com.example.ui.tv.NeliTvDetector.isHardwareTelevision(context) ||
+            com.example.ui.tv.NeliTvDetector.isTelevision(context)
+    }
+
+    private fun acquireTvWifiLockIfNeeded() {
+        if (!isSmartTvDevice()) return
+        if (tvWifiLock?.isHeld == true) return
+        try {
+            val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+                ?: return
+            @Suppress("DEPRECATION")
+            val lockMode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                WifiManager.WIFI_MODE_FULL_LOW_LATENCY
+            } else {
+                WifiManager.WIFI_MODE_FULL_HIGH_PERF
+            }
+            val lock = wifiManager.createWifiLock(lockMode, "NeliTv:LivePlaybackWifiLock")
+            lock.setReferenceCounted(false)
+            lock.acquire()
+            tvWifiLock = lock
+        } catch (_: Throwable) {
+        }
+    }
+
+    private fun releaseTvWifiLockIfHeld() {
+        try {
+            tvWifiLock?.let { lock ->
+                if (lock.isHeld) {
+                    lock.release()
+                }
+            }
+        } catch (_: Throwable) {
+        }
+        tvWifiLock = null
+    }
+
+    private fun registerNetworkRecoveryCallbackIfNeeded() {
+        if (networkCallback != null) return
+        try {
+            val cm = context.applicationContext.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+                ?: return
+            val callback = object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: Network) {
+                    val wasOffline = !isDeviceCurrentlyOnline
+                    isDeviceCurrentlyOnline = true
+                    mainHandler.post {
+                        val player = exoPlayer ?: return@post
+                        if (adPausedForBreak || wasCodecSuspendedForBackgroundOrAd || pausedByCallOrExternalAudio) return@post
+                        val currentUi = _uiState.value
+                        val stalledForReconnect = currentUi is PlayerUiState.Error ||
+                            player.playbackState == Player.STATE_IDLE ||
+                            (wasOffline && player.playbackState == Player.STATE_BUFFERING)
+                        if (stalledForReconnect) {
+                            autoReconnectAttempts = 0
+                            liveFailoverStep = 0
+                            _uiState.value = PlayerUiState.Buffering
+                            if (channel.isLiveBroadcast) {
+                                loadChannelStream(player, preserveVodPosition = false)
+                            } else {
+                                if (lastKnownVodPositionMs > 0L) {
+                                    player.seekTo(lastKnownVodPositionMs)
+                                }
+                                player.prepare()
+                                player.playWhenReady = true
+                                player.play()
+                            }
+                        }
+                    }
+                }
+
+                override fun onLost(network: Network) {
+                    val activeNow = try {
+                        cm.activeNetwork != null
+                    } catch (_: Exception) {
+                        false
+                    }
+                    isDeviceCurrentlyOnline = activeNow
+                }
+            }
+            val request = NetworkRequest.Builder()
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .build()
+            cm.registerNetworkCallback(request, callback)
+            networkCallback = callback
+            isDeviceCurrentlyOnline = try {
+                cm.activeNetwork != null
+            } catch (_: Exception) {
+                true
+            }
+        } catch (_: Throwable) {
+        }
+    }
+
+    private fun unregisterNetworkRecoveryCallbackIfNeeded() {
+        val cb = networkCallback ?: return
+        networkCallback = null
+        try {
+            val cm = context.applicationContext.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            cm?.unregisterNetworkCallback(cb)
+        } catch (_: Throwable) {
+        }
+    }
+
     private val bandwidthEventListener = BandwidthMeter.EventListener { _, _, bitrateEstimate ->
         if (bitrateEstimate > 0L) {
             latestEstimatedBandwidthBps = bitrateEstimate
-            if (_playbackInfo.value.networkMode == NetworkQualityMode.AUTO_ADAPTIVE) {
+            val now = android.os.SystemClock.elapsedRealtime()
+            // Debounce trackSelector parameter updates (especially on unstable TV Wi-Fi) so rapid
+            // throughput swings do not repeatedly flush buffered chunks.
+            val minDebounceMs = if (isSmartTvDevice()) 4_000L else 1_500L
+            if (_playbackInfo.value.networkMode == NetworkQualityMode.AUTO_ADAPTIVE &&
+                (now - lastBandwidthAdaptationRealtimeMs) >= minDebounceMs
+            ) {
+                lastBandwidthAdaptationRealtimeMs = now
                 evaluateAndApplyAdaptiveTrackSelection(
                     forceBufferingState = _uiState.value is PlayerUiState.Buffering
                 )
@@ -789,10 +922,15 @@ class LivePlayerController(
                     if (healthyPlaybackSinceRealtimeMs == 0L) {
                         healthyPlaybackSinceRealtimeMs = now
                     }
-                    // When buffer cushion is healthy (>= 6s) and playback has been steady, recover toward HD
+                    // When buffer cushion is healthy and playback has been steady, recover toward HD.
+                    // Smart TV requires a longer stability window (25s + 10s buffer) so unstable home Wi-Fi
+                    // does not ping-pong up to 1080p and immediately rebuffer.
+                    val isTvNow = isSmartTvDevice()
+                    val requiredHealthyBufferMs = if (isTvNow) 10_000L else 6_000L
+                    val requiredHealthyDurationMs = if (isTvNow) 25_000L else 8_000L
                     if (consecutiveRebufferCount > 0 &&
-                        bufferedAheadMs >= 6_000L &&
-                        now - healthyPlaybackSinceRealtimeMs >= 5_000L
+                        bufferedAheadMs >= requiredHealthyBufferMs &&
+                        now - healthyPlaybackSinceRealtimeMs >= requiredHealthyDurationMs
                     ) {
                         consecutiveRebufferCount = (consecutiveRebufferCount - 1).coerceAtLeast(0)
                         healthyPlaybackSinceRealtimeMs = now
@@ -1251,8 +1389,9 @@ class LivePlayerController(
      */
     private fun detectInitialBitrateEstimate(): Long {
         if (isLowBandoNetworkDetected()) return 450_000L
-        // Start Live TV on a fast 480p SD keyframe (~850 kbps) so the first frame renders in ~1s,
-        // then AdaptiveTrackSelection smoothly scales up to 720p/1080p HD as throughput confirms.
+        // On Smart TV Live TV, start on a fast ~600 kbps keyframe so the very first segment downloads
+        // in under 1 second even on weak Wi-Fi, then ABR smoothly climbs to 720p/1080p once buffer is full.
+        if (channel.isLiveBroadcast && isSmartTvDevice()) return 600_000L
         return if (channel.isLiveBroadcast) 850_000L else 2_200_000L
     }
 
@@ -1433,6 +1572,10 @@ class LivePlayerController(
         consecutiveRebufferCount = 0
         _uiState.value = PlayerUiState.Loading
         registerPowerBroadcastReceiverIfNeeded()
+        registerNetworkRecoveryCallbackIfNeeded()
+        acquireTvWifiLockIfNeeded()
+
+        val isTvDevice = isSmartTvDevice()
 
         // Use standard MediaCodecSelector.DEFAULT with decoder fallback; if hardware MediaCodec
         // was reclaimed by Android's resource manager, prioritize software video decoders automatically.
@@ -1479,14 +1622,14 @@ class LivePlayerController(
             }
         bandwidthMeter = meter
 
-        // AdaptiveTrackSelection.Factory configured to prioritize high-quality streams (bandwidthFraction = 0.85f)
-        // while reacting rapidly (2,000ms) to downscale when network bandwidth or buffer drops.
+        // Smart TV uses conservative anti-buffering ABR (65% bandwidth fraction, 15s upgrade window)
+        // so unstable TV Wi-Fi never ping-pongs into constant rebuffering.
         val adaptiveTrackSelectionFactory = AdaptiveTrackSelection.Factory(
-            /* minDurationForQualityIncreaseMs = */ ADAPTIVE_MIN_DURATION_FOR_QUALITY_INCREASE_MS,
-            /* maxDurationForQualityDecreaseMs = */ ADAPTIVE_MAX_DURATION_FOR_QUALITY_DECREASE_MS,
-            /* minDurationToRetainAfterDiscardMs = */ ADAPTIVE_MIN_DURATION_TO_RETAIN_AFTER_DISCARD_MS,
-            /* bandwidthFraction = */ ADAPTIVE_BANDWIDTH_FRACTION,
-            /* bufferedFractionToLiveEdgeForQualityIncrease = */ ADAPTIVE_BUFFERED_FRACTION_TO_LIVE_EDGE,
+            /* minDurationForQualityIncreaseMs = */ if (isTvDevice) TV_ADAPTIVE_MIN_DURATION_FOR_QUALITY_INCREASE_MS else ADAPTIVE_MIN_DURATION_FOR_QUALITY_INCREASE_MS,
+            /* maxDurationForQualityDecreaseMs = */ if (isTvDevice) TV_ADAPTIVE_MAX_DURATION_FOR_QUALITY_DECREASE_MS else ADAPTIVE_MAX_DURATION_FOR_QUALITY_DECREASE_MS,
+            /* minDurationToRetainAfterDiscardMs = */ if (isTvDevice) TV_ADAPTIVE_MIN_DURATION_TO_RETAIN_AFTER_DISCARD_MS else ADAPTIVE_MIN_DURATION_TO_RETAIN_AFTER_DISCARD_MS,
+            /* bandwidthFraction = */ if (isTvDevice) TV_ADAPTIVE_BANDWIDTH_FRACTION else ADAPTIVE_BANDWIDTH_FRACTION,
+            /* bufferedFractionToLiveEdgeForQualityIncrease = */ if (isTvDevice) TV_ADAPTIVE_BUFFERED_FRACTION_TO_LIVE_EDGE else ADAPTIVE_BUFFERED_FRACTION_TO_LIVE_EDGE,
             /* clock = */ Clock.DEFAULT
         )
 
@@ -1530,27 +1673,47 @@ class LivePlayerController(
         trackSelector = selector
 
         val loadControl = if (channel.isLiveBroadcast) {
-            // Ultra-fast live-edge DefaultLoadControl so DASH/HLS playback starts in ~1s on Smart TV & Mobile
-            DefaultLoadControl.Builder()
-                .setBufferDurationsMs(
-                    /* minBufferMs = */ 2_500,
-                    /* maxBufferMs = */ 15_000,
-                    /* bufferForPlaybackMs = */ 600,
-                    /* bufferForPlaybackAfterRebufferMs = */ 1_200
-                )
-                .setBackBuffer(
-                    /* backBufferDurationMs = */ 2_000,
-                    /* retainBackBufferFromKeyframe = */ false
-                )
-                .setPrioritizeTimeOverSizeThresholds(true)
-                .build()
+            if (isTvDevice) {
+                // Smart TV Fast-Start + Deep Anti-Jitter Cushion:
+                // - Starts playback in ~0.8s (bufferForPlaybackMs = 800ms)
+                // - Continuously builds a 12s-35s safety cushion so unstable TV Wi-Fi dips never pause playback
+                // - After any real rebuffer, collects a solid 2.8s cushion before resuming to prevent stutter loops
+                DefaultLoadControl.Builder()
+                    .setBufferDurationsMs(
+                        /* minBufferMs = */ 12_000,
+                        /* maxBufferMs = */ 35_000,
+                        /* bufferForPlaybackMs = */ 800,
+                        /* bufferForPlaybackAfterRebufferMs = */ 2_800
+                    )
+                    .setBackBuffer(
+                        /* backBufferDurationMs = */ 3_000,
+                        /* retainBackBufferFromKeyframe = */ false
+                    )
+                    .setPrioritizeTimeOverSizeThresholds(true)
+                    .build()
+            } else {
+                // Mobile Fast-Start + Stable Live Cushion
+                DefaultLoadControl.Builder()
+                    .setBufferDurationsMs(
+                        /* minBufferMs = */ 6_000,
+                        /* maxBufferMs = */ 24_000,
+                        /* bufferForPlaybackMs = */ 800,
+                        /* bufferForPlaybackAfterRebufferMs = */ 2_000
+                    )
+                    .setBackBuffer(
+                        /* backBufferDurationMs = */ 2_000,
+                        /* retainBackBufferFromKeyframe = */ false
+                    )
+                    .setPrioritizeTimeOverSizeThresholds(true)
+                    .build()
+            }
         } else {
             DefaultLoadControl.Builder()
                 .setBufferDurationsMs(
-                    /* minBufferMs = */ 6_000,
-                    /* maxBufferMs = */ 30_000,
+                    /* minBufferMs = */ if (isTvDevice) 12_000 else 6_000,
+                    /* maxBufferMs = */ if (isTvDevice) 45_000 else 30_000,
                     /* bufferForPlaybackMs = */ 1_000,
-                    /* bufferForPlaybackAfterRebufferMs = */ 2_000
+                    /* bufferForPlaybackAfterRebufferMs = */ if (isTvDevice) 3_000 else 2_000
                 )
                 .setBackBuffer(
                     /* backBufferDurationMs = */ 5_000,
@@ -1973,11 +2136,18 @@ class LivePlayerController(
             return false
         }
 
+        // Do not tear down/reload an in-flight stream while Wi-Fi is momentarily offline;
+        // NetworkCallback.onAvailable() will immediately resume once the TV Wi-Fi returns.
+        if (!isDeviceCurrentlyOnline) {
+            return false
+        }
+
         val stalledDurationMs = (elapsedRealtimeMs - lastLivePositionProgressRealtimeMs).coerceAtLeast(0L)
+        val isTvDeviceNow = isSmartTvDevice()
         val effectiveBufferingThresholdMs = if (hasReachedReadyForCurrentStream) {
-            LIVE_STREAM_STALL_AUTO_FIX_THRESHOLD_MS
+            if (isTvDeviceNow) 14_000L else LIVE_STREAM_STALL_AUTO_FIX_THRESHOLD_MS
         } else {
-            8_500L
+            if (isTvDeviceNow) 16_000L else 10_000L
         }
         val stallReason = when {
             state == Player.STATE_IDLE || state == Player.STATE_ENDED ->
@@ -2267,10 +2437,14 @@ class LivePlayerController(
         val loadErrorHandlingPolicy = LiveStreamLoadErrorHandlingPolicy()
         val extractorsFactory = sharedExtractorsFactory
 
+        val isTvDevice = isSmartTvDevice()
+        val targetLiveOffsetMs = if (isTvDevice) 10_000L else 6_000L
         val liveConfiguration = MediaItem.LiveConfiguration.Builder()
-            .setTargetOffsetMs(4_000L)
-            .setMinOffsetMs(2_000L)
-            .setMaxOffsetMs(15_000L)
+            .setTargetOffsetMs(targetLiveOffsetMs)
+            .setMinOffsetMs(if (isTvDevice) 4_000L else 2_500L)
+            .setMaxOffsetMs(if (isTvDevice) 25_000L else 18_000L)
+            .setMinPlaybackSpeed(0.96f)
+            .setMaxPlaybackSpeed(1.04f)
             .build()
 
         val mainMediaSource = when {
@@ -2300,7 +2474,7 @@ class LivePlayerController(
                 }
 
                 DashMediaSource.Factory(dataSourceFactory)
-                    .setFallbackTargetLiveOffsetMs(4_000L)
+                    .setFallbackTargetLiveOffsetMs(targetLiveOffsetMs)
                     .setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
                     .createMediaSource(mediaItemBuilder.build())
             }
@@ -2581,6 +2755,8 @@ class LivePlayerController(
     fun release() {
         mainHandler.removeCallbacksAndMessages(null)
         unregisterPowerBroadcastReceiverIfNeeded()
+        unregisterNetworkRecoveryCallbackIfNeeded()
+        releaseTvWifiLockIfHeld()
         bandwidthMeter?.removeEventListener(bandwidthEventListener)
         bandwidthMeter = null
         trackSelector = null
@@ -2686,18 +2862,23 @@ class LivePlayerController(
         }
     }
 
-    private class LiveStreamLoadErrorHandlingPolicy : DefaultLoadErrorHandlingPolicy() {
+    internal class LiveStreamLoadErrorHandlingPolicy : DefaultLoadErrorHandlingPolicy() {
         override fun getRetryDelayMsFor(loadErrorInfo: LoadErrorHandlingPolicy.LoadErrorInfo): Long {
             val ex = loadErrorInfo.exception
             val responseCode = (ex as? HttpDataSource.InvalidResponseCodeException)?.responseCode
                 ?: (ex.cause as? HttpDataSource.InvalidResponseCodeException)?.responseCode
 
-            if ((responseCode == 401 || responseCode == 403 || responseCode == 404 || responseCode == 410 || responseCode == 429) && loadErrorInfo.errorCount >= 1) {
+            // Hard auth / missing / rate-limit HTTP codes fail fast so proxy failover triggers immediately
+            if ((responseCode == 401 || responseCode == 403 || responseCode == 404 || responseCode == 410 || responseCode == 429) &&
+                loadErrorInfo.errorCount >= 1
+            ) {
                 return C.TIME_UNSET
             }
-            return minOf(loadErrorInfo.errorCount * 300L, 900L)
+            // Transient Wi-Fi drops, socket timeouts, DNS hiccups, and 5xx glitches retry smoothly
+            // while the 12-35s TV buffer cushion keeps playback uninterrupted.
+            return minOf(loadErrorInfo.errorCount * 350L, 2_000L)
         }
 
-        override fun getMinimumLoadableRetryCount(dataType: Int): Int = 1
+        override fun getMinimumLoadableRetryCount(dataType: Int): Int = 6
     }
 }
