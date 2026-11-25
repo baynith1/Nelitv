@@ -3039,8 +3039,8 @@ class ExampleRobolectricTest {
             com.example.notifications.NeliNotificationScheduler.DAILY_NOTIFICATION_CHANNEL_ID
         )
 
-        // 5. Cinematic 10-second splash duration + Production HarakaPay & Supabase connections + Channels remain unlocked
-        assertEquals(10_000L, com.example.ui.screens.NELI_SPLASH_TOTAL_DURATION_MS)
+        // 5. Cinematic 5-second splash duration + Production HarakaPay & Supabase connections + Channels remain unlocked
+        assertEquals(5_000L, com.example.ui.screens.NELI_SPLASH_TOTAL_DURATION_MS)
         assertTrue(com.example.data.NeliSupabaseSyncManager.SUPABASE_URL.startsWith("https://"))
         assertTrue(com.example.data.NeliSupabaseSyncManager.SUPABASE_ANON_KEY.isNotBlank())
         assertTrue(com.example.data.HarakaPayRepository.resolveApiKey().startsWith("hpk_"))
