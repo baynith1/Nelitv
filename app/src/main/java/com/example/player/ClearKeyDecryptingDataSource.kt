@@ -58,28 +58,28 @@ class ClearKeyDecryptingDataSource(
         transferInitializing(dataSpec)
 
         val rawUriCheck = dataSpec.uri.toString()
-        val isAzamUrl = rawUriCheck.contains("azamtvltd.co.tz", ignoreCase = true) ||
-            rawUriCheck.contains("/live/eds/", ignoreCase = true)
-        if (isAzamUrl) {
-            if (com.example.data.ChannelRepository.isActiveTokenExpired()) {
-                // Only block if the active token is ACTUALLY expired — fast parallel race, no heavy channels JSON
-                try {
-                    TokenManager.fetchLiveTokenBlocking(forceRefresh = true)
-                } catch (_: Exception) {
-                }
-            } else if (com.example.data.ChannelRepository.isActiveTokenExpiringSoon(leadSeconds = 600L)) {
-                // Proactively renew in the background without ever stalling active video/audio chunks
-                TokenManager.triggerAsyncBackgroundRefresh(forceRefresh = false)
+        val isProxyStream = rawUriCheck.contains("/api/proxy-stream", ignoreCase = true)
+        val isLegacyAzamHost = rawUriCheck.contains("azamtvltd.co.tz", ignoreCase = true)
+        if (isLegacyAzamHost && com.example.data.ChannelRepository.isActiveTokenExpired()) {
+            try {
+                com.example.data.NeliTvRepository.fetchAppBootstrapBlocking(forceRefresh = false)
+            } catch (_: Exception) {
             }
         }
 
-        val useLatestToken = isAzamUrl && (
-            com.example.data.ChannelRepository.hasAuthoritativeLiveToken ||
-                com.example.data.ChannelRepository.isActiveTokenExpired()
-            )
-        var effectiveDataSpec = resolveDataSpecToken(dataSpec, forceLatestRepoToken = useLatestToken)
+        var effectiveDataSpec = if (isProxyStream || !isLegacyAzamHost) {
+            val extraHeaders = com.example.data.NeliTvRepository.buildStreamPlayerHeaders(rawUriCheck)
+            if (extraHeaders.isNotEmpty()) dataSpec.withAdditionalHeaders(extraHeaders) else dataSpec
+        } else {
+            resolveDataSpecToken(dataSpec, forceLatestRepoToken = true)
+        }
         val uriString = effectiveDataSpec.uri.toString()
-        val pathPart = uriString.substringBefore("?").lowercase()
+        val proxiedInnerUrl = if (isProxyStream) {
+            effectiveDataSpec.uri.getQueryParameter("url").orEmpty()
+        } else {
+            ""
+        }
+        val pathPart = (proxiedInnerUrl.ifBlank { uriString }).substringBefore("?").lowercase()
 
         val isMpd = pathPart.endsWith(".mpd")
         val isMp4Segment = pathPart.endsWith(".mp4") || pathPart.endsWith(".m4s") || pathPart.endsWith(".cmfv") || pathPart.endsWith(".cmfa")
@@ -95,7 +95,7 @@ class ClearKeyDecryptingDataSource(
 
         passthroughMode = false
 
-        // Normalize path key (strip /tok_<JWT>/ prefix) for local init-segment & MPD micro-caching
+        // Normalize path key (strip /tok_<JWT>/ prefix) for local init-segment caching
         val cachePathKey = if (pathPart.contains("/tok_")) {
             pathPart.substringBefore("/tok_") + "/" + pathPart.substringAfter("/tok_").substringAfter("/", "")
         } else {
@@ -129,7 +129,7 @@ class ClearKeyDecryptingDataSource(
 
         val processedBytes = if (isMpd) {
             val rawXml = String(rawBytes, Charsets.UTF_8)
-            val xml = AZAM_XML_HOST_REGEX.replace(rawXml, com.example.data.ChannelRepository.AZAM_CDN_HOST)
+            val xml = AZAM_XML_HOST_REGEX.replace(rawXml, com.example.data.NeliTvRepository.getCurrentCdnHost())
             val stripped = decryptor?.stripMpdContentProtection(xml)
                 ?: Mp4CencDecryptor(emptyMap()).stripMpdContentProtection(xml)
             stripped.toByteArray(Charsets.UTF_8)

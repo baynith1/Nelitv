@@ -34,11 +34,6 @@ import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.SeekParameters
 import androidx.media3.exoplayer.dash.DashMediaSource
-import androidx.media3.exoplayer.drm.DefaultDrmSessionManager
-import androidx.media3.exoplayer.drm.DrmSession
-import androidx.media3.exoplayer.drm.FrameworkMediaDrm
-import androidx.media3.exoplayer.drm.LocalMediaDrmCallback
-import androidx.media3.exoplayer.drm.UnsupportedDrmException
 import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.source.MediaSource
@@ -499,7 +494,6 @@ class LivePlayerController(
     private var totalLiveAutoFixCount: Int = 0
     private var lastAutoFixReasonLabel: String? = null
     private var liveFailoverStep: Int = 0
-    private var useSoftwareClearKeyFallback: Boolean = false
     private var originalLiveStreamUrl: String = initialChannel.streamUrl
 
     private val sharedBaseHttpDataSourceFactory: DefaultHttpDataSource.Factory by lazy {
@@ -1075,25 +1069,6 @@ class LivePlayerController(
                 return
             }
 
-            // If hardware/framework MediaDrm ClearKey fails (e.g. emulator lacking ClearKey HAL),
-            // seamlessly fall back once to in-app software CENC decryption without counting against network failover.
-            val isDrmError = error.errorCode in 6000..6008 ||
-                cause is DrmSession.DrmSessionException ||
-                cause is UnsupportedDrmException ||
-                innerCause is UnsupportedDrmException ||
-                combinedErrorMsg.contains("drm", ignoreCase = true) ||
-                combinedErrorMsg.contains("clearkey", ignoreCase = true)
-            if (isDrmError && !useSoftwareClearKeyFallback && channel.isLiveBroadcast) {
-                useSoftwareClearKeyFallback = true
-                _uiState.value = PlayerUiState.Buffering
-                mainHandler.post {
-                    exoPlayer?.let { p ->
-                        loadChannelStream(p, preserveVodPosition = false)
-                    }
-                }
-                return
-            }
-
             val httpCode = extractHttpErrorCode(error)
             if (channel.isLiveBroadcast) {
                 // Automatic 3-Step Live TV Failover (Never fail on first error):
@@ -1636,7 +1611,6 @@ class LivePlayerController(
         originalLiveStreamUrl = newChannel.streamUrl
         autoReconnectAttempts = 0
         liveFailoverStep = 0
-        useSoftwareClearKeyFallback = false
         hasReachedReadyForCurrentStream = false
         consecutiveRebufferCount = 0
         bufferingEnteredAtRealtimeMs = 0L
@@ -2261,20 +2235,26 @@ class LivePlayerController(
                 !isLocalOfflineFile &&
                 (liveServerChannel.isDash || effectiveStreamUrl.contains(".mpd", ignoreCase = true))
 
-        val shouldUseNativeW3cClearKey = useDash &&
-            mergedClearKeys.isNotEmpty() &&
-            !useSoftwareClearKeyFallback
+        // Always decrypt DASH ClearKey streams in-process via ClearKeyDecryptingDataSource + Mp4CencDecryptor
+        // (strips <ContentProtection> and decrypts CENC AES-128-CTR segments in Kotlin/Java) so ExoPlayer NEVER
+        // instantiates FrameworkMediaDrm / MediaCrypto or triggers DrmHalHidl / CryptoHalHidl errors on any device.
+        val needsClearKeyWrapper = !isLocalOfflineFile && (
+            useDash ||
+                (liveServerChannel.isClearKey && mergedClearKeys.isNotEmpty()) ||
+                effectiveStreamUrl.contains("/live/eds/", ignoreCase = true) ||
+                effectiveStreamUrl.contains("azamtvltd.co.tz", ignoreCase = true)
+            )
 
-        val shouldUseSoftwareClearKey = !isLocalOfflineFile &&
-            useDash &&
-            mergedClearKeys.isNotEmpty() &&
-            useSoftwareClearKeyFallback
-
-        val upstreamDataSourceFactory = if (shouldUseSoftwareClearKey) {
+        val upstreamDataSourceFactory = if (needsClearKeyWrapper) {
+            val decryptor = if (mergedClearKeys.isNotEmpty()) {
+                Mp4CencDecryptor(mergedClearKeys)
+            } else {
+                null
+            }
             ClearKeyDecryptingDataSource.Factory(
                 upstreamFactory = baseHttpDataSourceFactory,
                 encodedManifestQuery = encodedManifestQuery,
-                decryptor = Mp4CencDecryptor(mergedClearKeys)
+                decryptor = decryptor
             )
         } else {
             baseHttpDataSourceFactory
@@ -2312,42 +2292,9 @@ class LivePlayerController(
                     .setMimeType(MimeTypes.APPLICATION_MPD)
                     .setMediaId(liveServerChannel.id)
 
-                if (shouldUseNativeW3cClearKey) {
-                    val jwkBytes = ClearKeyUtil.createClearKeyJwkBytes(mergedClearKeys)
-                    val drmSessionManager = try {
-                        val drmCallback = LocalMediaDrmCallback(jwkBytes)
-                        DefaultDrmSessionManager.Builder()
-                            .setUuidAndExoMediaDrmProvider(C.CLEARKEY_UUID, FrameworkMediaDrm.DEFAULT_PROVIDER)
-                            .setMultiSession(true)
-                            .build(drmCallback)
-                    } catch (_: Throwable) {
-                        null
-                    }
-                    if (drmSessionManager != null) {
-                        DashMediaSource.Factory(dataSourceFactory)
-                            .setDrmSessionManagerProvider { drmSessionManager }
-                            .setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
-                            .createMediaSource(mediaItemBuilder.build())
-                    } else {
-                        // Immediate fallback to software ClearKey decryption if ClearKey MediaDrm is unavailable
-                        useSoftwareClearKeyFallback = true
-                        val swFactory = DefaultDataSource.Factory(
-                            context,
-                            ClearKeyDecryptingDataSource.Factory(
-                                upstreamFactory = baseHttpDataSourceFactory,
-                                encodedManifestQuery = encodedManifestQuery,
-                                decryptor = Mp4CencDecryptor(mergedClearKeys)
-                            )
-                        )
-                        DashMediaSource.Factory(swFactory)
-                            .setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
-                            .createMediaSource(mediaItemBuilder.build())
-                    }
-                } else {
-                    DashMediaSource.Factory(dataSourceFactory)
-                        .setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
-                        .createMediaSource(mediaItemBuilder.build())
-                }
+                DashMediaSource.Factory(dataSourceFactory)
+                    .setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
+                    .createMediaSource(mediaItemBuilder.build())
             }
 
             else -> {
@@ -2399,7 +2346,6 @@ class LivePlayerController(
     fun retry() {
         autoReconnectAttempts = 0
         liveFailoverStep = 0
-        useSoftwareClearKeyFallback = false
         val player = exoPlayer ?: return initializePlayer().let { }
         _uiState.value = PlayerUiState.Loading
         player.stop()
