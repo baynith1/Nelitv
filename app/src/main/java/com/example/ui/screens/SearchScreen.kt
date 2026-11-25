@@ -337,7 +337,7 @@ fun SearchScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .testTag("search_results_grid"),
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 96.dp),
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
@@ -409,7 +409,7 @@ fun SearchScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .testTag("search_recommendations_list"),
-                contentPadding = PaddingValues(top = 8.dp, bottom = 116.dp),
+                contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 // 1. Recommended Live TV Channels

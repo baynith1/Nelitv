@@ -194,6 +194,9 @@ class MainActivity : ComponentActivity() {
 
         extractDeepLinkFromIntent(intent)
 
+        // Preload /baynithalex/api/app silently during splash/startup (0ms disk cache + Single-Flight background refresh)
+        com.example.data.NeliTvRepository.preloadOnStartup(this)
+
         // Offload SharedPreferences JSON parsing, AdMob SDK init, notifications, Firebase sync, and update check
         // off the main thread AFTER initial window draw & SurfaceSyncGroup transactions settle cleanly.
         lifecycleScope.launch(Dispatchers.IO) {

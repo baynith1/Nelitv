@@ -83,10 +83,19 @@ data class LiveChannel(
     val audioStreamUrl: String = "",
     val allowPip: Boolean = true,
     val isYoutubeEmbedded: Boolean = false,
-    val channelAttribution: String = ""
+    val channelAttribution: String = "",
+    val slug: String = "",
+    val proxyStreamUrl: String = "",
+    val embedUrl: String = "",
+    val isAzam: Boolean = false,
+    val currentProgram: String = "",
+    val nextProgram: String = "",
+    val isFromNeliTvServer: Boolean = false
 ) {
     val isEmbedded: Boolean
         get() = embeddedHtml.isNotBlank() ||
+            embedUrl.isNotBlank() && streamFormat.equals("embed", ignoreCase = true) ||
+            streamFormat.equals("embed", ignoreCase = true) ||
             streamFormat.equals("embedded", ignoreCase = true) ||
             com.example.player.NeliEmbedPlayerHelper.isYoutubeOrEmbedNeliUrl(streamUrl)
 
@@ -155,7 +164,8 @@ data class LiveChannel(
         get() = encryptionType.equals("clearkey", ignoreCase = true) && clearKeys.isNotEmpty()
 
     val isAzamPriority: Boolean
-        get() = categories.any { it.equals("azam tv", ignoreCase = true) || it.equals("azam", ignoreCase = true) } ||
+        get() = isAzam ||
+                categories.any { it.equals("azam tv", ignoreCase = true) || it.equals("azam", ignoreCase = true) } ||
                 id.startsWith("azam_", ignoreCase = true) ||
                 id == "R17JUvbCEzu2eTbjnE74" ||
                 id == "f74ba826-f031-4e64-9ec1-f7ffa4e6ec0f" ||
@@ -166,6 +176,8 @@ data class LiveChannel(
                 id == "f56ca8c1-3d3f-4dd2-8d9d-b0b54b559f6e" ||
                 id == "tom_and_jerry_channel" ||
                 id == "pop_kids_channel" ||
+                streamUrl.contains("/live/eds/", ignoreCase = true) ||
+                streamUrl.contains("cdn77.org", ignoreCase = true) ||
                 streamUrl.contains("azamtvltd.co.tz", ignoreCase = true) ||
                 name.contains("Azam", ignoreCase = true) ||
                 name.contains("Sinema Zetu", ignoreCase = true) ||
@@ -306,9 +318,14 @@ data class LiveChannel(
 
             // Remaining Azam TV channels
             isAzamPriority || categories.any { it.equals("azam tv", ignoreCase = true) || it.equals("azam", ignoreCase = true) } ||
+                streamUrl.contains("/live/eds/", ignoreCase = true) ||
+                streamUrl.contains("cdn77.org", ignoreCase = true) ||
                 streamUrl.contains("azamtvltd.co.tz", ignoreCase = true) -> 900
 
-            // Remove all channels added apart from this of azam tv and user-requested channels
+            // All other channels returned by official NeliTv Server (/baynithalex/api/app)
+            isFromNeliTvServer -> 100
+
+            // Remove unapproved legacy channels
             else -> -1
         }
 }

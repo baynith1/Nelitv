@@ -69,6 +69,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -1227,41 +1228,96 @@ fun PlayerScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         when (val state = uiState) {
-                            is PlayerUiState.Loading -> {
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                                ) {
-                                    CircularProgressIndicator(
-                                        color = NeliMagenta,
-                                        modifier = Modifier.size(if (isPortraitYoutubeMode) 36.dp else 44.dp)
-                                    )
-                                    Text(
-                                        text = if (activeChannel.isLiveBroadcast) {
-                                            "Connecting to ${activeChannel.name}..."
-                                        } else {
-                                            "Loading ${activeChannel.name}..."
-                                        },
-                                        color = Color.White,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
+                            is PlayerUiState.Loading, is PlayerUiState.Buffering -> {
+                                var loadPercent by remember(activeChannel.id, state is PlayerUiState.Loading) {
+                                    mutableIntStateOf(if (state is PlayerUiState.Loading) 12 else 48)
                                 }
-                            }
-
-                            is PlayerUiState.Buffering -> {
+                                LaunchedEffect(activeChannel.id, state) {
+                                    while (loadPercent < 96) {
+                                        kotlinx.coroutines.delay(if (loadPercent < 65) 140L else 320L)
+                                        loadPercent = (loadPercent + if (loadPercent < 60) 7 else 3).coerceAtMost(96)
+                                    }
+                                }
+                                val previewLogoUrl = remember(activeChannel.id, activeChannel.thumbnailUrl) {
+                                    com.example.data.ChannelRepository.resolveGuaranteedChannelLogoUrl(activeChannel)
+                                }
                                 Column(
                                     horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(16.dp))
+                                        .background(Color(0xCC120624))
+                                        .border(1.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(16.dp))
+                                        .padding(horizontal = 18.dp, vertical = 14.dp)
+                                        .widthIn(min = 190.dp, max = 280.dp)
                                 ) {
-                                    CircularProgressIndicator(
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(if (isPortraitYoutubeMode) 40.dp else 48.dp)
+                                                .clip(RoundedCornerShape(10.dp))
+                                                .background(Color(0xFF1F1235)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            if (previewLogoUrl.isNotBlank()) {
+                                                SubcomposeAsyncImage(
+                                                    model = ImageRequest.Builder(context)
+                                                        .data(previewLogoUrl)
+                                                        .crossfade(true)
+                                                        .build(),
+                                                    contentDescription = activeChannel.name,
+                                                    contentScale = ContentScale.Crop,
+                                                    modifier = Modifier.fillMaxSize()
+                                                )
+                                            }
+                                            CircularProgressIndicator(
+                                                color = NeliMagenta,
+                                                strokeWidth = 2.5.dp,
+                                                modifier = Modifier.size(22.dp)
+                                            )
+                                        }
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = activeChannel.name,
+                                                color = Color.White,
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            val subtitle = activeChannel.currentProgram.ifBlank {
+                                                if (state is PlayerUiState.Loading) {
+                                                    "Inafungua chaneli..."
+                                                } else {
+                                                    "Inapakia (${playbackInfo.connectionLabel})..."
+                                                }
+                                            }
+                                            Text(
+                                                text = subtitle,
+                                                color = Color(0xFFD0C4E8),
+                                                fontSize = 11.sp,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                        Text(
+                                            text = "$loadPercent%",
+                                            color = NeliMagenta,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.ExtraBold
+                                        )
+                                    }
+                                    LinearProgressIndicator(
+                                        progress = { loadPercent / 100f },
                                         color = NeliMagenta,
-                                        modifier = Modifier.size(if (isPortraitYoutubeMode) 34.dp else 40.dp)
-                                    )
-                                    Text(
-                                        text = "Buffering (${playbackInfo.connectionLabel})...",
-                                        color = Color.White,
-                                        fontSize = 11.sp
+                                        trackColor = Color.White.copy(alpha = 0.18f),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(4.dp)
+                                            .clip(RoundedCornerShape(2.dp))
                                     )
                                 }
                             }
@@ -1361,7 +1417,7 @@ fun PlayerScreen(
                                                     )
                                                     Spacer(modifier = Modifier.width(4.dp))
                                                     Text(
-                                                        text = "Retry",
+                                                        text = "Jaribu Tena",
                                                         color = Color.White,
                                                         fontSize = 12.sp,
                                                         fontWeight = FontWeight.Bold
@@ -1373,7 +1429,7 @@ fun PlayerScreen(
                                                     shape = RoundedCornerShape(10.dp)
                                                 ) {
                                                     Text(
-                                                        text = "Back",
+                                                        text = "Rudi",
                                                         color = Color.White,
                                                         fontSize = 12.sp
                                                     )
@@ -2680,8 +2736,8 @@ fun EmbeddedChannelWebViewPlayer(
         }
     }
 
-    val resolvedTargetUrl = remember(channel.id, channel.streamUrl, channel.embeddedHtml) {
-        val raw = channel.streamUrl.trim()
+    val resolvedTargetUrl = remember(channel.id, channel.embedUrl, channel.streamUrl, channel.embeddedHtml) {
+        val raw = channel.embedUrl.ifBlank { channel.streamUrl }.trim()
         if (isYoutubeEmbed) {
             com.example.player.NeliEmbedPlayerHelper.resolveNeliEmbedUrl(streamUrl = raw)
         } else {
@@ -3028,7 +3084,7 @@ private fun EmbeddedPlayerRecoveryCard(
             colors = ButtonDefaults.buttonColors(containerColor = NeliMagenta),
             shape = RoundedCornerShape(12.dp)
         ) {
-            Text("Try again", color = Color.White, fontWeight = FontWeight.Bold)
+            Text("Jaribu Tena", color = Color.White, fontWeight = FontWeight.Bold)
         }
     }
 }

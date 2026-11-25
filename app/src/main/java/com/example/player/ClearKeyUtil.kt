@@ -5,11 +5,12 @@ import android.util.Base64
 object ClearKeyUtil {
 
     /**
-     * Converts a hexadecimal string (KID or Key) to a ByteArray.
+     * Converts a 32-char hexadecimal string (KID or Key, with or without dashes) to a 16-byte ByteArray.
      */
     fun hexToByteArray(hex: String): ByteArray {
         val clean = hex.trim().replace(" ", "").replace("-", "")
         val len = clean.length
+        if (len == 0 || len % 2 != 0) return ByteArray(0)
         val result = ByteArray(len / 2)
         for (i in 0 until len step 2) {
             val byteVal = clean.substring(i, i + 2).toInt(16)
@@ -38,11 +39,18 @@ object ClearKeyUtil {
      * {"keys":[{"kty":"oct","k":"<key>","kid":"<kid>"},...],"type":"temporary"}
      */
     fun createClearKeyJwkJson(clearKeys: Map<String, String>): String {
-        val keyEntries = clearKeys.map { (kid, key) ->
-            val kidBase64 = toBase64Url(hexToByteArray(kid))
-            val keyBase64 = toBase64Url(hexToByteArray(key))
-            """{"kty":"oct","k":"$keyBase64","kid":"$kidBase64"}"""
-        }.joinToString(",")
+        val keyEntries = clearKeys.entries.mapNotNull { (kid, key) ->
+            try {
+                val kidBytes = hexToByteArray(kid)
+                val keyBytes = hexToByteArray(key)
+                if (kidBytes.size != 16 || keyBytes.size != 16) return@mapNotNull null
+                val kidBase64 = toBase64Url(kidBytes)
+                val keyBase64 = toBase64Url(keyBytes)
+                """{"kty":"oct","k":"$keyBase64","kid":"$kidBase64"}"""
+            } catch (_: Exception) {
+                null
+            }
+        }.distinct().joinToString(",")
         return """{"keys":[$keyEntries],"type":"temporary"}"""
     }
 

@@ -54,11 +54,14 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material.icons.filled.WorkspacePremium
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
@@ -781,18 +784,17 @@ fun HomeScreen(
                 ) {
                     mainTabsContent()
                 }
-            }
 
-            // Floating Glass Capsule Bottom Bar hovers cleanly over scrollable content
-            NeliBottomBar(
-                selectedTab = selectedTab,
-                onTabSelected = { tab ->
-                    isSearchOpen = false
-                    neliViewModel.selectTab(tab)
-                },
-                activeDownloadCount = downloadingIds.size,
-                modifier = Modifier.align(Alignment.BottomCenter)
-            )
+                // Docked YouTube-style mobile bottom navigation bar anchored flush at the bottom
+                NeliBottomBar(
+                    selectedTab = selectedTab,
+                    onTabSelected = { tab ->
+                        isSearchOpen = false
+                        neliViewModel.selectTab(tab)
+                    },
+                    activeDownloadCount = downloadingIds.size
+                )
+            }
 
             // Launch welcome / v2.5 update dialog with notification prompt
             NeliV25WelcomeUpdateDialog()
@@ -937,7 +939,7 @@ private fun LiveTvHomeTab(
             modifier = Modifier
                 .fillMaxSize()
                 .testTag("channels_grid"),
-            contentPadding = PaddingValues(bottom = 112.dp)
+            contentPadding = PaddingValues(bottom = 24.dp)
         ) {
         // 0. Subtle, non-intrusive offline connectivity banner informing why live streams might not load
         if (isOfflineMode) {
@@ -1133,6 +1135,53 @@ private fun LiveTvHomeTab(
                             contentDescription = "Refresh Live TV",
                             tint = Color.White,
                             modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+            }
+        }
+
+        if (sixChannelBlocks.isEmpty()) {
+            item(key = "empty_live_channels_retry_card") {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 28.dp)
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(Color(0xFF1A1030))
+                        .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(18.dp))
+                        .padding(22.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = null,
+                        tint = Color(0xFFFF2A55),
+                        modifier = Modifier.size(34.dp)
+                    )
+                    Text(
+                        text = if (isRefreshing) {
+                            "Inapakia chaneli za Live TV..."
+                        } else {
+                            "Hakuna chaneli zilizoonekana kwa sasa. Hakikisha una mtandao kisha bonyeza Jaribu Tena."
+                        },
+                        color = Color.White,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        textAlign = TextAlign.Center
+                    )
+                    Button(
+                        onClick = onRefresh,
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF2A55)),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.testTag("empty_channels_retry_button")
+                    ) {
+                        Text(
+                            text = "Jaribu Tena",
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold
                         )
                     }
                 }

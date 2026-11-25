@@ -274,6 +274,8 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
     init {
         registerConnectivityMonitor()
 
+        com.example.data.NeliTvRepository.preloadOnStartup(appContext)
+
         viewModelScope.launch(Dispatchers.IO) {
             MediaContentRepository.initializeAndPrewarmFromCache(appContext)
             NeliAppUpdateManager.initialize(appContext)
@@ -329,25 +331,14 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
-        // Refresh Azam TV CDN token and Discovery catalog in background
+        // Refresh NeliTv bootstrap & Discovery catalog silently every 20 minutes in background (never blocks UI)
         viewModelScope.launch(Dispatchers.IO) {
             while (isActive) {
                 performAutomaticSyncCycle()
-                delay(10 * 60 * 1000L)
-            }
-        }
-
-        // Proactive CDN key auto-renewal watcher: checks every 60s and silently renews CDN keys/tokens
-        // before expiry so users never experience broken streams or playback interruptions.
-        viewModelScope.launch(Dispatchers.IO) {
-            while (isActive) {
-                delay(60 * 1000L)
-                if (!_isOfflineMode.value && ChannelRepository.isActiveTokenExpiringSoon(leadSeconds = 600L)) {
-                    try {
-                        com.example.player.TokenManager.renewCdnKeysAndChannels()
-                    } catch (_: Exception) {
-                    }
-                }
+                val refreshSec = com.example.data.NeliTvRepository.bootstrapState.value
+                    .refreshIntervalSeconds
+                    .coerceIn(900L, 1_800L)
+                delay(refreshSec * 1_000L)
             }
         }
     }
@@ -365,15 +356,7 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
         try {
             lastSyncCompletedAtMs = System.currentTimeMillis()
             try {
-                if (ChannelRepository.isActiveTokenExpiringSoon(leadSeconds = 600L)) {
-                    com.example.player.TokenManager.renewCdnKeysAndChannels()
-                } else {
-                    com.example.player.TokenManager.fetchLiveToken(forceRefresh = false)
-                }
-            } catch (_: Exception) {
-            }
-            try {
-                ChannelRepository.autoSyncAllChannelsNow()
+                com.example.data.NeliTvRepository.fetchAppBootstrap(forceRefresh = false)
             } catch (_: Exception) {
                 ChannelRepository.refreshLiveChannels()
             }
@@ -1048,13 +1031,12 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
         if (_isRefreshingLiveTv.value) return
         _isRefreshingLiveTv.value = true
         refreshConnectivityState()
-        ChannelRepository.refreshLiveChannels()
 
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                ChannelRepository.refreshCdnTokenFromEndpointSync()
+                com.example.data.NeliTvRepository.fetchAppBootstrap(forceRefresh = true)
                 ChannelRepository.refreshLiveChannels()
-                delay(300)
+                delay(250)
             } catch (_: Exception) {
             } finally {
                 _isRefreshingLiveTv.value = false

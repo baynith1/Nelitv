@@ -307,23 +307,25 @@ object NeliLocalStreamEngine {
     }
 
     private fun executePooledGet(urlStr: String, activeCalls: MutableSet<Call>): String? {
-        val effectiveUrl = appendNeliTvApiKeyIfNeeded(urlStr)
+        val effectiveUrl = urlStr.trim()
         val reqBuilder = Request.Builder()
             .url(effectiveUrl)
             .get()
-            .header("User-Agent", TokenManager.USER_AGENT)
-            .header("Accept", "application/json, text/plain, */*")
+            .header("User-Agent", com.example.data.NeliTvRepository.getPlayerUserAgent())
+            .header("Accept", "application/json")
             .header("Cache-Control", "no-store, no-cache")
 
         if (effectiveUrl.contains("nelitv.online", ignoreCase = true)) {
             reqBuilder
+                .header(
+                    com.example.data.NeliTvRepository.HEADER_CLIENT_NAME,
+                    com.example.data.NeliTvRepository.HEADER_CLIENT_VALUE
+                )
                 .header("Origin", ChannelRepository.NELITV_SERVER_BASE_URL)
                 .header("Referer", "${ChannelRepository.NELITV_SERVER_BASE_URL}/")
-            val apiKey = getConfiguredNeliTvApiKey()
+            val apiKey = com.example.data.NeliTvRepository.getConfiguredApiKey()
             if (apiKey.isNotEmpty()) {
-                reqBuilder
-                    .header("X-API-Key", apiKey)
-                    .header("Authorization", "Bearer $apiKey")
+                reqBuilder.header(com.example.data.NeliTvRepository.HEADER_API_KEY_NAME, apiKey)
             }
         } else if (effectiveUrl.contains("streamzone.fun", ignoreCase = true)) {
             reqBuilder
@@ -395,14 +397,13 @@ object NeliLocalStreamEngine {
         Thread({
             while (true) {
                 try {
-                    val jitterMs = kotlin.random.Random.nextLong(5_000L, 25_000L)
-                    Thread.sleep(180_000L + jitterMs)
+                    val intervalSec = com.example.data.NeliTvRepository.bootstrapState.value
+                        .refreshIntervalSeconds
+                        .coerceIn(900L, 1_800L)
+                    val jitterMs = kotlin.random.Random.nextLong(5_000L, 30_000L)
+                    Thread.sleep(intervalSec * 1_000L + jitterMs)
                     if (isOverloadBackoffActive()) continue
-                    val expiringSoon = ChannelRepository.isActiveTokenExpiringSoon(leadSeconds = 1_200L)
-                    if (expiringSoon || !ChannelRepository.hasAuthoritativeLiveToken) {
-                        TokenManager.fetchLiveTokenBlocking(forceRefresh = true)
-                    }
-                    syncLiveChannelsFromNeliTvServerBlocking(forceRefresh = false)
+                    com.example.data.NeliTvRepository.fetchAppBootstrapBlocking(forceRefresh = false)
                 } catch (_: InterruptedException) {
                     break
                 } catch (_: Exception) {
@@ -432,74 +433,39 @@ object NeliLocalStreamEngine {
      * mobile ISP blocks or rate-limits direct CDN playback.
      */
     fun buildNeliTvProxyStreamUrl(targetStreamUrl: String, apiKeyOverride: String? = null): String {
-        val cleanTarget = targetStreamUrl.trim()
-        if (cleanTarget.isEmpty() || cleanTarget.contains("/api/proxy-stream", ignoreCase = true)) {
-            return cleanTarget
-        }
-        val encoded = try {
-            java.net.URLEncoder.encode(cleanTarget, "UTF-8")
-        } catch (_: Exception) {
-            cleanTarget
-        }
-        val base = "${ChannelRepository.NELITV_PROXY_STREAM_URL}?url=$encoded"
-        return appendNeliTvApiKeyIfNeeded(base, apiKeyOverride = apiKeyOverride)
+        return com.example.data.NeliTvRepository.buildProxyStreamUrl(targetStreamUrl)
     }
 
     /**
      * Synchronizes live channels, stream URLs, ClearKeys, and the latest CDN token directly from
-     * the NeliTv App Server (`nelitv.online`) so server-side stream fixes take effect for all users
-     * immediately without rebuilding or updating the APK.
+     * the NeliTv App Server (`nelitv.online/baynithalex/api/app`) via Single-Flight [NeliTvRepository].
      */
     fun syncLiveChannelsFromNeliTvServerBlocking(forceRefresh: Boolean = false): Boolean {
-        val now = System.currentTimeMillis()
-        if (!forceRefresh && isOverloadBackoffActive(now) && ChannelRepository.getCachedBackupApiChannels().isNotEmpty()) {
+        val state = com.example.data.NeliTvRepository.fetchAppBootstrapBlocking(forceRefresh = forceRefresh)
+        if (state != null && state.channels.isNotEmpty()) {
+            lastServerChannelsSyncMs = System.currentTimeMillis()
+            TokenManager.syncStateFromRepository()
             return true
         }
-        if (!forceRefresh && lastServerChannelsSyncMs > 0L && (now - lastServerChannelsSyncMs) < 30_000L &&
-            ChannelRepository.getCachedBackupApiChannels().isNotEmpty()
-        ) {
-            return true
-        }
-        lastServerChannelsSyncMs = now
-        val candidates = listOf(
-            ChannelRepository.CHANNELS_BACKUP_API_URL,
-            ChannelRepository.NELITV_CONTENT_API_URL,
-            ChannelRepository.NELITV_APP_SYNC_URL
-        ).distinct()
-        val activeCalls = ConcurrentHashMap.newKeySet<Call>()
-        for (endpoint in candidates) {
-            val body = executePooledGet(endpoint, activeCalls)
-            if (!body.isNullOrBlank()) {
-                val parsed = ChannelRepository.parseBackupChannelsApiPayload(body, persistToVault = true)
-                if (parsed.isNotEmpty()) {
-                    TokenManager.syncStateFromRepository()
-                    return true
-                }
-            }
-        }
-        return false
+        return ChannelRepository.getCachedBackupApiChannels().isNotEmpty()
     }
 
     /**
-     * Proactively syncs live channels + token directly from `nelitv.online` and opens a keep-alive
-     * TLS connection to the active CDN edge host in the background on app launch.
+     * Proactively preloads `/baynithalex/api/app` and pre-warms a keep-alive TLS socket to the dynamic CDN host.
      */
     fun warmUpAzamCdnAndTokenAsync() {
         startProactiveKeepAliveLoop()
         if (!warmupInFlight.compareAndSet(false, true)) return
         raceExecutor.execute {
             try {
-                // 1. Pull latest live token from nelitv.online
-                TokenManager.fetchLiveTokenBlocking(forceRefresh = false)
-                // 2. Pull latest server-controlled channels, stream URLs, and ClearKeys from nelitv.online
-                syncLiveChannelsFromNeliTvServerBlocking(forceRefresh = false)
-                // 3. Pre-warm TCP/TLS socket to active CDN host
-                val cdnHost = ChannelRepository.AZAM_CDN_HOST.trim()
+                com.example.data.NeliTvRepository.fetchAppBootstrapBlocking(forceRefresh = false)
+                TokenManager.syncStateFromRepository()
+                val cdnHost = com.example.data.NeliTvRepository.getCurrentCdnHost()
                 if (cdnHost.startsWith("http", ignoreCase = true)) {
                     val warmReq = Request.Builder()
                         .url(cdnHost)
                         .head()
-                        .header("User-Agent", TokenManager.USER_AGENT)
+                        .header("User-Agent", com.example.data.NeliTvRepository.getPlayerUserAgent())
                         .build()
                     try {
                         liveStreamHttpClient.newCall(warmReq).execute().close()
@@ -639,9 +605,11 @@ class NeliPooledOkHttpDataSource(
         val urlString = dataSpec.uri.toString()
         val requestBuilder = Request.Builder().url(urlString)
 
-        // Start with live stream-scoped headers (always uses freshest Azam token when applicable)
+        // Start with live stream-scoped headers (official X-Neli-Client, X-Neli-Api-Key, server User-Agent & Referer)
+        val effectiveTarget = urlString.ifBlank { defaultStreamUrl.orEmpty() }
         val mergedHeaders = LinkedHashMap<String, String>()
-        mergedHeaders.putAll(TokenManager.buildExoPlayerHeaders(streamUrl = urlString.ifBlank { defaultStreamUrl }))
+        mergedHeaders.putAll(com.example.data.NeliTvRepository.buildStreamPlayerHeaders(effectiveTarget))
+        mergedHeaders.putAll(TokenManager.buildExoPlayerHeaders(streamUrl = effectiveTarget))
         mergedHeaders.putAll(requestProperties.snapshot)
         mergedHeaders.putAll(dataSpec.httpRequestHeaders)
 

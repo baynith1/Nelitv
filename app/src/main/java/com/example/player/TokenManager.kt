@@ -198,8 +198,7 @@ object TokenManager {
     fun isAzamOrStreamzoneUrl(url: String?): Boolean {
         val clean = url?.trim().orEmpty()
         if (clean.isEmpty()) return false
-        return clean.contains("azamtvltd.co.tz", ignoreCase = true) ||
-            clean.contains("/live/eds/", ignoreCase = true) ||
+        return com.example.data.NeliTvRepository.isAzamOrDynamicCdnUrl(clean) ||
             clean.contains("cdntoken=", ignoreCase = true) ||
             clean.contains("nelitv.online", ignoreCase = true) ||
             clean.contains("streamzone.fun", ignoreCase = true)
@@ -207,20 +206,20 @@ object TokenManager {
 
     /**
      * Builds the HTTP headers to inject into Media3 ExoPlayer requests.
-     * Strictly scopes Azam Authorization/Origin/Referer headers to Azam/NeliTV CDN URLs only
-     * so third-party M3U8 HLS CDNs never reject playback with HTTP 400/403.
+     * Uses server-provided `User-Agent`/`Referer` plus `X-Neli-Client: nelitv-app` & `X-Neli-Api-Key`
+     * on `nelitv.online` proxy requests, while avoiding polluting third-party HLS CDNs.
      */
     fun buildExoPlayerHeaders(
         streamUrl: String? = null,
         tokenOverride: String? = null
     ): Map<String, String> {
         val activeToken = tokenOverride?.trim()?.takeIf { it.isNotEmpty() } ?: currentToken
+        val url = streamUrl.orEmpty()
         val headers = linkedMapOf(
             "Accept" to "*/*",
             "Connection" to "keep-alive",
-            "User-Agent" to USER_AGENT
+            "User-Agent" to com.example.data.NeliTvRepository.getPlayerUserAgent()
         )
-        val url = streamUrl.orEmpty()
         when {
             url.contains("193.47.62.") -> {
                 headers["Referer"] = "http://www.fawanews.sc/"
@@ -234,18 +233,20 @@ object TokenManager {
                 headers["Referer"] = "https://getembed.live/"
                 headers["Origin"] = "https://getembed.live"
             }
-            isAzamOrStreamzoneUrl(url) -> {
-                if (url.contains("nelitv.online", ignoreCase = true)) {
-                    val neliKey = NeliLocalStreamEngine.getConfiguredNeliTvApiKey()
-                    if (neliKey.isNotEmpty()) {
-                        headers["X-API-Key"] = neliKey
-                    }
-                    headers["Origin"] = ChannelRepository.NELITV_SERVER_BASE_URL
-                    headers["Referer"] = "${ChannelRepository.NELITV_SERVER_BASE_URL}/"
-                } else {
-                    headers["Origin"] = ChannelRepository.NELITV_SERVER_BASE_URL
-                    headers["Referer"] = "${ChannelRepository.NELITV_SERVER_BASE_URL}/"
+            url.contains("nelitv.online", ignoreCase = true) -> {
+                headers.putAll(com.example.data.NeliTvRepository.buildStreamPlayerHeaders(url))
+            }
+            com.example.data.NeliTvRepository.isAzamOrDynamicCdnUrl(url) -> {
+                headers.putAll(com.example.data.NeliTvRepository.buildStreamPlayerHeaders(url))
+                if (url.contains("azamtvltd.co.tz", ignoreCase = true) && activeToken.isNotEmpty()) {
+                    headers["Authorization"] = "Bearer $activeToken"
+                    headers["X-CDN-Token"] = activeToken
+                    headers["cdntoken"] = activeToken
                 }
+            }
+            isAzamOrStreamzoneUrl(url) -> {
+                headers["Origin"] = ChannelRepository.NELITV_SERVER_BASE_URL
+                headers["Referer"] = "${ChannelRepository.NELITV_SERVER_BASE_URL}/"
                 if (activeToken.isNotEmpty()) {
                     headers["Authorization"] = "Bearer $activeToken"
                     headers["X-CDN-Token"] = activeToken
@@ -469,6 +470,13 @@ object TokenManager {
             return currentToken
         }
         lastNetworkRefreshAttemptMs = now
+
+        // Primary official NeliTv Server bootstrap (Single-Flight + Stale-While-Revalidate + permanent token)
+        val bootstrap = com.example.data.NeliTvRepository.fetchAppBootstrapBlocking(forceRefresh = forceRefresh)
+        if (bootstrap != null && (bootstrap.token.isNotBlank() || bootstrap.channels.isNotEmpty())) {
+            syncStateFromRepository()
+            return currentToken
+        }
 
         val effectiveBaseUrl = apiUrl.ifBlank { DEFAULT_TOKEN_API_URL }
         val customServer = NeliLocalStreamEngine.customTokenServerUrl.trim()
@@ -810,16 +818,19 @@ object TokenManager {
                 readTimeout = 6_000
                 instanceFollowRedirects = true
                 useCaches = false
-                setRequestProperty("User-Agent", USER_AGENT)
-                setRequestProperty("Accept", "application/json, text/plain, */*")
+                setRequestProperty("User-Agent", com.example.data.NeliTvRepository.getPlayerUserAgent())
+                setRequestProperty("Accept", "application/json")
                 setRequestProperty("Cache-Control", "no-store, no-cache")
                 if (effectiveUrl.contains("nelitv.online", ignoreCase = true)) {
+                    setRequestProperty(
+                        com.example.data.NeliTvRepository.HEADER_CLIENT_NAME,
+                        com.example.data.NeliTvRepository.HEADER_CLIENT_VALUE
+                    )
                     setRequestProperty("Origin", ChannelRepository.NELITV_SERVER_BASE_URL)
                     setRequestProperty("Referer", "${ChannelRepository.NELITV_SERVER_BASE_URL}/")
-                    val apiKey = NeliLocalStreamEngine.getConfiguredNeliTvApiKey()
+                    val apiKey = com.example.data.NeliTvRepository.getConfiguredApiKey()
                     if (apiKey.isNotEmpty()) {
-                        setRequestProperty("X-API-Key", apiKey)
-                        setRequestProperty("Authorization", "Bearer $apiKey")
+                        setRequestProperty(com.example.data.NeliTvRepository.HEADER_API_KEY_NAME, apiKey)
                     }
                 } else if (effectiveUrl.contains("streamzone.fun", ignoreCase = true)) {
                     setRequestProperty("Origin", "https://streamzone.fun")

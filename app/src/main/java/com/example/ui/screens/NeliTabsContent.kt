@@ -754,7 +754,7 @@ fun DiscoveryTabContent(
             modifier = Modifier
                 .fillMaxSize()
                 .testTag("discovery_tab_screen"),
-            contentPadding = PaddingValues(bottom = 116.dp)
+            contentPadding = PaddingValues(bottom = 24.dp)
         ) {
             // 1. Sleek Typographic Top Category Strip (Trending | Movies | Series | Adults 18+) + Compact Shuffle Circle
             item(key = "discovery_top_tabs") {
@@ -2558,7 +2558,7 @@ fun DownloadTabContent(
                 .padding(horizontal = screenProfile.horizontalPadding)
                 .testTag("download_tab_screen"),
             verticalArrangement = Arrangement.spacedBy(screenProfile.cardSpacing),
-            contentPadding = PaddingValues(top = 12.dp, bottom = 116.dp)
+            contentPadding = PaddingValues(top = 12.dp, bottom = 24.dp)
         ) {
             if (isOfflineMode) {
                 item {
@@ -3635,7 +3635,7 @@ fun AccountTabContent(
             .padding(horizontal = screenProfile.horizontalPadding)
             .testTag("account_tab_screen"),
         verticalArrangement = Arrangement.spacedBy(screenProfile.cardSpacing),
-        contentPadding = PaddingValues(top = 12.dp, bottom = 116.dp)
+        contentPadding = PaddingValues(top = 12.dp, bottom = 24.dp)
     ) {
         if (currentUser != null) {
             // Logged-in User Profile Card
