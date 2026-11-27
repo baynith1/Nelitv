@@ -82,9 +82,18 @@ object NeliAiMemoryStore {
     private val _sequentialPlayQueueIds = MutableStateFlow<List<String>>(emptyList())
     val sequentialPlayQueueIds: StateFlow<List<String>> = _sequentialPlayQueueIds.asStateFlow()
 
-    // Session-level recent suggested movie IDs so "open it" / "download them" works smoothly
+    // Session-level recent suggested movie IDs & active multi-turn conversation state
     @Volatile
     var lastSuggestedMovieIds: List<String> = emptyList()
+
+    @Volatile
+    var lastPendingConversationTopic: String = ""
+
+    @Volatile
+    var lastFocusedMediaId: String = ""
+
+    @Volatile
+    var lastListedDownloadIds: List<String> = emptyList()
 
     @Volatile
     private var initialized = false
@@ -305,6 +314,9 @@ object NeliAiMemoryStore {
         _customApiKey.value = ""
         _sequentialPlayQueueIds.value = emptyList()
         lastSuggestedMovieIds = emptyList()
+        lastPendingConversationTopic = ""
+        lastFocusedMediaId = ""
+        lastListedDownloadIds = emptyList()
         initialized = false
     }
 

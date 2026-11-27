@@ -383,5 +383,111 @@ class NeliAiEngineTest {
         assertNotNull(com.example.ai.NeliVoiceInteractionSessionService::class.java)
         assertNotNull(com.example.ai.NeliRecognitionService::class.java)
     }
+
+    @Test
+    fun continuousConversation_asksWhichMovieUserLikesAndHandlesMultiTurnReplies() {
+        val snap = snapshot()
+
+        val askMood = NeliAiEngine.evaluateLocally("Hey Neli I want to watch a movie", snap)
+        assertEquals("ASK_MOVIE_PREFERENCE", askMood.intent)
+        assertTrue(askMood.expectsFollowUp)
+        assertTrue(askMood.replyText.contains("Which movie or genre do you like", ignoreCase = true))
+
+        // Follow-up without repeating "Hey Neli"
+        val genreReply = NeliAiEngine.evaluateLocally("Action", snap)
+        assertTrue(genreReply.action is NeliAiAction.SuggestMovies)
+        assertTrue(genreReply.expectsFollowUp)
+
+        val infoReply = NeliAiEngine.evaluateLocally("Tell me about Mission Zanzibar 2026", snap)
+        assertTrue(infoReply.action is NeliAiAction.ShowMovieInfo)
+        assertTrue(infoReply.expectsFollowUp)
+
+        val playYes = NeliAiEngine.evaluateLocally("Yes", snap)
+        assertTrue(playYes.action is NeliAiAction.OpenMedia)
+        assertEquals("m1", (playYes.action as NeliAiAction.OpenMedia).media.id)
+        assertFalse(playYes.expectsFollowUp)
+
+        val endReply = NeliAiEngine.evaluateLocally("No thanks", snap)
+        assertEquals("CONVERSATION_END", endReply.intent)
+        assertFalse(endReply.expectsFollowUp)
+    }
+
+    @Test
+    fun deleteDownloads_supportsDeleteAllSpecificOfflineAndConversationalFollowUp() {
+        // 1. Empty downloads
+        val emptyRes = NeliAiEngine.evaluateLocally("Hey Neli delete all downloads", snapshot())
+        assertEquals("DELETE_DOWNLOADS_EMPTY", emptyRes.intent)
+        assertEquals(NeliAiAction.None, emptyRes.action)
+        assertFalse(emptyRes.expectsFollowUp)
+
+        val downloadedSnap = snapshot(downloadedIds = setOf("m1", "m2", "m3"))
+
+        // 2. Delete ALL downloads (English & Swahili)
+        val delAllEn = NeliAiEngine.evaluateLocally("Hey Neli delete all downloads", downloadedSnap)
+        assertEquals(NeliAiAction.DeleteAllDownloads, delAllEn.action)
+        assertEquals("DELETE_ALL_DOWNLOADS", delAllEn.intent)
+
+        val delAllMy = NeliAiEngine.evaluateLocally("Hey Neli clear all my downloads", downloadedSnap)
+        assertEquals(NeliAiAction.DeleteAllDownloads, delAllMy.action)
+
+        val delAllSw = NeliAiEngine.evaluateLocally("Hey Neli futa downloads zote", downloadedSnap)
+        assertEquals(NeliAiAction.DeleteAllDownloads, delAllSw.action)
+
+        // 3. Delete SPECIFIC download (English, Swahili & direct title)
+        val delSpecificEn = NeliAiEngine.evaluateLocally("Hey Neli delete Mission Zanzibar from downloads", downloadedSnap)
+        assertTrue(delSpecificEn.action is NeliAiAction.DeleteSpecificDownloads)
+        assertEquals(listOf("m1"), (delSpecificEn.action as NeliAiAction.DeleteSpecificDownloads).downloadIds)
+
+        val delSpecificSw = NeliAiEngine.evaluateLocally("Hey Neli futa download ya Mission Zanzibar", downloadedSnap)
+        assertTrue(delSpecificSw.action is NeliAiAction.DeleteSpecificDownloads)
+        assertEquals(listOf("m1"), (delSpecificSw.action as NeliAiAction.DeleteSpecificDownloads).downloadIds)
+
+        val delDirectTitle = NeliAiEngine.evaluateLocally("Hey Neli delete Mission Zanzibar", downloadedSnap)
+        assertTrue(delDirectTitle.action is NeliAiAction.DeleteSpecificDownloads)
+        assertEquals(listOf("m1"), (delDirectTitle.action as NeliAiAction.DeleteSpecificDownloads).downloadIds)
+
+        // 4. Works completely OFFLINE even when mediaCatalog is empty using downloadedItems
+        val offlineSnap = NeliAiContextSnapshot(
+            liveChannels = emptyList(),
+            mediaCatalog = emptyList(),
+            isOnline = false,
+            downloadedMediaIds = setOf("ep_3"),
+            downloadedItems = listOf(
+                com.example.ai.NeliAiDownloadedItem(id = "ep_3", title = "Sultan Episode 3", type = "series")
+            )
+        )
+        val offlineSpecific = NeliAiEngine.evaluateLocally("Delete Sultan Episode 3 from downloads", offlineSnap)
+        assertTrue(offlineSpecific.action is NeliAiAction.DeleteSpecificDownloads)
+        assertEquals(listOf("ep_3"), (offlineSpecific.action as NeliAiAction.DeleteSpecificDownloads).downloadIds)
+
+        val offlineAll = NeliAiEngine.evaluateLocally("Delete all downloads", offlineSnap)
+        assertEquals(NeliAiAction.DeleteAllDownloads, offlineAll.action)
+
+        // 5. Conversational follow-up: ambiguous "delete a download" -> asks which one -> user replies "Number 2"
+        val askWhich = NeliAiEngine.evaluateLocally("Hey Neli delete a download", downloadedSnap)
+        assertEquals("ASK_WHICH_DOWNLOAD_TO_DELETE", askWhich.intent)
+        assertTrue(askWhich.expectsFollowUp)
+
+        val pickSecond = NeliAiEngine.evaluateLocally("Number 2", downloadedSnap)
+        assertTrue(pickSecond.action is NeliAiAction.DeleteSpecificDownloads)
+        assertEquals(listOf("m2"), (pickSecond.action as NeliAiAction.DeleteSpecificDownloads).downloadIds)
+        assertFalse(pickSecond.expectsFollowUp)
+
+        // 6. Single download confirmation follow-up + cancel check
+        val singleSnap = snapshot(downloadedIds = setOf("m1"))
+        val askSingle = NeliAiEngine.evaluateLocally("Hey Neli delete a download", singleSnap)
+        assertEquals("CONFIRM_DELETE_DOWNLOAD", askSingle.intent)
+        assertTrue(askSingle.expectsFollowUp)
+
+        val cancelSingle = NeliAiEngine.evaluateLocally("No thanks", singleSnap)
+        assertEquals("DELETE_DOWNLOAD_CANCELLED", cancelSingle.intent)
+        assertEquals(NeliAiAction.None, cancelSingle.action)
+        assertFalse(cancelSingle.expectsFollowUp)
+
+        NeliAiEngine.evaluateLocally("Hey Neli delete a download", singleSnap)
+        val confirmSingle = NeliAiEngine.evaluateLocally("Yes", singleSnap)
+        assertTrue(confirmSingle.action is NeliAiAction.DeleteSpecificDownloads)
+        assertEquals(listOf("m1"), (confirmSingle.action as NeliAiAction.DeleteSpecificDownloads).downloadIds)
+    }
 }
 

@@ -195,6 +195,8 @@ object NeliAiEngine {
 
         detectBrightnessIntent(lower)?.let { return it }
         detectPlayerControlIntent(lower, snapshot)?.let { return it }
+        detectDeleteDownloadFollowUp(cleaned, lower, snapshot)?.let { return it }
+        detectDeleteDownloadIntent(cleaned, lower, snapshot)?.let { return it }
         detectNavigationIntent(lower)?.let { nav ->
             if (nav.intent == "NAV_DOWNLOADS" || snapshot.isOnline) return nav
         }
@@ -255,6 +257,9 @@ object NeliAiEngine {
             }
         }
 
+        // 3B. Continuous Conversation Follow-Up (handles answers to Neli's questions like "Which movie do you like?", "Action", "Yes play it", "More", "No thanks")
+        detectConversationalFollowUp(cleaned, lower, snapshot, context)?.let { return it }
+
         // 4. Smart Batch / Random / Specific Movie Downloads ("download me 5 random movies", "download all", "download <movie>")
         if (isDownloadIntent(lower)) {
             return buildSmartDownloadResponse(cleaned, lower, snapshot, context)
@@ -272,6 +277,12 @@ object NeliAiEngine {
         if (isMovieInfoOrSearchIntent(lower)) {
             val infoHit = buildMovieInfoResponse(cleaned, lower, snapshot)
             if (infoHit != null) return infoHit
+        }
+
+        // 7B. Conversational Movie Discovery ("i want to watch a movie", "help me pick a movie", "i'm bored", "nataka kuangalia movie")
+        // -> Neli asks "Which movie or genre do you like?" and WAITS for user's answer!
+        if (isOpenEndedMovieMoodIntent(lower)) {
+            return buildAskMoviePreferenceResponse(snapshot)
         }
 
         // 8. Movie Suggestions & Recommendations (lists fresh movies with zero-tick voice & 1-tap actions!)
@@ -525,14 +536,16 @@ object NeliAiEngine {
         }
 
         NeliAiMemoryStore.lastSuggestedMovieIds = picked.map { it.id }
+        NeliAiMemoryStore.lastPendingConversationTopic = "SUGGESTED_MOVIES"
+        NeliAiMemoryStore.lastFocusedMediaId = picked.firstOrNull()?.id.orEmpty()
         val spokenNames = picked.take(4).joinToString(", ") { it.title }
         val styleLabel = buildString {
             if (swahiliOnly) append("Swahili ")
             if (matchedGenre != null) append("${matchedGenre.replaceFirstChar { it.uppercase() }} ")
         }
-        val promptTail = "No tapping needed — just say \"Play them\", \"Download all\", \"Play number 1\", or \"Play a random movie\"!"
-        val reply = "Here are ${picked.size} fresh ${styleLabel}movies for you: $spokenNames. $promptTail"
-        val speech = "Here are ${picked.size} fresh ${styleLabel}movies: $spokenNames. Say play them, download all, or play number 1."
+        val promptTail = "Which movie do you like? Just say \"Play number 1\", \"Play them\", \"Download all\", or \"Show more\"!"
+        val reply = "Here are ${picked.size} fresh ${styleLabel}movies: $spokenNames. $promptTail"
+        val speech = "Here are ${picked.size} fresh ${styleLabel}movies: $spokenNames. Which movie do you like? You can say play number 1, play them, or download all."
 
         return NeliAiCommandResponse(
             intent = "SUGGEST_MOVIES",
@@ -542,8 +555,146 @@ object NeliAiEngine {
             sourceTag = "Neli Smart Recommender",
             action = NeliAiAction.SuggestMovies(picked),
             cards = picked.map { NeliAiCardItem.MediaCard(it) },
-            quickReplies = listOf("Play them", "Download all", "Play a random movie")
+            quickReplies = listOf("Play number 1", "Play them", "Download all", "Show more"),
+            expectsFollowUp = true
         )
+    }
+
+    private fun isOpenEndedMovieMoodIntent(lower: String): Boolean {
+        val mentionsSpecificGenre = vodGenreSynonyms.values.flatten().any { lower.contains(it) }
+        val mentionsSwahili = containsAny(lower, listOf("swahili", "kiswahili", "tafsiri", "dj", "bongo"))
+        if (mentionsSpecificGenre || mentionsSwahili) return false
+        return containsAny(
+            lower,
+            listOf(
+                "i want to watch a movie", "want to watch a movie", "wanna watch a movie",
+                "help me pick a movie", "help me choose a movie", "pick a movie for me",
+                "i am bored", "im bored", "i'm bored", "nimeboreka", "sina cha kufanya",
+                "nataka kuangalia movie", "nataka movie", "tuongee", "talk to me", "chat with me"
+            )
+        )
+    }
+
+    private fun buildAskMoviePreferenceResponse(snapshot: NeliAiContextSnapshot): NeliAiCommandResponse {
+        NeliAiMemoryStore.lastPendingConversationTopic = "ASK_MOVIE_PREFERENCE"
+        val reply = "Which movie or genre do you like? You can say Action, Comedy, Romance, Horror, Kids, Swahili DJ movies, or say \"Surprise me\"!"
+        val speech = "Which movie or genre do you like? Action, Comedy, Romance, Kids, or Swahili movies? Tell me what you feel like watching."
+        return NeliAiCommandResponse(
+            intent = "ASK_MOVIE_PREFERENCE",
+            confidence = 0.96f,
+            replyText = reply,
+            replySpeech = speech,
+            sourceTag = "Neli AI Conversation",
+            action = NeliAiAction.None,
+            cards = snapshot.mediaCatalog.filter { !it.isAdult }.take(4).map { NeliAiCardItem.MediaCard(it) },
+            quickReplies = listOf("Action", "Comedy", "Swahili DJ", "Surprise me"),
+            expectsFollowUp = true
+        )
+    }
+
+    /**
+     * Enables natural continuous back-and-forth conversation without needing to repeat "Hey Neli".
+     */
+    private fun detectConversationalFollowUp(
+        cleaned: String,
+        lower: String,
+        snapshot: NeliAiContextSnapshot,
+        context: Context?
+    ): NeliAiCommandResponse? {
+        // 1. Polite conversation enders ("no thanks", "basi", "asante", "nothing", "bye")
+        if (lower in setOf(
+                "no", "nope", "no thanks", "no thank you", "nothing", "never mind", "nevermind",
+                "stop talking", "bye", "bye neli", "goodbye", "thanks", "thank you", "ok thanks",
+                "hapana", "hapana asante", "basi", "asante", "shukrani", "sawa asante", "hamna", "hakuna"
+            )
+        ) {
+            NeliAiMemoryStore.lastPendingConversationTopic = ""
+            return NeliAiCommandResponse(
+                intent = "CONVERSATION_END",
+                confidence = 0.98f,
+                replyText = "Alright, enjoy watching! Call me anytime by saying \"Hey Neli\".",
+                replySpeech = "Alright, enjoy watching! Call me anytime you need me.",
+                sourceTag = "Neli AI Conversation",
+                action = NeliAiAction.None,
+                expectsFollowUp = false
+            )
+        }
+
+        val topic = NeliAiMemoryStore.lastPendingConversationTopic
+        if (topic.isBlank()) return null
+
+        // 2. Answering "Which movie or genre do you like?"
+        if (topic == "ASK_MOVIE_PREFERENCE") {
+            if (containsAny(lower, listOf("surprise", "anything", "any movie", "yoyote", "chochote", "random"))) {
+                NeliAiMemoryStore.lastPendingConversationTopic = ""
+                return buildAutoPlayRandomMovieResponse(lower, snapshot, context)
+            }
+            val matchedGenre = vodGenreSynonyms.entries.firstOrNull { (_, words) ->
+                words.any { lower.contains(it) }
+            }?.key
+            val wantsSwahili = containsAny(lower, listOf("swahili", "kiswahili", "tafsiri", "dj", "bongo"))
+            if (matchedGenre != null || wantsSwahili) {
+                return buildMovieSuggestionResponse(lower, snapshot, context)
+            }
+            // User named a movie directly in answer to "Which movie do you like?"
+            val directHit = findBestMediaMatches(cleaned, snapshot.mediaCatalog, 3).firstOrNull()
+            if (directHit != null && directHit.second >= 48) {
+                NeliAiMemoryStore.lastPendingConversationTopic = ""
+                val movie = directHit.first
+                NeliAiMemoryStore.recordMovieWatched(context, movie.id)
+                return NeliAiCommandResponse(
+                    intent = "CONVERSATION_PLAY_CHOSEN_MOVIE",
+                    confidence = 0.96f,
+                    replyText = "Great choice! Opening \"${movie.title}\" for you now!",
+                    replySpeech = "Great choice! Playing ${movie.title} for you now.",
+                    sourceTag = "Neli AI Conversation",
+                    action = NeliAiAction.OpenMedia(movie, autoPlay = !movie.isSeries),
+                    cards = listOf(NeliAiCardItem.MediaCard(movie)),
+                    expectsFollowUp = false
+                )
+            }
+        }
+
+        // 3. Answering "Would you like me to play it or download it?" after Movie Info
+        if (topic == "MOVIE_INFO_CHOICE") {
+            val focused = snapshot.mediaCatalog.firstOrNull { it.id == NeliAiMemoryStore.lastFocusedMediaId }
+            if (focused != null) {
+                if (containsAny(lower, listOf("yes", "yeah", "yep", "sure", "play it", "open it", "watch it", "play", "open", "ndio", "cheza", "fungua", "sawa"))) {
+                    NeliAiMemoryStore.lastPendingConversationTopic = ""
+                    NeliAiMemoryStore.recordMovieWatched(context, focused.id)
+                    return NeliAiCommandResponse(
+                        intent = "FOLLOWUP_PLAY_MOVIE",
+                        confidence = 0.97f,
+                        replyText = "Opening \"${focused.title}\" right now!",
+                        replySpeech = "Playing ${focused.title} for you now.",
+                        sourceTag = "Neli AI Conversation",
+                        action = NeliAiAction.OpenMedia(focused, autoPlay = !focused.isSeries),
+                        cards = listOf(NeliAiCardItem.MediaCard(focused)),
+                        expectsFollowUp = false
+                    )
+                }
+                if (containsAny(lower, listOf("download it", "download", "save it", "pakua", "nipakulie"))) {
+                    NeliAiMemoryStore.lastPendingConversationTopic = ""
+                    return NeliAiCommandResponse(
+                        intent = "FOLLOWUP_DOWNLOAD_MOVIE",
+                        confidence = 0.97f,
+                        replyText = "Starting background download for \"${focused.title}\"!",
+                        replySpeech = "Downloading ${focused.title} for you now.",
+                        sourceTag = "Neli AI Conversation",
+                        action = NeliAiAction.DownloadSpecificMovies(listOf(focused)),
+                        cards = listOf(NeliAiCardItem.MediaCard(focused)),
+                        expectsFollowUp = false
+                    )
+                }
+            }
+        }
+
+        // 4. Asking for "more" / "others" / "different ones" after movie suggestions
+        if (topic == "SUGGESTED_MOVIES" && containsAny(lower, listOf("show more", "more movies", "more", "other ones", "others", "different", "another", "zingine", "nyingine"))) {
+            return buildMovieSuggestionResponse(lower, snapshot, context)
+        }
+
+        return null
     }
 
     /**
@@ -768,6 +919,323 @@ object NeliAiEngine {
         )
     }
 
+    private fun resolveDownloadedItems(snapshot: NeliAiContextSnapshot): List<NeliAiDownloadedItem> {
+        val byId = LinkedHashMap<String, NeliAiDownloadedItem>()
+        snapshot.downloadedItems.forEach { item ->
+            if (item.id.isNotBlank()) byId[item.id] = item
+        }
+        snapshot.downloadedMediaIds.forEach { id ->
+            if (id.isNotBlank() && !byId.containsKey(id)) {
+                val fromCatalog = snapshot.mediaCatalog.firstOrNull { it.id == id }
+                byId[id] = NeliAiDownloadedItem(
+                    id = id,
+                    title = fromCatalog?.title ?: id,
+                    type = if (fromCatalog?.isSeries == true) "series" else "movie"
+                )
+            }
+        }
+        return byId.values.toList()
+    }
+
+    private fun extractDeleteDownloadTarget(raw: String): String {
+        val fillerWords = setOf(
+            "delete", "remove", "clear", "erase", "wipe", "empty", "cancel",
+            "futa", "ondoa", "safisha", "download", "downloads", "downloaded",
+            "nilizopakua", "zilizopakuliwa", "offline", "from", "my", "the",
+            "a", "an", "one", "certain", "specific", "movie", "movies", "film",
+            "filamu", "series", "video", "videos", "episode", "ya", "za", "wa",
+            "la", "kwenye", "kutoka", "moja", "hii", "hiyo", "please", "tafadhali",
+            "can", "you", "me", "for", "of", "in", "on", "this", "that", "it"
+        )
+        return normalizeText(raw)
+            .split(" ")
+            .filter { it.isNotBlank() && it !in fillerWords }
+            .joinToString(" ")
+            .trim()
+    }
+
+    private fun findBestDownloadMatches(
+        rawQuery: String,
+        downloaded: List<NeliAiDownloadedItem>,
+        limit: Int = 3
+    ): List<Pair<NeliAiDownloadedItem, Int>> {
+        val stripped = extractDeleteDownloadTarget(rawQuery)
+        if (stripped.length < 2) return emptyList()
+        val queryTokens = stripped.split(" ").filter { it.length >= 2 }
+
+        return downloaded.mapNotNull { item ->
+            val normTitle = normalizeText(item.title)
+            var score = 0
+            if (normTitle == stripped) score = 100
+            else if (normTitle.contains(stripped) && stripped.length >= 3) score = 90
+            else if (stripped.contains(normTitle) && normTitle.length >= 3) score = 86
+
+            if (queryTokens.isNotEmpty()) {
+                val titleTokens = normTitle.split(" ").filter { it.length >= 2 }
+                val hits = queryTokens.count { qt ->
+                    titleTokens.any { tt ->
+                        tt == qt ||
+                            (qt.length >= 3 && (tt.contains(qt) || levenshtein(tt, qt) <= 2))
+                    }
+                }
+                if (hits > 0) {
+                    score = maxOf(score, (hits * 82) / queryTokens.size)
+                }
+            }
+            if (score >= 45) item to score else null
+        }.sortedByDescending { it.second }.take(limit)
+    }
+
+    private fun detectDeleteDownloadFollowUp(
+        cleaned: String,
+        lower: String,
+        snapshot: NeliAiContextSnapshot
+    ): NeliAiCommandResponse? {
+        val topic = NeliAiMemoryStore.lastPendingConversationTopic
+        if (topic != "ASK_WHICH_DOWNLOAD_TO_DELETE" && topic != "CONFIRM_DELETE_SPECIFIC_DOWNLOAD") {
+            return null
+        }
+
+        if (lower in setOf(
+                "no", "nope", "no thanks", "no thank you", "no keep it", "keep it", "cancel",
+                "never mind", "nevermind", "stop", "hapana", "hapana asante", "basi",
+                "asante", "acha", "usifute", "usifute bado"
+            )
+        ) {
+            NeliAiMemoryStore.lastPendingConversationTopic = ""
+            NeliAiMemoryStore.lastListedDownloadIds = emptyList()
+            return NeliAiCommandResponse(
+                intent = "DELETE_DOWNLOAD_CANCELLED",
+                confidence = 0.98f,
+                replyText = "Okay, I kept all your downloads safe!",
+                replySpeech = "Okay, I won't delete anything.",
+                sourceTag = "Neli Download Manager",
+                action = NeliAiAction.None,
+                expectsFollowUp = false
+            )
+        }
+
+        val downloaded = resolveDownloadedItems(snapshot)
+        if (downloaded.isEmpty()) {
+            NeliAiMemoryStore.lastPendingConversationTopic = ""
+            NeliAiMemoryStore.lastListedDownloadIds = emptyList()
+            return NeliAiCommandResponse(
+                intent = "DELETE_DOWNLOADS_EMPTY",
+                confidence = 0.96f,
+                replyText = "Your Downloads folder is already empty.",
+                replySpeech = "Your downloads folder is already empty.",
+                sourceTag = "Neli Download Manager",
+                expectsFollowUp = false
+            )
+        }
+
+        if (topic == "CONFIRM_DELETE_SPECIFIC_DOWNLOAD") {
+            if (containsAny(lower, listOf("yes", "yeah", "yep", "sure", "ok", "okay", "delete", "remove", "ndio", "futa", "ondoa", "sawa"))) {
+                val targetId = NeliAiMemoryStore.lastListedDownloadIds.firstOrNull()
+                val target = downloaded.firstOrNull { it.id == targetId } ?: downloaded.first()
+                NeliAiMemoryStore.lastPendingConversationTopic = ""
+                NeliAiMemoryStore.lastListedDownloadIds = emptyList()
+                return buildDeleteSpecificDownloadResponse(target, snapshot)
+            }
+            return null
+        }
+
+        // topic == "ASK_WHICH_DOWNLOAD_TO_DELETE"
+        if (containsAny(lower, listOf("all", "everything", "zote", "delete all", "remove all", "futa zote"))) {
+            NeliAiMemoryStore.lastPendingConversationTopic = ""
+            NeliAiMemoryStore.lastListedDownloadIds = emptyList()
+            return buildDeleteAllDownloadsResponse(downloaded)
+        }
+
+        val listed = NeliAiMemoryStore.lastListedDownloadIds
+            .mapNotNull { id -> downloaded.firstOrNull { it.id == id } }
+            .ifEmpty { downloaded }
+
+        val pickedIndex = when {
+            containsAny(lower, listOf("number 1", "number one", "first one", "first", "ya kwanza", "namba moja", "namba 1")) -> 0
+            containsAny(lower, listOf("number 2", "number two", "second one", "second", "ya pili", "namba mbili", "namba 2")) -> 1
+            containsAny(lower, listOf("number 3", "number three", "third one", "third", "ya tatu", "namba tatu", "namba 3")) -> 2
+            containsAny(lower, listOf("number 4", "number four", "fourth one", "fourth", "ya nne", "namba nne", "namba 4")) -> 3
+            containsAny(lower, listOf("number 5", "number five", "fifth one", "fifth", "ya tano", "namba tano", "namba 5")) -> 4
+            else -> -1
+        }
+        if (pickedIndex in listed.indices) {
+            NeliAiMemoryStore.lastPendingConversationTopic = ""
+            NeliAiMemoryStore.lastListedDownloadIds = emptyList()
+            return buildDeleteSpecificDownloadResponse(listed[pickedIndex], snapshot)
+        }
+
+        val hit = findBestDownloadMatches(cleaned, downloaded, 1).firstOrNull()
+        if (hit != null && hit.second >= 45) {
+            NeliAiMemoryStore.lastPendingConversationTopic = ""
+            NeliAiMemoryStore.lastListedDownloadIds = emptyList()
+            return buildDeleteSpecificDownloadResponse(hit.first, snapshot)
+        }
+
+        return null
+    }
+
+    private fun detectDeleteDownloadIntent(
+        cleaned: String,
+        lower: String,
+        snapshot: NeliAiContextSnapshot
+    ): NeliAiCommandResponse? {
+        val hasDeleteVerb = containsAny(
+            lower,
+            listOf(
+                "delete", "remove", "clear", "erase", "wipe", "empty",
+                "futa", "ondoa", "safisha", "cancel download"
+            )
+        )
+        if (!hasDeleteVerb) return null
+
+        val mentionsDownloadContext = containsAny(
+            lower,
+            listOf(
+                "download", "downloads", "downloaded", "nilizopakua",
+                "zilizopakuliwa", "offline video", "offline movie", "offline movies"
+            )
+        )
+
+        val downloaded = resolveDownloadedItems(snapshot)
+
+        if (!mentionsDownloadContext) {
+            // Allow direct phrasing like "Delete Mission Zanzibar" or "Futa Mission Zanzibar" when it matches a downloaded item
+            val directHit = findBestDownloadMatches(cleaned, downloaded, 1).firstOrNull()
+            if (directHit == null || directHit.second < 65) return null
+            NeliAiMemoryStore.lastPendingConversationTopic = ""
+            NeliAiMemoryStore.lastListedDownloadIds = emptyList()
+            return buildDeleteSpecificDownloadResponse(directHit.first, snapshot)
+        }
+
+        if (downloaded.isEmpty()) {
+            NeliAiMemoryStore.lastPendingConversationTopic = ""
+            NeliAiMemoryStore.lastListedDownloadIds = emptyList()
+            return NeliAiCommandResponse(
+                intent = "DELETE_DOWNLOADS_EMPTY",
+                confidence = 0.97f,
+                replyText = "Your Downloads folder is already empty — there are no downloads to delete.",
+                replySpeech = "You don't have any downloads to delete right now.",
+                sourceTag = "Neli Download Manager",
+                action = NeliAiAction.None,
+                expectsFollowUp = false
+            )
+        }
+
+        val wantsDeleteAll = containsAny(
+            lower,
+            listOf(
+                "all download", "all my download", "all of my download", "all downloaded",
+                "every download", "delete all", "remove all", "clear all", "erase all",
+                "wipe all", "empty download", "clear download", "clear my download",
+                "wipe download", "downloads zote", "download zote", "zote nilizopakua",
+                "nilizopakua zote", "safisha download", "futa zote", "ondoa zote"
+            )
+        )
+        if (wantsDeleteAll) {
+            NeliAiMemoryStore.lastPendingConversationTopic = ""
+            NeliAiMemoryStore.lastListedDownloadIds = emptyList()
+            return buildDeleteAllDownloadsResponse(downloaded)
+        }
+
+        val targetPhrase = extractDeleteDownloadTarget(cleaned)
+        if (targetPhrase.isNotBlank()) {
+            val match = findBestDownloadMatches(cleaned, downloaded, 3).firstOrNull()
+            if (match != null && match.second >= 45) {
+                NeliAiMemoryStore.lastPendingConversationTopic = ""
+                NeliAiMemoryStore.lastListedDownloadIds = emptyList()
+                return buildDeleteSpecificDownloadResponse(match.first, snapshot)
+            }
+
+            val shown = downloaded.take(4)
+            NeliAiMemoryStore.lastPendingConversationTopic = "ASK_WHICH_DOWNLOAD_TO_DELETE"
+            NeliAiMemoryStore.lastListedDownloadIds = shown.map { it.id }
+            val names = shown.joinToString(", ") { it.title }
+            val reply = "I couldn't find \"$targetPhrase\" in your Downloads. You currently have: $names. Which one would you like me to delete, or say \"Delete all\"?"
+            return NeliAiCommandResponse(
+                intent = "DELETE_DOWNLOAD_NOT_FOUND",
+                confidence = 0.93f,
+                replyText = reply,
+                replySpeech = "I couldn't find $targetPhrase in your downloads. You have $names. Which one should I delete, or say delete all?",
+                sourceTag = "Neli Download Manager",
+                action = NeliAiAction.None,
+                quickReplies = listOf("Delete all", "Number 1", "No thanks"),
+                expectsFollowUp = true
+            )
+        }
+
+        // User asked to delete a download without specifying which one -> ask and wait for reply!
+        if (downloaded.size == 1) {
+            val only = downloaded.first()
+            NeliAiMemoryStore.lastPendingConversationTopic = "CONFIRM_DELETE_SPECIFIC_DOWNLOAD"
+            NeliAiMemoryStore.lastListedDownloadIds = listOf(only.id)
+            return NeliAiCommandResponse(
+                intent = "CONFIRM_DELETE_DOWNLOAD",
+                confidence = 0.95f,
+                replyText = "You only have \"${only.title}\" in your Downloads. Would you like me to delete it?",
+                replySpeech = "You only have ${only.title} in your downloads. Would you like me to delete it?",
+                sourceTag = "Neli Download Manager",
+                action = NeliAiAction.None,
+                quickReplies = listOf("Yes, delete it", "No, keep it"),
+                expectsFollowUp = true
+            )
+        }
+
+        val shown = downloaded.take(5)
+        NeliAiMemoryStore.lastPendingConversationTopic = "ASK_WHICH_DOWNLOAD_TO_DELETE"
+        NeliAiMemoryStore.lastListedDownloadIds = shown.map { it.id }
+        val names = shown.take(4).joinToString(", ") { it.title }
+        return NeliAiCommandResponse(
+            intent = "ASK_WHICH_DOWNLOAD_TO_DELETE",
+            confidence = 0.95f,
+            replyText = "Which download would you like me to delete? You have ${downloaded.size} downloads: $names. Say the name, \"Number 1\", or \"Delete all\"!",
+            replySpeech = "Which download would you like me to delete? You have $names. Say the movie name, number 1, or delete all.",
+            sourceTag = "Neli Download Manager",
+            action = NeliAiAction.None,
+            quickReplies = listOf("Delete all", "Number 1", "No thanks"),
+            expectsFollowUp = true
+        )
+    }
+
+    private fun buildDeleteAllDownloadsResponse(downloaded: List<NeliAiDownloadedItem>): NeliAiCommandResponse {
+        val count = downloaded.size
+        val label = if (count == 1) "1 download" else "all $count downloads"
+        return NeliAiCommandResponse(
+            intent = "DELETE_ALL_DOWNLOADS",
+            confidence = 0.98f,
+            replyText = "Deleting $label from your device now and freeing up storage!",
+            replySpeech = "Deleting $label from your device now.",
+            sourceTag = "Neli Download Manager",
+            action = NeliAiAction.DeleteAllDownloads,
+            quickReplies = listOf("Suggest me movies", "Download 5 random movies", "Open downloads"),
+            expectsFollowUp = false
+        )
+    }
+
+    private fun buildDeleteSpecificDownloadResponse(
+        target: NeliAiDownloadedItem,
+        snapshot: NeliAiContextSnapshot
+    ): NeliAiCommandResponse {
+        val card = snapshot.mediaCatalog
+            .firstOrNull { it.id == target.id }
+            ?.let { listOf(NeliAiCardItem.MediaCard(it)) }
+            ?: emptyList()
+        return NeliAiCommandResponse(
+            intent = "DELETE_SPECIFIC_DOWNLOAD",
+            confidence = 0.97f,
+            replyText = "Deleted \"${target.title}\" from your Downloads!",
+            replySpeech = "Deleted ${target.title} from your downloads.",
+            sourceTag = "Neli Download Manager",
+            action = NeliAiAction.DeleteSpecificDownloads(
+                downloadIds = listOf(target.id),
+                titles = listOf(target.title)
+            ),
+            cards = card,
+            quickReplies = listOf("Open downloads", "Delete all downloads", "Suggest movies"),
+            expectsFollowUp = false
+        )
+    }
+
     /**
      * Picks fresh random movies strictly excluding:
      * 1. Adult content
@@ -835,8 +1303,10 @@ object NeliAiEngine {
             if (top.rating.isNotBlank()) append(" • Rating ${top.rating}")
             if (top.isSwahiliNarratedMovie) append(" • Swahili Narrated")
         }
-        val reply = "${top.title} ($meta): $synopsisSnippet"
-        val speech = "${top.title}, released ${top.releaseYear.ifBlank { "recently" }}, is a ${top.primaryGenre.ifBlank { "featured" }} title on NeliTv. $synopsisSnippet. Say open or download to get it!"
+        NeliAiMemoryStore.lastPendingConversationTopic = "MOVIE_INFO_CHOICE"
+        NeliAiMemoryStore.lastFocusedMediaId = top.id
+        val reply = "${top.title} ($meta): $synopsisSnippet Would you like me to play it or download it?"
+        val speech = "${top.title}, released ${top.releaseYear.ifBlank { "recently" }}, is a ${top.primaryGenre.ifBlank { "featured" }} title on NeliTv. $synopsisSnippet. Would you like me to play it or download it for you?"
 
         return NeliAiCommandResponse(
             intent = "MOVIE_INFO",
@@ -846,7 +1316,8 @@ object NeliAiEngine {
             sourceTag = "Neli Movie Encyclopedia",
             action = NeliAiAction.ShowMovieInfo(top),
             cards = matches.map { NeliAiCardItem.MediaCard(it.first) },
-            quickReplies = listOf("Open ${top.title}", "Download ${top.title}", "Suggest similar movies")
+            quickReplies = listOf("Play it", "Download it", "Suggest similar movies"),
+            expectsFollowUp = true
         )
     }
 
@@ -1061,12 +1532,12 @@ object NeliAiEngine {
             )
         }
         if (containsAny(lower, listOf("wewe ni nani", "who are you", "unafanya nini", "what can you do", "msaada", "help"))) {
-            val reply = "I'm Neli AI, your hands-free voice assistant for NeliTv! I understand over ${NeliAiCommandCatalog.totalCommandCount} commands: I can open ${snapshot.liveChannels.size} live channels, suggest & download fresh movies, check movie info, adjust volume, brightness & quality, or lock your screen!"
+            val reply = "I'm Neli AI, your hands-free voice assistant for NeliTv! I understand over ${NeliAiCommandCatalog.totalCommandCount} commands: I can open ${snapshot.liveChannels.size} live channels, suggest, download or delete downloads, check movie info, adjust volume, brightness & quality, or lock your screen!"
             return NeliAiCommandResponse(
                 intent = "IDENTITY_HELP",
                 confidence = 0.98f,
                 replyText = reply,
-                replySpeech = "I'm Neli AI, your hands-free assistant for NeliTv. Say suggest me movies, download 5 random movies, open any channel, or lock my screen!",
+                replySpeech = "I'm Neli AI, your hands-free assistant for NeliTv. Say suggest me movies, download 5 random movies, delete all downloads, open any channel, or lock my screen!",
                 sourceTag = "Neli AI Brain"
             )
         }
@@ -1237,7 +1708,8 @@ object NeliAiEngine {
             sourceTag = "Neli AI Ready",
             action = NeliAiAction.WakeGreeting,
             cards = snapshot.liveChannels.take(3).map { NeliAiCardItem.ChannelCard(it) },
-            quickReplies = listOf("Suggest me movies", "Download 5 random movies", "Open Azam Sports 1")
+            quickReplies = listOf("Suggest me movies", "Download 5 random movies", "Open Azam Sports 1"),
+            expectsFollowUp = true
         )
     }
 
@@ -1656,6 +2128,23 @@ object NeliAiEngine {
             "FILTER_CATEGORY" -> {
                 val cat = actionObj.optString("category").ifBlank { actionObj.optString("target") }
                 if (cat.isNotBlank()) NeliAiAction.FilterLiveCategory(cat) else NeliAiAction.None
+            }
+            "DELETE_ALL_DOWNLOADS", "CLEAR_DOWNLOADS" -> NeliAiAction.DeleteAllDownloads
+            "DELETE_DOWNLOAD", "REMOVE_DOWNLOAD" -> {
+                val targetId = actionObj.optString("download_id").ifBlank { actionObj.optString("id") }
+                val targetTitle = actionObj.optString("title").ifBlank { actionObj.optString("target") }
+                val downloaded = resolveDownloadedItems(snapshot)
+                val hit = downloaded.firstOrNull {
+                    (targetId.isNotBlank() && it.id.equals(targetId, true)) ||
+                        (targetTitle.isNotBlank() && it.title.equals(targetTitle, true))
+                } ?: targetTitle.takeIf { it.isNotBlank() }?.let {
+                    findBestDownloadMatches(it, downloaded, 1).firstOrNull()?.first
+                }
+                if (hit != null) {
+                    NeliAiAction.DeleteSpecificDownloads(listOf(hit.id), listOf(hit.title))
+                } else {
+                    NeliAiAction.None
+                }
             }
             else -> NeliAiAction.None
         }

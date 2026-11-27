@@ -36,6 +36,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -624,6 +625,15 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
     fun deleteDownload(id: String) {
         viewModelScope.launch {
             OfflineDownloadManager.deleteOfflineDownload(dao, id, appContext)
+        }
+    }
+
+    fun deleteAllDownloads() {
+        viewModelScope.launch {
+            val all = runCatching { dao.getAllDownloads().first() }.getOrDefault(emptyList())
+            all.forEach { item ->
+                OfflineDownloadManager.deleteOfflineDownload(dao, item.id, appContext)
+            }
         }
     }
 

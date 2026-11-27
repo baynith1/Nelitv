@@ -142,7 +142,17 @@ class NeliAiSystemOverlayService : Service() {
     private var popupOverlayView: View? = null
 
     private var voiceController: NeliAiVoiceController? = null
-    private val autoHideCaptionRunnable = Runnable { removeCaptionBubble() }
+    private val autoHideOverlayRunnable = Runnable {
+        val st = voiceController?.voiceState?.value
+        val stillActive = st is NeliAiVoiceState.Listening ||
+            st is NeliAiVoiceState.Thinking ||
+            st is NeliAiVoiceState.Speaking ||
+            popupOverlayView != null
+        if (!stillActive) {
+            removeCaptionBubble()
+            detachFloatingBall()
+        }
+    }
     private var powerButtonDoubleTapDetector: NeliPowerButtonDoubleTapDetector? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -159,9 +169,7 @@ class NeliAiSystemOverlayService : Service() {
                 NeliDigitalAssistantHelper.wakeNeliAiFromSystemTrigger(this)
             }
         }.also { it.register(this) }
-        if (!isNeliTvInForeground) {
-            attachFloatingBall()
-        }
+        // Siri-style behavior: keep ball hidden when idle; show ONLY when called!
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -174,17 +182,19 @@ class NeliAiSystemOverlayService : Service() {
                 val inApp = intent.getBooleanExtra(EXTRA_IN_APP, false)
                 isNeliTvInForeground = inApp
                 if (inApp) {
-                    // Inside NeliTv app: NO floating AI ball (in-app uses the glowing edge border!)
+                    // Inside NeliTv app: hide outside-app overlay cleanly
                     removeAllOverlayViews()
                     voiceController?.stopListening()
-                } else if (NeliAiMemoryStore.isOverlayBallEnabled.value && Settings.canDrawOverlays(this)) {
-                    attachFloatingBall()
+                } else {
+                    // Outside NeliTv: keep passive wake listening running silently without showing idle ball
+                    detachFloatingBall()
                     if (NeliAiMemoryStore.isHandsFreeEnabled.value || NeliAiMemoryStore.isLockScreenWakeEnabled.value) {
                         voiceController?.startPassiveWakeListening()
                     }
                 }
             }
             ACTION_TRIGGER_VOICE -> {
+                mainHandler.removeCallbacks(autoHideOverlayRunnable)
                 if (!isNeliTvInForeground && Settings.canDrawOverlays(this)) {
                     attachFloatingBall()
                 }
@@ -192,8 +202,8 @@ class NeliAiSystemOverlayService : Service() {
                 voiceController?.startActiveCommandWindow(NeliAiVoiceController.DEFAULT_COMMAND_WINDOW_MS)
             }
             else -> {
-                if (!isNeliTvInForeground && Settings.canDrawOverlays(this)) {
-                    attachFloatingBall()
+                // Service started in standby: stay hidden like Siri until "Hey Neli" or power-button wake!
+                if (!isNeliTvInForeground) {
                     if (NeliAiMemoryStore.isHandsFreeEnabled.value || NeliAiMemoryStore.isLockScreenWakeEnabled.value) {
                         voiceController?.startPassiveWakeListening()
                     }
@@ -263,6 +273,7 @@ class NeliAiSystemOverlayService : Service() {
             context = this,
             onRecognizedQuery = { transcript -> handleOutsideAppVoiceQuery(transcript) },
             onWakeWordDetected = { chained ->
+                mainHandler.removeCallbacks(autoHideOverlayRunnable)
                 if (!isNeliTvInForeground && Settings.canDrawOverlays(this)) {
                     attachFloatingBall()
                     showCaptionBubble(
@@ -273,11 +284,17 @@ class NeliAiSystemOverlayService : Service() {
                 }
             },
             onCommandWindowExpired = {
-                // 5s silence elapsed -> AudioFocus already abandoned so paused music/video resumes!
+                // Command window elapsed with no speech -> hide Siri ball & caption immediately!
+                mainHandler.removeCallbacks(autoHideOverlayRunnable)
                 removeCaptionBubble()
+                if (popupOverlayView == null) {
+                    detachFloatingBall()
+                }
             },
             onSpeechFinished = {
-                mainHandler.postDelayed(autoHideCaptionRunnable, 3_500L)
+                // Siri-style exit: auto-hide caption and floating ball smoothly once Neli finishes answering!
+                mainHandler.removeCallbacks(autoHideOverlayRunnable)
+                mainHandler.postDelayed(autoHideOverlayRunnable, 1_400L)
             }
         ).apply {
             pauseExternalAppsOnWake = true
@@ -287,6 +304,13 @@ class NeliAiSystemOverlayService : Service() {
 
         serviceScope.launch {
             voiceController?.voiceState?.collectLatest { state ->
+                val isActiveVoice = state is NeliAiVoiceState.Listening ||
+                    state is NeliAiVoiceState.Thinking ||
+                    state is NeliAiVoiceState.Speaking
+                if (isActiveVoice && !isNeliTvInForeground && Settings.canDrawOverlays(this@NeliAiSystemOverlayService)) {
+                    mainHandler.removeCallbacks(autoHideOverlayRunnable)
+                    attachFloatingBall()
+                }
                 ballView?.updateVoiceState(state)
                 if (NeliAiMemoryStore.isCaptionsEnabled.value && !isNeliTvInForeground) {
                     when (state) {
@@ -322,8 +346,12 @@ class NeliAiSystemOverlayService : Service() {
         serviceScope.launch {
             val isOnline = isNetworkOnline()
             val dao = NeliDatabase.getInstance(applicationContext).mediaDao()
-            val downloadedIds = withContext(Dispatchers.IO) {
-                runCatching { dao.getAllDownloads().first().map { it.id }.toSet() }.getOrDefault(emptySet())
+            val downloadedEntities = withContext(Dispatchers.IO) {
+                runCatching { dao.getAllDownloads().first() }.getOrDefault(emptyList())
+            }
+            val downloadedIds = downloadedEntities.map { it.id }.toSet()
+            val downloadedItems = downloadedEntities.map {
+                NeliAiDownloadedItem(id = it.id, title = it.title, type = it.type)
             }
             val liveChannels = ChannelRepository.getPrioritizedAllChannels(ChannelRepository.liveChannelsFlow.value)
             val mediaCatalog = MediaContentRepository.mediaCatalog.value
@@ -339,6 +367,7 @@ class NeliAiSystemOverlayService : Service() {
                 isOnline = isOnline,
                 isOutsideApp = true,
                 downloadedMediaIds = downloadedIds,
+                downloadedItems = downloadedItems,
                 watchedWithin30DaysIds = NeliAiMemoryStore.getWatchedMovieIdsWithin30Days(),
                 isChannelLockedCheck = { ch ->
                     NeliAdminManager.isChannelLockedForUser(
@@ -363,7 +392,7 @@ class NeliAiSystemOverlayService : Service() {
                 accent = Color.parseColor("#FF2E93")
             )
 
-            val listenAfter = response.action is NeliAiAction.WakeGreeting
+            val listenAfter = response.expectsFollowUp || response.action is NeliAiAction.WakeGreeting
             executeOutsideAppAction(response.action)
             voiceController?.speak(response.replySpeech, listenForFollowUpAfter = listenAfter)
         }
@@ -419,6 +448,29 @@ class NeliAiSystemOverlayService : Service() {
 
             is NeliAiAction.DownloadSpecificMovies -> {
                 enqueueBackgroundDownloads(action.movies)
+            }
+
+            NeliAiAction.DeleteAllDownloads -> {
+                serviceScope.launch(Dispatchers.IO) {
+                    val dao = NeliDatabase.getInstance(applicationContext).mediaDao()
+                    val all = runCatching { dao.getAllDownloads().first() }.getOrDefault(emptyList())
+                    all.forEach { item ->
+                        runCatching {
+                            OfflineDownloadManager.deleteOfflineDownload(dao, item.id, applicationContext)
+                        }
+                    }
+                }
+            }
+
+            is NeliAiAction.DeleteSpecificDownloads -> {
+                serviceScope.launch(Dispatchers.IO) {
+                    val dao = NeliDatabase.getInstance(applicationContext).mediaDao()
+                    action.downloadIds.forEach { id ->
+                        runCatching {
+                            OfflineDownloadManager.deleteOfflineDownload(dao, id, applicationContext)
+                        }
+                    }
+                }
             }
 
             is NeliAiAction.OpenMedia -> {
@@ -553,7 +605,7 @@ class NeliAiSystemOverlayService : Service() {
 
     private fun showCaptionBubble(status: String, text: String, accent: Int) {
         if (!Settings.canDrawOverlays(this) || isNeliTvInForeground) return
-        mainHandler.removeCallbacks(autoHideCaptionRunnable)
+        mainHandler.removeCallbacks(autoHideOverlayRunnable)
         val wm = windowManager ?: return
 
         if (captionView == null) {
@@ -839,16 +891,22 @@ class NeliAiSystemOverlayService : Service() {
         val v = popupOverlayView ?: return
         runCatching { windowManager?.removeView(v) }
         popupOverlayView = null
+        mainHandler.removeCallbacks(autoHideOverlayRunnable)
+        mainHandler.postDelayed(autoHideOverlayRunnable, 350L)
+    }
+
+    private fun detachFloatingBall() {
+        val v = ballView ?: return
+        runCatching { windowManager?.removeView(v) }
+        ballView = null
+        ballParams = null
     }
 
     private fun removeAllOverlayViews() {
         removePopupOverlay()
+        mainHandler.removeCallbacks(autoHideOverlayRunnable)
         removeCaptionBubble()
-        ballView?.let { v ->
-            runCatching { windowManager?.removeView(v) }
-        }
-        ballView = null
-        ballParams = null
+        detachFloatingBall()
     }
 
     private fun isNetworkOnline(): Boolean {

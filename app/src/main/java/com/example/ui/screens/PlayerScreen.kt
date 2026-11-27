@@ -948,9 +948,10 @@ fun PlayerScreen(
                 modifier = Modifier.fillMaxSize()
             )
 
-            // Always-On Live Stream Freeze / Stall Auto-Fix Watchdog & Auto-Play on Smart TV / Mobile
+            // Always-On Live Stream Freeze / Stall Auto-Fix Watchdog (NEVER auto-resumes user-paused Movies, Series, or Adult!)
             LaunchedEffect(activeChannel.id) {
                 if (!activeExoPlayer.isPlaying &&
+                    !playerController.isPausedByUser() &&
                     !playerController.isAdPausedForBreak() &&
                     !com.example.ads.NeliAdManager.isAdCurrentlyDisplaying.value
                 ) {
@@ -963,8 +964,10 @@ fun PlayerScreen(
                     watchdogIteration++
                     val adBlockingPlayback = playerController.isAdPausedForBreak() ||
                         com.example.ads.NeliAdManager.isAdCurrentlyDisplaying.value
-                    // Only recover if player dropped into IDLE or lost playWhenReady unexpectedly (never interrupt active buffering)
-                    if (!adBlockingPlayback &&
+                    // Only auto-resume Live TV streams if they dropped into IDLE or lost playWhenReady unexpectedly.
+                    // Movies, Series & Adult VOD MUST stay paused whenever the user pauses them!
+                    if (activeChannel.isLiveBroadcast &&
+                        !adBlockingPlayback &&
                         watchdogIteration % 4 == 0 &&
                         !activeExoPlayer.isPlaying &&
                         (!activeExoPlayer.playWhenReady || activeExoPlayer.playbackState == Player.STATE_IDLE)
@@ -3095,7 +3098,6 @@ private fun createConfiguredEmbedWebView(
         }
         val isTvWebView = com.example.ui.tv.NeliTvDetector.isTelevision(ctx)
         if (isTvWebView) {
-            setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
             isFocusable = true
             isFocusableInTouchMode = true
             setOnKeyListener { view, keyCode, event ->

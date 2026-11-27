@@ -513,6 +513,8 @@ class LivePlayerController(
     private var lastKnownVodPositionMs = 0L
     private var pausedByCallOrExternalAudio: Boolean = false
     private var pausedSpecificallyByPhoneCall: Boolean = false
+    @Volatile
+    private var isUserPaused: Boolean = false
     private var lastSystemStatusPollTimeMs = 0L
     private var cachedPhoneCallActive = false
     private var cachedConnectionLabel: String = "Mobile Data / Wi-Fi"
@@ -654,7 +656,7 @@ class LivePlayerController(
                     isDeviceCurrentlyOnline = true
                     mainHandler.post {
                         val player = exoPlayer ?: return@post
-                        if (adPausedForBreak || wasCodecSuspendedForBackgroundOrAd || pausedByCallOrExternalAudio) return@post
+                        if (adPausedForBreak || wasCodecSuspendedForBackgroundOrAd || pausedByCallOrExternalAudio || isUserPaused) return@post
                         val currentUi = _uiState.value
                         val stalledForReconnect = currentUi is PlayerUiState.Error ||
                             player.playbackState == Player.STATE_IDLE ||
@@ -670,8 +672,10 @@ class LivePlayerController(
                                     player.seekTo(lastKnownVodPositionMs)
                                 }
                                 player.prepare()
-                                player.playWhenReady = true
-                                player.play()
+                                if (!isUserPaused) {
+                                    player.playWhenReady = true
+                                    player.play()
+                                }
                             }
                         }
                     }
@@ -926,14 +930,16 @@ class LivePlayerController(
                 mainHandler.postDelayed(this, 450L)
                 return
             } else if (pausedSpecificallyByPhoneCall) {
-                // Call ended: automatically clear call flag and resume cleanly
+                // Call ended: automatically clear call flag and resume cleanly unless user manually paused VOD
                 pausedSpecificallyByPhoneCall = false
                 pausedByCallOrExternalAudio = false
                 if (channel.isLiveBroadcast && player.isCurrentMediaItemLive) {
                     player.seekToDefaultPosition()
                 }
-                player.playWhenReady = true
-                player.play()
+                if (channel.isLiveBroadcast || !isUserPaused) {
+                    player.playWhenReady = true
+                    player.play()
+                }
             }
 
             // Refresh bandwidth estimate from DefaultBandwidthMeter
@@ -1219,7 +1225,7 @@ class LivePlayerController(
                             p.seekToDefaultPosition()
                         }
                         p.prepare()
-                        if (!pausedByCallOrExternalAudio) {
+                        if (!pausedByCallOrExternalAudio && (channel.isLiveBroadcast || !isUserPaused)) {
                             p.playWhenReady = true
                             p.play()
                         }
@@ -1910,6 +1916,7 @@ class LivePlayerController(
         useCleanDirectHttpForVod = false
         hasAppliedSwahiliMovieIntroSkip = false
         lastKnownVodPositionMs = 0L
+        isUserPaused = false
         val activePowerProfile = resolveActiveBatteryPowerProfile(forceRefreshBattery = false)
         if (_playbackInfo.value.networkMode == NetworkQualityMode.AUTO_ADAPTIVE) {
             evaluateAndApplyAdaptiveTrackSelection(
@@ -2113,6 +2120,7 @@ class LivePlayerController(
     fun resumePlaybackAfterCodecSuspend() {
         wasCodecSuspendedForBackgroundOrAd = false
         if (adPausedForBreak || pausedByCallOrExternalAudio) return
+        val keepPaused = !channel.isLiveBroadcast && isUserPaused
         exoPlayer?.let { player ->
             try {
                 if (player.playbackState == Player.STATE_IDLE || player.playbackState == Player.STATE_ENDED) {
@@ -2126,8 +2134,13 @@ class LivePlayerController(
                     player.seekToDefaultPosition()
                 }
                 player.volume = if (_playbackInfo.value.isMuted) 0f else 1f
-                player.playWhenReady = true
-                player.play()
+                if (keepPaused) {
+                    player.playWhenReady = false
+                    player.pause()
+                } else {
+                    player.playWhenReady = true
+                    player.play()
+                }
             } catch (_: Exception) {
                 loadChannelStream(player, preserveVodPosition = !channel.isLiveBroadcast)
             }
@@ -2434,7 +2447,7 @@ class LivePlayerController(
             }
 
             player.prepare()
-            player.playWhenReady = !isPhoneCallActiveOrRinging()
+            player.playWhenReady = !isPhoneCallActiveOrRinging() && (channel.isLiveBroadcast || !isUserPaused)
             if (player.playWhenReady) {
                 player.play()
             }
@@ -2719,6 +2732,8 @@ class LivePlayerController(
         }
     }
 
+    fun isPausedByUser(): Boolean = !channel.isLiveBroadcast && isUserPaused
+
     /**
      * Only Movies, Adult & Series (`!channel.isLiveBroadcast`) can be paused or resumed manually.
      * Live TV always continues playing at the live broadcast edge.
@@ -2726,6 +2741,7 @@ class LivePlayerController(
     fun togglePlayPause() {
         exoPlayer?.let { player ->
             if (channel.isLiveBroadcast) {
+                isUserPaused = false
                 if (!player.isPlaying) {
                     pausedByCallOrExternalAudio = false
                     pausedSpecificallyByPhoneCall = false
@@ -2735,9 +2751,12 @@ class LivePlayerController(
                 }
                 return
             }
-            if (player.isPlaying) {
+            if (player.isPlaying || player.playWhenReady) {
+                isUserPaused = true
+                player.playWhenReady = false
                 player.pause()
             } else {
+                isUserPaused = false
                 pausedByCallOrExternalAudio = false
                 pausedSpecificallyByPhoneCall = false
                 if (player.playbackState == Player.STATE_ENDED) {
@@ -2884,8 +2903,10 @@ class LivePlayerController(
             if (player.playbackState == Player.STATE_IDLE) {
                 player.prepare()
             }
-            player.playWhenReady = true
-            player.play()
+            if (!isUserPaused) {
+                player.playWhenReady = true
+                player.play()
+            }
         }
     }
 
@@ -2896,10 +2917,18 @@ class LivePlayerController(
     }
 
     fun pause() {
-        exoPlayer?.pause()
+        if (!channel.isLiveBroadcast) {
+            isUserPaused = true
+        }
+        exoPlayer?.let { player ->
+            player.playWhenReady = false
+            player.pause()
+        }
+        updatePlaybackInfo()
     }
 
     fun play() {
+        isUserPaused = false
         exoPlayer?.let { player ->
             if (channel.isLiveBroadcast && player.isCurrentMediaItemLive) {
                 // Returning to Live HLS/DASH TV jumps to the live edge, while progressive CDN MP4 continues smoothly
@@ -2908,6 +2937,7 @@ class LivePlayerController(
             player.playWhenReady = true
             player.play()
         }
+        updatePlaybackInfo()
     }
 
     fun release() {

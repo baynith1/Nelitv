@@ -201,6 +201,10 @@ object NeliAiCommandCatalog {
                 "fungua nelitv", "fungua app ya nelitv", "ingia nelitv",
                 // Navigation tabs
                 "open downloads", "my downloads", "downloaded movies", "fungua downloads", "nilizopakua",
+                // Delete downloads
+                "delete all downloads", "delete all my downloads", "remove all downloads", "clear all downloads",
+                "clear my downloads", "delete a download", "remove a download",
+                "futa downloads zote", "futa download zote", "ondoa downloads zote", "safisha downloads", "futa download",
                 "open discovery", "open movies", "browse movies", "fungua discovery", "fungua filamu",
                 "open home", "go home", "live tv home", "ukurasa wa mwanzo",
                 "open account", "my account", "my profile", "akaunti yangu",
@@ -226,6 +230,7 @@ object NeliAiCommandCatalog {
                     phrase.contains("quality") || phrase.contains("240p") || phrase.contains("360p") || phrase.contains("480p") || phrase.contains("720p") || phrase.contains("1080p") || phrase.contains("hd") || phrase.contains("bando") -> "SET_QUALITY"
                     phrase.contains("lock") || phrase.contains("kioo") || phrase.contains("loki") || phrase.contains("funga simu") -> "LOCK_SCREEN"
                     phrase.contains("nelitv") && (phrase.contains("open") || phrase.contains("launch") || phrase.contains("start") || phrase.contains("fungua") || phrase.contains("ingia") || phrase.contains("go to")) -> "OPEN_NELITV"
+                    phrase.contains("delete") || phrase.contains("remove") || phrase.contains("clear") || phrase.contains("futa") || phrase.contains("ondoa") || phrase.contains("safisha") -> "DELETE_DOWNLOADS"
                     phrase.contains("download") || phrase.contains("nilizopakua") -> "NAV_DOWNLOADS"
                     phrase.contains("vip") || phrase.contains("subscription") || phrase.contains("malipo") -> "VIP_STATUS"
                     phrase.contains("history") || phrase.contains("favorite") || phrase.contains("historia") -> "PERSONAL_STATS"

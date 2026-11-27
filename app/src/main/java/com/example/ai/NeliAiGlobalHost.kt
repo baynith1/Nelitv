@@ -7,6 +7,11 @@ import android.content.pm.PackageManager
 import android.media.AudioManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -101,6 +106,7 @@ fun NeliAiGlobalHost(
     // In-app / in-player glowing edge overlay state
     var isEdgeGlowVisible by remember { mutableStateOf(false) }
     var activeCaptionText by remember { mutableStateOf("") }
+    var inPlayerCaptionVisible by remember { mutableStateOf(true) }
     var isPlayerMutedForAi by remember { mutableStateOf(false) }
     var previousPlayerVolume by remember { mutableStateOf(1f) }
     var suggestedMoviesForPicker by remember { mutableStateOf<List<MediaContent>>(emptyList()) }
@@ -186,6 +192,16 @@ fun NeliAiGlobalHost(
             is NeliAiAction.DownloadSpecificMovies -> {
                 action.movies.forEach { movie ->
                     neliViewModel.addDownload(movie)
+                }
+            }
+
+            NeliAiAction.DeleteAllDownloads -> {
+                neliViewModel.deleteAllDownloads()
+            }
+
+            is NeliAiAction.DeleteSpecificDownloads -> {
+                action.downloadIds.forEach { downloadId ->
+                    neliViewModel.deleteDownload(downloadId)
                 }
             }
 
@@ -285,6 +301,7 @@ fun NeliAiGlobalHost(
     lateinit var submitQuery: (String, String) -> Unit
 
     val voiceController = remember(context) {
+        var controllerRef: NeliAiVoiceController? = null
         NeliAiVoiceController(
             context = context,
             onRecognizedQuery = { transcript ->
@@ -295,7 +312,7 @@ fun NeliAiGlobalHost(
                 activeCaptionText = chained ?: "I'm listening..."
             },
             onCommandWindowExpired = {
-                // 5 seconds elapsed with no command -> auto-unmute player & continue watching smoothly!
+                // Command window elapsed with no speech -> auto-unmute player & hide Siri-style overlay!
                 restorePlayerAudioAfterAi()
                 if (suggestedMoviesForPicker.isEmpty() && movieInfoTarget == null && lockedChannelPrompt == null) {
                     isEdgeGlowVisible = false
@@ -304,13 +321,21 @@ fun NeliAiGlobalHost(
             onSpeechFinished = {
                 restorePlayerAudioAfterAi()
                 scope.launch {
-                    delay(2_800L)
-                    if (suggestedMoviesForPicker.isEmpty() && movieInfoTarget == null && lockedChannelPrompt == null) {
+                    delay(1_400L)
+                    val currentVoice = controllerRef?.voiceState?.value
+                    val isVoiceActive = currentVoice is NeliAiVoiceState.Listening ||
+                        currentVoice is NeliAiVoiceState.Thinking ||
+                        currentVoice is NeliAiVoiceState.Speaking
+                    if (!isVoiceActive &&
+                        suggestedMoviesForPicker.isEmpty() &&
+                        movieInfoTarget == null &&
+                        lockedChannelPrompt == null
+                    ) {
                         isEdgeGlowVisible = false
                     }
                 }
             }
-        )
+        ).also { controllerRef = it }
     }
 
     submitQuery = { rawText, inputMode ->
@@ -332,6 +357,9 @@ fun NeliAiGlobalHost(
                     isOnline = isDeviceOnline(context),
                     isOutsideApp = false,
                     downloadedMediaIds = downloadedIds,
+                    downloadedItems = downloads.map {
+                        NeliAiDownloadedItem(id = it.id, title = it.title, type = it.type)
+                    },
                     watchedWithin30DaysIds = NeliAiMemoryStore.getWatchedMovieIdsWithin30Days(),
                     isChannelLockedCheck = { ch ->
                         NeliAdminManager.isChannelLockedForUser(
@@ -350,7 +378,8 @@ fun NeliAiGlobalHost(
                     inputMode = inputMode
                 )
                 activeCaptionText = response.replyText
-                val shouldListenAfter = response.action is NeliAiAction.WakeGreeting
+                inPlayerCaptionVisible = true
+                val shouldListenAfter = response.expectsFollowUp || response.action is NeliAiAction.WakeGreeting
                 executeAction(response.action)
                 voiceController.speak(response.replySpeech, listenForFollowUpAfter = shouldListenAfter)
             }
@@ -446,12 +475,29 @@ fun NeliAiGlobalHost(
         activeCaptionText
     }
 
+    // In-Player Caption Auto-Hide: Hide the caption automatically after 5 seconds if nobody is talking
+    val activePartialTranscript = (voiceState as? NeliAiVoiceState.Listening)?.partialText.orEmpty()
+    val isCurrentlyTalking = voiceState is NeliAiVoiceState.Speaking || activePartialTranscript.isNotBlank()
+    LaunchedEffect(activeChannel?.id, effectiveCaptionText, activePartialTranscript, isCurrentlyTalking, voiceState) {
+        if (activeChannel == null) {
+            inPlayerCaptionVisible = true
+            return@LaunchedEffect
+        }
+        if (isCurrentlyTalking) {
+            inPlayerCaptionVisible = true
+        } else if (showEdgeEffect) {
+            inPlayerCaptionVisible = true
+            delay(5_000L)
+            inPlayerCaptionVisible = false
+        }
+    }
+
     NeliAiEdgeGlowOverlay(
         visible = showEdgeEffect,
         voiceState = voiceState,
         captionText = effectiveCaptionText,
         isPlayerMutedForAi = isPlayerMutedForAi,
-        showCaptions = isCaptionsEnabled,
+        showCaptions = isCaptionsEnabled && (activeChannel == null || inPlayerCaptionVisible),
         suggestedMovies = suggestedMoviesForPicker,
         movieInfoTarget = movieInfoTarget,
         lockedChannelPrompt = lockedChannelPrompt,
@@ -494,65 +540,70 @@ fun NeliAiGlobalHost(
         }
     )
 
-    // 1B. Smart TV In-App Floating Neli AI Orb (Shown ONLY on Smart TV inside NeliTv; Mobile stays edge-glow only!)
+    // 1B. Smart TV In-App Siri-Style Neli AI Orb (Hidden when idle — appears ONLY when called & auto-hides after answering!)
+    val isTvOrbActive = showEdgeEffect ||
+        voiceState is NeliAiVoiceState.Listening ||
+        voiceState is NeliAiVoiceState.Thinking ||
+        voiceState is NeliAiVoiceState.Speaking
     if (isSmartTv && !isOpen) {
-        val isTvOrbActive = showEdgeEffect ||
-            voiceState is NeliAiVoiceState.Listening ||
-            voiceState is NeliAiVoiceState.Thinking ||
-            voiceState is NeliAiVoiceState.Speaking
-        val tvOrbAlpha = if (activeChannel != null && !isTvOrbActive) 0.55f else 1f
         Box(modifier = Modifier.fillMaxSize()) {
-            Column(
+            AnimatedVisibility(
+                visible = isTvOrbActive,
+                enter = fadeIn() + scaleIn(initialScale = 0.72f),
+                exit = fadeOut() + scaleOut(targetScale = 0.72f),
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .padding(end = 28.dp, bottom = 24.dp)
-                    .alpha(tvOrbAlpha),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Box(
-                    modifier = Modifier
-                        .tvGeminiFocusable(
-                            shape = CircleShape,
-                            focusScale = 1.12f,
-                            borderWidth = 2.5.dp,
-                            onClick = {
-                                if (voiceState is NeliAiVoiceState.Listening) {
-                                    voiceController.stopListening()
-                                    restorePlayerAudioAfterAi()
-                                } else {
-                                    mutePlayerForAiCommandWindow()
-                                    activeCaptionText = "Neli AI is listening... Say any channel, movie, volume, or quality command."
-                                    voiceController.startActiveCommandWindow(NeliAiVoiceController.DEFAULT_COMMAND_WINDOW_MS)
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .tvGeminiFocusable(
+                                shape = CircleShape,
+                                focusScale = 1.12f,
+                                borderWidth = 2.5.dp,
+                                onClick = {
+                                    if (voiceState is NeliAiVoiceState.Listening) {
+                                        voiceController.stopListening()
+                                        restorePlayerAudioAfterAi()
+                                        isEdgeGlowVisible = false
+                                    } else {
+                                        mutePlayerForAiCommandWindow()
+                                        activeCaptionText = "Neli AI is listening... Say any channel, movie, volume, or quality command."
+                                        voiceController.startActiveCommandWindow(NeliAiVoiceController.DEFAULT_COMMAND_WINDOW_MS)
+                                    }
                                 }
-                            }
+                            )
+                            .testTag("tv_in_app_neli_ai_orb")
+                    ) {
+                        NeliAiParticleMeshOrb(
+                            voiceState = voiceState,
+                            size = 66.dp,
+                            onClick = null
                         )
-                        .testTag("tv_in_app_neli_ai_orb")
-                ) {
-                    NeliAiParticleMeshOrb(
-                        voiceState = voiceState,
-                        size = 66.dp,
-                        onClick = null
-                    )
-                }
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(Color(0xC80D111C))
-                        .padding(horizontal = 8.dp, vertical = 2.dp)
-                ) {
-                    val label = when (voiceState) {
-                        is NeliAiVoiceState.Listening -> "Listening..."
-                        is NeliAiVoiceState.Thinking -> "Thinking..."
-                        is NeliAiVoiceState.Speaking -> "Neli AI"
-                        else -> "Hey Neli"
                     }
-                    Text(
-                        text = label,
-                        color = Color.White,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color(0xC80D111C))
+                            .padding(horizontal = 8.dp, vertical = 2.dp)
+                    ) {
+                        val label = when (voiceState) {
+                            is NeliAiVoiceState.Listening -> "Listening..."
+                            is NeliAiVoiceState.Thinking -> "Thinking..."
+                            is NeliAiVoiceState.Speaking -> "Neli AI"
+                            else -> "Hey Neli"
+                        }
+                        Text(
+                            text = label,
+                            color = Color.White,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
         }

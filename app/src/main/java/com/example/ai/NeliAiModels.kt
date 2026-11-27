@@ -35,6 +35,11 @@ sealed interface NeliAiAction {
         val swahiliOnly: Boolean = false
     ) : NeliAiAction
     data class DownloadSpecificMovies(val movies: List<MediaContent>) : NeliAiAction
+    data object DeleteAllDownloads : NeliAiAction
+    data class DeleteSpecificDownloads(
+        val downloadIds: List<String>,
+        val titles: List<String>
+    ) : NeliAiAction
     data class PlayMoviesInSequence(val movies: List<MediaContent>) : NeliAiAction
     data object SwitchNextChannel : NeliAiAction
     data object SwitchPreviousChannel : NeliAiAction
@@ -111,7 +116,14 @@ data class NeliAiCommandResponse(
     val sourceTag: String,
     val action: NeliAiAction = NeliAiAction.None,
     val cards: List<NeliAiCardItem> = emptyList(),
-    val quickReplies: List<String> = emptyList()
+    val quickReplies: List<String> = emptyList(),
+    val expectsFollowUp: Boolean = false
+)
+
+data class NeliAiDownloadedItem(
+    val id: String,
+    val title: String,
+    val type: String = "movie"
 )
 
 data class NeliAiContextSnapshot(
@@ -125,6 +137,7 @@ data class NeliAiContextSnapshot(
     val isOnline: Boolean = true,
     val isOutsideApp: Boolean = false,
     val downloadedMediaIds: Set<String> = emptySet(),
+    val downloadedItems: List<NeliAiDownloadedItem> = emptyList(),
     val watchedWithin30DaysIds: Set<String> = emptySet(),
     val isChannelLockedCheck: (LiveChannel) -> Boolean = { false }
 )
