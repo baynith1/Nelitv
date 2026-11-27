@@ -104,12 +104,50 @@
             android:name=".ai.NeliAiAssistActivity"
             android:exported="true"
             android:excludeFromRecents="true"
+            android:label="Neli AI Assistant"
             android:theme="@android:style/Theme.Translucent.NoTitleBar">
             <intent-filter>
                 <action android:name="android.intent.action.ASSIST" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VOICE_COMMAND" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEARCH_LONG_PRESS" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
         </activity>
+
+        <!-- Android Default Digital Assistant Registration (Settings -> Default Apps -> Digital Assistant & Hold Power Button) -->
+        <service
+            android:name=".ai.NeliVoiceInteractionService"
+            android:exported="true"
+            android:label="Neli AI Assistant"
+            android:permission="android.permission.BIND_VOICE_INTERACTION">
+            <meta-data
+                android:name="android.voice_interaction"
+                android:resource="@xml/neli_voice_interaction_service" />
+            <intent-filter>
+                <action android:name="android.service.voice.VoiceInteractionService" />
+            </intent-filter>
+        </service>
+
+        <service
+            android:name=".ai.NeliVoiceInteractionSessionService"
+            android:exported="false"
+            android:permission="android.permission.BIND_VOICE_INTERACTION" />
+
+        <service
+            android:name=".ai.NeliRecognitionService"
+            android:exported="true"
+            android:label="Neli AI Voice Recognition">
+            <intent-filter>
+                <action android:name="android.speech.RecognitionService" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </service>
 
         <service
             android:name=".ai.NeliAiSystemOverlayService"

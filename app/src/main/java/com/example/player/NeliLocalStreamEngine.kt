@@ -140,15 +140,17 @@ object NeliLocalStreamEngine {
     }
 
     /**
-     * Pooled HTTP/1.1 keep-alive client for VOD movies/series (generous read timeout for large MP4/HLS chunks).
+     * Pooled HTTP/2 + HTTP/1.1 keep-alive client for VOD movies/series with cached DNS so Android TV
+     * movies start fast without 2–6s Wi-Fi DNS stalls or HTTP/1.1 head-of-line blocking.
      */
     val vodStreamHttpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
             .connectionPool(sharedConnectionPool)
-            .protocols(listOf(Protocol.HTTP_1_1))
-            .connectTimeout(12, TimeUnit.SECONDS)
-            .readTimeout(25, TimeUnit.SECONDS)
-            .writeTimeout(12, TimeUnit.SECONDS)
+            .dns(NeliCachingDns)
+            .protocols(listOf(Protocol.HTTP_2, Protocol.HTTP_1_1))
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(20, TimeUnit.SECONDS)
+            .writeTimeout(10, TimeUnit.SECONDS)
             .followRedirects(true)
             .followSslRedirects(true)
             .retryOnConnectionFailure(true)
@@ -645,11 +647,25 @@ class NeliPooledOkHttpDataSource(
         val urlString = dataSpec.uri.toString()
         val requestBuilder = Request.Builder().url(urlString)
 
-        // Start with live stream-scoped headers (official X-Neli-Client, X-Neli-Api-Key, server User-Agent & Referer)
+        // Scope NeliTv/Azam/Streamzone headers strictly to Neli/Azam/CDN hosts so third-party movie CDNs
+        // (Firebase Storage, Cloudflare R2, Bunny, Archive.org, Drive, etc.) never reject requests with 403/400
+        // or stall TLS handshakes on Android TV.
         val effectiveTarget = urlString.ifBlank { defaultStreamUrl.orEmpty() }
         val mergedHeaders = LinkedHashMap<String, String>()
-        mergedHeaders.putAll(com.example.data.NeliTvRepository.buildStreamPlayerHeaders(effectiveTarget))
-        mergedHeaders.putAll(TokenManager.buildExoPlayerHeaders(streamUrl = effectiveTarget))
+        val targetLower = effectiveTarget.lowercase()
+        val isNeliOrAzamHost = targetLower.contains("nelitv.online") ||
+            targetLower.contains("azamtvltd.co.tz") ||
+            targetLower.contains("streamzone.fun") ||
+            targetLower.contains("cdn77.org") ||
+            targetLower.contains("/live/eds/") ||
+            targetLower.contains("/api/proxy-stream")
+        if (isNeliOrAzamHost) {
+            mergedHeaders.putAll(com.example.data.NeliTvRepository.buildStreamPlayerHeaders(effectiveTarget))
+            mergedHeaders.putAll(TokenManager.buildExoPlayerHeaders(streamUrl = effectiveTarget))
+        } else {
+            mergedHeaders["User-Agent"] = TokenManager.USER_AGENT
+            mergedHeaders["Accept"] = "*/*"
+        }
         mergedHeaders.putAll(requestProperties.snapshot)
         mergedHeaders.putAll(dataSpec.httpRequestHeaders)
 
@@ -718,10 +734,18 @@ class NeliPooledOkHttpDataSource(
 
         val rawStream = body?.byteStream()
         val bytesToSkip = if (responseCode == 200 && dataSpec.position > 0L) dataSpec.position else 0L
+        if (bytesToSkip > 2L * 1024L * 1024L) {
+            // Server ignored the Range header and returned 200 OK for a deep seek (>2 MB).
+            // Never synchronously read/discard tens or hundreds of megabytes on Android TV (which causes 25–60s freezes).
+            closeQuietly()
+            throw androidx.media3.datasource.DataSourceException(
+                androidx.media3.common.PlaybackException.ERROR_CODE_IO_READ_POSITION_OUT_OF_RANGE
+            )
+        }
         if (bytesToSkip > 0L && rawStream != null) {
             try {
                 var remainingSkip = bytesToSkip
-                val skipBuf = ByteArray(4096)
+                val skipBuf = ByteArray(8192)
                 while (remainingSkip > 0L) {
                     val skipped = rawStream.read(skipBuf, 0, minOf(remainingSkip, skipBuf.size.toLong()).toInt())
                     if (skipped == -1) break

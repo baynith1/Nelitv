@@ -135,7 +135,8 @@ fun HomeScreen(
     neliViewModel: NeliViewModel = viewModel(),
     initialShowPremium: Boolean = false,
     onConsumeInitialShowPremium: () -> Unit = {},
-    onOpenNeliAi: () -> Unit = {}
+    onOpenNeliAi: () -> Unit = {},
+    externalTvVoiceSearchTick: Int = 0
 ) {
     val context = LocalContext.current
     val isTvDevice = remember(context, NeliThemeManager.forceTvMode) {
@@ -156,6 +157,15 @@ fun HomeScreen(
     var selectedDiscoveryFilter by rememberSaveable { mutableStateOf("All") }
     var selectedSearchCategory by rememberSaveable { mutableStateOf("All") }
     var isSearchOpen by rememberSaveable { mutableStateOf(false) }
+    var tvVoiceSearchTriggerTick by remember { mutableStateOf(0) }
+
+    LaunchedEffect(externalTvVoiceSearchTick) {
+        if (externalTvVoiceSearchTick > 0 && isTvDevice) {
+            isSearchOpen = false
+            neliViewModel.selectTab(BottomNavTab.SEARCH)
+            tvVoiceSearchTriggerTick += 1
+        }
+    }
 
     val liveChannels by neliViewModel.liveChannels.collectAsState()
     val mediaCatalog by neliViewModel.mediaCatalog.collectAsState()
@@ -487,14 +497,36 @@ fun HomeScreen(
                     }
 
                     BottomNavTab.SEARCH -> {
-                        SearchScreen(
-                            channels = liveChannels,
-                            mediaCatalog = mediaCatalog,
-                            onChannelSelected = { ch -> handleChannelSelection(ch) },
-                            onMediaSelected = { media ->
-                                neliViewModel.openMediaDetails(media.id)
-                            }
-                        )
+                        if (isTvDevice) {
+                            com.example.ui.tv.NeliTvVoiceSearchScreen(
+                                channels = liveChannels,
+                                mediaCatalog = mediaCatalog,
+                                initialQuery = searchQuery,
+                                autoTriggerVoiceTick = tvVoiceSearchTriggerTick,
+                                onQueryChanged = { searchQuery = it },
+                                onChannelSelected = { ch -> handleChannelSelection(ch) },
+                                onMediaSelected = { media ->
+                                    neliViewModel.openMediaDetails(media.id)
+                                },
+                                onPlayMediaDirectly = { media ->
+                                    val playable = OfflineDownloadManager.resolveOfflineAwareChannel(
+                                        context = context,
+                                        channel = media.toPlayableChannel(),
+                                        downloads = downloads
+                                    )
+                                    handleChannelSelection(playable)
+                                }
+                            )
+                        } else {
+                            SearchScreen(
+                                channels = liveChannels,
+                                mediaCatalog = mediaCatalog,
+                                onChannelSelected = { ch -> handleChannelSelection(ch) },
+                                onMediaSelected = { media ->
+                                    neliViewModel.openMediaDetails(media.id)
+                                }
+                            )
+                        }
                     }
 
                     BottomNavTab.DOWNLOAD -> {
@@ -714,7 +746,7 @@ fun HomeScreen(
                     activeTabLabel = when (selectedTab) {
                         BottomNavTab.HOME -> "Live TV & Sports"
                         BottomNavTab.DISCOVERY -> "Discovery (Movies & Series)"
-                        BottomNavTab.SEARCH -> "Search & Explore"
+                        BottomNavTab.SEARCH -> "TV Voice Search"
                         BottomNavTab.DOWNLOAD -> "Downloads"
                         BottomNavTab.ACCOUNT -> "Account & Settings"
                     },
@@ -722,8 +754,19 @@ fun HomeScreen(
                     onSearchQueryChange = { searchQuery = it },
                     isSearchOpen = isSearchOpen,
                     onToggleSearch = {
-                        isSearchOpen = !isSearchOpen
-                        if (!isSearchOpen) searchQuery = ""
+                        if (selectedTab == BottomNavTab.SEARCH) {
+                            isSearchOpen = false
+                            searchQuery = ""
+                            neliViewModel.selectTab(BottomNavTab.HOME)
+                        } else {
+                            isSearchOpen = false
+                            neliViewModel.selectTab(BottomNavTab.SEARCH)
+                        }
+                    },
+                    onVoiceSearchClick = {
+                        isSearchOpen = false
+                        neliViewModel.selectTab(BottomNavTab.SEARCH)
+                        tvVoiceSearchTriggerTick += 1
                     },
                     onOpenNeliAi = onOpenNeliAi,
                     adminSmsMessage = adminSmsMessage

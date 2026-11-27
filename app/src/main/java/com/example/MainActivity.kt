@@ -75,6 +75,8 @@ class MainActivity : ComponentActivity() {
     private var pendingLaunchChannelId by mutableStateOf<String?>(null)
     private var pendingLaunchMovieId by mutableStateOf<String?>(null)
     private var pendingLaunchTab by mutableStateOf<String?>(null)
+    private var assistVoiceTriggerTick by mutableStateOf(0)
+    private var tvRemoteVoiceSearchTick by mutableStateOf(0)
     private var isHardwareTv by mutableStateOf(false)
     private var isTvEnvironment by mutableStateOf(false)
     // Increments on cold launch (value=1) and whenever returning to app after >= 4 hours even without closing
@@ -267,6 +269,8 @@ class MainActivity : ComponentActivity() {
                             pendingChannelId = pendingLaunchChannelId,
                             pendingMovieId = pendingLaunchMovieId,
                             pendingTab = pendingLaunchTab,
+                            assistVoiceTriggerTick = assistVoiceTriggerTick,
+                            tvRemoteVoiceSearchTick = tvRemoteVoiceSearchTick,
                             recommendedOverlayTriggerTick = recommendedOverlayTriggerTick,
                             onConsumeDeepLink = {
                                 pendingLaunchChannelId = null
@@ -399,6 +403,23 @@ class MainActivity : ComponentActivity() {
         if (channelId != null) pendingLaunchChannelId = channelId
         if (movieId != null) pendingLaunchMovieId = movieId
         if (tab != null) pendingLaunchTab = tab
+        if (intent.getBooleanExtra(com.example.ai.NeliAiAssistActivity.EXTRA_START_NELI_AI_VOICE, false)) {
+            assistVoiceTriggerTick += 1
+        }
+    }
+
+    override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent?): Boolean {
+        if (isTvEnvironment && (
+                keyCode == android.view.KeyEvent.KEYCODE_SEARCH ||
+                keyCode == android.view.KeyEvent.KEYCODE_VOICE_ASSIST ||
+                keyCode == android.view.KeyEvent.KEYCODE_ASSIST
+            )
+        ) {
+            pendingLaunchTab = BottomNavTab.SEARCH.name
+            tvRemoteVoiceSearchTick += 1
+            return true
+        }
+        return super.onKeyDown(keyCode, event)
     }
 
     private fun updateSystemPipParams(isActive: Boolean) {
@@ -493,6 +514,8 @@ fun NeliApp(
     pendingChannelId: String? = null,
     pendingMovieId: String? = null,
     pendingTab: String? = null,
+    assistVoiceTriggerTick: Int = 0,
+    tvRemoteVoiceSearchTick: Int = 0,
     recommendedOverlayTriggerTick: Int = 1,
     onConsumeDeepLink: () -> Unit = {},
     onActivePlaybackChanged: (Boolean) -> Unit = {},
@@ -708,7 +731,8 @@ fun NeliApp(
                 },
                 onOpenNeliAi = {
                     isNeliAiOpen = true
-                }
+                },
+                externalTvVoiceSearchTick = tvRemoteVoiceSearchTick
             )
         }
 
@@ -892,7 +916,8 @@ fun NeliApp(
             },
             onAiActiveInPlayerChanged = { active ->
                 isNeliAiActiveInPlayer = active
-            }
+            },
+            assistVoiceTriggerTick = assistVoiceTriggerTick
         )
 
         // Mandatory In-App Update popup renders over EVERY screen and blocks until updated

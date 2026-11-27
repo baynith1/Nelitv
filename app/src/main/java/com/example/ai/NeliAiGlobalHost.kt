@@ -70,7 +70,8 @@ fun NeliAiGlobalHost(
     onPlayChannel: (LiveChannel) -> Unit,
     onClosePlayer: () -> Unit,
     onOpenPremium: () -> Unit = {},
-    onAiActiveInPlayerChanged: (Boolean) -> Unit = {}
+    onAiActiveInPlayerChanged: (Boolean) -> Unit = {},
+    assistVoiceTriggerTick: Int = 0
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -93,6 +94,7 @@ fun NeliAiGlobalHost(
     val isLockScreenWakeEnabled by NeliAiMemoryStore.isLockScreenWakeEnabled.collectAsState()
     val isVoiceCancellationEnabled by NeliAiMemoryStore.isVoiceCancellationEnabled.collectAsState()
     val isCaptionsEnabled by NeliAiMemoryStore.isCaptionsEnabled.collectAsState()
+    val isPowerButtonWakeEnabled by NeliAiMemoryStore.isPowerButtonWakeEnabled.collectAsState()
     val remoteEndpointUrl by NeliAiMemoryStore.remoteEndpointUrl.collectAsState()
     val customApiKey by NeliAiMemoryStore.customApiKey.collectAsState()
 
@@ -369,6 +371,16 @@ fun NeliAiGlobalHost(
         }
     }
 
+    // Trigger voice listening immediately when launched from Android Digital Assistant / Hold or Double-Tap Power Button
+    LaunchedEffect(assistVoiceTriggerTick) {
+        if (assistVoiceTriggerTick > 0) {
+            onSetOpen(false)
+            mutePlayerForAiCommandWindow()
+            activeCaptionText = "Neli AI is listening... Speak your command."
+            voiceController.startActiveCommandWindow(NeliAiVoiceController.DEFAULT_COMMAND_WINDOW_MS)
+        }
+    }
+
     DisposableEffect(voiceController) {
         onDispose {
             restorePlayerAudioAfterAi()
@@ -391,7 +403,8 @@ fun NeliAiGlobalHost(
         isOverlayBallEnabled,
         isLockScreenWakeEnabled,
         isVoiceCancellationEnabled,
-        isCaptionsEnabled
+        isCaptionsEnabled,
+        isPowerButtonWakeEnabled
     ) {
         NeliAiBrainSnapshot(
             liveChannelsCount = liveChannels.size,
@@ -410,7 +423,8 @@ fun NeliAiGlobalHost(
             isOverlayBallEnabled = isOverlayBallEnabled,
             isLockScreenWakeEnabled = isLockScreenWakeEnabled,
             isVoiceCancellationEnabled = isVoiceCancellationEnabled,
-            isCaptionsEnabled = isCaptionsEnabled
+            isCaptionsEnabled = isCaptionsEnabled,
+            isPowerButtonWakeEnabled = isPowerButtonWakeEnabled
         )
     }
 
@@ -420,15 +434,22 @@ fun NeliAiGlobalHost(
             voiceState is NeliAiVoiceState.Listening ||
             voiceState is NeliAiVoiceState.Thinking ||
             voiceState is NeliAiVoiceState.Speaking ||
+            voiceState is NeliAiVoiceState.Notice ||
             suggestedMoviesForPicker.isNotEmpty() ||
             movieInfoTarget != null ||
             lockedChannelPrompt != null
         )
 
+    val effectiveCaptionText = if (voiceState is NeliAiVoiceState.Notice) {
+        (voiceState as NeliAiVoiceState.Notice).message
+    } else {
+        activeCaptionText
+    }
+
     NeliAiEdgeGlowOverlay(
         visible = showEdgeEffect,
         voiceState = voiceState,
-        captionText = activeCaptionText,
+        captionText = effectiveCaptionText,
         isPlayerMutedForAi = isPlayerMutedForAi,
         showCaptions = isCaptionsEnabled,
         suggestedMovies = suggestedMoviesForPicker,
@@ -547,7 +568,12 @@ fun NeliAiGlobalHost(
                 onSetOpen(false)
                 mutePlayerForAiCommandWindow()
                 activeCaptionText = "I'm listening... try \"Suggest me movies\" or \"Open Azam Sports 1\""
-                voiceController.startActiveCommandWindow(NeliAiVoiceController.DEFAULT_COMMAND_WINDOW_MS)
+                voiceController.startActiveCommandWindow(NeliAiVoiceController.MANUAL_TAP_COMMAND_WINDOW_MS)
+            },
+            onRunQuickTestCommand = { command ->
+                onSetOpen(false)
+                mutePlayerForAiCommandWindow()
+                submitQuery(command, "voice")
             },
             onToggleHandsFree = { enabled ->
                 NeliAiMemoryStore.setHandsFreeEnabled(context, enabled)
@@ -582,6 +608,12 @@ fun NeliAiGlobalHost(
             onToggleVoiceReply = { enabled ->
                 NeliAiMemoryStore.setVoiceReplyEnabled(context, enabled)
                 if (!enabled) voiceController.stopSpeaking()
+            },
+            onTogglePowerButtonWake = { enabled ->
+                NeliAiMemoryStore.setPowerButtonWakeEnabled(context, enabled)
+                if (enabled) {
+                    NeliAiSystemOverlayService.start(context)
+                }
             },
             onSaveRemoteUrl = { url ->
                 NeliAiMemoryStore.setRemoteEndpointUrl(context, url)

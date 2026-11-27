@@ -153,5 +153,6 @@ data class NeliAiBrainSnapshot(
     val isLockScreenWakeEnabled: Boolean = false,
     val isVoiceCancellationEnabled: Boolean = true,
     val isCaptionsEnabled: Boolean = true,
+    val isPowerButtonWakeEnabled: Boolean = true,
     val totalCommandsSupported: Int = NeliAiCommandCatalog.totalCommandCount
 )

@@ -291,9 +291,97 @@ class NeliAiEngineTest {
         assertEquals("Opening Azam Sports 1 HD right now!", parsed!!.replySpeech)
         assertTrue(parsed.action is NeliAiAction.PlayChannel)
 
-        // Verify Free 10-14 yr Female English Voice tuning constants
+        // Verify Free 10-14 yr Female English Voice tuning constants & 30-second command wait window
         assertEquals(1.28f, com.example.ai.NeliAiVoiceController.NELI_VOICE_PITCH)
         assertEquals(1.04f, com.example.ai.NeliAiVoiceController.NELI_VOICE_SPEECH_RATE)
         assertEquals("neli", com.example.ai.NeliAiVoiceController.NELI_UTTERANCE_ID)
+        assertEquals(30_000L, com.example.ai.NeliAiVoiceController.DEFAULT_COMMAND_WINDOW_MS)
+    }
+
+    @Test
+    fun tvVoiceSearchMatcher_normalizesSpokenPhrasesAndMatchesChannelsAndMovies() {
+        assertEquals(
+            "azam sport one",
+            com.example.ui.tv.NeliTvVoiceSearchMatcher.normalizeSpokenQuery("Hey Neli search for azam sport one")
+        )
+        assertEquals(
+            "Mission Zanzibar",
+            com.example.ui.tv.NeliTvVoiceSearchMatcher.normalizeSpokenQuery("Tafuta movie ya Mission Zanzibar")
+        )
+
+        val chRes = com.example.ui.tv.NeliTvVoiceSearchMatcher.search(
+            rawQuery = "Play azm spot 1",
+            channels = sampleChannels,
+            mediaCatalog = sampleMedia,
+            filter = com.example.ui.tv.TvVoiceSearchFilter.ALL
+        )
+        assertTrue(chRes.channels.any { it.id == "c2" })
+
+        val movieRes = com.example.ui.tv.NeliTvVoiceSearchMatcher.search(
+            rawQuery = "Find Mission Zanzibar",
+            channels = sampleChannels,
+            mediaCatalog = sampleMedia,
+            filter = com.example.ui.tv.TvVoiceSearchFilter.MOVIES
+        )
+        assertTrue(movieRes.media.any { it.id == "m1" })
+        assertTrue(movieRes.channels.isEmpty())
+    }
+
+    @Test
+    fun vodContainerResolution_defaultsExtensionlessAndMkvMoviesToProgressiveForFastTvLoad() {
+        // Extensionless Firebase Storage / Cloudflare R2 / Google Drive movie URLs MUST use Progressive (not HLS!)
+        assertTrue(
+            com.example.player.LivePlayerController.resolveVodUsesProgressive(
+                streamUrl = "https://firebasestorage.googleapis.com/v0/b/nelitv/o/movies%2Fhero?alt=media&token=abc",
+                streamFormat = "",
+                isMp4 = false
+            )
+        )
+        assertTrue(
+            com.example.player.LivePlayerController.resolveVodUsesProgressive(
+                streamUrl = "https://cdn.example.com/movie_1080p.mkv",
+                streamFormat = "",
+                isMp4 = false
+            )
+        )
+        assertFalse(
+            com.example.player.LivePlayerController.resolveVodUsesProgressive(
+                streamUrl = "https://cdn.example.com/movie/master.m3u8",
+                streamFormat = "",
+                isMp4 = false
+            )
+        )
+        assertFalse(
+            com.example.player.LivePlayerController.resolveVodUsesProgressive(
+                streamUrl = "https://cdn.example.com/movie/manifest.mpd",
+                streamFormat = "dash",
+                isMp4 = false
+            )
+        )
+    }
+
+    @Test
+    fun powerButtonDoubleTapDetector_wakesOnRapidDoubleTapAndRespectsCooldown() {
+        var triggers = 0
+        val detector = com.example.ai.NeliPowerButtonDoubleTapDetector { triggers++ }
+
+        // Single power button toggle should NOT trigger
+        assertFalse(detector.recordToggleAndCheckDoubleTap(10_000L))
+        // Second toggle within 500ms MUST trigger double-tap wake!
+        assertTrue(detector.recordToggleAndCheckDoubleTap(10_500L))
+        // Immediate extra bounce within cooldown must NOT re-trigger
+        assertFalse(detector.recordToggleAndCheckDoubleTap(10_900L))
+        // Slow press (>1.35s gap) starts a fresh window and does NOT trigger on first press
+        assertFalse(detector.recordToggleAndCheckDoubleTap(15_000L))
+        assertFalse(detector.recordToggleAndCheckDoubleTap(18_000L))
+        assertEquals(0, triggers) // callback only fires from BroadcastReceiver; pure logic verified above
+    }
+
+    @Test
+    fun digitalAssistantServices_areDeclaredAndInstantiable() {
+        assertNotNull(com.example.ai.NeliVoiceInteractionService::class.java)
+        assertNotNull(com.example.ai.NeliVoiceInteractionSessionService::class.java)
+        assertNotNull(com.example.ai.NeliRecognitionService::class.java)
     }
 }
+

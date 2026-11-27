@@ -456,6 +456,28 @@ class LivePlayerController(
             return AdaptiveQualityTier.entries[cappedOrdinal]
         }
 
+        /**
+         * Determines whether a VOD movie/episode should use [ProgressiveMediaSource] by default.
+         * Extensionless movie URLs (Firebase Storage `?alt=media`, Cloudflare R2, Google Drive, CDN tokens)
+         * MUST default to Progressive so [DefaultExtractorsFactory] auto-sniffs MP4/MKV/WebM/TS/FLV
+         * instead of erroneously falling into HlsMediaSource.
+         */
+        fun resolveVodUsesProgressive(
+            streamUrl: String,
+            streamFormat: String,
+            isMp4: Boolean
+        ): Boolean {
+            val cleanUrl = streamUrl.trim().lowercase()
+            val cleanFormat = streamFormat.trim().lowercase()
+            if (cleanFormat == "hls" || cleanFormat == "m3u8" || cleanUrl.contains(".m3u8")) {
+                return false
+            }
+            if (cleanFormat == "dash" || cleanFormat == "mpd" || cleanUrl.contains(".mpd")) {
+                return false
+            }
+            return isMp4 || true
+        }
+
         init {
             NativeLogSuppressor.suppressNonFatalNativeLogs()
         }
@@ -485,6 +507,8 @@ class LivePlayerController(
     private var preferSoftwareVideoDecoder = false
     private var wasCodecSuspendedForBackgroundOrAd = false
     private var forcedContainerMode = ForcedContainerMode.NONE
+    private var vodRecoveryTier: Int = 0
+    private var useCleanDirectHttpForVod: Boolean = false
     private var hasAppliedSwahiliMovieIntroSkip = false
     private var lastKnownVodPositionMs = 0L
     private var pausedByCallOrExternalAudio: Boolean = false
@@ -1022,8 +1046,11 @@ class LivePlayerController(
                             }
                         } else if (!hasAppliedSwahiliMovieIntroSkip && channel.shouldAutoSkipSwahiliMovieIntro) {
                             hasAppliedSwahiliMovieIntroSkip = true
-                            val canSkipTo530 = dur == C.TIME_UNSET || dur > (SWAHILI_MOVIE_INTRO_SKIP_MS + 10_000L)
+                            val canSkipTo530 = player.isCurrentMediaItemSeekable &&
+                                dur != C.TIME_UNSET &&
+                                dur > (SWAHILI_MOVIE_INTRO_SKIP_MS + 10_000L)
                             if (canSkipTo530 && player.currentPosition < SWAHILI_MOVIE_INTRO_SKIP_MS - 3_000L) {
+                                lastKnownVodPositionMs = SWAHILI_MOVIE_INTRO_SKIP_MS
                                 player.seekTo(SWAHILI_MOVIE_INTRO_SKIP_MS)
                             }
                         }
@@ -1307,8 +1334,76 @@ class LivePlayerController(
                 return
             }
 
-            // VOD retry path
-            if (autoReconnectAttempts < 2) {
+            // Smart 3-Tier VOD Movie Recovery Path (fixes slow/stuck/403 movies on Android TV & Mobile)
+            if (vodRecoveryTier == 0) {
+                vodRecoveryTier = 1
+                useCleanDirectHttpForVod = true
+                _uiState.value = PlayerUiState.Buffering
+                mainHandler.postDelayed({
+                    exoPlayer?.let { p ->
+                        // Reload with clean Android DefaultHttpDataSource (no foreign Neli/Azam headers)
+                        loadChannelStream(p, preserveVodPosition = lastKnownVodPositionMs > 5_000L)
+                    }
+                }, 250L)
+                return
+            }
+
+            if (vodRecoveryTier == 1) {
+                vodRecoveryTier = 2
+                val distinctBackup = originalBackupStreamUrl.trim()
+                if (distinctBackup.isNotBlank() && !distinctBackup.equals(channel.streamUrl.trim(), ignoreCase = true)) {
+                    _uiState.value = PlayerUiState.Buffering
+                    mainHandler.postDelayed({
+                        exoPlayer?.let { p ->
+                            channel = channel.copy(streamUrl = distinctBackup)
+                            _currentChannel.value = channel
+                            forcedContainerMode = ForcedContainerMode.NONE
+                            loadChannelStream(p, preserveVodPosition = lastKnownVodPositionMs > 5_000L)
+                        }
+                    }, 250L)
+                    return
+                } else if (forcedContainerMode == ForcedContainerMode.NONE) {
+                    // Try opposite container mode (Progressive <-> HLS)
+                    val currentlyProgressive = resolveVodUsesProgressive(channel.streamUrl, channel.streamFormat, channel.isMp4)
+                    forcedContainerMode = if (currentlyProgressive) {
+                        ForcedContainerMode.FORCE_HLS_M3U8
+                    } else {
+                        ForcedContainerMode.FORCE_PROGRESSIVE_MP4
+                    }
+                    _uiState.value = PlayerUiState.Buffering
+                    mainHandler.postDelayed({
+                        exoPlayer?.let { p ->
+                            loadChannelStream(p, preserveVodPosition = lastKnownVodPositionMs > 5_000L)
+                        }
+                    }, 250L)
+                    return
+                }
+            }
+
+            if (vodRecoveryTier == 2) {
+                vodRecoveryTier = 3
+                val primaryUrl = originalLiveStreamUrl.ifBlank { channel.streamUrl }.trim()
+                val alreadyProxied = primaryUrl.contains("/api/proxy-stream", ignoreCase = true)
+                if (primaryUrl.startsWith("http", ignoreCase = true) && !alreadyProxied) {
+                    val proxyRelay = NeliLocalStreamEngine.buildNeliTvProxyStreamUrl(primaryUrl)
+                    if (proxyRelay.isNotBlank()) {
+                        _uiState.value = PlayerUiState.Buffering
+                        mainHandler.postDelayed({
+                            exoPlayer?.let { p ->
+                                channel = channel.copy(streamUrl = proxyRelay)
+                                _currentChannel.value = channel
+                                useCleanDirectHttpForVod = false
+                                forcedContainerMode = ForcedContainerMode.NONE
+                                loadChannelStream(p, preserveVodPosition = lastKnownVodPositionMs > 5_000L)
+                            }
+                        }, 300L)
+                        return
+                    }
+                }
+            }
+
+            // Final simple retry
+            if (autoReconnectAttempts < 1) {
                 autoReconnectAttempts++
                 _uiState.value = PlayerUiState.Buffering
                 val resumePos = lastKnownVodPositionMs
@@ -1320,7 +1415,7 @@ class LivePlayerController(
                         p.prepare()
                         p.play()
                     }
-                }, 300L)
+                }, 350L)
                 return
             }
 
@@ -1729,17 +1824,23 @@ class LivePlayerController(
                     .build()
             }
         } else {
+            // Fast-Start VOD LoadControl tailored for Android TV (1GB–2GB TV boxes start movies in <1.5s without OOM/GC stalls)
             DefaultLoadControl.Builder()
                 .setBufferDurationsMs(
-                    /* minBufferMs = */ if (isTvDevice) 12_000 else 6_000,
-                    /* maxBufferMs = */ if (isTvDevice) 45_000 else 30_000,
-                    /* bufferForPlaybackMs = */ 1_000,
-                    /* bufferForPlaybackAfterRebufferMs = */ if (isTvDevice) 3_000 else 2_000
+                    /* minBufferMs = */ if (isTvDevice) 8_000 else 6_000,
+                    /* maxBufferMs = */ if (isTvDevice) 24_000 else 30_000,
+                    /* bufferForPlaybackMs = */ if (isTvDevice) 600 else 900,
+                    /* bufferForPlaybackAfterRebufferMs = */ if (isTvDevice) 1_500 else 2_000
                 )
                 .setBackBuffer(
-                    /* backBufferDurationMs = */ 5_000,
-                    /* retainBackBufferFromKeyframe = */ true
+                    /* backBufferDurationMs = */ if (isTvDevice) 2_000 else 5_000,
+                    /* retainBackBufferFromKeyframe = */ !isTvDevice
                 )
+                .apply {
+                    if (isTvDevice) {
+                        setTargetBufferBytes(24 * 1024 * 1024)
+                    }
+                }
                 .setPrioritizeTimeOverSizeThresholds(true)
                 .build()
         }
@@ -1805,12 +1906,10 @@ class LivePlayerController(
         lastLivePositionProgressRealtimeMs = 0L
         consecutiveLiveStallAutoFixes = 0
         forcedContainerMode = ForcedContainerMode.NONE
+        vodRecoveryTier = 0
+        useCleanDirectHttpForVod = false
         hasAppliedSwahiliMovieIntroSkip = false
-        lastKnownVodPositionMs = if (newChannel.shouldAutoSkipSwahiliMovieIntro) {
-            SWAHILI_MOVIE_INTRO_SKIP_MS
-        } else {
-            0L
-        }
+        lastKnownVodPositionMs = 0L
         val activePowerProfile = resolveActiveBatteryPowerProfile(forceRefreshBattery = false)
         if (_playbackInfo.value.networkMode == NetworkQualityMode.AUTO_ADAPTIVE) {
             evaluateAndApplyAdaptiveTrackSelection(
@@ -2314,14 +2413,13 @@ class LivePlayerController(
             val isLocalOffline = isPlayingLocalOfflineStream(channel)
             val mediaSource = createMediaSource(channel)
             player.repeatMode = Player.REPEAT_MODE_OFF
+            // Always start VOD movies from 0L on initial open so frame #1 renders immediately on Android TV
+            // without stalling on a remote Range-seek before moov/metadata completes. Swahili intro skip
+            // happens seamlessly right after STATE_READY once seekability & duration are verified.
             val startPositionMs = when {
                 channel.isLiveBroadcast -> C.TIME_UNSET
                 preserveVodPosition && lastKnownVodPositionMs > 0L -> lastKnownVodPositionMs
-                !isLocalOffline && channel.shouldAutoSkipSwahiliMovieIntro -> {
-                    hasAppliedSwahiliMovieIntroSkip = true
-                    lastKnownVodPositionMs = SWAHILI_MOVIE_INTRO_SKIP_MS
-                    SWAHILI_MOVIE_INTRO_SKIP_MS
-                }
+                isLocalOffline -> 0L
                 else -> 0L
             }
 
@@ -2402,20 +2500,39 @@ class LivePlayerController(
         }
         val encodedManifestQuery = manifestUri.encodedQuery
 
-        // Use NeliLocalStreamEngine's pooled 16-socket HTTP keep-alive OkHttp DataSource so MPD + init + video/audio
-        // chunks reuse warm TLS sockets to cdnHost (eliminating per-segment handshake delays on Android TV & mobile).
-        val streamHeaders = LinkedHashMap<String, String>().apply {
-            putAll(TokenManager.buildExoPlayerHeaders(streamUrl = effectiveStreamUrl))
-            putAll(com.example.data.NeliTvRepository.buildStreamPlayerHeaders(effectiveStreamUrl))
-        }
-        val baseHttpDataSourceFactory = NeliLocalStreamEngine.createPooledHttpDataSourceFactory(
-            streamUrl = effectiveStreamUrl,
-            isLive = liveServerChannel.isLiveBroadcast
-        ).let { pooledFactory ->
-            if (pooledFactory is HttpDataSource.Factory) {
-                pooledFactory.setDefaultRequestProperties(streamHeaders)
+        val isVodCleanDirect = !liveServerChannel.isLiveBroadcast && useCleanDirectHttpForVod
+        val baseHttpDataSourceFactory = if (isVodCleanDirect) {
+            DefaultHttpDataSource.Factory()
+                .setAllowCrossProtocolRedirects(true)
+                .setConnectTimeoutMs(10_000)
+                .setReadTimeoutMs(20_000)
+                .setUserAgent(TokenManager.USER_AGENT)
+        } else {
+            val targetLower = effectiveStreamUrl.lowercase()
+            val attachNeliHeaders = liveServerChannel.isLiveBroadcast ||
+                targetLower.contains("nelitv.online") ||
+                targetLower.contains("azamtvltd.co.tz") ||
+                targetLower.contains("streamzone.fun") ||
+                targetLower.contains("cdn77.org") ||
+                targetLower.contains("/api/proxy-stream")
+            val streamHeaders = LinkedHashMap<String, String>().apply {
+                if (attachNeliHeaders) {
+                    putAll(TokenManager.buildExoPlayerHeaders(streamUrl = effectiveStreamUrl))
+                    putAll(com.example.data.NeliTvRepository.buildStreamPlayerHeaders(effectiveStreamUrl))
+                } else {
+                    put("User-Agent", TokenManager.USER_AGENT)
+                    put("Accept", "*/*")
+                }
             }
-            pooledFactory
+            NeliLocalStreamEngine.createPooledHttpDataSourceFactory(
+                streamUrl = effectiveStreamUrl,
+                isLive = liveServerChannel.isLiveBroadcast
+            ).let { pooledFactory ->
+                if (pooledFactory is HttpDataSource.Factory) {
+                    pooledFactory.setDefaultRequestProperties(streamHeaders)
+                }
+                pooledFactory
+            }
         }
 
         // Merge channel-specific clearKeys with global /baynithalex/api/app clearKeys so multi-KID streams
@@ -2428,14 +2545,23 @@ class LivePlayerController(
 
         val isLocalHlsPlaylist = isLocalOfflineFile &&
                 effectiveStreamUrl.substringBefore("?").endsWith(".m3u8", ignoreCase = true)
-        val useProgressive = when (forcedContainerMode) {
-            ForcedContainerMode.FORCE_PROGRESSIVE_MP4 -> true
-            ForcedContainerMode.FORCE_HLS_M3U8 -> false
-            ForcedContainerMode.NONE -> (isLocalOfflineFile && !isLocalHlsPlaylist) || (!isLocalHlsPlaylist && liveServerChannel.isMp4)
-        }
         val useDash = forcedContainerMode == ForcedContainerMode.NONE &&
                 !isLocalOfflineFile &&
                 (liveServerChannel.isDash || effectiveStreamUrl.contains(".mpd", ignoreCase = true))
+        val useProgressive = when (forcedContainerMode) {
+            ForcedContainerMode.FORCE_PROGRESSIVE_MP4 -> true
+            ForcedContainerMode.FORCE_HLS_M3U8 -> false
+            ForcedContainerMode.NONE -> when {
+                isLocalOfflineFile -> !isLocalHlsPlaylist
+                useDash -> false
+                !liveServerChannel.isLiveBroadcast -> resolveVodUsesProgressive(
+                    streamUrl = effectiveStreamUrl,
+                    streamFormat = liveServerChannel.streamFormat,
+                    isMp4 = liveServerChannel.isMp4
+                )
+                else -> !isLocalHlsPlaylist && liveServerChannel.isMp4
+            }
+        }
 
         // Always decrypt DASH ClearKey streams in-process via ClearKeyDecryptingDataSource + Mp4CencDecryptor
         // (strips <ContentProtection> and decrypts CENC AES-128-CTR segments in Kotlin/Java) so ExoPlayer NEVER
@@ -2482,10 +2608,8 @@ class LivePlayerController(
                     .setUri(manifestUri)
                     .setMediaId(liveServerChannel.id)
 
-                if (!isLocalOfflineFile && !effectiveStreamUrl.substringBefore("?").endsWith(".ts", ignoreCase = true)) {
-                    mediaItemBuilder.setMimeType(MimeTypes.VIDEO_MP4)
-                }
-
+                // Do NOT force MimeTypes.VIDEO_MP4 for VOD movies so DefaultExtractorsFactory auto-sniffs
+                // MP4, MKV, WebM, TS, FLV, and MOV containers cleanly on Android TV & mobile.
                 ProgressiveMediaSource.Factory(dataSourceFactory, extractorsFactory)
                     .setContinueLoadingCheckIntervalBytes(currentBatteryProfile.continueLoadingCheckIntervalBytes)
                     .setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)

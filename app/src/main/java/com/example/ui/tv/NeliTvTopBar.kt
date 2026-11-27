@@ -25,6 +25,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material3.Icon
@@ -67,6 +68,7 @@ fun NeliTvTopBar(
     onSearchQueryChange: (String) -> Unit,
     isSearchOpen: Boolean,
     onToggleSearch: () -> Unit,
+    onVoiceSearchClick: () -> Unit = onToggleSearch,
     onOpenNeliAi: () -> Unit = {},
     adminSmsMessage: String = "",
     modifier: Modifier = Modifier
@@ -162,11 +164,47 @@ fun NeliTvTopBar(
                 }
             }
 
-            // Right: D-Pad Focusable Search Button (Neli AI runs hands-free in background)
+            // Right: D-Pad Focusable Voice Search & Text Search Buttons
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
+                Box(
+                    modifier = Modifier
+                        .tvGeminiFocusable(
+                            shape = CircleShape,
+                            focusScale = 1.12f,
+                            borderWidth = 2.dp,
+                            onClick = onVoiceSearchClick
+                        )
+                        .height(44.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF1D1235))
+                        .clickable { onVoiceSearchClick() }
+                        .border(1.dp, NeliGenreCyan.copy(alpha = 0.65f), CircleShape)
+                        .padding(horizontal = 14.dp)
+                        .testTag("tv_topbar_voice_search_button"),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Mic,
+                            contentDescription = "TV Remote Voice Search",
+                            tint = NeliGenreCyan,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text(
+                            text = "Voice Search",
+                            color = Color.White,
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
                 Box(
                     modifier = Modifier
                         .tvGeminiFocusable(

@@ -32,6 +32,7 @@ object NeliAiMemoryStore {
     private const val KEY_LOCK_SCREEN_WAKE_ENABLED = "lock_screen_wake_enabled"
     private const val KEY_VOICE_CANCELLATION_ENABLED = "voice_cancellation_enabled"
     private const val KEY_CAPTIONS_ENABLED = "captions_enabled"
+    private const val KEY_POWER_BUTTON_WAKE_ENABLED = "power_button_wake_enabled"
     private const val KEY_REMOTE_ENDPOINT_URL = "remote_endpoint_url"
     private const val KEY_CUSTOM_API_KEY = "custom_neli_ai_api_key"
     private const val KEY_SEQUENCE_QUEUE_JSON = "sequential_play_queue_json"
@@ -69,6 +70,9 @@ object NeliAiMemoryStore {
     private val _isCaptionsEnabled = MutableStateFlow(true)
     val isCaptionsEnabled: StateFlow<Boolean> = _isCaptionsEnabled.asStateFlow()
 
+    private val _isPowerButtonWakeEnabled = MutableStateFlow(true)
+    val isPowerButtonWakeEnabled: StateFlow<Boolean> = _isPowerButtonWakeEnabled.asStateFlow()
+
     private val _remoteEndpointUrl = MutableStateFlow(DEFAULT_NELI_AI_CENTER_URL)
     val remoteEndpointUrl: StateFlow<String> = _remoteEndpointUrl.asStateFlow()
 
@@ -102,6 +106,7 @@ object NeliAiMemoryStore {
                 _isLockScreenWakeEnabled.value = prefs.getBoolean(KEY_LOCK_SCREEN_WAKE_ENABLED, false)
                 _isVoiceCancellationEnabled.value = prefs.getBoolean(KEY_VOICE_CANCELLATION_ENABLED, true)
                 _isCaptionsEnabled.value = prefs.getBoolean(KEY_CAPTIONS_ENABLED, true)
+                _isPowerButtonWakeEnabled.value = prefs.getBoolean(KEY_POWER_BUTTON_WAKE_ENABLED, true)
                 val savedUrl = prefs.getString(KEY_REMOTE_ENDPOINT_URL, null)
                 _remoteEndpointUrl.value = savedUrl ?: DEFAULT_NELI_AI_CENTER_URL
                 _customApiKey.value = prefs.getString(KEY_CUSTOM_API_KEY, "").orEmpty()
@@ -238,6 +243,11 @@ object NeliAiMemoryStore {
         editPref(context) { putBoolean(KEY_CAPTIONS_ENABLED, enabled) }
     }
 
+    fun setPowerButtonWakeEnabled(context: Context?, enabled: Boolean) {
+        _isPowerButtonWakeEnabled.value = enabled
+        editPref(context) { putBoolean(KEY_POWER_BUTTON_WAKE_ENABLED, enabled) }
+    }
+
     fun setSequentialPlayQueue(context: Context?, mediaIds: List<String>) {
         val clean = mediaIds.filter { it.isNotBlank() }.distinct()
         _sequentialPlayQueueIds.value = clean
@@ -290,6 +300,7 @@ object NeliAiMemoryStore {
         _isLockScreenWakeEnabled.value = false
         _isVoiceCancellationEnabled.value = true
         _isCaptionsEnabled.value = true
+        _isPowerButtonWakeEnabled.value = true
         _remoteEndpointUrl.value = DEFAULT_NELI_AI_CENTER_URL
         _customApiKey.value = ""
         _sequentialPlayQueueIds.value = emptyList()

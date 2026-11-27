@@ -1,5 +1,6 @@
 package com.example.ai
 
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.media.AudioAttributes
@@ -11,7 +12,9 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.speech.RecognitionListener
+import android.speech.RecognitionService
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
@@ -45,12 +48,37 @@ class NeliAiVoiceController(
         const val NELI_VOICE_PITCH = 1.28f
         const val NELI_VOICE_SPEECH_RATE = 1.04f
         const val NELI_UTTERANCE_ID = "neli"
-        const val DEFAULT_COMMAND_WINDOW_MS = 5_000L
+        const val DEFAULT_COMMAND_WINDOW_MS = 30_000L
+        const val MANUAL_TAP_COMMAND_WINDOW_MS = 30_000L
 
         fun isHardwareVoiceCancellationAvailable(): Boolean {
             return runCatching {
                 AcousticEchoCanceler.isAvailable() || NoiseSuppressor.isAvailable()
             }.getOrDefault(false)
+        }
+
+        /**
+         * Resolves a real system [RecognitionService] (e.g., Google Speech Services / Samsung / AOSP)
+         * and strictly excludes NeliTv's own [NeliRecognitionService] stub so [SpeechRecognizer] never
+         * binds to itself and fails with ERROR_NO_MATCH on phones or emulators.
+         */
+        fun resolveExternalSpeechComponent(context: Context): ComponentName? {
+            return runCatching {
+                val intent = Intent(RecognitionService.SERVICE_INTERFACE)
+                @Suppress("DEPRECATION")
+                val services = context.packageManager.queryIntentServices(intent, 0)
+                val external = services.filter { info ->
+                    val svc = info.serviceInfo ?: return@filter false
+                    svc.packageName != context.packageName
+                }
+                val preferred = external.firstOrNull { info ->
+                    val pkg = info.serviceInfo.packageName.lowercase(Locale.US)
+                    pkg.contains("google") || pkg.contains("tts") || pkg.contains("speech")
+                } ?: external.firstOrNull()
+                preferred?.serviceInfo?.let { svc ->
+                    ComponentName(svc.packageName, svc.name)
+                }
+            }.getOrNull()
         }
     }
 
@@ -76,6 +104,9 @@ class NeliAiVoiceController(
     @Volatile
     var isInActiveCommandWindow: Boolean = false
         private set
+
+    @Volatile
+    private var activeCommandWindowDeadlineElapsedMs: Long = 0L
 
     private val _voiceState = MutableStateFlow<NeliAiVoiceState>(NeliAiVoiceState.Idle)
     val voiceState: StateFlow<NeliAiVoiceState> = _voiceState.asStateFlow()
@@ -131,7 +162,7 @@ class NeliAiVoiceController(
     }
 
     init {
-        _isSpeechAvailable.value = runCatching {
+        _isSpeechAvailable.value = resolveExternalSpeechComponent(context) != null || runCatching {
             SpeechRecognizer.isRecognitionAvailable(context)
         }.getOrDefault(false)
         initTts()
@@ -267,13 +298,14 @@ class NeliAiVoiceController(
     }
 
     /**
-     * Starts an active 5-second command window (e.g., after "Hey Neli" or manual trigger).
+     * Starts an active 30-second command window (e.g., after "Hey Neli" or manual trigger).
      * If no command arrives within [timeoutMs], [onCommandWindowExpired] fires automatically.
      */
     fun startActiveCommandWindow(timeoutMs: Long = DEFAULT_COMMAND_WINDOW_MS) {
         consecutiveSilentErrors = 0
         cancelPendingRelisten()
         isInActiveCommandWindow = true
+        activeCommandWindowDeadlineElapsedMs = SystemClock.elapsedRealtime() + timeoutMs
         if (pauseExternalAppsOnWake) {
             acquireTransientAudioFocus()
         }
@@ -288,6 +320,7 @@ class NeliAiVoiceController(
         passiveWakeWordGateEnabled = true
         handsFreeActive = true
         isInActiveCommandWindow = false
+        activeCommandWindowDeadlineElapsedMs = 0L
         cancelCommandTimeout()
         mainHandler.post {
             if (!isReleased) {
@@ -298,13 +331,14 @@ class NeliAiVoiceController(
     }
 
     fun startListening() {
-        startActiveCommandWindow(timeoutMs = 7_000L)
+        startActiveCommandWindow(timeoutMs = DEFAULT_COMMAND_WINDOW_MS)
     }
 
     fun stopListening() {
         cancelPendingRelisten()
         cancelCommandTimeout()
         isInActiveCommandWindow = false
+        activeCommandWindowDeadlineElapsedMs = 0L
         abandonTransientAudioFocus()
         mainHandler.post {
             runCatching { speechRecognizer?.stopListening() }
@@ -443,18 +477,24 @@ class NeliAiVoiceController(
 
     private fun startListeningInternal(isPassiveWakeScan: Boolean) {
         if (isReleased) return
-        if (!SpeechRecognizer.isRecognitionAvailable(context)) {
+        val externalComponent = resolveExternalSpeechComponent(context)
+        if (externalComponent == null) {
             _isSpeechAvailable.value = false
-            _voiceState.value = NeliAiVoiceState.Notice(
-                "Voice recognition is unavailable on this device."
-            )
+            if (!isPassiveWakeScan) {
+                isInActiveCommandWindow = false
+                cancelCommandTimeout()
+                abandonTransientAudioFocus()
+                _voiceState.value = NeliAiVoiceState.Notice(
+                    "No microphone speech engine detected here (common in emulators). Install on a real phone/TV or tap a quick command."
+                )
+            }
             return
         }
         _isSpeechAvailable.value = true
 
         runCatching {
             if (speechRecognizer == null) {
-                speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context).apply {
+                speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context, externalComponent).apply {
                     setRecognitionListener(createListener())
                 }
             } else {
@@ -503,8 +543,12 @@ class NeliAiVoiceController(
         override fun onBeginningOfSpeech() {
             consecutiveSilentErrors = 0
             if (isInActiveCommandWindow) {
-                // Extend timeout slightly while user is actively speaking their command
-                scheduleCommandTimeout(6_500L)
+                val now = SystemClock.elapsedRealtime()
+                val remaining = activeCommandWindowDeadlineElapsedMs - now
+                if (remaining < 10_000L) {
+                    activeCommandWindowDeadlineElapsedMs = now + 10_000L
+                    scheduleCommandTimeout(10_000L)
+                }
             }
         }
 
@@ -529,9 +573,22 @@ class NeliAiVoiceController(
                 SpeechRecognizer.ERROR_NO_MATCH,
                 SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> {
                     if (isInActiveCommandWindow) {
-                        // Active 5-sec window got no speech -> let timeout expire cleanly & resume audio!
+                        val remainingMs = activeCommandWindowDeadlineElapsedMs - SystemClock.elapsedRealtime()
+                        if (remainingMs > 1_200L) {
+                            // Keep waiting smoothly across the full 30-second window (Android's native recognizer
+                            // fires interim timeouts every ~5-7s of silence, so seamlessly restart until deadline!)
+                            _voiceState.value = NeliAiVoiceState.Listening(rmsDb = 2.0f, partialText = "")
+                            mainHandler.postDelayed({
+                                if (!isReleased && isInActiveCommandWindow) {
+                                    startListeningInternal(isPassiveWakeScan = false)
+                                }
+                            }, 220L)
+                            return
+                        }
+                        // Full 30-sec window elapsed with no speech -> expire cleanly & resume audio!
                         cancelCommandTimeout()
                         isInActiveCommandWindow = false
+                        activeCommandWindowDeadlineElapsedMs = 0L
                         abandonTransientAudioFocus()
                         _voiceState.value = if (handsFreeActive) NeliAiVoiceState.HandsFreeStandby else NeliAiVoiceState.Idle
                         onCommandWindowExpired()
@@ -555,13 +612,23 @@ class NeliAiVoiceController(
                     _voiceState.value = NeliAiVoiceState.Notice("Please allow Microphone permission in NeliTv AI Settings.")
                 }
                 else -> {
+                    val wasManualWindow = isInActiveCommandWindow
                     if (isInActiveCommandWindow) {
                         isInActiveCommandWindow = false
                         cancelCommandTimeout()
                         abandonTransientAudioFocus()
                         onCommandWindowExpired()
                     }
-                    if (handsFreeActive) {
+                    if (wasManualWindow && !handsFreeActive) {
+                        val reason = when (error) {
+                            SpeechRecognizer.ERROR_AUDIO -> "Microphone audio unavailable on this device/emulator."
+                            SpeechRecognizer.ERROR_NETWORK,
+                            SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "Voice recognition needs an internet connection."
+                            SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Microphone is busy — tap again in a second."
+                            else -> "Couldn't reach voice engine — test on a real device or tap a quick command."
+                        }
+                        _voiceState.value = NeliAiVoiceState.Notice(reason)
+                    } else if (handsFreeActive) {
                         _voiceState.value = NeliAiVoiceState.HandsFreeStandby
                         scheduleHandsFreeRelisten(1_400L)
                     } else {

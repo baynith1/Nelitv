@@ -143,6 +143,7 @@ class NeliAiSystemOverlayService : Service() {
 
     private var voiceController: NeliAiVoiceController? = null
     private val autoHideCaptionRunnable = Runnable { removeCaptionBubble() }
+    private var powerButtonDoubleTapDetector: NeliPowerButtonDoubleTapDetector? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -153,6 +154,11 @@ class NeliAiSystemOverlayService : Service() {
         windowManager = getSystemService(Context.WINDOW_SERVICE) as? WindowManager
         startForegroundNotification()
         initVoiceController()
+        powerButtonDoubleTapDetector = NeliPowerButtonDoubleTapDetector {
+            mainHandler.post {
+                NeliDigitalAssistantHelper.wakeNeliAiFromSystemTrigger(this)
+            }
+        }.also { it.register(this) }
         if (!isNeliTvInForeground) {
             attachFloatingBall()
         }
@@ -200,6 +206,8 @@ class NeliAiSystemOverlayService : Service() {
     override fun onDestroy() {
         isRunning = false
         mainHandler.removeCallbacksAndMessages(null)
+        powerButtonDoubleTapDetector?.unregister(this)
+        powerButtonDoubleTapDetector = null
         removeAllOverlayViews()
         voiceController?.release()
         voiceController = null

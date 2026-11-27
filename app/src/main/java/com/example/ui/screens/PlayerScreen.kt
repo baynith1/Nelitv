@@ -2995,6 +2995,18 @@ fun EmbeddedChannelWebViewPlayer(
                     modifier = Modifier.fillMaxSize()
                 )
             }
+            LaunchedEffect(isPageLoading, reloadToken) {
+                if (isPageLoading) {
+                    kotlinx.coroutines.delay(14_000L)
+                    if (isPageLoading && !hasLoadError && !isRendererCrashed) {
+                        isPageLoading = false
+                        webViewRef?.evaluateJavascript(
+                            "(function(){try{document.querySelectorAll('video').forEach(function(v){var p=v.play();if(p&&p.catch){p.catch(function(){v.muted=true;v.play();});}});}catch(e){}})();",
+                            null
+                        )
+                    }
+                }
+            }
             if (isPageLoading) {
                 CircularProgressIndicator(
                     color = NeliMagenta,
@@ -3081,6 +3093,29 @@ private fun createConfiguredEmbedWebView(
             // Strip "; wv)" from Android WebView UA so YouTube & embed players treat it as Chrome Mobile and allow autoplay
             userAgentString = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36"
         }
+        val isTvWebView = com.example.ui.tv.NeliTvDetector.isTelevision(ctx)
+        if (isTvWebView) {
+            setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
+            isFocusable = true
+            isFocusableInTouchMode = true
+            setOnKeyListener { view, keyCode, event ->
+                if (event.action == android.view.KeyEvent.ACTION_DOWN && (
+                        keyCode == android.view.KeyEvent.KEYCODE_DPAD_CENTER ||
+                        keyCode == android.view.KeyEvent.KEYCODE_ENTER ||
+                        keyCode == android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE ||
+                        keyCode == android.view.KeyEvent.KEYCODE_MEDIA_PLAY
+                    )
+                ) {
+                    (view as? android.webkit.WebView)?.evaluateJavascript(
+                        "(function(){try{var vids=document.querySelectorAll('video');if(vids.length>0){vids.forEach(function(v){if(v.paused){v.muted=false;var p=v.play();if(p&&p.catch){p.catch(function(){v.muted=true;v.play();});}}else{v.pause();}});}else{var f=document.getElementById('neli-player-frame')||document.querySelector('iframe');if(f&&f.contentWindow){f.contentWindow.postMessage('{\"event\":\"command\",\"func\":\"playVideo\",\"args\":[]}','*');}}}catch(e){}})();",
+                        null
+                    )
+                    true
+                } else {
+                    false
+                }
+            }
+        }
         try {
             android.webkit.CookieManager.getInstance().setAcceptCookie(true)
             android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
@@ -3118,14 +3153,19 @@ private fun createConfiguredEmbedWebView(
             override fun onPageFinished(view: android.webkit.WebView?, url: String?) {
                 super.onPageFinished(view, url)
                 onPageFinished()
-                if (isYoutubeEmbed && view != null) {
+                if (view != null) {
                     try {
                         view.resumeTimers()
                         view.onResume()
-                        view.evaluateJavascript(
-                            "(function(){try{document.querySelectorAll('video').forEach(function(v){v.muted=false;var p=v.play();if(p&&p.catch){p.catch(function(){v.muted=true;v.play();});}});var f=document.getElementById('neli-player-frame')||document.querySelector('iframe');if(f&&f.contentWindow){f.focus();f.contentWindow.postMessage('{\"event\":\"command\",\"func\":\"playVideo\",\"args\":[]}','*');}}catch(e){}})();",
-                            null
-                        )
+                        if (com.example.ui.tv.NeliTvDetector.isTelevision(ctx)) {
+                            view.requestFocus()
+                        }
+                        if (isYoutubeEmbed || !channel.isLiveBroadcast) {
+                            view.evaluateJavascript(
+                                "(function(){try{document.querySelectorAll('video').forEach(function(v){v.muted=false;var p=v.play();if(p&&p.catch){p.catch(function(){v.muted=true;v.play();});}});var f=document.getElementById('neli-player-frame')||document.querySelector('iframe');if(f&&f.contentWindow){f.focus();f.contentWindow.postMessage('{\"event\":\"command\",\"func\":\"playVideo\",\"args\":[]}','*');}}catch(e){}})();",
+                                null
+                            )
+                        }
                     } catch (_: Throwable) {
                     }
                 }

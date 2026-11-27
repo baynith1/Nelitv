@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.PhonelinkLock
+import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Tune
@@ -100,12 +101,14 @@ fun NeliAiSetupScreen(
     brain: NeliAiBrainSnapshot,
     onBack: () -> Unit,
     onTestVoiceNow: () -> Unit,
+    onRunQuickTestCommand: (String) -> Unit = {},
     onToggleHandsFree: (Boolean) -> Unit,
     onToggleOverlayBall: (Boolean) -> Unit,
     onToggleLockScreenWake: (Boolean) -> Unit,
     onToggleVoiceCancellation: (Boolean) -> Unit,
     onToggleCaptions: (Boolean) -> Unit,
     onToggleVoiceReply: (Boolean) -> Unit,
+    onTogglePowerButtonWake: (Boolean) -> Unit = {},
     onSaveRemoteUrl: (String) -> Boolean,
     onSaveApiKey: (String) -> Unit
 ) {
@@ -142,11 +145,22 @@ fun NeliAiSetupScreen(
     val lockAdminGranted = remember(permissionRefreshTick) {
         NeliDeviceAdminReceiver.isLockPermissionGranted(context)
     }
+    val isDefaultAssistant = remember(permissionRefreshTick) {
+        NeliDigitalAssistantHelper.isNeliDefaultDigitalAssistant(context)
+    }
+
+    var pendingTestVoiceAfterMicGrant by remember { mutableStateOf(false) }
 
     val micLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         permissionRefreshTick++
         if (granted) {
             onToggleHandsFree(true)
+            if (pendingTestVoiceAfterMicGrant) {
+                pendingTestVoiceAfterMicGrant = false
+                onTestVoiceNow()
+            }
+        } else {
+            pendingTestVoiceAfterMicGrant = false
         }
     }
     val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
@@ -257,6 +271,7 @@ fun NeliAiSetupScreen(
                                 size = 118.dp,
                                 onClick = {
                                     if (!micGranted) {
+                                        pendingTestVoiceAfterMicGrant = true
                                         micLauncher.launch(Manifest.permission.RECORD_AUDIO)
                                     } else {
                                         onTestVoiceNow()
@@ -274,9 +289,18 @@ fun NeliAiSetupScreen(
                                 color = Color(0xFF94A3B8),
                                 fontSize = 11.5.sp
                             )
+                            if (voiceState is NeliAiVoiceState.Notice) {
+                                Text(
+                                    text = voiceState.message,
+                                    color = Color(0xFFFBBF24),
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
                             Button(
                                 onClick = {
                                     if (!micGranted) {
+                                        pendingTestVoiceAfterMicGrant = true
                                         micLauncher.launch(Manifest.permission.RECORD_AUDIO)
                                     } else {
                                         onTestVoiceNow()
@@ -289,6 +313,35 @@ fun NeliAiSetupScreen(
                                 Icon(Icons.Default.Mic, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
                                 Spacer(Modifier.width(8.dp))
                                 Text("Talk to Neli AI Now", color = Color.Black, fontWeight = FontWeight.ExtraBold)
+                            }
+                            // Instant 1-tap voice demo triggers (great for testing in emulator where mic isn't bridged)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
+                            ) {
+                                listOf(
+                                    "Hey Neli" to "Hey Neli",
+                                    "Suggest movies" to "Hey Neli suggest me movies",
+                                    "Random movie" to "Hey Neli play a random movie"
+                                ).forEach { (label, cmd) ->
+                                    Surface(
+                                        color = Color(0x2238BDF8),
+                                        shape = CircleShape,
+                                        modifier = Modifier
+                                            .border(1.dp, Color(0x4438BDF8), CircleShape)
+                                            .clip(CircleShape)
+                                            .clickable { onRunQuickTestCommand(cmd) }
+                                            .testTag("neli_ai_quick_demo_${label.lowercase().replace(" ", "_")}")
+                                    ) {
+                                        Text(
+                                            text = label,
+                                            color = Color(0xFFE0F2FE),
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -368,21 +421,32 @@ fun NeliAiSetupScreen(
                     )
                 }
 
-                // 4. Act as Mobile Assistant
+                // 4. Act as Default Digital Assistant App (Enables Hold Power Button & Corner Swipe)
                 item {
                     NeliAiPermissionCard(
                         icon = Icons.Default.Assistant,
-                        title = "Act as Mobile Assistant",
-                        subtitle = "Set Neli AI as your device assistant so long-pressing Home launches Neli anywhere.",
-                        granted = false,
-                        actionLabel = "Set Default",
+                        title = "Default Digital Assistant App",
+                        subtitle = "Set NeliTv as your device's Digital Assistant so holding the Power / Shut Down button or swiping up wakes Neli AI anywhere.",
+                        granted = isDefaultAssistant,
+                        actionLabel = if (isDefaultAssistant) "Default ✓" else "Set Default",
                         testTag = "neli_ai_perm_assistant",
                         onClick = {
-                            runCatching {
-                                context.startActivity(Intent(Settings.ACTION_VOICE_INPUT_SETTINGS))
-                            }.onFailure {
-                                runCatching { context.startActivity(Intent(Settings.ACTION_SETTINGS)) }
-                            }
+                            NeliDigitalAssistantHelper.openDigitalAssistantSettings(context)
+                        }
+                    )
+                }
+
+                // 4B. Hold or Double-Tap Power / Shut Down Button Shortcut
+                item {
+                    NeliAiPermissionCard(
+                        icon = Icons.Default.PowerSettingsNew,
+                        title = "Power Button Gesture (Hold / Double-Tap)",
+                        subtitle = "Configure Hold Power button -> Digital Assistant (NeliTv) in system gestures, or double-tap Power button to wake Neli AI.",
+                        granted = isDefaultAssistant && brain.isPowerButtonWakeEnabled,
+                        actionLabel = "Configure",
+                        testTag = "neli_ai_perm_power_gesture",
+                        onClick = {
+                            NeliDigitalAssistantHelper.openPowerButtonGestureSettings(context)
                         }
                     )
                 }
@@ -428,7 +492,7 @@ fun NeliAiSetupScreen(
                             NeliAiToggleRow(
                                 icon = Icons.Default.RecordVoiceOver,
                                 title = "Hands-Free Mode (\"Hey Neli\")",
-                                subtitle = "Auto-mutes player for 5s when called & resumes if no command.",
+                                subtitle = "Auto-mutes player for 30s when called & resumes if no command.",
                                 checked = brain.isHandsFreeEnabled,
                                 testTag = "neli_ai_toggle_handsfree",
                                 onCheckedChange = { enabled ->
@@ -473,6 +537,21 @@ fun NeliAiSetupScreen(
                                         micLauncher.launch(Manifest.permission.RECORD_AUDIO)
                                     } else {
                                         onToggleLockScreenWake(enabled)
+                                    }
+                                }
+                            )
+                            HorizontalDivider(color = Color(0x18FFFFFF))
+                            NeliAiToggleRow(
+                                icon = Icons.Default.PowerSettingsNew,
+                                title = "Double-Tap Power Button to Wake Neli AI",
+                                subtitle = "Quickly press the Power / Shut Down button twice to wake Neli AI even on Lock Screen.",
+                                checked = brain.isPowerButtonWakeEnabled,
+                                testTag = "neli_ai_toggle_power_wake",
+                                onCheckedChange = { enabled ->
+                                    if (enabled && !micGranted) {
+                                        micLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                    } else {
+                                        onTogglePowerButtonWake(enabled)
                                     }
                                 }
                             )

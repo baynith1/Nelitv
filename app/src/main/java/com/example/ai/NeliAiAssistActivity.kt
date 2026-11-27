@@ -14,16 +14,7 @@ import com.example.MainActivity
 class NeliAiAssistActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        if (Settings.canDrawOverlays(this)) {
-            NeliAiSystemOverlayService.start(this, triggerVoiceImmediately = true)
-        } else {
-            startActivity(
-                Intent(this, MainActivity::class.java).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-                    putExtra(EXTRA_START_NELI_AI_VOICE, true)
-                }
-            )
-        }
+        NeliDigitalAssistantHelper.wakeNeliAiFromSystemTrigger(this)
         finish()
     }
 

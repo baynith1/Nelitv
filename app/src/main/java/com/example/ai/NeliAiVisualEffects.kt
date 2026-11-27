@@ -644,7 +644,7 @@ fun NeliAiEdgeGlowOverlay(
                                             .background(edgeColorA)
                                     )
                                     val statusLabel = when {
-                                        isListening && isPlayerMutedForAi -> "Listening (Player Muted 5s)..."
+                                        isListening && isPlayerMutedForAi -> "Listening (Player Muted 30s)..."
                                         isListening -> "Neli AI is Listening..."
                                         isThinking -> "Neli AI is Thinking..."
                                         isSpeaking -> "Neli AI is Speaking..."
