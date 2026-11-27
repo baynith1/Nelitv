@@ -890,7 +890,8 @@ object NeliSubscriptionManager {
             nowMs
         }
 
-        val needsPostPaymentAuth = current.linkedUserEmail.isBlank() && current.linkedUserUid.isBlank()
+        // Login/Sign-Up is optional: never block or nag users after paying; store locally + sync to Supabase immediately
+        val needsPostPaymentAuth = false
 
         val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit()
@@ -1257,7 +1258,7 @@ object NeliSubscriptionManager {
                 linkedUserUid = existing.linkedUserUid,
                 linkedUserEmail = existing.linkedUserEmail,
                 linkedUserName = existing.linkedUserName,
-                requiresPostPaymentAuth = existing.linkedUserEmail.isBlank() && existing.linkedUserUid.isBlank()
+                requiresPostPaymentAuth = false
             )
             _subscriptionState.value = restored
             val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)

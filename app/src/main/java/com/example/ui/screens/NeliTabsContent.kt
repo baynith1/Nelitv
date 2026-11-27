@@ -3293,6 +3293,7 @@ fun AccountTabContent(
     usernameUpdateMessage: String? = null,
     onUpdateUsername: (String) -> Unit = {},
     onClearUsernameUpdateMessage: () -> Unit = {},
+    onOpenNeliAi: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var activeInfoPage by rememberSaveable { mutableStateOf<AccountInfoPageType?>(null) }
@@ -4510,6 +4511,85 @@ fun AccountTabContent(
         // Watch NeliTv on PC & Desktop Section (moved from Top Header Bar to the bottom of Account Page)
         item {
             NeliWatchOnPcAccountSection()
+        }
+
+        // NeliTv AI Assistant Setup & Permissions Card — placed at the very bottom of Account Page
+        item {
+            val isHandsFreeOn by com.example.ai.NeliAiMemoryStore.isHandsFreeEnabled.collectAsState()
+            val isOverlayOn by com.example.ai.NeliAiMemoryStore.isOverlayBallEnabled.collectAsState()
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(22.dp))
+                    .background(Color(0xFF0E1426))
+                    .border(
+                        width = 1.2.dp,
+                        brush = Brush.horizontalGradient(
+                            listOf(Color(0xFF00D4FF), Color(0xFFA855F7), Color(0xFFFF2E93))
+                        ),
+                        shape = RoundedCornerShape(22.dp)
+                    )
+                    .clickable { onOpenNeliAi() }
+                    .testTag("account_neli_ai_card")
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    com.example.ai.NeliAiParticleMeshOrb(
+                        voiceState = if (isHandsFreeOn) {
+                            com.example.ai.NeliAiVoiceState.Listening(rmsDb = 4f)
+                        } else {
+                            com.example.ai.NeliAiVoiceState.Idle
+                        },
+                        size = 54.dp
+                    )
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(3.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = "NeliTv AI",
+                                color = Color.White,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.ExtraBold
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .clip(CircleShape)
+                                    .background(if (isHandsFreeOn || isOverlayOn) Color(0x2834D399) else Color(0x2800D4FF))
+                            ) {
+                                Text(
+                                    text = if (isHandsFreeOn || isOverlayOn) "ACTIVE" else "SETUP",
+                                    color = if (isHandsFreeOn || isOverlayOn) Color(0xFF34D399) else Color(0xFF38BDF8),
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                        Text(
+                            text = "Hands-Free \"Hey Neli\", Microphone, Overlay, Lock Screen & Assistant Settings",
+                            color = Color(0xFF94A3B8),
+                            fontSize = 12.sp,
+                            lineHeight = 16.sp
+                        )
+                    }
+                    Icon(
+                        imageVector = androidx.compose.material.icons.Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = "Open NeliTv AI Settings",
+                        tint = Color(0xFF38BDF8),
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+            }
         }
     }
 }

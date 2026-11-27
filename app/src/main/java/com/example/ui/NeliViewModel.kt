@@ -279,15 +279,34 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             MediaContentRepository.initializeAndPrewarmFromCache(appContext)
             NeliAppUpdateManager.initialize(appContext)
+            com.example.data.NeliSubscriptionManager.initialize(appContext)
+            try {
+                com.example.data.NeliSubscriptionManager.restoreFromDatabaseByDeviceIp(appContext, dao)
+            } catch (_: Throwable) {
+            }
             try {
                 _savedGoogleAccounts.value = userManager.getSavedAccounts()
             } catch (_: Throwable) {
             }
-            if (!com.example.ui.tv.NeliTvDetector.isTelevision(appContext)) {
-                userManager.signInWithGoogleAutoOrPrimaryAccount(
-                    uiContext = appContext,
-                    forceInteractive = false
-                )
+            // Hydrate active VIP subscription from Supabase if a phone number is cached locally (works without login)
+            try {
+                val subNow = com.example.data.NeliSubscriptionManager.subscriptionState.value
+                val savedPhone = subNow.phoneNumber.trim()
+                if (!com.example.data.NeliSubscriptionManager.isNumberManuallyRemoved(appContext) &&
+                    savedPhone.isNotBlank() &&
+                    com.example.data.HarakaPayRepository.isValidTzPhoneNumber(
+                        com.example.data.HarakaPayRepository.normalizeTzPhoneNumber(savedPhone)
+                    )
+                ) {
+                    val record = NeliSupabaseSyncManager.querySubscriptionByPhone(savedPhone).getOrNull()
+                    if (record != null && record.isActive) {
+                        com.example.data.NeliSubscriptionManager.activateVerifiedSubscriptionFromSupabase(
+                            context = appContext,
+                            record = record
+                        )
+                    }
+                }
+            } catch (_: Throwable) {
             }
         }
 
@@ -360,6 +379,7 @@ class NeliViewModel(application: Application) : AndroidViewModel(application) {
             } catch (_: Exception) {
                 ChannelRepository.refreshLiveChannels()
             }
+            com.example.data.ChannelHealthGuardian.runBackgroundHealthAudit(liveChannels.value)
             val apiKey = AuthRepository.resolveApiKey(appContext)
             MediaContentRepository.syncFromFirebaseEndpoint(
                 databaseUrl = MediaContentRepository.DEFAULT_DATABASE_URL,

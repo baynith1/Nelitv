@@ -1351,7 +1351,29 @@ fun PlayerScreen(
                         }
                     }
 
-                    // Center Area
+                    // Center Area — YouTube-style: full loading card ONLY on channel start;
+                    // mid-stream quality adjustments & short network hiccups buffer silently in the background!
+                    var hasStartedPlayingForChannel by remember(activeChannel.id) { mutableStateOf(false) }
+                    LaunchedEffect(activeChannel.id, uiState) {
+                        if (uiState is PlayerUiState.Ready) {
+                            hasStartedPlayingForChannel = true
+                        }
+                    }
+                    val isTvPlayerDevice = remember(context) {
+                        com.example.ui.tv.NeliTvDetector.isTelevision(context)
+                    }
+                    var showSubtleStallIndicator by remember(activeChannel.id) { mutableStateOf(false) }
+                    LaunchedEffect(activeChannel.id, uiState, hasStartedPlayingForChannel) {
+                        if (hasStartedPlayingForChannel && uiState is PlayerUiState.Buffering) {
+                            showSubtleStallIndicator = false
+                            // Wait silently in background (2.8s on TV, 2.2s on mobile) before showing any indicator
+                            kotlinx.coroutines.delay(if (isTvPlayerDevice) 2_800L else 2_200L)
+                            showSubtleStallIndicator = true
+                        } else {
+                            showSubtleStallIndicator = false
+                        }
+                    }
+
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -1360,96 +1382,127 @@ fun PlayerScreen(
                     ) {
                         when (val state = uiState) {
                             is PlayerUiState.Loading, is PlayerUiState.Buffering -> {
-                                var loadPercent by remember(activeChannel.id, state is PlayerUiState.Loading) {
-                                    mutableIntStateOf(if (state is PlayerUiState.Loading) 12 else 48)
-                                }
-                                LaunchedEffect(activeChannel.id, state) {
-                                    while (loadPercent < 96) {
-                                        kotlinx.coroutines.delay(if (loadPercent < 65) 140L else 320L)
-                                        loadPercent = (loadPercent + if (loadPercent < 60) 7 else 3).coerceAtMost(96)
+                                val isInitialChannelStart = !hasStartedPlayingForChannel || state is PlayerUiState.Loading
+                                if (isInitialChannelStart) {
+                                    var loadPercent by remember(activeChannel.id, state is PlayerUiState.Loading) {
+                                        mutableIntStateOf(if (state is PlayerUiState.Loading) 12 else 48)
                                     }
-                                }
-                                val previewLogoUrl = remember(activeChannel.id, activeChannel.thumbnailUrl) {
-                                    com.example.data.ChannelRepository.resolveGuaranteedChannelLogoUrl(activeChannel)
-                                }
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(16.dp))
-                                        .background(Color(0xCC120624))
-                                        .border(1.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(16.dp))
-                                        .padding(horizontal = 18.dp, vertical = 14.dp)
-                                        .widthIn(min = 190.dp, max = 280.dp)
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    LaunchedEffect(activeChannel.id, state) {
+                                        while (loadPercent < 96) {
+                                            kotlinx.coroutines.delay(if (loadPercent < 65) 140L else 320L)
+                                            loadPercent = (loadPercent + if (loadPercent < 60) 7 else 3).coerceAtMost(96)
+                                        }
+                                    }
+                                    val previewLogoUrl = remember(activeChannel.id, activeChannel.thumbnailUrl) {
+                                        com.example.data.ChannelRepository.resolveGuaranteedChannelLogoUrl(activeChannel)
+                                    }
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(16.dp))
+                                            .background(Color(0xCC120624))
+                                            .border(1.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(16.dp))
+                                            .padding(horizontal = 18.dp, vertical = 14.dp)
+                                            .widthIn(min = 190.dp, max = 280.dp)
                                     ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(if (isPortraitYoutubeMode) 40.dp else 48.dp)
-                                                .clip(RoundedCornerShape(10.dp))
-                                                .background(Color(0xFF1F1235)),
-                                            contentAlignment = Alignment.Center
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
                                         ) {
-                                            if (previewLogoUrl.isNotBlank()) {
-                                                SubcomposeAsyncImage(
-                                                    model = ImageRequest.Builder(context)
-                                                        .data(previewLogoUrl)
-                                                        .crossfade(true)
-                                                        .build(),
-                                                    contentDescription = activeChannel.name,
-                                                    contentScale = ContentScale.Crop,
-                                                    modifier = Modifier.fillMaxSize()
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(if (isPortraitYoutubeMode) 40.dp else 48.dp)
+                                                    .clip(RoundedCornerShape(10.dp))
+                                                    .background(Color(0xFF1F1235)),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                if (previewLogoUrl.isNotBlank()) {
+                                                    SubcomposeAsyncImage(
+                                                        model = ImageRequest.Builder(context)
+                                                            .data(previewLogoUrl)
+                                                            .crossfade(true)
+                                                            .build(),
+                                                        contentDescription = activeChannel.name,
+                                                        contentScale = ContentScale.Crop,
+                                                        modifier = Modifier.fillMaxSize()
+                                                    )
+                                                }
+                                                CircularProgressIndicator(
+                                                    color = NeliMagenta,
+                                                    strokeWidth = 2.5.dp,
+                                                    modifier = Modifier.size(22.dp)
                                                 )
                                             }
-                                            CircularProgressIndicator(
-                                                color = NeliMagenta,
-                                                strokeWidth = 2.5.dp,
-                                                modifier = Modifier.size(22.dp)
-                                            )
-                                        }
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(
-                                                text = activeChannel.name,
-                                                color = Color.White,
-                                                fontSize = 13.sp,
-                                                fontWeight = FontWeight.ExtraBold,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                            val subtitle = activeChannel.currentProgram.ifBlank {
-                                                if (state is PlayerUiState.Loading) {
-                                                    "Inafungua chaneli..."
-                                                } else {
-                                                    "Inapakia (${playbackInfo.connectionLabel})..."
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = activeChannel.name,
+                                                    color = Color.White,
+                                                    fontSize = 13.sp,
+                                                    fontWeight = FontWeight.ExtraBold,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                                val epgLine = buildString {
+                                                    if (activeChannel.currentProgram.isNotBlank()) {
+                                                        append(activeChannel.currentProgram)
+                                                        if (activeChannel.nextProgram.isNotBlank()) {
+                                                            append(" • Inayofuata: ")
+                                                            append(activeChannel.nextProgram)
+                                                        }
+                                                    }
                                                 }
+                                                val subtitle = epgLine.ifBlank {
+                                                    "Inafungua chaneli..."
+                                                }
+                                                Text(
+                                                    text = subtitle,
+                                                    color = Color(0xFFD0C4E8),
+                                                    fontSize = 11.sp,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
                                             }
                                             Text(
-                                                text = subtitle,
-                                                color = Color(0xFFD0C4E8),
-                                                fontSize = 11.sp,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
+                                                text = "$loadPercent%",
+                                                color = NeliMagenta,
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.ExtraBold
                                             )
                                         }
-                                        Text(
-                                            text = "$loadPercent%",
+                                        LinearProgressIndicator(
+                                            progress = { loadPercent / 100f },
                                             color = NeliMagenta,
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.ExtraBold
+                                            trackColor = Color.White.copy(alpha = 0.18f),
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(4.dp)
+                                                .clip(RoundedCornerShape(2.dp))
                                         )
                                     }
-                                    LinearProgressIndicator(
-                                        progress = { loadPercent / 100f },
-                                        color = NeliMagenta,
-                                        trackColor = Color.White.copy(alpha = 0.18f),
+                                } else if (showSubtleStallIndicator) {
+                                    // Subtle, non-intrusive pill only if a genuine network drop lasts > 2.2s/2.8s
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                                         modifier = Modifier
-                                            .fillMaxWidth()
-                                            .height(4.dp)
-                                            .clip(RoundedCornerShape(2.dp))
-                                    )
+                                            .clip(RoundedCornerShape(20.dp))
+                                            .background(Color(0x99120624))
+                                            .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(20.dp))
+                                            .padding(horizontal = 14.dp, vertical = 8.dp)
+                                    ) {
+                                        CircularProgressIndicator(
+                                            color = NeliMagenta,
+                                            strokeWidth = 2.dp,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Text(
+                                            text = "Inasawazisha mtandao...",
+                                            color = Color.White.copy(alpha = 0.9f),
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    }
                                 }
                             }
 

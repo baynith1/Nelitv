@@ -75,6 +75,7 @@ val TvNavItems = listOf(
 fun NeliTvSideNavigationRail(
     selectedTab: BottomNavTab,
     onTabSelected: (BottomNavTab) -> Unit,
+    onOpenNeliAi: () -> Unit = {},
     activeDownloadCount: Int = 0,
     modifier: Modifier = Modifier
 ) {
@@ -208,6 +209,40 @@ fun NeliTvSideNavigationRail(
                             fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium
                         )
                     }
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                // Neli AI Hands-Free Assistant button in Smart TV Side Rail
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xFF15193A))
+                        .border(1.dp, NeliGenreCyan.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                        .tvGeminiFocusable(
+                            shape = RoundedCornerShape(12.dp),
+                            focusScale = 1.06f,
+                            onClick = onOpenNeliAi
+                        )
+                        .clickable { onOpenNeliAi() }
+                        .padding(horizontal = 14.dp, vertical = 12.dp)
+                        .testTag("tv_nav_neli_ai"),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Tv,
+                        contentDescription = "Neli AI",
+                        tint = NeliGenreCyan,
+                        modifier = Modifier.size(22.dp)
+                    )
+                    Text(
+                        text = "Neli AI",
+                        color = Color.White,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.ExtraBold
+                    )
                 }
             }
 

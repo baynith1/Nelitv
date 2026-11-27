@@ -95,36 +95,14 @@ import com.example.ui.theme.rememberNeliScreenProfile
 import kotlinx.coroutines.delay
 
 /**
- * Helper determining whether the current user session requires the mandatory Sign-In screen:
- * - First launch / fresh install (`currentUser == null`)
- * - App update where user has not signed in (`currentUser == null`)
- * - Legacy users who previously used the old local "Choose Account" picker without real Google/Firebase sign-in
- *   (`uid.startsWith("google_") && idToken.isBlank() && !isAdFreeVip && !isAdmin`)
+ * Login & Sign-Up are now 100% optional on all devices (Phone, Tablet, and Smart TV).
+ * Users enter the app immediately, allow notifications, watch channels, or pay for VIP freely
+ * (with automatic local cache + Supabase sync), and may sign in anytime via the Account tab.
  */
 fun requiresMandatoryGoogleSignIn(
     currentUser: UserAccountEntity?,
     isTelevision: Boolean = false
-): Boolean {
-    // Smart TV / Android TV / TV Box users play immediately with zero login or sign-up gates.
-    if (isTelevision) {
-        return false
-    }
-    if (currentUser == null || !currentUser.isLoggedIn || currentUser.email.isBlank()) {
-        return true
-    }
-    if (currentUser.uid.startsWith("guest_", ignoreCase = true)) {
-        return false
-    }
-    val email = currentUser.email.trim().lowercase()
-    if (com.example.data.NeliAdminManager.isAdminEmail(email) ||
-        com.example.data.NeliFreeForeverAccountsManager.isAdFreeVipEmail(email)
-    ) {
-        return false
-    }
-    val isLegacyLocalAccountPicker = currentUser.uid.startsWith("google_", ignoreCase = true) &&
-        currentUser.idToken.isBlank()
-    return isLegacyLocalAccountPicker
-}
+): Boolean = false
 
 private enum class FullPageAuthStep {
     CHOOSER,

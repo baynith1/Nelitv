@@ -325,26 +325,30 @@ class LivePlayerController(
         const val SWAHILI_MOVIE_INTRO_SKIP_MS = 330_000L
 
         /**
-         * Media3 AdaptiveTrackSelection tuning parameters:
-         * - Fast quality decrease (2,000 ms) so ExoPlayer downscales quickly when bandwidth drops or buffer drains.
-         * - Smooth quality increase (3,500 ms) so ExoPlayer scales up to 720p/1080p as soon as a 3.5s buffer forms.
-         * - High bandwidth utilization fraction (0.85f) to prioritize high-quality video tracks.
+         * YouTube-style Media3 AdaptiveTrackSelection tuning for Mobile/Tablet:
+         * - Patient quality increase (18s of continuous healthy buffer) so quality steps up smoothly
+         *   only when network stability is proven (no rapid 480p -> 720p -> 1080p rebuffer spikes).
+         * - Conservative quality decrease cushion (10s): ignores short 2-3s network dips while buffer is
+         *   healthy, and silently steps down at the next segment boundary BEFORE buffer runs dry.
+         * - Retains 12s of already-buffered video during adaptation so playback never flashes loading.
+         * - 0.72f bandwidth fraction leaves 28% stability margin against sudden throughput fluctuations.
          */
-        const val ADAPTIVE_MIN_DURATION_FOR_QUALITY_INCREASE_MS = 3_500
-        const val ADAPTIVE_MAX_DURATION_FOR_QUALITY_DECREASE_MS = 2_000
-        const val ADAPTIVE_MIN_DURATION_TO_RETAIN_AFTER_DISCARD_MS = 6_000
-        const val ADAPTIVE_BANDWIDTH_FRACTION = 0.85f
-        const val ADAPTIVE_BUFFERED_FRACTION_TO_LIVE_EDGE = 0.65f
+        const val ADAPTIVE_MIN_DURATION_FOR_QUALITY_INCREASE_MS = 18_000
+        const val ADAPTIVE_MAX_DURATION_FOR_QUALITY_DECREASE_MS = 10_000
+        const val ADAPTIVE_MIN_DURATION_TO_RETAIN_AFTER_DISCARD_MS = 12_000
+        const val ADAPTIVE_BANDWIDTH_FRACTION = 0.72f
+        const val ADAPTIVE_BUFFERED_FRACTION_TO_LIVE_EDGE = 0.75f
 
         /**
-         * Smart TV Anti-Buffering ABR tuning (for home Wi-Fi that fluctuates or drops packets):
-         * - Leaves 35% bandwidth headroom (0.65f) so Wi-Fi dips never empty the buffer.
-         * - Requires 15s of proven stable throughput before stepping resolution UP (stops HD/SD ping-pong).
-         * - Drops down quickly (3s) when Wi-Fi weakens so video keeps playing continuously.
+         * YouTube-style Smart TV Anti-Buffering ABR tuning (for fluctuating home Wi-Fi):
+         * - Leaves 35% bandwidth headroom (0.65f) so minor Wi-Fi dips never empty the buffer.
+         * - Requires 25s of proven stable throughput before stepping resolution UP (eliminates HD/SD ping-pong).
+         * - Only steps down if buffer cushion drains below 14s, switching silently at the next segment boundary
+         *   in the background with zero visible loading interruption.
          */
-        const val TV_ADAPTIVE_MIN_DURATION_FOR_QUALITY_INCREASE_MS = 15_000
-        const val TV_ADAPTIVE_MAX_DURATION_FOR_QUALITY_DECREASE_MS = 3_000
-        const val TV_ADAPTIVE_MIN_DURATION_TO_RETAIN_AFTER_DISCARD_MS = 10_000
+        const val TV_ADAPTIVE_MIN_DURATION_FOR_QUALITY_INCREASE_MS = 25_000
+        const val TV_ADAPTIVE_MAX_DURATION_FOR_QUALITY_DECREASE_MS = 14_000
+        const val TV_ADAPTIVE_MIN_DURATION_TO_RETAIN_AFTER_DISCARD_MS = 16_000
         const val TV_ADAPTIVE_BANDWIDTH_FRACTION = 0.65f
         const val TV_ADAPTIVE_BUFFERED_FRACTION_TO_LIVE_EDGE = 0.75f
 
@@ -510,6 +514,8 @@ class LivePlayerController(
     private var lastAutoFixReasonLabel: String? = null
     private var liveFailoverStep: Int = 0
     private var originalLiveStreamUrl: String = initialChannel.streamUrl
+    private var originalBackupStreamUrl: String = initialChannel.backupStreamUrl
+    private val triedLiveFailoverUrls: MutableSet<String> = mutableSetOf()
 
     private val sharedBaseHttpDataSourceFactory: DefaultHttpDataSource.Factory by lazy {
         val factory = DefaultHttpDataSource.Factory()
@@ -682,15 +688,22 @@ class LivePlayerController(
 
     private val bandwidthEventListener = BandwidthMeter.EventListener { _, _, bitrateEstimate ->
         if (bitrateEstimate > 0L) {
-            latestEstimatedBandwidthBps = bitrateEstimate
+            // Smooth throughput samples with exponential moving average so momentary 1-2s spikes/dips
+            // never cause jerky UI badges or sudden quality oscillations.
+            val prev = latestEstimatedBandwidthBps
+            latestEstimatedBandwidthBps = if (prev > 0L) {
+                ((prev * 3L) + bitrateEstimate) / 4L
+            } else {
+                bitrateEstimate
+            }
             val now = android.os.SystemClock.elapsedRealtime()
-            // Debounce trackSelector parameter updates (especially on unstable TV Wi-Fi) so rapid
-            // throughput swings do not repeatedly flush buffered chunks.
-            val minDebounceMs = if (isSmartTvDevice()) 4_000L else 1_500L
+            val minDebounceMs = if (isSmartTvDevice()) 8_000L else 4_000L
             if (_playbackInfo.value.networkMode == NetworkQualityMode.AUTO_ADAPTIVE &&
                 (now - lastBandwidthAdaptationRealtimeMs) >= minDebounceMs
             ) {
                 lastBandwidthAdaptationRealtimeMs = now
+                // Telemetry + battery check only — native AdaptiveTrackSelection switches bitrates
+                // silently in the background at segment boundaries without flushing the buffer!
                 evaluateAndApplyAdaptiveTrackSelection(
                     forceBufferingState = _uiState.value is PlayerUiState.Buffering
                 )
@@ -983,6 +996,10 @@ class LivePlayerController(
                 Player.STATE_READY -> {
                     autoReconnectAttempts = 0
                     liveFailoverStep = 0
+                    triedLiveFailoverUrls.clear()
+                    if (channel.isLiveBroadcast && channel.streamUrl.isNotBlank()) {
+                        com.example.data.ChannelHealthGuardian.markStreamHealthy(channel.id, channel.streamUrl)
+                    }
                     hasReachedReadyForCurrentStream = true
                     bufferingEnteredAtRealtimeMs = 0L
                     if (healthyPlaybackSinceRealtimeMs == 0L) {
@@ -1209,84 +1226,80 @@ class LivePlayerController(
 
             val httpCode = extractHttpErrorCode(error)
             if (channel.isLiveBroadcast) {
-                // Automatic 3-Step Live TV Failover (Never fail on first error):
-                // Step 1: Switch seamlessly (0ms) to channel.proxyStreamUrl (with X-Neli-Client: nelitv-app)
-                // Step 2: Refresh GET /baynithalex/api/app ONCE in background and retry updated streamUrl / proxyStreamUrl
-                // Step 3: Display friendly Swahili error overlay with 1-tap "Jaribu Tena" button
-                when (liveFailoverStep) {
-                    0 -> {
-                        liveFailoverStep = 1
-                        _uiState.value = PlayerUiState.Buffering
-                        val baseDirectUrl = originalLiveStreamUrl.ifBlank { channel.streamUrl }
-                        val proxyCandidate = channel.proxyStreamUrl.trim()
-                            .takeIf { it.isNotBlank() && it != channel.streamUrl }
-                            ?: com.example.data.NeliTvRepository.buildProxyStreamUrl(baseDirectUrl)
-                                .takeIf { it.isNotBlank() && it != channel.streamUrl }
-                            ?: channel.backupStreamUrl.trim()
-                                .takeIf { it.isNotBlank() && it != channel.streamUrl }
-
-                        if (proxyCandidate != null) {
-                            mainHandler.post {
-                                exoPlayer?.let { p ->
-                                    channel = channel.copy(
-                                        streamUrl = proxyCandidate,
-                                        backupStreamUrl = baseDirectUrl
-                                    )
-                                    _currentChannel.value = channel
-                                    TokenManager.injectHeadersIntoFactory(sharedBaseHttpDataSourceFactory, proxyCandidate)
-                                    loadChannelStream(p, preserveVodPosition = false)
-                                }
-                            }
-                            return
-                        } else {
-                            // No distinct proxy URL available — jump immediately to Step 2
-                            liveFailoverStep = 1
-                        }
-                    }
-                    1 -> {
-                        liveFailoverStep = 2
+                // Zero-Death Multi-Tier Channel Keep-Alive Failover:
+                // Preserves originalBackupStreamUrl and walks every untried healthy candidate
+                // (Distinct Backup -> Explicit Proxy -> NeliTv Proxy(Primary) -> NeliTv Proxy(Backup) -> Fresh Server Refresh)
+                triedLiveFailoverUrls.add(channel.streamUrl.trim())
+                if (liveFailoverStep < 4) {
+                    val nextCandidate = com.example.data.ChannelHealthGuardian.getNextFailoverCandidate(
+                        channel = channel,
+                        failedUrl = channel.streamUrl,
+                        triedUrls = triedLiveFailoverUrls,
+                        originalPrimaryUrl = originalLiveStreamUrl.ifBlank { channel.streamUrl },
+                        originalBackupUrl = originalBackupStreamUrl
+                    )
+                    if (nextCandidate != null) {
+                        liveFailoverStep++
+                        triedLiveFailoverUrls.add(nextCandidate)
                         _uiState.value = PlayerUiState.Buffering
                         mainHandler.post {
-                            if (exoPlayer == null) return@post
-                            Thread {
-                                try {
-                                    com.example.data.NeliTvRepository.fetchAppBootstrapBlocking(forceRefresh = true)
-                                } catch (_: Exception) {
-                                }
-                                mainHandler.post {
-                                    exoPlayer?.let { p ->
-                                        val refreshed = com.example.data.NeliTvRepository.findCachedChannel(channel)
-                                            ?: com.example.data.ChannelRepository.getChannelById(channel.id)
-                                        val refreshedDirect = refreshed?.streamUrl?.trim().orEmpty()
-                                        val refreshedProxy = refreshed?.proxyStreamUrl?.trim().orEmpty()
-                                        val nextUrl = when {
-                                            refreshedDirect.isNotBlank() && refreshedDirect != channel.streamUrl -> refreshedDirect
-                                            refreshedProxy.isNotBlank() && refreshedProxy != channel.streamUrl -> refreshedProxy
-                                            refreshedDirect.isNotBlank() -> refreshedDirect
-                                            else -> originalLiveStreamUrl.ifBlank { channel.streamUrl }
-                                        }
-                                        val mergedKeys = com.example.data.NeliTvRepository.getMergedClearKeysForChannel(
-                                            refreshed ?: channel
-                                        )
-                                        channel = (refreshed ?: channel).copy(
-                                            streamUrl = nextUrl,
-                                            proxyStreamUrl = refreshedProxy.ifBlank { channel.proxyStreamUrl },
-                                            backupStreamUrl = originalLiveStreamUrl.ifBlank { channel.backupStreamUrl },
-                                            clearKeys = mergedKeys,
-                                            encryptionType = if (mergedKeys.isNotEmpty()) "clearkey" else (refreshed?.encryptionType ?: channel.encryptionType)
-                                        )
-                                        _currentChannel.value = channel
-                                        TokenManager.injectHeadersIntoFactory(sharedBaseHttpDataSourceFactory, nextUrl)
-                                        loadChannelStream(p, preserveVodPosition = false)
-                                    }
-                                }
-                            }.start()
+                            exoPlayer?.let { p ->
+                                channel = channel.copy(
+                                    streamUrl = nextCandidate,
+                                    backupStreamUrl = originalBackupStreamUrl
+                                )
+                                _currentChannel.value = channel
+                                TokenManager.injectHeadersIntoFactory(sharedBaseHttpDataSourceFactory, nextCandidate)
+                                loadChannelStream(p, preserveVodPosition = false)
+                            }
                         }
                         return
                     }
                 }
 
-                // Step 3: All retries exhausted -> show friendly Swahili error overlay with 1-tap "Jaribu Tena"
+                // Final silent rescue step: force-refresh /baynithalex/api/app ONCE to pull fresh server URLs & ClearKeys
+                if (liveFailoverStep < 5) {
+                    liveFailoverStep = 5
+                    _uiState.value = PlayerUiState.Buffering
+                    mainHandler.post {
+                        if (exoPlayer == null) return@post
+                        Thread {
+                            try {
+                                com.example.data.NeliTvRepository.fetchAppBootstrapBlocking(forceRefresh = true)
+                            } catch (_: Exception) {
+                            }
+                            mainHandler.post {
+                                exoPlayer?.let { p ->
+                                    val refreshed = com.example.data.NeliTvRepository.findCachedChannel(channel)
+                                        ?: com.example.data.ChannelRepository.getChannelById(channel.id)
+                                    val refreshedDirect = refreshed?.streamUrl?.trim().orEmpty()
+                                    val refreshedProxy = refreshed?.proxyStreamUrl?.trim().orEmpty()
+                                    val refreshedBackup = refreshed?.backupStreamUrl?.trim().orEmpty()
+                                    val nextUrl = listOf(refreshedDirect, refreshedProxy, refreshedBackup)
+                                        .firstOrNull { it.isNotBlank() && it !in triedLiveFailoverUrls }
+                                        ?: refreshedDirect.ifBlank { originalLiveStreamUrl.ifBlank { channel.streamUrl } }
+                                    triedLiveFailoverUrls.add(nextUrl)
+                                    val mergedKeys = com.example.data.NeliTvRepository.getMergedClearKeysForChannel(
+                                        refreshed ?: channel
+                                    )
+                                    channel = (refreshed ?: channel).copy(
+                                        streamUrl = nextUrl,
+                                        proxyStreamUrl = refreshedProxy.ifBlank { channel.proxyStreamUrl },
+                                        backupStreamUrl = refreshedBackup.ifBlank { originalBackupStreamUrl },
+                                        clearKeys = mergedKeys,
+                                        encryptionType = if (mergedKeys.isNotEmpty()) "clearkey" else (refreshed?.encryptionType ?: channel.encryptionType)
+                                    )
+                                    _currentChannel.value = channel
+                                    TokenManager.injectHeadersIntoFactory(sharedBaseHttpDataSourceFactory, nextUrl)
+                                    loadChannelStream(p, preserveVodPosition = false)
+                                }
+                            }
+                        }.start()
+                    }
+                    return
+                }
+
+                // All failover tiers exhausted -> show friendly Swahili error overlay with 1-tap "Jaribu Tena"
                 _uiState.value = PlayerUiState.Error(
                     userFriendlyMessage = "Imeshindwa kufungua chaneli hii kwa sasa. Tafadhali bonyeza Jaribu Tena.",
                     technicalDetail = null
@@ -1389,10 +1402,11 @@ class LivePlayerController(
      */
     private fun detectInitialBitrateEstimate(): Long {
         if (isLowBandoNetworkDetected()) return 450_000L
-        // On Smart TV Live TV, start on a fast ~600 kbps keyframe so the very first segment downloads
-        // in under 1 second even on weak Wi-Fi, then ABR smoothly climbs to 720p/1080p once buffer is full.
-        if (channel.isLiveBroadcast && isSmartTvDevice()) return 600_000L
-        return if (channel.isLiveBroadcast) 850_000L else 2_200_000L
+        // Start Live TV at balanced normal quality (~950 kbps -> 480p SD) so playback starts fast
+        // with loading ONLY on channel start, then native YouTube-style ABR silently climbs to
+        // 720p/1080p in the background once sustained network stability (18-25s) is proven.
+        if (channel.isLiveBroadcast) return 950_000L
+        return 2_200_000L
     }
 
     /**
@@ -1511,23 +1525,28 @@ class LivePlayerController(
         }
 
         if (_playbackInfo.value.networkMode == NetworkQualityMode.AUTO_ADAPTIVE) {
+            // YouTube-style Seamless ABR:
+            // NEVER rewrite maxVideoSize / maxVideoBitrate on DefaultTrackSelector based on bandwidth
+            // or transient buffering during AUTO_ADAPTIVE playback — mutating TrackSelector mid-stream
+            // forces ExoPlayer to flush its decoded buffer and show a loading screen on every 480p->720p->1080p step!
+            // Instead, leave the full battery-allowed ceiling open so ExoPlayer's native AdaptiveTrackSelection
+            // upgrades and downgrades silently in the background at segment boundaries with ZERO loading interruption.
             val isOfflineLocalFile = isPlayingLocalOfflineStream()
-            val maxW = if (isOfflineLocalFile) Int.MAX_VALUE else resolvedTier.maxWidth
-            val maxH = if (isOfflineLocalFile) Int.MAX_VALUE else resolvedTier.maxHeight
-            val maxBr = if (isOfflineLocalFile) Int.MAX_VALUE else resolvedTier.maxBitrateBps
-            // Use 0 for minW/minH/minBr in AUTO_ADAPTIVE so ExoPlayer starts video immediately on the fastest
-            // keyframe without stalling for a heavy 1080p segment, then smoothly scales up to maxW/maxH
-            val minW = 0
-            val minH = 0
-            val minBr = 0
+            val batteryCapTier = if (isOfflineLocalFile) {
+                AdaptiveQualityTier.FULL_HD_1080P
+            } else {
+                activePowerProfile.maxQualityTierCap
+            }
+            val maxW = if (isOfflineLocalFile) Int.MAX_VALUE else batteryCapTier.maxWidth
+            val maxH = if (isOfflineLocalFile) Int.MAX_VALUE else batteryCapTier.maxHeight
+            val maxBr = if (isOfflineLocalFile) Int.MAX_VALUE else batteryCapTier.maxBitrateBps
             val forceLowest = if (isOfflineLocalFile) {
                 false
             } else {
-                resolvedTier.forceLowestBitrate ||
-                    activePowerProfile == BatteryPowerProfile.CRITICAL_BATTERY_SAVER ||
+                activePowerProfile == BatteryPowerProfile.CRITICAL_BATTERY_SAVER ||
                     activePowerProfile == BatteryPowerProfile.BACKGROUND_LOADING_SAVER
             }
-            val selectorKey = "AUTO_${maxW}x${maxH}_${maxBr}_${activePowerProfile.maxFrameRate}_${forceLowest}_${disableOffscreenVideoTrack}_${activePowerProfile.isCpuSavingActive}"
+            val selectorKey = "AUTO_SEAMLESS_${maxW}x${maxH}_${maxBr}_${activePowerProfile.maxFrameRate}_${forceLowest}_${disableOffscreenVideoTrack}"
             if (selectorKey != lastAppliedTrackSelectorKey) {
                 lastAppliedTrackSelectorKey = selectorKey
                 trackSelector?.let { selector ->
@@ -1536,8 +1555,8 @@ class LivePlayerController(
                             .setMaxVideoSize(maxW, maxH)
                             .setMaxVideoBitrate(maxBr)
                             .setMaxVideoFrameRate(activePowerProfile.maxFrameRate)
-                            .setMinVideoSize(minW, minH)
-                            .setMinVideoBitrate(minBr)
+                            .setMinVideoSize(0, 0)
+                            .setMinVideoBitrate(0)
                             .setForceLowestBitrate(forceLowest)
                             .setRendererDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
                             .setExceedVideoConstraintsIfNecessary(true)
@@ -1648,19 +1667,21 @@ class LivePlayerController(
             initialTier.badgeLabel
         }
 
+        val initialCeilingTier = initialBatteryProfile.maxQualityTierCap
+        val initialForceLowest = initialBatteryProfile == BatteryPowerProfile.CRITICAL_BATTERY_SAVER ||
+            initialBatteryProfile == BatteryPowerProfile.BACKGROUND_LOADING_SAVER
+        lastAppliedTrackSelectorKey =
+            "AUTO_SEAMLESS_${initialCeilingTier.maxWidth}x${initialCeilingTier.maxHeight}_${initialCeilingTier.maxBitrateBps}_${initialBatteryProfile.maxFrameRate}_${initialForceLowest}_${disableOffscreenVideoTrack}"
+
         val selector = DefaultTrackSelector(context, adaptiveTrackSelectionFactory).apply {
             setParameters(
                 buildUponParameters()
-                    .setMaxVideoSize(initialTier.maxWidth, initialTier.maxHeight)
-                    .setMaxVideoBitrate(initialTier.maxBitrateBps)
+                    .setMaxVideoSize(initialCeilingTier.maxWidth, initialCeilingTier.maxHeight)
+                    .setMaxVideoBitrate(initialCeilingTier.maxBitrateBps)
                     .setMaxVideoFrameRate(initialBatteryProfile.maxFrameRate)
                     .setMinVideoSize(0, 0)
                     .setMinVideoBitrate(0)
-                    .setForceLowestBitrate(
-                        initialTier.forceLowestBitrate ||
-                                initialBatteryProfile == BatteryPowerProfile.CRITICAL_BATTERY_SAVER ||
-                                initialBatteryProfile == BatteryPowerProfile.BACKGROUND_LOADING_SAVER
-                    )
+                    .setForceLowestBitrate(initialForceLowest)
                     .setRendererDisabled(C.TRACK_TYPE_VIDEO, disableOffscreenVideoTrack)
                     .setRendererDisabled(C.TRACK_TYPE_AUDIO, false)
                     .setExceedVideoConstraintsIfNecessary(true)
@@ -1675,13 +1696,13 @@ class LivePlayerController(
         val loadControl = if (channel.isLiveBroadcast) {
             if (isTvDevice) {
                 // Smart TV Fast-Start + Deep Anti-Jitter Cushion:
-                // - Starts playback in ~0.8s (bufferForPlaybackMs = 800ms)
-                // - Continuously builds a 12s-35s safety cushion so unstable TV Wi-Fi dips never pause playback
+                // - Starts playback in ~0.8s (bufferForPlaybackMs = 800ms) on normal quality
+                // - Continuously builds a 15s-42s safety cushion so unstable TV Wi-Fi dips never pause playback
                 // - After any real rebuffer, collects a solid 2.8s cushion before resuming to prevent stutter loops
                 DefaultLoadControl.Builder()
                     .setBufferDurationsMs(
-                        /* minBufferMs = */ 12_000,
-                        /* maxBufferMs = */ 35_000,
+                        /* minBufferMs = */ 15_000,
+                        /* maxBufferMs = */ 42_000,
                         /* bufferForPlaybackMs = */ 800,
                         /* bufferForPlaybackAfterRebufferMs = */ 2_800
                     )
@@ -1692,11 +1713,11 @@ class LivePlayerController(
                     .setPrioritizeTimeOverSizeThresholds(true)
                     .build()
             } else {
-                // Mobile Fast-Start + Stable Live Cushion
+                // Mobile Fast-Start + Stable Live Cushion (10s-30s absorbs minor 4G/Wi-Fi dips without rebuffering)
                 DefaultLoadControl.Builder()
                     .setBufferDurationsMs(
-                        /* minBufferMs = */ 6_000,
-                        /* maxBufferMs = */ 24_000,
+                        /* minBufferMs = */ 10_000,
+                        /* maxBufferMs = */ 30_000,
                         /* bufferForPlaybackMs = */ 800,
                         /* bufferForPlaybackAfterRebufferMs = */ 2_000
                     )
@@ -1772,6 +1793,8 @@ class LivePlayerController(
         channel = newChannel
         _currentChannel.value = newChannel
         originalLiveStreamUrl = newChannel.streamUrl
+        originalBackupStreamUrl = newChannel.backupStreamUrl
+        triedLiveFailoverUrls.clear()
         autoReconnectAttempts = 0
         liveFailoverStep = 0
         hasReachedReadyForCurrentStream = false
@@ -2329,10 +2352,10 @@ class LivePlayerController(
     private fun createMediaSource(channel: LiveChannel): MediaSource {
         // 0ms Instant Open: enrich from in-memory NeliTvRepository cache without ever blocking on network
         val isProxyMode = channel.streamUrl.contains("/api/proxy-stream", ignoreCase = true)
-        val liveServerChannel = if (channel.isLiveBroadcast && !channel.id.startsWith("dl_") && !isProxyMode) {
+        val liveServerChannel = if (channel.isLiveBroadcast && !channel.id.startsWith("dl_") && !isProxyMode && liveFailoverStep == 0) {
             val cachedServer = com.example.data.NeliTvRepository.findCachedChannel(channel)
                 ?: com.example.data.ChannelRepository.getChannelById(channel.id)
-            if (cachedServer != null && cachedServer.streamUrl.isNotBlank()) {
+            val baseChannel = if (cachedServer != null && cachedServer.streamUrl.isNotBlank()) {
                 channel.copy(
                     slug = cachedServer.slug.ifBlank { channel.slug },
                     streamUrl = cachedServer.streamUrl,
@@ -2344,6 +2367,12 @@ class LivePlayerController(
                 )
             } else {
                 channel
+            }
+            val preferredUrl = com.example.data.ChannelHealthGuardian.resolvePreferredStreamUrl(baseChannel)
+            if (preferredUrl.isNotBlank() && preferredUrl != baseChannel.streamUrl) {
+                baseChannel.copy(streamUrl = preferredUrl)
+            } else {
+                baseChannel
             }
         } else {
             channel
@@ -2528,6 +2557,7 @@ class LivePlayerController(
     fun retry() {
         autoReconnectAttempts = 0
         liveFailoverStep = 0
+        triedLiveFailoverUrls.clear()
         val player = exoPlayer ?: return initializePlayer().let { }
         _uiState.value = PlayerUiState.Loading
         player.stop()
@@ -2544,14 +2574,18 @@ class LivePlayerController(
                         ?: com.example.data.ChannelRepository.getChannelById(channel.id)
                     val primaryUrl = refreshed?.streamUrl?.trim()?.takeIf { it.isNotBlank() }
                         ?: originalLiveStreamUrl.ifBlank { channel.streamUrl }
+                    val backupUrl = refreshed?.backupStreamUrl?.trim()?.takeIf { it.isNotBlank() }
+                        ?: originalBackupStreamUrl
                     val mergedKeys = com.example.data.NeliTvRepository.getMergedClearKeysForChannel(refreshed ?: channel)
                     channel = (refreshed ?: channel).copy(
                         streamUrl = primaryUrl,
                         proxyStreamUrl = refreshed?.proxyStreamUrl?.ifBlank { channel.proxyStreamUrl } ?: channel.proxyStreamUrl,
+                        backupStreamUrl = backupUrl,
                         clearKeys = mergedKeys,
                         encryptionType = if (mergedKeys.isNotEmpty()) "clearkey" else (refreshed?.encryptionType ?: channel.encryptionType)
                     )
                     originalLiveStreamUrl = primaryUrl
+                    originalBackupStreamUrl = backupUrl
                     _currentChannel.value = channel
                     loadChannelStream(activePlayer, preserveVodPosition = false)
                 }

@@ -127,7 +127,10 @@ object ChannelRepository {
             effectiveTokenExpiryEpochSec = state.exp
         }
         if (state.channels.isNotEmpty()) {
-            cachedBackupApiChannels = state.channels
+            cachedBackupApiChannels = NeliTvRepository.mergeServerChannelLists(
+                primary = state.channels,
+                supplementary = cachedBackupApiChannels
+            )
             refreshLiveChannels()
         }
         com.example.player.TokenManager.syncStateFromRepository()
@@ -2537,7 +2540,10 @@ object ChannelRepository {
                 parseSingleBackupChannelObject(obj, index)
             }
             if (parsed.isNotEmpty()) {
-                cachedBackupApiChannels = parsed
+                cachedBackupApiChannels = NeliTvRepository.mergeServerChannelLists(
+                    primary = parsed,
+                    supplementary = cachedBackupApiChannels
+                )
                 refreshLiveChannels()
                 if (persistToVault) {
                     com.example.player.NeliLocalStreamEngine.saveServerChannelsJsonToVault(trimmed)

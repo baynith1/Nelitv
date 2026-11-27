@@ -27,6 +27,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import android.view.WindowManager
 import androidx.core.content.ContextCompat
@@ -118,6 +119,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        com.example.ai.NeliAiSystemOverlayService.notifyAppForegroundState(this, inForeground = true)
         // Expanding PiP back to full screen reaches onResume(); clear any pending PiP-exit timestamp
         lastExitedPipAtRealtimeMs = 0L
         if (!isFullScreenPlayerActive && systemBarsHiddenForPlayer) {
@@ -128,6 +130,11 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        com.example.ai.NeliAiSystemOverlayService.notifyAppForegroundState(this, inForeground = false)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -380,8 +387,12 @@ class MainActivity : ComponentActivity() {
         if (intent == null) return
         val channelId = intent.getStringExtra(EXTRA_LAUNCH_CHANNEL_ID)
             ?.takeIf { it.isNotBlank() }
+            ?: intent.getStringExtra(com.example.ai.NeliAiSystemOverlayService.EXTRA_LAUNCH_CHANNEL_ID)
+                ?.takeIf { it.isNotBlank() }
+        val overlayMovieList = intent.getStringArrayListExtra(com.example.ai.NeliAiSystemOverlayService.EXTRA_LAUNCH_MOVIE_IDS)
         val movieId = intent.getStringExtra(EXTRA_LAUNCH_MEDIA_ID)
             ?.takeIf { it.isNotBlank() }
+            ?: overlayMovieList?.firstOrNull()?.takeIf { it.isNotBlank() }
         val tab = intent.getStringExtra(EXTRA_LAUNCH_TAB)
             ?.takeIf { it.isNotBlank() }
 
@@ -520,6 +531,10 @@ fun NeliApp(
     }
 
     val startOrSwitchChannel: (LiveChannel) -> Unit = { selected ->
+        com.example.ai.NeliAiMemoryStore.recordChannelPlayed(context, selected.name, selected.categories)
+        if (!selected.isLiveBroadcast) {
+            com.example.ai.NeliAiMemoryStore.recordMovieWatched(context, selected.id)
+        }
         val existing = sharedPlayerController
         activeChannel = selected
         if (existing == null) {
@@ -645,26 +660,42 @@ fun NeliApp(
         }
 
         var openPremiumAfterPlayerExit by remember { mutableStateOf(false) }
+        var isNeliAiOpen by remember { mutableStateOf(false) }
+        var isNeliAiActiveInPlayer by remember { mutableStateOf(false) }
 
         if (currentChan != null && currentCtrl != null) {
-            PlayerScreen(
-                channel = currentChan,
-                onBack = {
-                    val lastWatchedChannel = currentCtrl.currentChannel.value
-                    // Always route Movie/Series watchpage back navigation to its Movie Details page (and then Discovery)
-                    neliViewModel.onReturnFromWatchPage(lastWatchedChannel)
-                    // Back button NEVER triggers PiP; it cleanly stops playback and returns to the previous screen.
-                    closeAndReleasePlayback()
-                },
-                sharedController = currentCtrl,
-                onEnterPipMode = {
-                    // Enters Android OS Picture-in-Picture mode OUTSIDE the app (never inside the app)
-                    onRequestSystemPipOutsideApp()
-                },
-                onOpenPremium = {
-                    openPremiumAfterPlayerExit = true
-                }
+            val playerGrowScale by androidx.compose.animation.core.animateFloatAsState(
+                targetValue = if (isNeliAiActiveInPlayer) 1.035f else 1.0f,
+                animationSpec = androidx.compose.animation.core.tween(durationMillis = 320),
+                label = "player_ai_grow_scale"
             )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer(
+                        scaleX = playerGrowScale,
+                        scaleY = playerGrowScale
+                    )
+            ) {
+                PlayerScreen(
+                    channel = currentChan,
+                    onBack = {
+                        val lastWatchedChannel = currentCtrl.currentChannel.value
+                        // Always route Movie/Series watchpage back navigation to its Movie Details page (and then Discovery)
+                        neliViewModel.onReturnFromWatchPage(lastWatchedChannel)
+                        // Back button NEVER triggers PiP; it cleanly stops playback and returns to the previous screen.
+                        closeAndReleasePlayback()
+                    },
+                    sharedController = currentCtrl,
+                    onEnterPipMode = {
+                        // Enters Android OS Picture-in-Picture mode OUTSIDE the app (never inside the app)
+                        onRequestSystemPipOutsideApp()
+                    },
+                    onOpenPremium = {
+                        openPremiumAfterPlayerExit = true
+                    }
+                )
+            }
         } else {
             HomeScreen(
                 onChannelSelected = { selected ->
@@ -674,6 +705,9 @@ fun NeliApp(
                 initialShowPremium = openPremiumAfterPlayerExit,
                 onConsumeInitialShowPremium = {
                     openPremiumAfterPlayerExit = false
+                },
+                onOpenNeliAi = {
+                    isNeliAiOpen = true
                 }
             )
         }
@@ -837,6 +871,29 @@ fun NeliApp(
                 }
             )
         }
+
+        // Global Hands-Free Neli AI Assistant Host (Mobile, Tablet, Smart TV & In-Player)
+        val neliSubState by com.example.data.NeliSubscriptionManager.subscriptionState.collectAsState()
+        val isUserPremium = neliSubState.isActiveNow ||
+            com.example.data.NeliFreeForeverAccountsManager.isSpecialAdFreeUser(currentUser)
+        com.example.ai.NeliAiGlobalHost(
+            isOpen = isNeliAiOpen,
+            onSetOpen = { isNeliAiOpen = it },
+            neliViewModel = neliViewModel,
+            activeChannel = activeChannel,
+            playerController = sharedPlayerController,
+            isSmartTv = isTvMode,
+            isPremiumActive = isUserPremium,
+            onPlayChannel = { ch -> startOrSwitchChannel(ch) },
+            onClosePlayer = { closeAndReleasePlayback() },
+            onOpenPremium = {
+                if (activeChannel != null) closeAndReleasePlayback()
+                openPremiumAfterPlayerExit = true
+            },
+            onAiActiveInPlayerChanged = { active ->
+                isNeliAiActiveInPlayer = active
+            }
+        )
 
         // Mandatory In-App Update popup renders over EVERY screen and blocks until updated
         NeliHomepageAutoUpdatePopupDialog()

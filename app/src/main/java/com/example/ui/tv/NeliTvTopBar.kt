@@ -67,6 +67,7 @@ fun NeliTvTopBar(
     onSearchQueryChange: (String) -> Unit,
     isSearchOpen: Boolean,
     onToggleSearch: () -> Unit,
+    onOpenNeliAi: () -> Unit = {},
     adminSmsMessage: String = "",
     modifier: Modifier = Modifier
 ) {
@@ -161,7 +162,7 @@ fun NeliTvTopBar(
                 }
             }
 
-            // Right: D-Pad Focusable Search Button (NO CAST BUTTON)
+            // Right: D-Pad Focusable Search Button (Neli AI runs hands-free in background)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp)

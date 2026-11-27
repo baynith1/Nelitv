@@ -134,7 +134,8 @@ fun HomeScreen(
     modifier: Modifier = Modifier,
     neliViewModel: NeliViewModel = viewModel(),
     initialShowPremium: Boolean = false,
-    onConsumeInitialShowPremium: () -> Unit = {}
+    onConsumeInitialShowPremium: () -> Unit = {},
+    onOpenNeliAi: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val isTvDevice = remember(context, NeliThemeManager.forceTvMode) {
@@ -660,7 +661,8 @@ fun HomeScreen(
                             },
                             onClearUsernameUpdateMessage = {
                                 neliViewModel.clearUsernameUpdateMessage()
-                            }
+                            },
+                            onOpenNeliAi = onOpenNeliAi
                         )
                     }
 
@@ -699,6 +701,7 @@ fun HomeScreen(
                     isSearchOpen = false
                     neliViewModel.selectTab(tab)
                 },
+                onOpenNeliAi = onOpenNeliAi,
                 activeDownloadCount = downloadingIds.size
             )
 
@@ -722,6 +725,7 @@ fun HomeScreen(
                         isSearchOpen = !isSearchOpen
                         if (!isSearchOpen) searchQuery = ""
                     },
+                    onOpenNeliAi = onOpenNeliAi,
                     adminSmsMessage = adminSmsMessage
                 )
 
@@ -782,6 +786,7 @@ fun HomeScreen(
                         showPremiumPage = true
                     },
                     isActiveMember = isPremiumActive,
+                    onOpenNeliAi = onOpenNeliAi,
                     isCastActive = isCastActive,
                     onCastClick = { showCastDialog = true },
                     adminSmsMessage = adminSmsMessage

@@ -8,6 +8,8 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -58,6 +60,7 @@ object NeliTvRepository {
 
     private const val PREFS_NAME = "nelitv_bootstrap_cache_v1"
     private const val KEY_BOOTSTRAP_JSON = "app_bootstrap_raw_json"
+    private const val KEY_EXTRA_CHANNELS_JSON = "app_extra_channels_raw_json"
     private const val KEY_SAVED_AT_MS = "app_bootstrap_saved_at_ms"
 
     private const val MIN_REFRESH_COOLDOWN_MS = 15_000L
@@ -80,7 +83,14 @@ object NeliTvRepository {
         val refreshIntervalSeconds: Long = DEFAULT_BACKGROUND_REFRESH_SEC,
         val lastSyncedAtMs: Long = 0L,
         val isFromCache: Boolean = true,
-        val lastErrorMessage: String? = null
+        val lastErrorMessage: String? = null,
+        val serverAnnouncement: String = "",
+        val serverAnnouncementId: String = "",
+        val serverUpdateVersion: String = "",
+        val serverUpdateApkUrl: String = "",
+        val serverUpdateNotes: String = "",
+        val serverUpdateMandatory: Boolean = false,
+        val serverFeatures: Set<String> = emptySet()
     )
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -329,8 +339,17 @@ object NeliTvRepository {
         if (!backgroundLoopStarted.compareAndSet(false, true)) return
         appContext = context.applicationContext
         scope.launch {
-            // Initial silent refresh shortly after app launch
-            fetchAppBootstrap(forceRefresh = false)
+            // Initial silent refresh immediately on launch; if cold-start network was still waking up,
+            // retry quickly (3s, then 7s) so all 63+ nelitv.online channels appear automatically without pull-to-refresh.
+            var initial = fetchAppBootstrap(forceRefresh = false)
+            if (initial == null || initial.isFromCache || initial.channels.size < 50) {
+                delay(3_000L)
+                initial = fetchAppBootstrap(forceRefresh = true)
+            }
+            if (initial == null || initial.isFromCache) {
+                delay(7_000L)
+                fetchAppBootstrap(forceRefresh = true)
+            }
             while (isActive) {
                 val intervalSec = _bootstrapState.value.refreshIntervalSeconds
                     .coerceIn(MIN_BACKGROUND_REFRESH_SEC, MAX_BACKGROUND_REFRESH_SEC)
@@ -344,32 +363,101 @@ object NeliTvRepository {
         try {
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             val savedJson = prefs.getString(KEY_BOOTSTRAP_JSON, null)?.trim().orEmpty()
+            val savedExtraChannelsJson = prefs.getString(KEY_EXTRA_CHANNELS_JSON, null)?.trim().orEmpty()
             val savedAt = prefs.getLong(KEY_SAVED_AT_MS, 0L)
-            if (savedJson.isNotEmpty()) {
-                val parsed = parseAppBootstrapJson(
+            val parsedPrimary = if (savedJson.isNotEmpty()) {
+                parseAppBootstrapJson(
                     rawJson = savedJson,
                     isFromCache = true,
                     syncedAtMs = savedAt
                 )
-                if (parsed != null) {
-                    _bootstrapState.value = parsed
-                    ChannelRepository.applyNeliTvBootstrapState(parsed)
-                }
+            } else {
+                null
+            }
+            val parsedExtra = if (savedExtraChannelsJson.isNotEmpty()) {
+                parseAppBootstrapJson(
+                    rawJson = savedExtraChannelsJson,
+                    isFromCache = true,
+                    syncedAtMs = savedAt,
+                    baseState = parsedPrimary ?: _bootstrapState.value
+                )
+            } else {
+                null
+            }
+            val combinedState = when {
+                parsedPrimary != null && parsedExtra != null -> parsedPrimary.copy(
+                    channels = mergeServerChannelLists(parsedPrimary.channels, parsedExtra.channels),
+                    clearKeys = parsedExtra.clearKeys + parsedPrimary.clearKeys
+                )
+                parsedPrimary != null -> parsedPrimary
+                else -> parsedExtra
+            }
+            if (combinedState != null) {
+                _bootstrapState.value = combinedState
+                ChannelRepository.applyNeliTvBootstrapState(combinedState)
             }
         } catch (_: Exception) {
         }
     }
 
-    private fun persistBootstrapJsonToDisk(rawJson: String, syncedAtMs: Long) {
+    private fun persistBootstrapJsonToDisk(
+        rawJson: String?,
+        syncedAtMs: Long,
+        extraChannelsJson: String? = null
+    ) {
         val ctx = appContext ?: return
         try {
-            ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val editor = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 .edit()
-                .putString(KEY_BOOTSTRAP_JSON, rawJson)
                 .putLong(KEY_SAVED_AT_MS, syncedAtMs)
-                .apply()
+            if (!rawJson.isNullOrBlank()) {
+                editor.putString(KEY_BOOTSTRAP_JSON, rawJson)
+            }
+            if (!extraChannelsJson.isNullOrBlank()) {
+                editor.putString(KEY_EXTRA_CHANNELS_JSON, extraChannelsJson)
+            }
+            editor.apply()
         } catch (_: Exception) {
         }
+    }
+
+    /**
+     * Merges primary `/baynithalex/api/app` channels with supplementary `/baynithalex/api/channels`
+     * items so all 63+ channels hosted on `nelitv.online` appear immediately on launch without
+     * losing primary token/ClearKey metadata or creating duplicates.
+     */
+    fun mergeServerChannelLists(
+        primary: List<LiveChannel>,
+        supplementary: List<LiveChannel>
+    ): List<LiveChannel> {
+        if (supplementary.isEmpty()) return primary
+        if (primary.isEmpty()) return supplementary
+        val result = ArrayList<LiveChannel>(primary.size + supplementary.size)
+        val seenIds = HashSet<String>(primary.size * 2)
+        val seenSlugs = HashSet<String>(primary.size * 2)
+        val seenNameKeys = HashSet<String>(primary.size * 2)
+        primary.forEach { ch ->
+            result.add(ch)
+            if (ch.id.isNotBlank()) seenIds.add(ch.id.trim().lowercase())
+            if (ch.slug.isNotBlank()) seenSlugs.add(ch.slug.trim().lowercase())
+            val key = ChannelRepository.normalizeChannelMatchKey(ch.name)
+            if (key.isNotEmpty()) seenNameKeys.add(key)
+        }
+        supplementary.forEach { ch ->
+            val idKey = ch.id.trim().lowercase()
+            val slugKey = ch.slug.trim().lowercase()
+            val nameKey = ChannelRepository.normalizeChannelMatchKey(ch.name)
+            val alreadyPresent = (idKey.isNotEmpty() && idKey in seenIds) ||
+                (slugKey.isNotEmpty() && slugKey in seenSlugs) ||
+                (nameKey.isNotEmpty() && nameKey in seenNameKeys)
+            if (!alreadyPresent) {
+                result.add(ch)
+                if (idKey.isNotEmpty()) seenIds.add(idKey)
+                if (slugKey.isNotEmpty()) seenSlugs.add(slugKey)
+                if (nameKey.isNotEmpty()) seenNameKeys.add(nameKey)
+            }
+        }
+        return result
     }
 
     /**
@@ -423,46 +511,76 @@ object NeliTvRepository {
         val deferred = myDeferred ?: return@withContext _bootstrapState.value
         var resultState: AppBootstrapState? = null
         try {
-            val body = executeGetWithBackoff(ENDPOINT_APP_BOOTSTRAP)
+            val syncedNow = System.currentTimeMillis()
+            // Fetch both /baynithalex/api/app and /baynithalex/api/channels concurrently so every
+            // channel hosted on nelitv.online (63+) appears immediately on launch without pull-to-refresh.
+            val (body, channelsBody) = coroutineScope {
+                val appJob = async { executeGetWithBackoff(ENDPOINT_APP_BOOTSTRAP) }
+                val chJob = async { executeGetWithBackoff(ENDPOINT_CHANNELS) }
+                Pair(appJob.await(), chJob.await())
+            }
+
             val parsedPrimary = body?.let {
                 parseAppBootstrapJson(
                     rawJson = it,
                     isFromCache = false,
-                    syncedAtMs = System.currentTimeMillis()
+                    syncedAtMs = syncedNow
+                )
+            }
+            val parsedExtraChannels = channelsBody?.let {
+                parseAppBootstrapJson(
+                    rawJson = it,
+                    isFromCache = false,
+                    syncedAtMs = syncedNow,
+                    baseState = parsedPrimary ?: _bootstrapState.value
                 )
             }
 
-            val resolvedState = if (parsedPrimary != null && parsedPrimary.channels.isNotEmpty()) {
-                persistBootstrapJsonToDisk(body, parsedPrimary.lastSyncedAtMs)
-                parsedPrimary
-            } else {
-                // Fallback to /baynithalex/api/channels if /app returned empty channels or failed
-                val fallbackChannelsBody = executeGetWithBackoff(ENDPOINT_CHANNELS)
-                val parsedFallback = fallbackChannelsBody?.let {
-                    parseAppBootstrapJson(
-                        rawJson = it,
-                        isFromCache = false,
-                        syncedAtMs = System.currentTimeMillis(),
-                        baseState = parsedPrimary ?: _bootstrapState.value
+            val resolvedState = when {
+                parsedPrimary != null && parsedExtraChannels != null -> {
+                    val mergedChannels = mergeServerChannelLists(
+                        primary = parsedPrimary.channels,
+                        supplementary = parsedExtraChannels.channels
+                    )
+                    val mergedKeys = parsedExtraChannels.clearKeys + parsedPrimary.clearKeys
+                    persistBootstrapJsonToDisk(
+                        rawJson = body,
+                        syncedAtMs = syncedNow,
+                        extraChannelsJson = channelsBody
+                    )
+                    parsedPrimary.copy(
+                        channels = mergedChannels,
+                        clearKeys = mergedKeys
                     )
                 }
-                when {
-                    parsedFallback != null && parsedFallback.channels.isNotEmpty() -> {
-                        if (parsedPrimary == null) {
-                            persistBootstrapJsonToDisk(fallbackChannelsBody, parsedFallback.lastSyncedAtMs)
-                        }
-                        parsedFallback
-                    }
-                    parsedPrimary != null -> parsedPrimary.copy(
-                        channels = _bootstrapState.value.channels // Preserve cached channels!
-                    )
-                    else -> null
+                parsedPrimary != null && parsedPrimary.channels.isNotEmpty() -> {
+                    persistBootstrapJsonToDisk(rawJson = body, syncedAtMs = syncedNow)
+                    parsedPrimary
                 }
+                parsedExtraChannels != null && parsedExtraChannels.channels.isNotEmpty() -> {
+                    persistBootstrapJsonToDisk(
+                        rawJson = if (parsedPrimary == null) channelsBody else body,
+                        syncedAtMs = syncedNow,
+                        extraChannelsJson = channelsBody
+                    )
+                    (parsedPrimary ?: parsedExtraChannels).copy(
+                        channels = parsedExtraChannels.channels,
+                        clearKeys = (parsedPrimary?.clearKeys.orEmpty()) + parsedExtraChannels.clearKeys
+                    )
+                }
+                parsedPrimary != null -> parsedPrimary.copy(
+                    channels = _bootstrapState.value.channels // Preserve cached channels!
+                )
+                else -> null
             }
 
             if (resolvedState != null) {
-                // Never overwrite non-empty cached channels with an empty list
-                val finalChannels = resolvedState.channels.ifEmpty { _bootstrapState.value.channels }
+                // Never overwrite non-empty cached channels with an empty list; merge any prior unique server channels
+                val finalChannels = if (resolvedState.channels.isNotEmpty()) {
+                    mergeServerChannelLists(resolvedState.channels, _bootstrapState.value.channels)
+                } else {
+                    _bootstrapState.value.channels
+                }
                 val finalClearKeys = if (resolvedState.clearKeys.isNotEmpty()) {
                     _bootstrapState.value.clearKeys + resolvedState.clearKeys
                 } else {
@@ -475,6 +593,7 @@ object NeliTvRepository {
                 )
                 _bootstrapState.value = finalState
                 ChannelRepository.applyNeliTvBootstrapState(finalState)
+                applyServerDrivenExtras(finalState)
                 resultState = finalState
             } else {
                 // Keep cached state completely intact on failure
@@ -657,6 +776,81 @@ object NeliTvRepository {
                 }
             }
 
+            // Parse optional server announcement / notice banner from nelitv.online
+            var parsedAnnouncement = ""
+            var parsedAnnouncementId = ""
+            val announcementObj = root.optJSONObject("announcement")
+                ?: root.optJSONObject("notice")
+                ?: nestedObj?.optJSONObject("announcement")
+                ?: nestedObj?.optJSONObject("notice")
+            if (announcementObj != null) {
+                val enabled = announcementObj.optBoolean("enabled", true) &&
+                    announcementObj.optBoolean("active", true)
+                if (enabled) {
+                    parsedAnnouncement = optCleanString(announcementObj, "message")
+                        .ifBlank { optCleanString(announcementObj, "text") }
+                        .ifBlank { optCleanString(announcementObj, "title") }
+                    parsedAnnouncementId = optCleanString(announcementObj, "id")
+                        .ifBlank { "neli_srv_${parsedAnnouncement.hashCode()}" }
+                }
+            } else {
+                parsedAnnouncement = optCleanString(root, "announcement")
+                    .ifBlank { optCleanString(root, "notice") }
+                    .ifBlank { optCleanString(nestedObj, "announcement") }
+                    .ifBlank { optCleanString(nestedObj, "notice") }
+                if (parsedAnnouncement.isNotBlank()) {
+                    parsedAnnouncementId = "neli_srv_${parsedAnnouncement.hashCode()}"
+                }
+            }
+
+            // Parse optional server-driven app update metadata (strictly HTTPS APK URLs)
+            val updateObj = root.optJSONObject("appUpdate")
+                ?: root.optJSONObject("update")
+                ?: root.optJSONObject("app_update")
+                ?: nestedObj?.optJSONObject("appUpdate")
+                ?: nestedObj?.optJSONObject("update")
+            val parsedUpdateVersion = optCleanString(updateObj, "latestVersion")
+                .ifBlank { optCleanString(updateObj, "version") }
+                .ifBlank { optCleanString(updateObj, "versionName") }
+                .ifBlank { optCleanString(root, "latestVersion") }
+                .ifBlank { optCleanString(nestedObj, "latestVersion") }
+            val rawUpdateApkUrl = normalizeRelativeUrl(
+                optCleanString(updateObj, "apkUrl")
+                    .ifBlank { optCleanString(updateObj, "downloadUrl") }
+                    .ifBlank { optCleanString(updateObj, "url") }
+                    .ifBlank { optCleanString(root, "apkUrl") }
+            )
+            val parsedUpdateApkUrl = rawUpdateApkUrl.takeIf { it.startsWith("https://", ignoreCase = true) }.orEmpty()
+            val parsedUpdateNotes = optCleanString(updateObj, "notes")
+                .ifBlank { optCleanString(updateObj, "whatsNew") }
+                .ifBlank { optCleanString(updateObj, "changelog") }
+                .ifBlank { optCleanString(updateObj, "message") }
+            val parsedUpdateMandatory = updateObj?.optBoolean("mandatory", false)
+                ?: updateObj?.optBoolean("forceUpdate", false)
+                ?: false
+
+            // Parse optional server feature flags (array of strings or boolean map)
+            val parsedFeatures = linkedSetOf<String>()
+            val featuresArr = root.optJSONArray("features") ?: nestedObj?.optJSONArray("features")
+            if (featuresArr != null) {
+                for (i in 0 until featuresArr.length()) {
+                    val flag = featuresArr.optString(i, "").trim()
+                    if (flag.isNotEmpty() && !flag.equals("null", ignoreCase = true)) {
+                        parsedFeatures.add(flag)
+                    }
+                }
+            }
+            val featuresObj = root.optJSONObject("features") ?: nestedObj?.optJSONObject("features")
+            if (featuresObj != null) {
+                val keys = featuresObj.keys()
+                while (keys.hasNext()) {
+                    val key = keys.next().trim()
+                    if (key.isNotEmpty() && featuresObj.optBoolean(key, false)) {
+                        parsedFeatures.add(key)
+                    }
+                }
+            }
+
             AppBootstrapState(
                 token = parsedToken,
                 cdnHost = parsedCdnHost,
@@ -668,10 +862,42 @@ object NeliTvRepository {
                 refreshIntervalSeconds = refreshIntervalSec,
                 lastSyncedAtMs = syncedAtMs,
                 isFromCache = isFromCache,
-                lastErrorMessage = null
+                lastErrorMessage = null,
+                serverAnnouncement = parsedAnnouncement,
+                serverAnnouncementId = parsedAnnouncementId,
+                serverUpdateVersion = parsedUpdateVersion,
+                serverUpdateApkUrl = parsedUpdateApkUrl,
+                serverUpdateNotes = parsedUpdateNotes,
+                serverUpdateMandatory = parsedUpdateMandatory,
+                serverFeatures = parsedFeatures
             )
         } catch (_: Exception) {
             null
+        }
+    }
+
+    private fun applyServerDrivenExtras(state: AppBootstrapState) {
+        val ctx = appContext ?: return
+        try {
+            if (state.serverAnnouncement.isNotBlank()) {
+                NeliAdminManager.applyCloudAdminNotification(
+                    context = ctx,
+                    id = state.serverAnnouncementId.ifBlank { "neli_srv_${state.serverAnnouncement.hashCode()}" },
+                    message = state.serverAnnouncement,
+                    placement = AdminBannerPlacement.BELOW_SLIDER,
+                    sendPushNotification = false,
+                    createdAtMs = state.lastSyncedAtMs.takeIf { it > 0L } ?: System.currentTimeMillis()
+                )
+            }
+            if (state.serverUpdateVersion.isNotBlank() && state.serverUpdateApkUrl.startsWith("https://", ignoreCase = true)) {
+                NeliAppUpdateManager.applyCloudUpdateInfo(
+                    latestVersion = state.serverUpdateVersion,
+                    apkUrl = state.serverUpdateApkUrl,
+                    whatsNewNotes = state.serverUpdateNotes,
+                    isMandatory = state.serverUpdateMandatory
+                )
+            }
+        } catch (_: Exception) {
         }
     }
 

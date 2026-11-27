@@ -396,16 +396,16 @@ object AuthRepository {
                 return@withContext Result.success(adminAccount)
             } else {
                 return@withContext Result.failure(
-                    IllegalArgumentException("Incorrect Admin password for Admin@login.com.")
+                    IllegalArgumentException("Barua pepe au nenosiri si sahihi. Tafadhali jaribu tena.")
                 )
             }
         }
 
-        // Dedicated 5 Free Forever VIP Accounts (user1@login.com .. user5@login.com, Password: Free123, Max 2 Devices)
+        // Dedicated 5 Free Forever VIP Accounts (Max 2 Devices)
         if (NeliFreeForeverAccountsManager.isFreeForeverEmail(cleanEmail)) {
             if (!NeliFreeForeverAccountsManager.isValidFreeForeverPassword(cleanPassword)) {
                 return@withContext Result.failure(
-                    IllegalArgumentException("Password isiyo sahihi kwa akaunti ya bure ($cleanEmail). Password sahihi ni Free123.")
+                    IllegalArgumentException("Barua pepe au nenosiri si sahihi. Tafadhali jaribu tena.")
                 )
             }
             val prevActive = dao.getActiveUserOnce()
@@ -500,7 +500,7 @@ object AuthRepository {
             } else {
                 return@withContext Result.failure(
                     IllegalArgumentException(
-                        remoteRejectionMessage ?: "Incorrect password. Please try again."
+                        remoteRejectionMessage ?: "Barua pepe au nenosiri si sahihi. Tafadhali jaribu tena."
                     )
                 )
             }

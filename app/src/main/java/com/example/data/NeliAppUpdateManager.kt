@@ -819,82 +819,33 @@ object NeliAppUpdateManager {
     }
 
     /**
-     * Downloads the APK in-app with progress percentage callback so user sees the progress bar
-     * filling inside the dialog before tapping "Sakinisha Sasisho" (Update).
+     * Play-Protect & Google Play Compliant update flow:
+     * Opens the official Neli TV update page / store link safely in the device browser via Intent.ACTION_VIEW
+     * instead of sideloading APKs via REQUEST_INSTALL_PACKAGES (which causes Play Protect blocks).
      */
     fun downloadApkWithProgress(
         context: Context,
         apkUrl: String = _releaseInfo.value.apkDownloadUrl,
         versionTag: String = _releaseInfo.value.versionTag
     ) {
-        if (_inAppDownloadProgress.value != null && _inAppDownloadProgress.value!! < 1.0f) {
-            return
-        }
-        _inAppDownloadProgress.value = 0.01f
-        _isInAppDownloadComplete.value = false
-        _apkDownloadStatusMessage.value = "Inapakua toleo jipya la Nelitv..."
-
-        Thread {
-            try {
-                val cleanUrl = apkUrl.ifBlank { DEFAULT_APK_DOWNLOAD_URL }
-                val request = Request.Builder().url(cleanUrl).build()
-                val response = httpClient.newCall(request).execute()
-                if (!response.isSuccessful) {
-                    _inAppDownloadProgress.value = null
-                    _apkDownloadStatusMessage.value = "Kushindwa kupakua, tafadhali jaribu tena."
-                    return@Thread
-                }
-                val body = response.body
-                val totalLength = body?.contentLength() ?: 28_000_000L
-                val cleanTag = versionTag.trim().removePrefix("v").ifBlank { "update" }
-                val downloadFileName = "Nelitv-v$cleanTag.apk"
-                // Always write to app-private cacheDir (covered by file_paths.xml <cache-path>)
-                // so Android 10-15 & Android TV never fail with Scoped Storage EACCES/SecurityException.
-                val destination = File(context.cacheDir, downloadFileName)
-                if (destination.exists()) destination.delete()
-
-                body?.byteStream()?.use { input ->
-                    destination.outputStream().use { output ->
-                        val buffer = ByteArray(8192)
-                        var bytesRead: Int
-                        var downloaded = 0L
-                        var lastProgressUpdate = 0L
-
-                        while (input.read(buffer).also { bytesRead = it } != -1) {
-                            output.write(buffer, 0, bytesRead)
-                            downloaded += bytesRead
-                            val now = System.currentTimeMillis()
-                            if (now - lastProgressUpdate >= 100L || downloaded >= totalLength) {
-                                lastProgressUpdate = now
-                                val progress = if (totalLength > 0) (downloaded.toFloat() / totalLength.toFloat()).coerceIn(0f, 1f) else 0.5f
-                                _inAppDownloadProgress.value = progress
-                            }
-                        }
-                    }
-                }
-
-                downloadedApkFile = destination
-                _inAppDownloadProgress.value = 1.0f
-                _isInAppDownloadComplete.value = true
-                _apkDownloadStatusMessage.value =
-                    "Upakuaji umekamilika ($downloadFileName)! Bonyeza SANIKISHA ili kusasisha sasa hivi."
-            } catch (e: Exception) {
-                _inAppDownloadProgress.value = null
-                _apkDownloadStatusMessage.value = "Hitilafu wakati wa kupakua: ${e.message}"
-            }
-        }.start()
+        val targetUrl = _releaseInfo.value.releasePageUrl
+            .ifBlank { apkUrl }
+            .ifBlank { DEFAULT_GITHUB_RELEASE_TAG_URL }
+        _inAppDownloadProgress.value = 1.0f
+        _isInAppDownloadComplete.value = true
+        _apkDownloadStatusMessage.value =
+            "Toleo jipya ($versionTag) liko tayari! Inafungua ukurasa rasmi wa sasisho..."
+        openOfficialUpdatePage(context, targetUrl)
     }
 
     /**
-     * Launches the in-app package installer once the APK download progress reaches 100%.
+     * Opens the official update page safely via Intent.ACTION_VIEW (Google Play & Play Protect compliant).
      */
     fun installDownloadedApkNow(context: Context) {
-        val file = downloadedApkFile ?: File(context.cacheDir, "Nelitv-update.apk")
-        if (!file.exists() || file.length() <= 0L) {
-            downloadApkWithProgress(context)
-            return
-        }
         val cleanTag = _releaseInfo.value.versionTag.trim().ifBlank { CURRENT_APP_VERSION_TAG }
+        val targetUrl = _releaseInfo.value.releasePageUrl
+            .ifBlank { _releaseInfo.value.apkDownloadUrl }
+            .ifBlank { DEFAULT_GITHUB_RELEASE_TAG_URL }
         val pendingFp = buildReleaseFingerprint(
             cleanTag,
             _releaseInfo.value.publishedAt,
@@ -908,70 +859,27 @@ object NeliAppUpdateManager {
                 .apply()
         } catch (_: Exception) {
         }
-
-        // On Android 8+ / Android TV, prompt user to allow unknown app installs if not yet granted,
-        // keeping the dialog open so pressing SANIKISHA right after returning installs immediately.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !context.packageManager.canRequestPackageInstalls()) {
-            _apkDownloadStatusMessage.value =
-                "Ruhusu 'Install unknown apps' kwa Nelitv kisha bonyeza SANIKISHA tena."
-            try {
-                val permIntent = Intent(
-                    Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                    Uri.parse("package:${context.packageName}")
-                ).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-                context.startActivity(permIntent)
-            } catch (_: Exception) {
-                // Some TV OEMs allow direct install intent without a dedicated settings screen; fall through
-                launchApkInstallerIntent(context, file)
-            }
-            return
-        }
-
-        launchApkInstallerIntent(context, file)
+        _apkDownloadStatusMessage.value = "Inafungua ukurasa rasmi wa sasisho la Nelitv..."
+        openOfficialUpdatePage(context, targetUrl)
     }
 
-    private fun launchApkInstallerIntent(context: Context, file: File) {
-        val apkUri = try {
-            FileProvider.getUriForFile(
-                context,
-                "${context.packageName}.fileprovider",
-                file
-            )
-        } catch (_: Exception) {
-            Uri.fromFile(file)
-        }
-        val viewInstallIntent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(apkUri, "application/vnd.android.package-archive")
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
+    private fun openOfficialUpdatePage(context: Context, url: String) {
+        val safeUrl = url.trim().ifBlank { DEFAULT_GITHUB_RELEASE_TAG_URL }
         try {
-            _apkDownloadStatusMessage.value = "Inafungua kisakinishi cha Nelitv..."
-            context.startActivity(viewInstallIntent)
-        } catch (e: Exception) {
-            try {
-                @Suppress("DEPRECATION")
-                val fallbackIntent = Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
-                    data = apkUri
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
-                }
-                context.startActivity(fallbackIntent)
-            } catch (fallbackEx: Exception) {
-                _apkDownloadStatusMessage.value =
-                    "Imeshindikana kufungua kisakinishi: ${fallbackEx.message ?: e.message}"
-                android.util.Log.e("NeliAppUpdateManager", "Failed to start install intent: ${fallbackEx.message}")
+            val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(safeUrl)).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
+            context.startActivity(browserIntent)
+        } catch (e: Exception) {
+            _apkDownloadStatusMessage.value =
+                "Fungua $safeUrl kwenye kivinjari chako kusasisha Nelitv."
+            android.util.Log.w("NeliAppUpdateManager", "Could not open update URL: ${e.message}")
         }
     }
 
     /**
-     * Downloads the APK from GitHub (`https://github.com/baynith1/Nelitv/releases/download/v1.0.0/Nelitv.apk`
-     * or newer tag) using Android's system DownloadManager and safely installs or applies the update
-     * without triggering "App not installed as package conflicts with an existing package".
+     * Play-compliant update trigger: refreshes live channels & opens the official update link in the browser
+     * without requesting REQUEST_INSTALL_PACKAGES or direct APK installation intents.
      */
     fun downloadAndInstallApk(
         context: Context,
@@ -979,180 +887,24 @@ object NeliAppUpdateManager {
         versionTag: String = _releaseInfo.value.versionTag,
         isAutoUpdate: Boolean = false
     ) {
-        val cleanUrl = apkUrl.ifBlank { DEFAULT_APK_DOWNLOAD_URL }
+        val cleanUrl = _releaseInfo.value.releasePageUrl
+            .ifBlank { apkUrl }
+            .ifBlank { DEFAULT_GITHUB_RELEASE_TAG_URL }
         val cleanTag = versionTag.trim().ifBlank { CURRENT_APP_VERSION_TAG }
-        val pendingFp = buildReleaseFingerprint(cleanTag, _releaseInfo.value.publishedAt, cleanUrl)
 
-        // Record the target update tag & fingerprint immediately so once the user installs the APK
-        // (or reopens the updated app), the updated app knows it is already on this release!
-        try {
-            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                .edit()
-                .putString(KEY_PENDING_UPDATE_TAG, cleanTag)
-                .putString(KEY_PENDING_UPDATE_FINGERPRINT, pendingFp)
-                .putString(KEY_INSTALLED_VERSION_TAG, cleanTag)
-                .putString(KEY_INSTALLED_RELEASE_FINGERPRINT, pendingFp)
-                .putString(KEY_LAST_AUTO_DOWNLOADED_TAG, cleanTag)
-                .apply()
-            effectiveInstalledVersionTag = cleanTag
-            installedReleaseFingerprint = pendingFp
-        } catch (_: Exception) {
-        }
-
-        // Refresh live channels & home widget immediately so in-app state is always up to date
         try {
             ChannelRepository.refreshLiveChannels()
         } catch (_: Exception) {
         }
 
-        _apkDownloadStatusMessage.value = if (isAutoUpdate) {
-            "Auto-Update: Updating Neli TV ($cleanTag) without package conflict..."
-        } else {
-            "Downloading Nelitv.apk ($cleanTag) & applying conflict-free update..."
-        }
-
-        try {
-            val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager
-            if (dm != null) {
-                val fileName = "Nelitv-${cleanTag.removePrefix("v")}.apk"
-                cleanUpStaleApkDownloads(context = context, targetFileName = fileName)
-
-                val request = DownloadManager.Request(Uri.parse(cleanUrl))
-                    .setTitle("Neli TV ($cleanTag) Official APK")
-                    .setDescription("Downloading Neli TV update from GitHub Releases")
-                    .setMimeType("application/vnd.android.package-archive")
-                    .setAllowedOverMetered(true)
-                    .setAllowedOverRoaming(true)
-                    .setNotificationVisibility(
-                        DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED
-                    )
-                    .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
-
-                val downloadId = dm.enqueue(request)
-                _apkDownloadStatusMessage.value =
-                    "Downloading $fileName... Applying conflict-free update."
-
-                // Register receiver to inspect APK (handling Android 11+ Scoped Storage via ContentResolver)
-                // and avoid "App not installed as package conflicts with an existing package"
-                val appCtx = context.applicationContext
-                val receiver = object : BroadcastReceiver() {
-                    override fun onReceive(ctx: Context?, intent: Intent?) {
-                        val completedId = intent?.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1L) ?: -1L
-                        if (completedId == downloadId) {
-                            val downloadedUri = try {
-                                dm.getUriForDownloadedFile(downloadId)
-                            } catch (_: Exception) {
-                                null
-                            }
-                            val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-                            val publicFile = if (downloadsDir != null) File(downloadsDir, fileName) else null
-
-                            // Copy to app cache if publicFile isn't directly readable under Scoped Storage
-                            val inspectableFile = try {
-                                if (publicFile != null && publicFile.exists() && publicFile.canRead() && publicFile.length() > 0L) {
-                                    publicFile
-                                } else if (downloadedUri != null) {
-                                    val tempFile = File(appCtx.cacheDir, "inspect_$fileName")
-                                    appCtx.contentResolver.openInputStream(downloadedUri)?.use { input ->
-                                        tempFile.outputStream().use { output ->
-                                            input.copyTo(output)
-                                        }
-                                    }
-                                    if (tempFile.exists() && tempFile.length() > 0L) tempFile else publicFile
-                                } else {
-                                    publicFile
-                                }
-                            } catch (_: Exception) {
-                                publicFile
-                            }
-
-                            val conflictAnalysis = inspectApkPackageConflict(
-                                context = appCtx,
-                                apkFile = inspectableFile,
-                                targetVersionTag = cleanTag
-                            )
-
-                            if (conflictAnalysis.wouldCausePackageConflict) {
-                                // Prevent Android's "App not installed as package conflicts with an existing package"
-                                // by applying the update in-app while keeping the APK saved in Downloads!
-                                applyConflictFreeInAppUpdate(
-                                    context = appCtx,
-                                    versionTag = cleanTag,
-                                    apkUrl = cleanUrl,
-                                    savedFileName = fileName
-                                )
-                            } else {
-                                markReleaseAsInstalled(
-                                    context = appCtx,
-                                    versionTag = cleanTag,
-                                    publishedAt = _releaseInfo.value.publishedAt,
-                                    apkUrl = cleanUrl
-                                )
-                                _apkDownloadStatusMessage.value =
-                                    "Download complete ($fileName)! Opening installer..."
-                                try {
-                                    val apkUri = if (inspectableFile != null && inspectableFile.exists()) {
-                                        try {
-                                            FileProvider.getUriForFile(
-                                                appCtx,
-                                                "${appCtx.packageName}.fileprovider",
-                                                inspectableFile
-                                            )
-                                        } catch (_: Exception) {
-                                            downloadedUri
-                                        }
-                                    } else {
-                                        downloadedUri
-                                    }
-                                    if (apkUri != null) {
-                                        val installIntent = Intent(Intent.ACTION_VIEW).apply {
-                                            setDataAndType(apkUri, "application/vnd.android.package-archive")
-                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                        }
-                                        appCtx.startActivity(installIntent)
-                                    }
-                                } catch (_: Exception) {
-                                    applyConflictFreeInAppUpdate(
-                                        context = appCtx,
-                                        versionTag = cleanTag,
-                                        apkUrl = cleanUrl,
-                                        savedFileName = fileName
-                                    )
-                                }
-                            }
-                            try {
-                                appCtx.unregisterReceiver(this)
-                            } catch (_: Exception) {
-                            }
-                        }
-                    }
-                }
-
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    appCtx.registerReceiver(
-                        receiver,
-                        IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE),
-                        Context.RECEIVER_EXPORTED
-                    )
-                } else {
-                    @Suppress("UnspecifiedRegisterReceiverFlag")
-                    appCtx.registerReceiver(
-                        receiver,
-                        IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE)
-                    )
-                }
-                return
-            }
-        } catch (_: Exception) {
-        }
-
-        // Fallback: apply conflict-free in-app update
         applyConflictFreeInAppUpdate(
             context = context,
             versionTag = cleanTag,
             apkUrl = cleanUrl
         )
+        if (!isAutoUpdate) {
+            openOfficialUpdatePage(context, cleanUrl)
+        }
     }
 
     /**
