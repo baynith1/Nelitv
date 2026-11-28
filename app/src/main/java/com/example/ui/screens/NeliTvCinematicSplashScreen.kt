@@ -33,7 +33,6 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
@@ -361,14 +360,13 @@ fun NeliTvCinematicSplashScreen(
                             brush = Brush.linearGradient(
                                 colors = listOf(
                                     Color.Transparent,
-                                    Color.White.copy(alpha = 0.18f),
-                                    Color(0x33FF5CC0),
+                                    Color.White.copy(alpha = 0.16f),
+                                    Color(0x2EFF5CC0),
                                     Color.Transparent
                                 ),
                                 start = Offset(cx - bandW, 0f),
                                 end = Offset(cx + bandW, size.height)
-                            ),
-                            blendMode = BlendMode.Screen
+                            )
                         )
                     }
                 }
@@ -462,17 +460,16 @@ fun NeliTvCinematicSplashScreen(
                                         brush = Brush.horizontalGradient(
                                             colors = listOf(
                                                 Color.Transparent,
-                                                Color(0xFFFF2AA8).copy(alpha = 0.55f * beamAlpha),
-                                                Color.White.copy(alpha = 0.90f * beamAlpha),
-                                                Color(0xFF00E5FF).copy(alpha = 0.45f * beamAlpha),
+                                                Color(0xFFFF2AA8).copy(alpha = 0.45f * beamAlpha),
+                                                Color.White.copy(alpha = 0.78f * beamAlpha),
+                                                Color(0xFF00E5FF).copy(alpha = 0.38f * beamAlpha),
                                                 Color.Transparent
                                             ),
                                             startX = (clipRight - beamWidth).coerceAtLeast(0f),
                                             endX = clipRight + beamWidth * 0.45f
                                         ),
                                         topLeft = Offset((clipRight - beamWidth).coerceAtLeast(0f), size.height * 0.12f),
-                                        size = Size(beamWidth * 1.45f, size.height * 0.76f),
-                                        blendMode = BlendMode.Screen
+                                        size = Size(beamWidth * 1.45f, size.height * 0.76f)
                                     )
                                 }
                             }
