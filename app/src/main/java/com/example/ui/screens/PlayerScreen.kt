@@ -2812,8 +2812,32 @@ fun EmbeddedChannelWebViewPlayer(
     var reloadToken by remember { mutableIntStateOf(0) }
     var customFullscreenView by remember { mutableStateOf<android.view.View?>(null) }
     var customViewCallback by remember { mutableStateOf<android.webkit.WebChromeClient.CustomViewCallback?>(null) }
+    var ytMetadata by remember(channel.id) { mutableStateOf<com.example.data.YouTubeVideoMetadata?>(null) }
+    var isVideoUnavailable by remember(channel.id) { mutableStateOf(false) }
+    var showAttributionBanner by remember(channel.id) { mutableStateOf(true) }
 
     val isYoutubeEmbed = !channel.isPipAllowedForChannel || channel.isYoutubeEmbedded
+
+    // Fetch YouTube Data API v3 metadata (title, channel attribution, duration, embeddable/deleted check)
+    LaunchedEffect(channel.id, channel.streamUrl, channel.embedUrl, isYoutubeEmbed, reloadToken) {
+        if (!isYoutubeEmbed) return@LaunchedEffect
+        val raw = channel.embedUrl.ifBlank { channel.streamUrl }.trim()
+        val videoId = com.example.player.NeliEmbedPlayerHelper.extractYoutubeVideoId(raw)
+        if (videoId.isBlank() || videoId.startsWith("BTV-", ignoreCase = true)) return@LaunchedEffect
+        val meta = com.example.data.NeliYouTubeApiClient.fetchVideoDetails(videoId)
+        if (meta != null) {
+            ytMetadata = meta
+            isVideoUnavailable = !meta.isAvailable || !meta.isEmbeddable
+        }
+    }
+
+    // Auto-hide the minimal top attribution chip after 4 seconds so ZERO overlay sits over the player/timeline
+    LaunchedEffect(channel.id, showAttributionBanner) {
+        if (showAttributionBanner) {
+            delay(4_000L)
+            showAttributionBanner = false
+        }
+    }
 
     val handleExitFullscreenOrBack: () -> Unit = {
         val activeCallback = customViewCallback
@@ -2831,7 +2855,8 @@ fun EmbeddedChannelWebViewPlayer(
 
     BackHandler(onBack = handleExitFullscreenOrBack)
 
-    // Auto-stop / pause embedded playback when backgrounded or leaving screen (especially critical when PiP is disabled for YT videos)
+    // Auto-pause YouTube/Baynith video when leaving the app (no PiP), and keep the exact WebView & timeline alive
+    // so when the user returns (while app is still in recents) they can continue watching right where they stopped.
     DisposableEffect(lifecycleOwner, channel.id, isYoutubeEmbed) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             val wv = webViewRef ?: return@LifecycleEventObserver
@@ -2840,7 +2865,7 @@ fun EmbeddedChannelWebViewPlayer(
                     if (isYoutubeEmbed) {
                         try {
                             wv.evaluateJavascript(
-                                "(function(){try{document.querySelectorAll('video,audio').forEach(function(m){m.pause();});var f=document.querySelector('iframe');if(f&&f.contentWindow){f.contentWindow.postMessage('{\"event\":\"command\",\"func\":\"pauseVideo\",\"args\":[]}','*');}}catch(e){}})();",
+                                "(function(){try{if(window.__neliPauseVideo){window.__neliPauseVideo();}else{document.querySelectorAll('video,audio').forEach(function(m){m.pause();});var f=document.getElementById('baynith-player-frame')||document.querySelector('iframe');if(f&&f.contentWindow){f.contentWindow.postMessage('{\"event\":\"command\",\"func\":\"pauseVideo\",\"args\":[]}','*');}}}catch(e){}})();",
                                 null
                             )
                             wv.onPause()
@@ -2852,7 +2877,7 @@ fun EmbeddedChannelWebViewPlayer(
                     if (isYoutubeEmbed) {
                         try {
                             wv.evaluateJavascript(
-                                "(function(){try{document.querySelectorAll('video,audio').forEach(function(m){m.pause();});}catch(e){}})();",
+                                "(function(){try{if(window.__neliPauseVideo){window.__neliPauseVideo();}else{document.querySelectorAll('video,audio').forEach(function(m){m.pause();});}}catch(e){}})();",
                                 null
                             )
                             wv.onPause()
@@ -2865,6 +2890,12 @@ fun EmbeddedChannelWebViewPlayer(
                     try {
                         wv.resumeTimers()
                         wv.onResume()
+                        if (isYoutubeEmbed) {
+                            wv.evaluateJavascript(
+                                "(function(){try{if(window.__neliResumeVideo){window.__neliResumeVideo();}}catch(e){}})();",
+                                null
+                            )
+                        }
                     } catch (_: Throwable) {
                     }
                 }
@@ -2964,7 +2995,7 @@ fun EmbeddedChannelWebViewPlayer(
             .background(Color.Black)
             .testTag("embedded_player_container")
     ) {
-        if (!isRendererCrashed && !hasLoadError) {
+        if (!isRendererCrashed && !hasLoadError && !isVideoUnavailable) {
             key(channel.id, reloadToken) {
                 AndroidView(
                     factory = { ctx ->
@@ -2998,18 +3029,6 @@ fun EmbeddedChannelWebViewPlayer(
                     modifier = Modifier.fillMaxSize()
                 )
             }
-            LaunchedEffect(isPageLoading, reloadToken) {
-                if (isPageLoading) {
-                    kotlinx.coroutines.delay(14_000L)
-                    if (isPageLoading && !hasLoadError && !isRendererCrashed) {
-                        isPageLoading = false
-                        webViewRef?.evaluateJavascript(
-                            "(function(){try{document.querySelectorAll('video').forEach(function(v){var p=v.play();if(p&&p.catch){p.catch(function(){v.muted=true;v.play();});}});}catch(e){}})();",
-                            null
-                        )
-                    }
-                }
-            }
             if (isPageLoading) {
                 CircularProgressIndicator(
                     color = NeliMagenta,
@@ -3020,24 +3039,31 @@ fun EmbeddedChannelWebViewPlayer(
             }
         } else {
             EmbeddedPlayerRecoveryCard(
-                title = if (hasLoadError) "Imeshindwa kupakia video (Angalia intaneti)" else "Player imeanza upya (Renderer Reset)",
+                title = when {
+                    isVideoUnavailable -> "Video haipatikani (Imefutwa au hairuhusu embed)"
+                    hasLoadError -> "Imeshindwa kupakia video (Angalia intaneti)"
+                    else -> "Player imeanza upya (Renderer Reset)"
+                },
                 onRetry = {
                     hasLoadError = false
                     isRendererCrashed = false
+                    isVideoUnavailable = false
                     isPageLoading = true
                     reloadToken++
                 }
             )
         }
 
-        // Minimal corner Back button (PiP button removed for all embedded channels)
+        // Minimal corner Back button + auto-hiding channel attribution chip (NO PiP button for YouTube/embedded movies)
+        val displayTitle = ytMetadata?.title?.takeIf { it.isNotBlank() } ?: channel.name
+        val displayChannelAttribution = ytMetadata?.channelTitle?.takeIf { it.isNotBlank() }
+            ?: channel.channelAttribution
         Row(
             modifier = Modifier
-                .fillMaxWidth()
                 .statusBarsPadding()
                 .padding(14.dp)
                 .align(Alignment.TopStart),
-            horizontalArrangement = Arrangement.Start,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(
@@ -3054,6 +3080,32 @@ fun EmbeddedChannelWebViewPlayer(
                     tint = Color.White,
                     modifier = Modifier.size(22.dp)
                 )
+            }
+            if (isYoutubeEmbed && showAttributionBanner && (displayTitle.isNotBlank() || displayChannelAttribution.isNotBlank())) {
+                Column(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color.Black.copy(alpha = 0.6f))
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                ) {
+                    Text(
+                        text = displayTitle,
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    if (displayChannelAttribution.isNotBlank()) {
+                        Text(
+                            text = displayChannelAttribution,
+                            color = Color.White.copy(alpha = 0.78f),
+                            fontSize = 11.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
             }
         }
     }
@@ -3096,10 +3148,11 @@ private fun createConfiguredEmbedWebView(
             // Strip "; wv)" from Android WebView UA so YouTube & embed players treat it as Chrome Mobile and allow autoplay
             userAgentString = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36"
         }
+        // Enable full touch/focus interaction so timeline scrubbing, speed, quality, subtitles & fullscreen controls work seamlessly
+        isFocusable = true
+        isFocusableInTouchMode = true
         val isTvWebView = com.example.ui.tv.NeliTvDetector.isTelevision(ctx)
         if (isTvWebView) {
-            isFocusable = true
-            isFocusableInTouchMode = true
             setOnKeyListener { view, keyCode, event ->
                 if (event.action == android.view.KeyEvent.ACTION_DOWN && (
                         keyCode == android.view.KeyEvent.KEYCODE_DPAD_CENTER ||
@@ -3109,7 +3162,7 @@ private fun createConfiguredEmbedWebView(
                     )
                 ) {
                     (view as? android.webkit.WebView)?.evaluateJavascript(
-                        "(function(){try{var vids=document.querySelectorAll('video');if(vids.length>0){vids.forEach(function(v){if(v.paused){v.muted=false;var p=v.play();if(p&&p.catch){p.catch(function(){v.muted=true;v.play();});}}else{v.pause();}});}else{var f=document.getElementById('neli-player-frame')||document.querySelector('iframe');if(f&&f.contentWindow){f.contentWindow.postMessage('{\"event\":\"command\",\"func\":\"playVideo\",\"args\":[]}','*');}}}catch(e){}})();",
+                        "(function(){try{var vids=document.querySelectorAll('video');if(vids.length>0){vids.forEach(function(v){if(v.paused){v.muted=false;var p=v.play();if(p&&p.catch){p.catch(function(){v.muted=true;v.play();});}}else{v.pause();}});}else{var f=document.getElementById('baynith-player-frame')||document.querySelector('iframe');if(f&&f.contentWindow){f.contentWindow.postMessage('{\"event\":\"command\",\"func\":\"playVideo\",\"args\":[]}','*');}}}catch(e){}})();",
                         null
                     )
                     true
@@ -3164,7 +3217,7 @@ private fun createConfiguredEmbedWebView(
                         }
                         if (isYoutubeEmbed || !channel.isLiveBroadcast) {
                             view.evaluateJavascript(
-                                "(function(){try{document.querySelectorAll('video').forEach(function(v){v.muted=false;var p=v.play();if(p&&p.catch){p.catch(function(){v.muted=true;v.play();});}});var f=document.getElementById('neli-player-frame')||document.querySelector('iframe');if(f&&f.contentWindow){f.focus();f.contentWindow.postMessage('{\"event\":\"command\",\"func\":\"playVideo\",\"args\":[]}','*');}}catch(e){}})();",
+                                "(function(){try{if(window.__neliAutoplayOnce){window.__neliAutoplayOnce();}}catch(e){}})();",
                                 null
                             )
                         }

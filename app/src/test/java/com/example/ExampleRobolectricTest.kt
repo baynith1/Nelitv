@@ -2225,14 +2225,25 @@ class ExampleRobolectricTest {
             com.example.player.NeliEmbedPlayerHelper.extractYoutubeVideoId("https://baynith-tv.base44.app/embed-neli/BTV-123456-ABCD")
         )
         assertEquals(
-            "https://baynith-tv.base44.app/embed-neli/dQw4w9WgXcQ",
+            "BTV-123456-ABCD",
+            com.example.player.NeliEmbedPlayerHelper.extractYoutubeVideoId("https://baynith-tv.base44.app/embed-video/BTV-123456-ABCD")
+        )
+        assertEquals(
+            "https://baynith-tv.base44.app/embed-video/dQw4w9WgXcQ",
             com.example.player.NeliEmbedPlayerHelper.resolveNeliEmbedUrl(
                 streamUrl = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
             )
         )
+        assertEquals(
+            "https://baynith-tv.base44.app/embed-video/dQw4w9WgXcQ",
+            com.example.player.NeliEmbedPlayerHelper.resolveNeliEmbedUrl(
+                streamUrl = "https://baynith-tv.base44.app/embed-neli/dQw4w9WgXcQ"
+            )
+        )
         val embedHtml = com.example.player.NeliEmbedPlayerHelper.buildNeliEmbedHtml("dQw4w9WgXcQ")
         assertTrue(embedHtml.contains("padding-top:56.25%"))
-        assertTrue(embedHtml.contains("https://baynith-tv.base44.app/embed-neli/dQw4w9WgXcQ"))
+        assertTrue(embedHtml.contains("https://baynith-tv.base44.app/embed-video/dQw4w9WgXcQ"))
+        assertTrue(embedHtml.contains("title=\"Baynith TV video\""))
 
         val fullScreenEmbedHtml = com.example.player.NeliEmbedPlayerHelper.buildFullScreenNeliEmbedHtml("dQw4w9WgXcQ")
         assertTrue(fullScreenEmbedHtml.contains("width: 100%;"))
@@ -2240,7 +2251,8 @@ class ExampleRobolectricTest {
         assertTrue(fullScreenEmbedHtml.contains("allow=\"autoplay; fullscreen; encrypted-media; picture-in-picture\""))
         assertTrue(fullScreenEmbedHtml.contains("referrerpolicy=\"no-referrer-when-downgrade\""))
         assertTrue(fullScreenEmbedHtml.contains("playVideo"))
-        assertTrue(fullScreenEmbedHtml.contains("https://baynith-tv.base44.app/embed-neli/dQw4w9WgXcQ"))
+        assertTrue(fullScreenEmbedHtml.contains("__neliPauseVideo"))
+        assertTrue(fullScreenEmbedHtml.contains("https://baynith-tv.base44.app/embed-video/dQw4w9WgXcQ"))
 
         // 2. Verify Studio Movie JSON with YouTube URL (default no download) vs explicit allowDownload = true vs standard MP4 movie
         val studioJson = """
@@ -2272,7 +2284,7 @@ class ExampleRobolectricTest {
         val spideyMovie = MediaContentRepository.getMediaById("yt_spidey_1")
         assertNotNull(spideyMovie)
         assertEquals("embedded", spideyMovie!!.streamFormat)
-        assertEquals("https://baynith-tv.base44.app/embed-neli/dQw4w9WgXcQ", spideyMovie.streamUrl)
+        assertEquals("https://baynith-tv.base44.app/embed-video/dQw4w9WgXcQ", spideyMovie.streamUrl)
         assertEquals("Spidey Cartoon Hub", spideyMovie.channelName)
         assertTrue(spideyMovie.isYoutubeSource)
         assertFalse("YouTube Studio movie must NOT allow download by default", spideyMovie.isDownloadPermitted)
@@ -2285,7 +2297,7 @@ class ExampleRobolectricTest {
 
         val gtaAllowedMovie = MediaContentRepository.getMediaById("yt_gta_allowed")
         assertNotNull(gtaAllowedMovie)
-        assertEquals("https://baynith-tv.base44.app/embed-neli/abcDEF12345", gtaAllowedMovie!!.streamUrl)
+        assertEquals("https://baynith-tv.base44.app/embed-video/abcDEF12345", gtaAllowedMovie!!.streamUrl)
         assertTrue("Studio allowDownload=true should allow download", gtaAllowedMovie.isDownloadPermitted)
 
         val directMovie = MediaContentRepository.getMediaById("direct_mp4_1")

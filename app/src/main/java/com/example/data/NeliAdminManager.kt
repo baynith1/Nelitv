@@ -222,31 +222,57 @@ object NeliAdminManager {
             return true
         }
 
-        // 1. User-requested open Azam channels: Azam One & Sinema Zetu
+        // 1. Open Tanzania, East Africa & selected Azam channels
         if (name == "azam one" || name == "azam 1" || id == "c405ae74-c4c5-4842-9f26-130ce380b307") return true
         if (name.contains("sinema zetu") || id == "f56ca8c1-3d3f-4dd2-8d9d-b0b54b559f6e") return true
-
-        // 2. Public Tanzania, News & Music free channels
+        if (name == "utv" || id == "d7b415f7-d024-4c7f-a570-653367e8dc5c") return true
+        if (name == "zbc" || id == "101e9c3f-de90-47fb-a69c-342be8a0bb80") return true
         if (name.contains("tbc 1") || id == "tbc_1_live") return true
         if (name.contains("tbc 2") || id == "tbc_2_live") return true
         if (name.contains("tanzania safari") || name.contains("safari channel") || id == "tanzania_safari_channel_live") return true
+        if (name.contains("wasafi") || id == "80e54146-1d9b-4c91-8f71-de0ea4866833") return true
+        if (name.contains("crown tv") || id == "bba104f4-f5ac-41c9-aa36-7af71aaa1993") return true
+
+        // 2. Public News, African TV, Music & General Entertainment free channels
+        if (name.contains("bbc news") || id == "9mfg4jzctlxcekfv5tf6") return true
+        if (name == "cnn" || id == "dbssfqwbxjrsnbctaimk") return true
+        if (name.contains("sabc news") || id == "svqcjnwwkyhclxvucppl") return true
+        if (name.contains("yahoo finance") || id == "vshw4jeuarpzdcndlzcn") return true
         if (name.contains("now global") || id == "now_global_channel") return true
         if (name.contains("trace latina") || id == "trace_latina_channel") return true
+        if (name.contains("1 kzn") || id == "8q6h024omdn8ziztg4zz") return true
+        if (name.contains("cape town tv") || id == "iodxhm3b7jd3c7lu5vki") return true
+        if (name.contains("soweto tv") || id == "w7mboct7hirmu5rhvl4j") return true
+        if (name == "wild" || id == "ntlfo9ki3ezrgmtms8am") return true
+        if (name.contains("amc absolute reality") || id == "bhlb91ftoscpbtd2ommp") return true
+        if (name.contains("anime x hidive") || id == "o56rdn4usdfd8rmfqpgt") return true
+        if (name.contains("dish on tv") || id == "dc7152673681") return true
 
-        // 3. Kids channels (free for families)
+        // 3. Kids & Cartoons channels (free for families)
         if (name.contains("tom and jerry") || name.contains("toma and jerry") || id == "tom_and_jerry_channel") return true
         if (name.contains("tinypop") || name.contains("tiny pop") || id == "tinypop_kids_channel") return true
-        if (name.contains("pop animation") || name.contains("pop kids") || id == "tv_1788953482934_twaqe" || id == "pop_kids_channel") return true
+        if (name.contains("pop animation") || name.contains("pop kids") || id == "pop_animation_network_channel" || id == "tv_1788953482934_twaqe" || id == "pop_kids_channel") return true
         if (name.contains("lego channel") || id == "lego_channel_official_live") return true
         if (name.contains("moonbug") || id == "moonbug_kids_official_live") return true
         if (name.contains("nick jr") || id == "nick_jr_official_live") return true
         if (name.contains("mr bean") || id == "mr_bean_live_action_official_live") return true
+        if (name.contains("baby tv") || id == "68354b4a-d06c-4c8b-b6be-85cc3e95a43b") return true
+        if (name.contains("cartoon network") || id == "80212719-1b5c-45b3-9e52-b59e533705f1") return true
+        if (name.contains("cbeebies") || id == "fbc3ebe6-29c5-418a-89cd-3aa17a05e337") return true
+        if (name.contains("gosper cartoons") || name.contains("gospel cartoons") || id == "0zpw7ulyy8iloyos8ywf") return true
 
-        // 4. Selected free Movie channels
-        if (name.contains("movie sphere") || id == "movie_sphere_channel") return true
+        // 4. Selected free Movie channels (Sony Movie One, Zee Cinema, Movie Box, Movie Sphere, Comedy & MBC 2 remain VIP locked)
         if (name.contains("movie korea") || id == "movie_korea_channel") return true
-        if (name == "comedy" || id == "comedy_channel") return true
         if (name.contains("movie room") || id == "movie_room_channel") return true
+
+        // 5. Open Sports highlights & club channels (Azam Sports 1-4 & flagship live football stay VIP locked)
+        if (name.contains("fox sports news") || id == "fox_sports_news_official_live") return true
+        if (name.contains("nbc sports now") || id == "nbc_sports_now_official_live") return true
+        if (name.contains("real madrid tv") || id == "real_madrid_tv_official_live") return true
+        if (name.contains("fifa+ women") || id == "fifa_plus_women_official_live") return true
+        if (name.contains("red bull tv") || id == "red_bull_tv_official_live") return true
+        if (name.contains("inter tv") || id == "inter_tv_official_live") return true
+        if (name.contains("bek sports") || name.contains("bek tv sports") || id == "bek_sports_official_live" || id == "jgv8vrshs7f1hxjvqiun") return true
 
         return false
     }

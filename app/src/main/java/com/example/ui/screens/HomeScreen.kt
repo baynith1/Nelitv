@@ -1625,12 +1625,27 @@ private fun HomepageLiveChannelCard(
     val context = LocalContext.current
     val lockedChannelIds by NeliAdminManager.lockedChannelIds.collectAsState()
     val lockAllForFree by NeliAdminManager.areAllChannelsLocked.collectAsState()
+    val lockAllAzamForFree by NeliAdminManager.areAllAzamChannelsLocked.collectAsState()
     val subState by NeliSubscriptionManager.subscriptionState.collectAsState()
     val isPremiumActive = subState.isActiveNow
-    val isLockedByAdmin = remember(channel.id, lockAllForFree, lockedChannelIds) {
-        NeliAdminManager.isChannelLockedByAdmin(channel.id, channel)
+    val isTvDevice = remember(context, com.example.ui.theme.NeliThemeManager.forceTvMode) {
+        NeliTvDetector.isTelevision(context)
     }
-    val isLockedForCurrentUser = isLockedByAdmin && !isPremiumActive
+    val isLockedForCurrentUser = remember(
+        channel.id,
+        lockAllForFree,
+        lockAllAzamForFree,
+        lockedChannelIds,
+        isPremiumActive,
+        isTvDevice
+    ) {
+        !isTvDevice && NeliAdminManager.isChannelLockedForUser(
+            channelId = channel.id,
+            channelObj = channel,
+            isPremiumActive = isPremiumActive,
+            context = context
+        )
+    }
 
     val primaryLogoUrl = remember(channel.id, channel.thumbnailUrl) {
         ChannelRepository.resolveGuaranteedChannelLogoUrl(channel)
@@ -1713,24 +1728,24 @@ private fun HomepageLiveChannelCard(
                 }
             }
 
-            if (isLockedByAdmin && !NeliTvDetector.isTelevision(context)) {
+            if (isLockedForCurrentUser && !isTvDevice) {
                 Row(
                     modifier = Modifier
                         .align(Alignment.TopStart)
                         .clip(RoundedCornerShape(4.dp))
-                        .background(if (isLockedForCurrentUser) Color(0xDD991B1B) else Color(0xDD065F46))
+                        .background(Color(0xDD991B1B))
                         .padding(horizontal = 5.dp, vertical = 2.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(3.dp)
                 ) {
                     Icon(
-                        imageVector = if (isLockedForCurrentUser) Icons.Default.Lock else Icons.Default.WorkspacePremium,
-                        contentDescription = null,
+                        imageVector = Icons.Default.Lock,
+                        contentDescription = "Locked Channel",
                         tint = Color(0xFFFDE047),
                         modifier = Modifier.size(9.dp)
                     )
                     Text(
-                        text = if (isLockedForCurrentUser) "LOCKED" else "VIP",
+                        text = "LOCKED",
                         color = Color.White,
                         fontSize = 7.sp,
                         fontWeight = FontWeight.Black

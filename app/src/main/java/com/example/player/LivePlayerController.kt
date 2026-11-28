@@ -2423,6 +2423,14 @@ class LivePlayerController(
             player.stop()
             player.clearMediaItems()
 
+            // Embedded WebView players (Baynith TV /embed-video/ & live sports embeds) handle their own playback;
+            // never load embed HTML into ExoPlayer or steal audio focus from WebView.
+            if (channel.isEmbedded) {
+                player.playWhenReady = false
+                _uiState.value = PlayerUiState.Playing
+                return
+            }
+
             val isLocalOffline = isPlayingLocalOfflineStream(channel)
             val mediaSource = createMediaSource(channel)
             player.repeatMode = Player.REPEAT_MODE_OFF

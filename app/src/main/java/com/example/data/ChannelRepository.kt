@@ -389,12 +389,12 @@ object ChannelRepository {
             isLockedDefault = true,
             isAzam = true
         ),
-        // 7. AZAM SPORTS 3 HD (Free Channel • Mpira Live)
+        // 7. AZAM SPORTS 3 HD (Locked until user pays)
         LiveChannel(
             id = "1c976127-e8a4-4bd6-8e73-5da0edce369b",
             slug = "AzamSport3",
             name = "Azam Sports 3 HD",
-            description = "Mpira Live & Michezo Mbalimbali • Free Channel",
+            description = "Mpira Live & Michezo Mbalimbali",
             streamUrl = "$DEFAULT_AZAM_CDN_HOST/live/eds/AzamSport3/DASH/AzamSport3.mpd",
             backupStreamUrl = "$DEFAULT_AZAM_CDN_HOST/live/eds/AzamSport3/DASH/AzamSport3.mpd",
             streamFormat = "dash",
@@ -405,15 +405,15 @@ object ChannelRepository {
             clearKeys = mapOf("2f12d7b889de381a9fb5326ca3aa166d" to "51c2d733a54306fdf89acd4c9d4f6005"),
             country = "Tanzania",
             featured = true,
-            isLockedDefault = false,
+            isLockedDefault = true,
             isAzam = true
         ),
-        // 8. AZAM SPORTS 4 HD (Free Channel)
+        // 8. AZAM SPORTS 4 HD (Locked until user pays)
         LiveChannel(
             id = "244bcd50-b3bf-4d5e-8419-08cc7bad1a7c",
             slug = "AzamSport4",
             name = "Azam Sports 4 HD",
-            description = "Mpira Live • Free Channel",
+            description = "Mpira Live • Ligi & Michezo HD",
             streamUrl = "$DEFAULT_AZAM_CDN_HOST/live/eds/AzamSport4/DASH/AzamSport4.mpd",
             backupStreamUrl = "$DEFAULT_AZAM_CDN_HOST/live/eds/AzamSport4/DASH/AzamSport4.mpd",
             streamFormat = "dash",
@@ -424,7 +424,7 @@ object ChannelRepository {
             clearKeys = mapOf("fbcac74e355b3b5d9b6cbc56c7597dbf" to "5f980e872b378d88b46f656a806205c3"),
             country = "Tanzania",
             featured = true,
-            isLockedDefault = false,
+            isLockedDefault = true,
             isAzam = true
         ),
         // 9. beIN Sports (Official Live Stream - Verified HTTP 200)
@@ -433,14 +433,14 @@ object ChannelRepository {
             name = "beIN Sports",
             description = "beIN Sports Live Football & Champions League HD",
             streamUrl = "https://bein-xtra-bein.amagi.tv/playlist.m3u8",
-            backupStreamUrl = "https://tvsen6.aynaott.com/beinsports/index.m3u8",
+            backupStreamUrl = "https://jmp2.uk/plu-660c29b5aec9680008f5b4a4.m3u8",
             streamFormat = "hls",
             thumbnailUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTe_WqQisMRWGDios7Dg-Y9-cktdA91Ebx_dDJusVORPA&s=10",
             categories = listOf("sports", "entertainment"),
             language = "en",
             country = "International",
             featured = true,
-            isLockedDefault = false
+            isLockedDefault = true
         ),
         // 10. ESPN 7 (Verified Live HTTPS CloudFront + ESPN HD Backup)
         LiveChannel(
@@ -644,7 +644,7 @@ object ChannelRepository {
             name = "Bein Sport",
             description = "BeIN Sports Football & Champions League Live HD",
             streamUrl = "https://bein-xtra-bein.amagi.tv/playlist.m3u8",
-            backupStreamUrl = "https://tvsen6.aynaott.com/beinsports/index.m3u8",
+            backupStreamUrl = "https://jmp2.uk/plu-660c29b5aec9680008f5b4a4.m3u8",
             streamFormat = "hls",
             thumbnailUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSYv3V0QAsKFCFzyPGWigFAllYgF8HTfiqJLb6DQsEcqw&s=10",
             categories = listOf("sport", "europe"),
@@ -821,7 +821,7 @@ object ChannelRepository {
             name = "TBC 1",
             description = "Tanzania Broadcasting Corporation 1 • Live",
             streamUrl = "https://stream-134630.castr.net/5fe35eae8c53540cab83659a/live_ddc0d180b65611f19d437d6aba41cdae/index.fmp4.m3u8",
-            backupStreamUrl = "https://stream-134630.castr.net/5fe35eae8c53540cab83659a/live_ddc0d180b65611f19d437d6aba41cdae/index.fmp4.m3u8",
+            backupStreamUrl = "https://tbc.maintek.co/LiveApp/streams/YF43nTzH0duMyUA2130641323343587.m3u8",
             streamFormat = "hls",
             thumbnailUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSso9jJvEyNK7Co1mEWcXrrAgdA09c7aPjbgrIQY5VyEQ&s",
             categories = listOf("tanzania", "news", "entertainment"),
@@ -1396,8 +1396,8 @@ object ChannelRepository {
             id = "zee_cinema_channel",
             name = "Zee Cinema",
             description = "Zee Cinema Blockbuster Hindi & Bollywood Movies",
-            streamUrl = "https://amg00877-b4unew-amg00877c2-xiaomi-in-5489.playouts.now.amagi.tv/playlist.m3u8",
-            backupStreamUrl = "https://amg00877-b4unew-amg00877c4-xiaomi-in-5473.playouts.now.amagi.tv/playlist.m3u8",
+            streamUrl = "https://amg01408-amg01408c7-amgplt0747.playout.now3.amagi.tv/b4umo001/playlist.m3u8",
+            backupStreamUrl = "https://amg01408-amg01408c6-amgplt0747.playout.now3.amagi.tv/b4ua001/playlist.m3u8",
             streamFormat = "hls",
             thumbnailUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTdG9GLKG_zhevUt2nTSQPIXOHM-CmIXn-YMPYC31rR&s=10",
             categories = listOf("movies", "azam tv"),

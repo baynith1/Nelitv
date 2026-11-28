@@ -2712,6 +2712,7 @@ object MediaContentRepository {
         val isDash = !isYtOrEmbed && !isMp4 && (normalizedUrl.contains(".mpd", ignoreCase = true) ||
                 obj.optString("streamFormat").equals("dash", ignoreCase = true))
         val isYtEmbed = com.example.player.NeliEmbedPlayerHelper.isYoutubeOrEmbedNeliUrl(rawUrl) ||
+            normalizedUrl.contains("/embed-video/", ignoreCase = true) ||
             normalizedUrl.contains("/embed-neli/", ignoreCase = true)
 
         val category = obj.optString("category", "entertainment")

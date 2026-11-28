@@ -193,7 +193,9 @@ data class EpisodeItem(
             playbackType.equals("dash", ignoreCase = true) || rawStreamUrl.contains(".mpd", ignoreCase = true) -> "dash"
             else -> "hls"
         }
-        val isYtEmbed = isYoutubeSource || resolvedEmbedUrl.contains("/embed-neli/", ignoreCase = true)
+        val isYtEmbed = isYoutubeSource ||
+            resolvedEmbedUrl.contains("/embed-video/", ignoreCase = true) ||
+            resolvedEmbedUrl.contains("/embed-neli/", ignoreCase = true)
         return LiveChannel(
             id = "ep_$id",
             name = displayTitle,
@@ -373,7 +375,9 @@ data class MediaContent(
             cleanPath.endsWith(".mpd") || streamFormat.equals("dash", ignoreCase = true) -> "dash"
             else -> "hls"
         }
-        val isYtEmbed = isYoutubeSource || effectiveStreamUrl.contains("/embed-neli/", ignoreCase = true)
+        val isYtEmbed = isYoutubeSource ||
+            effectiveStreamUrl.contains("/embed-video/", ignoreCase = true) ||
+            effectiveStreamUrl.contains("/embed-neli/", ignoreCase = true)
         val attribution = channelName.ifBlank {
             director.takeIf { it.isNotBlank() && !it.equals("Neli Studios", ignoreCase = true) }.orEmpty()
         }

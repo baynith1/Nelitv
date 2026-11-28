@@ -84,6 +84,7 @@ class MainActivity : ComponentActivity() {
 
     private var isTabletDevice: Boolean = false
     private var isFullScreenPlayerActive: Boolean = false
+    private var isYoutubeEmbedActive: Boolean = false
     private var systemBarsHiddenForPlayer: Boolean = false
 
     private fun configureBrowseWindowStatusBar(forceShowSystemBars: Boolean = false) {
@@ -293,8 +294,17 @@ class MainActivity : ComponentActivity() {
                                     }
                                 }
                             },
+                            onYoutubeEmbedStateChanged = { isYtActive ->
+                                isYoutubeEmbedActive = isYtActive
+                                if (isYtActive) {
+                                    hasActivePlaybackForPip = false
+                                    updateSystemPipParams(false)
+                                }
+                            },
                             onRequestSystemPipOutsideApp = {
-                                enterSystemPipIfSupported()
+                                if (!isYoutubeEmbedActive) {
+                                    enterSystemPipIfSupported()
+                                }
                             },
                             onClosePipAndApp = {
                                 closeAppAfterPipDismissed()
@@ -313,12 +323,15 @@ class MainActivity : ComponentActivity() {
         }
         if (wasInBackground) {
             wasInBackground = false
-            if (com.example.ui.components.NeliRecommendedEntryManager.shouldTriggerAfterResume(this)) {
-                recommendedOverlayTriggerTick += 1
-            }
-            // Show Google AdMob App Open Ad when user returns to the app (strictly skipped on TV / VIP / Ad-Free)
-            if (!isTvEnvironment && !com.example.ui.tv.NeliTvDetector.isTelevision(this)) {
-                NeliAdManager.showAppOpenAdIfAvailable(this)
+            // When returning to an active YouTube movie, keep the player uninterrupted (no overlay/App Open Ad on YouTube)
+            if (!isYoutubeEmbedActive) {
+                if (com.example.ui.components.NeliRecommendedEntryManager.shouldTriggerAfterResume(this)) {
+                    recommendedOverlayTriggerTick += 1
+                }
+                // Show Google AdMob App Open Ad when user returns to the app (strictly skipped on TV / VIP / Ad-Free)
+                if (!isTvEnvironment && !com.example.ui.tv.NeliTvDetector.isTelevision(this)) {
+                    NeliAdManager.showAppOpenAdIfAvailable(this)
+                }
             }
         }
     }
@@ -459,8 +472,8 @@ class MainActivity : ComponentActivity() {
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
         // Automatically enter OS Picture-in-Picture mode in the background when user leaves the app via Home
-        // or switches to another app, provided PiP Mode is allowed on the user's Account page.
-        if (hasActivePlaybackForPip && NeliThemeManager.isPipModeAllowed && !isInPictureInPictureMode && !isFinishing) {
+        // or switches to another app, EXCEPT for YouTube-embedded movies (no PiP; they auto-pause instead).
+        if (!isYoutubeEmbedActive && hasActivePlaybackForPip && NeliThemeManager.isPipModeAllowed && !isInPictureInPictureMode && !isFinishing) {
             enterSystemPipIfSupported()
         }
     }
@@ -520,6 +533,7 @@ fun NeliApp(
     onConsumeDeepLink: () -> Unit = {},
     onActivePlaybackChanged: (Boolean) -> Unit = {},
     onFullScreenPlayerStateChanged: (Boolean) -> Unit = {},
+    onYoutubeEmbedStateChanged: (Boolean) -> Unit = {},
     onRequestSystemPipOutsideApp: () -> Unit = {},
     onClosePipAndApp: () -> Unit = {},
     neliViewModel: NeliViewModel = viewModel()
@@ -541,9 +555,12 @@ fun NeliApp(
 
     val isPipAllowed = NeliThemeManager.isPipModeAllowed
     LaunchedEffect(activeChannel, sharedPlayerController, isPipAllowed) {
-        val channelAllowsPip = activeChannel?.isPipAllowedForChannel ?: false
-        val hasActiveStream = channelAllowsPip && ((activeChannel != null && sharedPlayerController != null) || (activeChannel?.isEmbedded == true))
-        onActivePlaybackChanged(hasActiveStream && isPipAllowed)
+        val current = activeChannel
+        val isYtEmbedNow = current != null && (current.isYoutubeEmbedded || !current.isPipAllowedForChannel)
+        onYoutubeEmbedStateChanged(isYtEmbedNow)
+        val channelAllowsPip = current?.isPipAllowedForChannel ?: false
+        val hasActiveStream = channelAllowsPip && ((current != null && sharedPlayerController != null) || (current?.isEmbedded == true))
+        onActivePlaybackChanged(hasActiveStream && isPipAllowed && !isYtEmbedNow)
     }
 
     LaunchedEffect(isSystemInPipMode, sharedPlayerController) {

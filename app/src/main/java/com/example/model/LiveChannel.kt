@@ -102,6 +102,7 @@ data class LiveChannel(
     val isPipAllowedForChannel: Boolean
         get() = allowPip &&
             !isYoutubeEmbedded &&
+            !streamUrl.contains("/embed-video/", ignoreCase = true) &&
             !streamUrl.contains("/embed-neli/", ignoreCase = true) &&
             !com.example.player.NeliEmbedPlayerHelper.isYoutubeOrEmbedNeliUrl(streamUrl)
 
