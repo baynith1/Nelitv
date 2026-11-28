@@ -299,15 +299,23 @@ object NeliTvRepository {
         val cached = _bootstrapState.value.channels
         if (cached.isEmpty()) return null
         val targetSlug = channel.slug.trim()
+        val targetSlugKey = ChannelRepository.normalizeChannelMatchKey(targetSlug)
         val targetKey = ChannelRepository.normalizeChannelMatchKey(channel.name)
         return cached.firstOrNull { it.id.equals(channel.id, ignoreCase = true) }
             ?: if (targetSlug.isNotEmpty()) {
-                cached.firstOrNull { it.slug.equals(targetSlug, ignoreCase = true) }
+                cached.firstOrNull {
+                    it.slug.equals(targetSlug, ignoreCase = true) ||
+                        (targetSlugKey.isNotEmpty() && ChannelRepository.normalizeChannelMatchKey(it.slug) == targetSlugKey)
+                }
             } else {
                 null
             }
             ?: if (targetKey.isNotEmpty()) {
-                cached.firstOrNull { ChannelRepository.normalizeChannelMatchKey(it.name) == targetKey }
+                cached.firstOrNull {
+                    ChannelRepository.normalizeChannelMatchKey(it.name) == targetKey ||
+                        ChannelRepository.normalizeChannelMatchKey(it.slug) == targetKey ||
+                        ChannelRepository.normalizeChannelMatchKey(it.id) == targetKey
+                }
             } else {
                 null
             }

@@ -99,6 +99,13 @@ fun NeliAnimatedSplashScreen(
     onSplashFinished: () -> Unit
 ) {
     val context = LocalContext.current
+    val tvConfig = com.example.ui.tv.LocalTvConfiguration.current
+    val isTvMode = tvConfig.isTvDevice || com.example.ui.tv.NeliTvDetector.isTelevision(context)
+    if (isTvMode) {
+        NeliTvCinematicSplashScreen(onSplashFinished = onSplashFinished)
+        return
+    }
+
     val density = LocalDensity.current
 
     var mountOrbitLayer by remember { mutableStateOf(false) }

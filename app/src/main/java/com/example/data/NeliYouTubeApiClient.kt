@@ -1,6 +1,5 @@
 package com.example.data
 
-import com.example.BuildConfig
 import com.example.player.NeliEmbedPlayerHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -24,17 +23,23 @@ data class YouTubeVideoMetadata(
 )
 
 /**
- * Official YouTube Data API v3 client supporting Baynith TV `/embed-video/<VIDEO_ID>` playback.
+ * Backend-Proxied YouTube Video ID Client for NeliTv.
  *
- * - Reads `BuildConfig.YOUTUBE_API_KEY` injected via Secrets Gradle Plugin (`.env` / AI Studio Secrets).
- * - Never scrapes YouTube; calls only official `videos.list`, `playlistItems.list`, and `search.list`.
- * - Caches responses for 10 minutes to minimize API quota usage.
- * - Gracefully degrades when API key is not configured so `/embed-video/<VIDEO_ID>` still plays directly.
+ * Security & Scope:
+ * - ZERO raw YouTube API keys in the APK (no `BuildConfig.YOUTUBE_API_KEY`, no direct `googleapis.com` calls).
+ * - Routes single-video ID lookups strictly through the `nelitv.online` backend proxy:
+ *     `GET https://nelitv.online/api/v1/youtube/video?id=<VIDEO_ID>`
+ *   where the server holds `process.env.YOUTUBE_API_KEY` securely.
+ * - Scoped exclusively to resolving/validating video IDs of existing in-app movies/episodes
+ *   that play via YouTube URLs through Baynith TV `/embed-video/<VIDEO_ID>`.
+ * - Caches responses for 10 minutes in memory and degrades gracefully when the proxy is
+ *   offline/not yet deployed so `/embed-video/<VIDEO_ID>` continues playing seamlessly.
  */
 object NeliYouTubeApiClient {
 
-    private const val BASE_URL = "https://www.googleapis.com/youtube/v3"
+    const val BACKEND_PROXY_VIDEO_ENDPOINT = "${NeliTvRepository.BASE_URL}/api/v1/youtube/video"
     private const val CACHE_TTL_MS = 10L * 60L * 1000L // 10 minutes
+    private val YOUTUBE_ID_REGEX = Regex("^[A-Za-z0-9_-]{11}$")
 
     private data class CacheEntry<T>(
         val value: T,
@@ -45,220 +50,167 @@ object NeliYouTubeApiClient {
     }
 
     private val videoCache = ConcurrentHashMap<String, CacheEntry<YouTubeVideoMetadata>>()
-    private val playlistCache = ConcurrentHashMap<String, CacheEntry<List<YouTubeVideoMetadata>>>()
-    private val searchCache = ConcurrentHashMap<String, CacheEntry<List<YouTubeVideoMetadata>>>()
 
     private val httpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
-            .connectTimeout(10, TimeUnit.SECONDS)
-            .readTimeout(12, TimeUnit.SECONDS)
+            .connectTimeout(8, TimeUnit.SECONDS)
+            .readTimeout(10, TimeUnit.SECONDS)
             .build()
     }
 
-    private fun resolveApiKey(): String {
-        val key = BuildConfig.YOUTUBE_API_KEY.trim()
-        if (key.isBlank() || key.equals("YOUR_YOUTUBE_API_KEY", ignoreCase = true)) {
-            return ""
+    /**
+     * Checks whether [videoId] belongs to an existing YouTube-backed item in the app's media or live catalog.
+     */
+    fun isExistingInAppYoutubeVideoId(videoId: String): Boolean {
+        val cleanId = videoId.trim()
+        if (!YOUTUBE_ID_REGEX.matches(cleanId)) return false
+
+        val inMediaCatalog = MediaContentRepository.mediaCatalog.value.any { media ->
+            media.youtubeVideoId.trim() == cleanId ||
+                matchesYoutubeId(media.youtubeUrl, cleanId) ||
+                matchesYoutubeId(media.streamUrl, cleanId) ||
+                matchesYoutubeId(media.playbackUrl, cleanId)
         }
-        return key
+        if (inMediaCatalog) return true
+
+        return ChannelRepository.liveChannelsFlow.value.any { ch ->
+            matchesYoutubeId(ch.streamUrl, cleanId) ||
+                matchesYoutubeId(ch.embedUrl, cleanId) ||
+                matchesYoutubeId(ch.backupStreamUrl, cleanId)
+        }
     }
 
-    fun isApiKeyConfigured(): Boolean = resolveApiKey().isNotBlank()
+    private fun matchesYoutubeId(url: String?, targetVideoId: String): Boolean {
+        if (url.isNullOrBlank()) return false
+        val extracted = NeliEmbedPlayerHelper.extractYoutubeVideoId(url)
+        return extracted.equals(targetVideoId, ignoreCase = false)
+    }
 
     /**
-     * Fetches official metadata, channel attribution, duration, and embeddability for a YouTube video ID.
-     * Costs 1 quota unit per uncached call. Returns null if the API key is unconfigured or network fails.
+     * Resolves and validates a single YouTube video ID for an existing in-app YouTube movie/episode
+     * through the `nelitv.online` backend proxy (`GET /api/v1/youtube/video?id=<VIDEO_ID>`).
+     *
+     * Returns `null` cleanly if the proxy is unreachable or not yet deployed so playback via
+     * `https://baynith-tv.base44.app/embed-video/<VIDEO_ID>` proceeds with zero interruption.
      */
-    suspend fun fetchVideoDetails(rawVideoIdOrUrl: String): YouTubeVideoMetadata? = withContext(Dispatchers.IO) {
-        val videoId = NeliEmbedPlayerHelper.extractYoutubeVideoId(rawVideoIdOrUrl)
-        if (videoId.isBlank() || videoId.startsWith("BTV-", ignoreCase = true)) return@withContext null
+    suspend fun fetchVideoDetails(
+        rawVideoIdOrUrl: String,
+        requireCatalogMatch: Boolean = false
+    ): YouTubeVideoMetadata? = withContext(Dispatchers.IO) {
+        val videoId = NeliEmbedPlayerHelper.extractYoutubeVideoId(rawVideoIdOrUrl).trim()
+        if (!YOUTUBE_ID_REGEX.matches(videoId)) return@withContext null
+
+        if (requireCatalogMatch && !isExistingInAppYoutubeVideoId(videoId)) {
+            return@withContext null
+        }
 
         videoCache[videoId]?.takeIf { it.isFresh() }?.let { return@withContext it.value }
 
-        val apiKey = resolveApiKey()
-        if (apiKey.isBlank()) return@withContext null
-
-        val url = "$BASE_URL/videos".toHttpUrl().newBuilder()
-            .addQueryParameter("part", "snippet,contentDetails,status,statistics")
+        val proxyUrl = BACKEND_PROXY_VIDEO_ENDPOINT.toHttpUrl().newBuilder()
             .addQueryParameter("id", videoId)
-            .addQueryParameter("key", apiKey)
             .build()
 
-        val json = executeGetJson(url.toString()) ?: return@withContext null
-        val items = json.optJSONArray("items")
-        if (items == null || items.length() == 0) {
-            val unavailable = YouTubeVideoMetadata(
-                videoId = videoId,
-                title = "",
-                channelTitle = "",
-                thumbnailUrl = NeliEmbedPlayerHelper.buildYoutubeThumbnailUrl(videoId),
-                isEmbeddable = false,
-                isAvailable = false
-            )
-            videoCache[videoId] = CacheEntry(unavailable, System.currentTimeMillis())
-            return@withContext unavailable
-        }
-
-        val item = items.optJSONObject(0) ?: return@withContext null
-        val snippet = item.optJSONObject("snippet")
-        val contentDetails = item.optJSONObject("contentDetails")
-        val status = item.optJSONObject("status")
-        val stats = item.optJSONObject("statistics")
-
-        val privacyStatus = status?.optString("privacyStatus", "public").orEmpty().lowercase()
-        val uploadStatus = status?.optString("uploadStatus", "processed").orEmpty().lowercase()
-        val embeddable = status?.optBoolean("embeddable", true) ?: true
-        val available = privacyStatus != "private" &&
-            uploadStatus != "rejected" &&
-            uploadStatus != "deleted" &&
-            uploadStatus != "failed"
-
-        val metadata = YouTubeVideoMetadata(
-            videoId = videoId,
-            title = snippet?.optString("title", "").orEmpty().trim(),
-            channelTitle = snippet?.optString("channelTitle", "").orEmpty().trim(),
-            thumbnailUrl = extractBestThumbnail(snippet)
-                .ifBlank { NeliEmbedPlayerHelper.buildYoutubeThumbnailUrl(videoId) },
-            durationLabel = formatIso8601Duration(contentDetails?.optString("duration", "").orEmpty()),
-            viewCount = stats?.optString("viewCount", "0")?.toLongOrNull() ?: 0L,
-            isEmbeddable = embeddable,
-            isAvailable = available,
-            embedUrl = "${NeliEmbedPlayerHelper.BAYNITH_EMBED_VIDEO_BASE_URL}$videoId"
-        )
+        val json = executeProxyGetJson(proxyUrl.toString()) ?: return@withContext null
+        val metadata = parseProxyVideoResponse(videoId = videoId, root = json) ?: return@withContext null
         videoCache[videoId] = CacheEntry(metadata, System.currentTimeMillis())
         metadata
     }
 
-    /**
-     * Fetches ordered episodes from a YouTube playlist (`playlistItems.list`, 1 quota unit).
-     * Automatically drops deleted/private items so no dead cards appear.
-     */
-    suspend fun fetchPlaylistVideos(
-        playlistIdOrUrl: String,
-        maxResults: Int = 50
-    ): List<YouTubeVideoMetadata> = withContext(Dispatchers.IO) {
-        val playlistId = NeliEmbedPlayerHelper.extractYoutubePlaylistId(playlistIdOrUrl)
-            .ifBlank { playlistIdOrUrl.trim() }
-        if (playlistId.isBlank()) return@withContext emptyList()
-
-        playlistCache[playlistId]?.takeIf { it.isFresh() }?.let { return@withContext it.value }
-
-        val apiKey = resolveApiKey()
-        if (apiKey.isBlank()) return@withContext emptyList()
-
-        val url = "$BASE_URL/playlistItems".toHttpUrl().newBuilder()
-            .addQueryParameter("part", "snippet,contentDetails,status")
-            .addQueryParameter("playlistId", playlistId)
-            .addQueryParameter("maxResults", maxResults.coerceIn(1, 50).toString())
-            .addQueryParameter("key", apiKey)
-            .build()
-
-        val json = executeGetJson(url.toString()) ?: return@withContext emptyList()
-        val items = json.optJSONArray("items") ?: return@withContext emptyList()
-        val result = ArrayList<YouTubeVideoMetadata>(items.length())
-        for (i in 0 until items.length()) {
-            val item = items.optJSONObject(i) ?: continue
-            val snippet = item.optJSONObject("snippet") ?: continue
-            val contentDetails = item.optJSONObject("contentDetails")
-            val status = item.optJSONObject("status")
-            val privacy = status?.optString("privacyStatus", "public").orEmpty().lowercase()
-            val title = snippet.optString("title", "").trim()
-            if (privacy == "private" ||
-                title.equals("Private video", ignoreCase = true) ||
-                title.equals("Deleted video", ignoreCase = true)
-            ) {
-                continue
-            }
-            val vid = contentDetails?.optString("videoId", "").orEmpty()
-                .ifBlank { snippet.optJSONObject("resourceId")?.optString("videoId", "").orEmpty() }
-                .trim()
-            if (vid.isBlank()) continue
-
-            result.add(
-                YouTubeVideoMetadata(
-                    videoId = vid,
-                    title = title,
-                    channelTitle = snippet.optString("videoOwnerChannelTitle", "")
-                        .ifBlank { snippet.optString("channelTitle", "") }
-                        .trim(),
-                    thumbnailUrl = extractBestThumbnail(snippet)
-                        .ifBlank { NeliEmbedPlayerHelper.buildYoutubeThumbnailUrl(vid) },
-                    isEmbeddable = true,
-                    isAvailable = true,
-                    embedUrl = "${NeliEmbedPlayerHelper.BAYNITH_EMBED_VIDEO_BASE_URL}$vid"
-                )
-            )
-        }
-        playlistCache[playlistId] = CacheEntry(result, System.currentTimeMillis())
-        result
-    }
-
-    /**
-     * Searches embeddable YouTube videos (`search.list`) with 10-minute caching.
-     */
-    suspend fun searchVideos(
-        query: String,
-        maxResults: Int = 15
-    ): List<YouTubeVideoMetadata> = withContext(Dispatchers.IO) {
-        val cleanQuery = query.trim()
-        if (cleanQuery.isBlank()) return@withContext emptyList()
-
-        val cacheKey = "${cleanQuery.lowercase()}|$maxResults"
-        searchCache[cacheKey]?.takeIf { it.isFresh() }?.let { return@withContext it.value }
-
-        val apiKey = resolveApiKey()
-        if (apiKey.isBlank()) return@withContext emptyList()
-
-        val url = "$BASE_URL/search".toHttpUrl().newBuilder()
-            .addQueryParameter("part", "snippet")
-            .addQueryParameter("type", "video")
-            .addQueryParameter("videoEmbeddable", "true")
-            .addQueryParameter("maxResults", maxResults.coerceIn(1, 25).toString())
-            .addQueryParameter("q", cleanQuery)
-            .addQueryParameter("key", apiKey)
-            .build()
-
-        val json = executeGetJson(url.toString()) ?: return@withContext emptyList()
-        val items = json.optJSONArray("items") ?: return@withContext emptyList()
-        val result = ArrayList<YouTubeVideoMetadata>(items.length())
-        for (i in 0 until items.length()) {
-            val item = items.optJSONObject(i) ?: continue
-            val vid = item.optJSONObject("id")?.optString("videoId", "").orEmpty().trim()
-            val snippet = item.optJSONObject("snippet") ?: continue
-            if (vid.isBlank()) continue
-            result.add(
-                YouTubeVideoMetadata(
-                    videoId = vid,
-                    title = snippet.optString("title", "").trim(),
-                    channelTitle = snippet.optString("channelTitle", "").trim(),
-                    thumbnailUrl = extractBestThumbnail(snippet)
-                        .ifBlank { NeliEmbedPlayerHelper.buildYoutubeThumbnailUrl(vid) },
-                    isEmbeddable = true,
-                    isAvailable = true,
-                    embedUrl = "${NeliEmbedPlayerHelper.BAYNITH_EMBED_VIDEO_BASE_URL}$vid"
-                )
-            )
-        }
-        searchCache[cacheKey] = CacheEntry(result, System.currentTimeMillis())
-        result
-    }
-
-    private fun executeGetJson(url: String): JSONObject? {
+    private fun executeProxyGetJson(url: String): JSONObject? {
         return try {
-            val request = Request.Builder()
+            val builder = Request.Builder()
                 .url(url)
                 .get()
-                .header("Accept", "application/json")
-                .build()
-            httpClient.newCall(request).execute().use { response ->
+            NeliTvRepository.buildApiHeaders().forEach { (k, v) ->
+                builder.header(k, v)
+            }
+            httpClient.newCall(builder.build()).execute().use { response ->
                 if (!response.isSuccessful) return null
-                val body = response.body?.string().orEmpty()
-                if (body.isBlank()) return null
+                val body = response.body?.string().orEmpty().trim()
+                if (body.isBlank() || !body.startsWith("{")) return null
                 JSONObject(body)
             }
         } catch (_: Throwable) {
             null
         }
+    }
+
+    /**
+     * Parses both the clean flat NeliTv proxy JSON contract (`{ videoId, title, ... }` or `{ data: { ... } }`)
+     * and raw YouTube Data API v3 passthrough (`{ items: [ ... ] }`).
+     */
+    internal fun parseProxyVideoResponse(videoId: String, root: JSONObject): YouTubeVideoMetadata? {
+        // 1) Raw YouTube Data API v3 passthrough shape: { "items": [ ... ] }
+        val items = root.optJSONArray("items")
+        if (items != null) {
+            if (items.length() == 0) {
+                return YouTubeVideoMetadata(
+                    videoId = videoId,
+                    title = "",
+                    channelTitle = "",
+                    thumbnailUrl = NeliEmbedPlayerHelper.buildYoutubeThumbnailUrl(videoId),
+                    isEmbeddable = false,
+                    isAvailable = false
+                )
+            }
+            val item = items.optJSONObject(0) ?: return null
+            val snippet = item.optJSONObject("snippet")
+            val contentDetails = item.optJSONObject("contentDetails")
+            val status = item.optJSONObject("status")
+            val stats = item.optJSONObject("statistics")
+
+            val privacyStatus = status?.optString("privacyStatus", "public").orEmpty().lowercase()
+            val uploadStatus = status?.optString("uploadStatus", "processed").orEmpty().lowercase()
+            val embeddable = status?.optBoolean("embeddable", true) ?: true
+            val available = privacyStatus != "private" &&
+                uploadStatus != "rejected" &&
+                uploadStatus != "deleted" &&
+                uploadStatus != "failed"
+
+            val resolvedId = item.optString("id", videoId).trim().ifBlank { videoId }
+            return YouTubeVideoMetadata(
+                videoId = resolvedId,
+                title = snippet?.optString("title", "").orEmpty().trim(),
+                channelTitle = snippet?.optString("channelTitle", "").orEmpty().trim(),
+                thumbnailUrl = extractBestThumbnail(snippet)
+                    .ifBlank { NeliEmbedPlayerHelper.buildYoutubeThumbnailUrl(resolvedId) },
+                durationLabel = formatIso8601Duration(contentDetails?.optString("duration", "").orEmpty()),
+                viewCount = stats?.optString("viewCount", "0")?.toLongOrNull() ?: 0L,
+                isEmbeddable = embeddable,
+                isAvailable = available,
+                embedUrl = "${NeliEmbedPlayerHelper.BAYNITH_EMBED_VIDEO_BASE_URL}$resolvedId"
+            )
+        }
+
+        // 2) Clean NeliTv backend proxy shape: { "videoId": "...", ... } or { "data": { ... } }
+        val payload = root.optJSONObject("data") ?: root.optJSONObject("video") ?: root
+        val resolvedId = payload.optString("videoId", payload.optString("id", videoId))
+            .trim()
+            .ifBlank { videoId }
+        if (!YOUTUBE_ID_REGEX.matches(resolvedId)) return null
+
+        val isAvailable = payload.optBoolean(
+            "isAvailable",
+            payload.optBoolean("available", payload.optBoolean("ok", true))
+        )
+        val isEmbeddable = payload.optBoolean("isEmbeddable", payload.optBoolean("embeddable", true))
+        val rawDuration = payload.optString("durationLabel", "").trim()
+            .ifBlank { formatIso8601Duration(payload.optString("duration", "").trim()) }
+        val rawEmbed = payload.optString("embedUrl", "").trim()
+            .ifBlank { "${NeliEmbedPlayerHelper.BAYNITH_EMBED_VIDEO_BASE_URL}$resolvedId" }
+
+        return YouTubeVideoMetadata(
+            videoId = resolvedId,
+            title = payload.optString("title", "").trim(),
+            channelTitle = payload.optString("channelTitle", payload.optString("channel", "")).trim(),
+            thumbnailUrl = payload.optString("thumbnailUrl", payload.optString("thumbnail", "")).trim()
+                .ifBlank { NeliEmbedPlayerHelper.buildYoutubeThumbnailUrl(resolvedId) },
+            durationLabel = rawDuration,
+            viewCount = payload.optLong("viewCount", 0L),
+            isEmbeddable = isEmbeddable,
+            isAvailable = isAvailable,
+            embedUrl = rawEmbed
+        )
     }
 
     private fun extractBestThumbnail(snippet: JSONObject?): String {

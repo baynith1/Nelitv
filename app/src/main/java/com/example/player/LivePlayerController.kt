@@ -2431,6 +2431,74 @@ class LivePlayerController(
                 return
             }
 
+            // Server-driven channels (TBC 1, TBC 2, Tanzania Safari Channel) depend strictly on nelitv.online.
+            // If tapped on a brand-new cold install before bootstrap finishes, resolve live from nelitv.online now.
+            if (channel.isLiveBroadcast &&
+                com.example.data.ChannelRepository.isServerDrivenTbcChannel(channel.id, channel.name) &&
+                channel.streamUrl.isBlank()
+            ) {
+                val instantMatch = com.example.data.NeliTvRepository.findCachedChannel(channel)
+                    ?.takeIf { it.streamUrl.isNotBlank() }
+                if (instantMatch != null) {
+                    channel = channel.copy(
+                        slug = instantMatch.slug.ifBlank { channel.slug },
+                        streamUrl = instantMatch.streamUrl,
+                        backupStreamUrl = instantMatch.backupStreamUrl.ifBlank {
+                            com.example.data.NeliTvRepository.buildProxyStreamUrl(instantMatch.streamUrl)
+                        },
+                        proxyStreamUrl = instantMatch.proxyStreamUrl.ifBlank {
+                            com.example.data.NeliTvRepository.buildProxyStreamUrl(instantMatch.streamUrl)
+                        },
+                        streamFormat = instantMatch.streamFormat.ifBlank { channel.streamFormat },
+                        clearKeys = channel.clearKeys + instantMatch.clearKeys,
+                        isFromNeliTvServer = true
+                    )
+                } else {
+                    _uiState.value = PlayerUiState.Loading
+                    val targetChannelSnapshot = channel
+                    Thread {
+                        try {
+                            com.example.data.NeliTvRepository.fetchAppBootstrapBlocking(forceRefresh = true)
+                            val refreshed = com.example.data.NeliTvRepository.findCachedChannel(targetChannelSnapshot)
+                                ?.takeIf { it.streamUrl.isNotBlank() }
+                            mainHandler.post {
+                                if (exoPlayer == null || channel.id != targetChannelSnapshot.id) return@post
+                                if (refreshed != null) {
+                                    channel = channel.copy(
+                                        slug = refreshed.slug.ifBlank { channel.slug },
+                                        streamUrl = refreshed.streamUrl,
+                                        backupStreamUrl = refreshed.backupStreamUrl.ifBlank {
+                                            com.example.data.NeliTvRepository.buildProxyStreamUrl(refreshed.streamUrl)
+                                        },
+                                        proxyStreamUrl = refreshed.proxyStreamUrl.ifBlank {
+                                            com.example.data.NeliTvRepository.buildProxyStreamUrl(refreshed.streamUrl)
+                                        },
+                                        streamFormat = refreshed.streamFormat.ifBlank { channel.streamFormat },
+                                        clearKeys = channel.clearKeys + refreshed.clearKeys,
+                                        isFromNeliTvServer = true
+                                    )
+                                    exoPlayer?.let { loadChannelStream(it, preserveVodPosition = false) }
+                                } else {
+                                    _uiState.value = PlayerUiState.Error(
+                                        userFriendlyMessage = "Link ya chaneli hii haijapatikana kwenye seva ya nelitv.online kwa sasa. Tafadhali bonyeza Jaribu Tena.",
+                                        technicalDetail = "No server streamUrl for ${targetChannelSnapshot.name}"
+                                    )
+                                }
+                            }
+                        } catch (t: Throwable) {
+                            mainHandler.post {
+                                if (exoPlayer == null || channel.id != targetChannelSnapshot.id) return@post
+                                _uiState.value = PlayerUiState.Error(
+                                    userFriendlyMessage = "Imeshindwa kupata link ya chaneli kutoka nelitv.online. Tafadhali jaribu tena.",
+                                    technicalDetail = t.message
+                                )
+                            }
+                        }
+                    }.start()
+                    return
+                }
+            }
+
             val isLocalOffline = isPlayingLocalOfflineStream(channel)
             val mediaSource = createMediaSource(channel)
             player.repeatMode = Player.REPEAT_MODE_OFF

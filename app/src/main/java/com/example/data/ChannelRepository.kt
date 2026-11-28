@@ -815,50 +815,56 @@ object ChannelRepository {
             featured = true,
             isAzam = true
         ),
-        // TBC 1 (Tanzania Live TV)
+        // TBC 1 (Tanzania Live TV — strictly synced from nelitv.online server link)
         LiveChannel(
             id = "tbc_1_live",
+            slug = "tbc-1",
             name = "TBC 1",
             description = "Tanzania Broadcasting Corporation 1 • Live",
-            streamUrl = "https://stream-134630.castr.net/5fe35eae8c53540cab83659a/live_ddc0d180b65611f19d437d6aba41cdae/index.fmp4.m3u8",
-            backupStreamUrl = "https://tbc.maintek.co/LiveApp/streams/YF43nTzH0duMyUA2130641323343587.m3u8",
+            streamUrl = "",
+            backupStreamUrl = "",
             streamFormat = "hls",
             thumbnailUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSso9jJvEyNK7Co1mEWcXrrAgdA09c7aPjbgrIQY5VyEQ&s",
             categories = listOf("tanzania", "news", "entertainment"),
             language = "sw",
             country = "Tanzania",
             featured = true,
-            isLockedDefault = false
+            isLockedDefault = false,
+            isFromNeliTvServer = true
         ),
-        // TBC 2 (Vijana na Michezo - Full Master Video+Audio HLS)
+        // TBC 2 (Vijana na Michezo — strictly synced from nelitv.online server link)
         LiveChannel(
             id = "tbc_2_live",
+            slug = "tbc-2",
             name = "TBC 2",
             description = "TBC 2 Live Vijana na Michezo",
-            streamUrl = "https://stream-134630.castr.net/5fe35eae8c53540cab83659a/live_44ed95e05b6d11f18d5d85805abbdd6f/index.fmp4.m3u8",
-            backupStreamUrl = "https://stream-134630.castr.net/5fe35eae8c53540cab83659a/live_44ed95e05b6d11f18d5d85805abbdd6f/index.fmp4.m3u8",
+            streamUrl = "",
+            backupStreamUrl = "",
             streamFormat = "hls",
             thumbnailUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRyV0Gv7ug0KHjYX-ClvuH2_1o6_VUDm0tCpBVY_GsMS6ibELZHIKoherU&s=10",
             categories = listOf("tanzania", "news", "sports"),
             language = "sw",
             country = "Tanzania",
             featured = true,
-            isLockedDefault = false
+            isLockedDefault = false,
+            isFromNeliTvServer = true
         ),
-        // TANZANIA SAFARI CHANNEL (Full Master Video+Audio HLS)
+        // TANZANIA SAFARI CHANNEL (strictly synced from nelitv.online server link)
         LiveChannel(
             id = "tanzania_safari_channel_live",
+            slug = "tanzania-safari-channel",
             name = "Tanzania Safari Channel",
             description = "Tanzania Safari Channel • Utalii na Maliasili za Tanzania",
-            streamUrl = "https://stream-134630.castr.net/5fe35eae8c53540cab83659a/live_12bb7dc0590211f1951119e8afeb4224/index.fmp4.m3u8",
-            backupStreamUrl = "https://stream-134630.castr.net/5fe35eae8c53540cab83659a/live_12bb7dc0590211f1951119e8afeb4224/index.fmp4.m3u8",
+            streamUrl = "",
+            backupStreamUrl = "",
             streamFormat = "hls",
             thumbnailUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQHsiVkshN5UFUd1Jz7ea1aJ_0JiFQOohUCXH_nDiyuMW5xJ8-GY5JlHsg&s=10",
             categories = listOf("tanzania", "documentary"),
             language = "sw",
             country = "Tanzania",
             featured = true,
-            isLockedDefault = false
+            isLockedDefault = false,
+            isFromNeliTvServer = true
         ),
         // Tiny PoP (Top Kids Channel)
         LiveChannel(
@@ -2336,15 +2342,35 @@ object ChannelRepository {
         return primaryMap
     }
 
+    /**
+     * Returns true for TBC 1, TBC 2, and Tanzania Safari Channel whose live stream links
+     * are strictly managed from `nelitv.online` so server link updates take effect automatically.
+     */
+    fun isServerDrivenTbcChannel(id: String, name: String): Boolean {
+        val cleanId = id.trim().lowercase()
+        if (cleanId == "tbc_1_live" || cleanId == "tbc_2_live" || cleanId == "tanzania_safari_channel_live") {
+            return true
+        }
+        val key = normalizeChannelMatchKey(name)
+        return key == "tbc1" || key == "tbc2" || key == "safari"
+    }
+
     fun normalizeChannelMatchKey(nameOrId: String): String {
-        return nameOrId.lowercase()
+        val cleaned = nameOrId.lowercase()
             .replace("tanzania", "")
             .replace("sports", "sport")
             .replace("channel", "")
+            .replace("live", "")
             .replace("hd", "")
             .replace("tv", "")
             .replace(Regex("[^a-z0-9]"), "")
             .trim()
+        return when (cleaned) {
+            "tbcone", "tbc01", "tbc1tz" -> "tbc1"
+            "tbctwo", "tbc02", "tbc2tz" -> "tbc2"
+            "tbcsafari", "safaritz", "safarichannel" -> "safari"
+            else -> cleaned
+        }
     }
 
     private fun extractStreamIdentityPath(url: String): String {
@@ -2979,9 +3005,12 @@ object ChannelRepository {
 
             if (matchedBackup != null) {
                 matchedBackupIds.add(matchedBackup.id)
+                val isServerDrivenTbc = isServerDrivenTbcChannel(primary.id, primary.name)
                 // nelitv.online server streamUrl, streamFormat, and ClearKeys update channels dynamically,
                 // while guarding against verified dead, SSL-broken, video-only, or degraded upstream links.
-                val serverUrlBlocked = isKnownBrokenOrDegradedServerUrl(matchedBackup.streamUrl, primary.name)
+                // TBC 1, TBC 2, and Tanzania Safari Channel ALWAYS trust the nelitv.online server link directly.
+                val serverUrlBlocked = !isServerDrivenTbc &&
+                    isKnownBrokenOrDegradedServerUrl(matchedBackup.streamUrl, primary.name)
                 val rawServerPrimary = if (serverUrlBlocked && primary.streamUrl.isNotBlank()) {
                     primary.streamUrl
                 } else {
@@ -2990,14 +3019,25 @@ object ChannelRepository {
                 val serverPrimaryUrl = resolvePlayableAzamManifestUrl(rawServerPrimary)
                     .ifBlank { resolvePlayableAzamManifestUrl(primary.streamUrl) }
                 val rawServerBackup = matchedBackup.backupStreamUrl
-                    .takeIf { it.isNotBlank() && !isKnownBrokenOrDegradedServerUrl(it, primary.name) }
+                    .takeIf { it.isNotBlank() && (isServerDrivenTbc || !isKnownBrokenOrDegradedServerUrl(it, primary.name)) }
                 val serverBackupUrl = rawServerBackup
                     ?.let { resolvePlayableAzamManifestUrl(it) }
                     ?.ifBlank { null }
-                    ?: resolvePlayableAzamManifestUrl(primary.streamUrl)
-                        .takeIf { it.isNotBlank() && it != serverPrimaryUrl }
-                    ?: primary.backupStreamUrl.takeIf { it.isNotBlank() }
-                    ?: resolvePlayableAzamManifestUrl(primary.streamUrl)
+                    ?: if (isServerDrivenTbc && serverPrimaryUrl.isNotBlank()) {
+                        matchedBackup.proxyStreamUrl.ifBlank { NeliTvRepository.buildProxyStreamUrl(serverPrimaryUrl) }
+                    } else {
+                        resolvePlayableAzamManifestUrl(primary.streamUrl)
+                            .takeIf { it.isNotBlank() && it != serverPrimaryUrl }
+                            ?: primary.backupStreamUrl.takeIf { it.isNotBlank() }
+                            ?: resolvePlayableAzamManifestUrl(primary.streamUrl)
+                    }
+                val resolvedProxyUrl = matchedBackup.proxyStreamUrl.ifBlank {
+                    if (isServerDrivenTbc && serverPrimaryUrl.isNotBlank()) {
+                        NeliTvRepository.buildProxyStreamUrl(serverPrimaryUrl)
+                    } else {
+                        primary.proxyStreamUrl
+                    }
+                }
                 // Server ClearKeys take priority over hardcoded APK keys (right-hand map wins in Kotlin +)
                 val mergedClearKeys = resolveClearKeysForChannel(
                     primary.copy(clearKeys = primary.clearKeys + matchedBackup.clearKeys)
@@ -3011,7 +3051,7 @@ object ChannelRepository {
                     slug = matchedBackup.slug.ifBlank { primary.slug },
                     streamUrl = serverPrimaryUrl,
                     backupStreamUrl = serverBackupUrl,
-                    proxyStreamUrl = matchedBackup.proxyStreamUrl.ifBlank { primary.proxyStreamUrl },
+                    proxyStreamUrl = resolvedProxyUrl,
                     embedUrl = matchedBackup.embedUrl.ifBlank { primary.embedUrl },
                     streamFormat = resolvedFormat,
                     clearKeys = mergedClearKeys,
