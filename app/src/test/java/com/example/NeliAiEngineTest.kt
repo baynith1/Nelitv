@@ -291,9 +291,9 @@ class NeliAiEngineTest {
         assertEquals("Opening Azam Sports 1 HD right now!", parsed!!.replySpeech)
         assertTrue(parsed.action is NeliAiAction.PlayChannel)
 
-        // Verify Free 10-14 yr Female English Voice tuning constants & 30-second command wait window
-        assertEquals(1.28f, com.example.ai.NeliAiVoiceController.NELI_VOICE_PITCH)
-        assertEquals(1.04f, com.example.ai.NeliAiVoiceController.NELI_VOICE_SPEECH_RATE)
+        // Verify Young Energetic Fast Female Voice tuning constants & 30-second command wait window
+        assertEquals(1.22f, com.example.ai.NeliAiVoiceController.NELI_VOICE_PITCH)
+        assertEquals(1.28f, com.example.ai.NeliAiVoiceController.NELI_VOICE_SPEECH_RATE)
         assertEquals("neli", com.example.ai.NeliAiVoiceController.NELI_UTTERANCE_ID)
         assertEquals(30_000L, com.example.ai.NeliAiVoiceController.DEFAULT_COMMAND_WINDOW_MS)
     }
@@ -489,5 +489,115 @@ class NeliAiEngineTest {
         assertTrue(confirmSingle.action is NeliAiAction.DeleteSpecificDownloads)
         assertEquals(listOf("m1"), (confirmSingle.action as NeliAiAction.DeleteSpecificDownloads).downloadIds)
     }
+
+    @Test
+    fun siriAssistantUpgrade_supports25PlusScreenWakePhrasesAndFullSiriSkills() {
+        val snap = snapshot()
+        val offlineSnap = snapshot(isOnline = false)
+
+        // 1. Verify 25+ screen-wake phrases
+        assertTrue(com.example.ai.NeliSiriAssistantEngine.wakeScreenPhrases.size >= 25)
+        listOf(
+            "Hey Neli open screen",
+            "Neli wake my phone",
+            "Hey Neli turn on the screen",
+            "Hey Neli washa kioo",
+            "Neli amka",
+            "Hey Neli unlock screen"
+        ).forEach { phrase ->
+            val res = NeliAiEngine.evaluateLocally(phrase, offlineSnap)
+            assertEquals(NeliAiAction.WakeDeviceScreen, res.action)
+        }
+
+        // 2. Flashlight (including Lumos / Nox) & Dark Mode
+        assertEquals(NeliAiAction.ToggleFlashlight(true), NeliAiEngine.evaluateLocally("Hey Neli Lumos", offlineSnap).action)
+        assertEquals(NeliAiAction.ToggleFlashlight(false), NeliAiEngine.evaluateLocally("Hey Neli Nox", offlineSnap).action)
+        assertEquals(NeliAiAction.SetDarkMode(true), NeliAiEngine.evaluateLocally("Hey Neli turn on dark mode", offlineSnap).action)
+        assertEquals(NeliAiAction.SetBrightnessPercent(50), NeliAiEngine.evaluateLocally("Set brightness to 50%", offlineSnap).action)
+        assertEquals(NeliAiAction.SetVolumePercent(75), NeliAiEngine.evaluateLocally("Set volume to 75%", offlineSnap).action)
+
+        // 3. Alarms, Timers & Reminders
+        val alarm = NeliAiEngine.evaluateLocally("Wake me up at 9:00 AM", offlineSnap)
+        assertTrue(alarm.action is NeliAiAction.SetAlarm)
+        assertEquals(9, (alarm.action as NeliAiAction.SetAlarm).hour24)
+        assertEquals(0, (alarm.action as NeliAiAction.SetAlarm).minute)
+
+        val delAlarms = NeliAiEngine.evaluateLocally("Delete all my alarms", offlineSnap)
+        assertEquals(NeliAiAction.ShowOrDismissAlarms(deleteAll = true), delAlarms.action)
+
+        val timer = NeliAiEngine.evaluateLocally("Set a timer for 20 minutes", offlineSnap)
+        assertTrue(timer.action is NeliAiAction.SetTimer)
+        assertEquals(1200, (timer.action as NeliAiAction.SetTimer).durationSeconds)
+
+        NeliAiEngine.evaluateLocally("Remind me to keep my wallet when I leave home", offlineSnap)
+        val reminders = NeliAiEngine.evaluateLocally("What are my reminders?", offlineSnap)
+        assertTrue(reminders.replyText.contains("wallet", ignoreCase = true))
+
+        // 4. Relationships, Calls on speaker, Messages, Parking, Find My Phone
+        NeliAiEngine.evaluateLocally("Kamal is my brother", offlineSnap)
+        val callBrother = NeliAiEngine.evaluateLocally("Call my brother on speaker", offlineSnap)
+        assertTrue(callBrother.action is NeliAiAction.PlaceCall)
+        assertEquals("Kamal", (callBrother.action as NeliAiAction.PlaceCall).contactOrNumber)
+        assertTrue((callBrother.action as NeliAiAction.PlaceCall).onSpeaker)
+
+        NeliAiEngine.evaluateLocally("I parked my car at Level 2 Gate B", offlineSnap)
+        val recallPark = NeliAiEngine.evaluateLocally("Where did I park my vehicle?", offlineSnap)
+        assertTrue(recallPark.replyText.contains("Level 2 Gate B", ignoreCase = true))
+
+        assertEquals(NeliAiAction.FindMyPhone, NeliAiEngine.evaluateLocally("Where is my phone?", offlineSnap).action)
+
+        // 5. Math, Conversions, Translation, Installed App, Visual Intelligence & Multi-Step
+        val pct = NeliAiEngine.evaluateLocally("What is 6.4% of 250,000?", offlineSnap)
+        assertTrue(pct.replyText.contains("16,000"))
+
+        val conv = NeliAiEngine.evaluateLocally("Convert 10 km to miles", offlineSnap)
+        assertTrue(conv.replyText.contains("6.21"))
+
+        val trans = NeliAiEngine.evaluateLocally("How to say thank you in German?", offlineSnap)
+        assertTrue(trans.replyText.contains("Danke"))
+
+        val openApp = NeliAiEngine.evaluateLocally("Hey Neli open WhatsApp", snap)
+        assertEquals(NeliAiAction.LaunchInstalledApp("whatsapp"), openApp.action)
+
+        val visual = NeliAiEngine.evaluateLocally("Hey Neli what is this?", snap)
+        assertTrue(visual.action is NeliAiAction.LaunchVisualIntelligence)
+
+        val multi = NeliAiEngine.evaluateLocally("Turn on dark mode and set brightness to 50%", offlineSnap)
+        assertTrue(multi.action is NeliAiAction.CompositeActions)
+        val steps = (multi.action as NeliAiAction.CompositeActions).actions
+        assertEquals(listOf(NeliAiAction.SetDarkMode(true), NeliAiAction.SetBrightnessPercent(50)), steps)
+    }
+
+    @Test
+    fun voiceDictationAndTranscription_cleansFillersSelfCorrectionsAndRoutesVoiceTrigger() {
+        val offlineSnap = snapshot(isOnline = false)
+        val openCmd = NeliAiEngine.evaluateLocally("Hey Neli start dictation", offlineSnap)
+        assertTrue(openCmd.action is NeliAiAction.OpenVoiceDictation)
+
+        val swCmd = NeliAiEngine.evaluateLocally("Hey Neli andika kwa sauti", offlineSnap)
+        assertTrue(swCmd.action is NeliAiAction.OpenVoiceDictation)
+
+        // Wispr Flow-style AI cleanup: filler words, stutters, self-corrections & spoken punctuation
+        val cleaned = com.example.ai.NeliVoiceDictationFormatter.cleanDictatedText(
+            rawInput = "um i i want to meet at 3 actually 4 comma you know new line can we talk",
+            style = com.example.ai.DictationStylePreset.CLEAN_FLOW,
+            elapsedMs = 3_000L
+        )
+        assertTrue(cleaned.cleanedText.contains("I want to meet at 4,"))
+        assertTrue(cleaned.cleanedText.contains("\nCan we talk"))
+        assertFalse(cleaned.cleanedText.contains("um", ignoreCase = true))
+        assertTrue(cleaned.removedFillersCount >= 2)
+        assertTrue(cleaned.estimatedWpm > 0)
+
+        // Bullet notes formatting preset
+        val bullets = com.example.ai.NeliVoiceDictationFormatter.cleanDictatedText(
+            rawInput = "buy milk period call kamal period send report",
+            style = com.example.ai.DictationStylePreset.BULLET_NOTES
+        )
+        assertTrue(bullets.cleanedText.contains("• Buy milk."))
+        assertTrue(bullets.cleanedText.contains("• Call kamal."))
+        assertTrue(bullets.cleanedText.contains("• Send report."))
+    }
 }
+
 

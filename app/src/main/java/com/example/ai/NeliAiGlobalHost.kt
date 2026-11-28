@@ -112,6 +112,16 @@ fun NeliAiGlobalHost(
     var suggestedMoviesForPicker by remember { mutableStateOf<List<MediaContent>>(emptyList()) }
     var movieInfoTarget by remember { mutableStateOf<MediaContent?>(null) }
     var lockedChannelPrompt by remember { mutableStateOf<LiveChannel?>(null) }
+    var isDictationOpen by remember { mutableStateOf(false) }
+    val externalDictationTrigger by NeliAiMemoryStore.openDictationTrigger.collectAsState()
+
+    LaunchedEffect(externalDictationTrigger) {
+        if (externalDictationTrigger > 0) {
+            onSetOpen(false)
+            isEdgeGlowVisible = false
+            isDictationOpen = true
+        }
+    }
 
     fun restorePlayerAudioAfterAi() {
         if (isPlayerMutedForAi) {
@@ -295,6 +305,21 @@ fun NeliAiGlobalHost(
                 if (activeChannel != null) onClosePlayer()
                 neliViewModel.selectTab(BottomNavTab.SEARCH)
             }
+
+            is NeliAiAction.OpenVoiceDictation -> {
+                restorePlayerAudioAfterAi()
+                isEdgeGlowVisible = false
+                onSetOpen(false)
+                isDictationOpen = true
+            }
+
+            else -> {
+                NeliDeviceControlExecutor.execute(
+                    context = context,
+                    action = action,
+                    playerController = playerController
+                )
+            }
         }
     }
 
@@ -308,6 +333,7 @@ fun NeliAiGlobalHost(
                 submitQuery(transcript, "voice")
             },
             onWakeWordDetected = { chained ->
+                NeliDeviceControlExecutor.wakeScreenNow(context)
                 mutePlayerForAiCommandWindow()
                 activeCaptionText = chained ?: "I'm listening..."
             },
@@ -317,6 +343,11 @@ fun NeliAiGlobalHost(
                 if (suggestedMoviesForPicker.isEmpty() && movieInfoTarget == null && lockedChannelPrompt == null) {
                     isEdgeGlowVisible = false
                 }
+            },
+            onSpeechStarted = { spokenCaption ->
+                // Exact audio-to-caption sync: show Neli's reply caption ONLY when voice audio actually begins!
+                activeCaptionText = spokenCaption
+                inPlayerCaptionVisible = true
             },
             onSpeechFinished = {
                 restorePlayerAudioAfterAi()
@@ -377,25 +408,28 @@ fun NeliAiGlobalHost(
                     context = context,
                     inputMode = inputMode
                 )
-                activeCaptionText = response.replyText
-                inPlayerCaptionVisible = true
                 val shouldListenAfter = response.expectsFollowUp || response.action is NeliAiAction.WakeGreeting
                 executeAction(response.action)
-                voiceController.speak(response.replySpeech, listenForFollowUpAfter = shouldListenAfter)
+                // Do NOT set activeCaptionText early — pass displayCaption so it appears on exact TTS onStart!
+                voiceController.speak(
+                    text = response.replySpeech,
+                    listenForFollowUpAfter = shouldListenAfter,
+                    displayCaption = response.replyText
+                )
             }
         }
     }
 
-    // Keep passive hands-free wake listening active inside NeliTv (including inside PlayerScreen!)
-    LaunchedEffect(isHandsFreeEnabled, isVoiceCancellationEnabled, isVoiceReplyEnabled) {
+    // Keep passive hands-free wake listening active inside NeliTv (paused while Dictation Studio owns the mic!)
+    LaunchedEffect(isHandsFreeEnabled, isVoiceCancellationEnabled, isVoiceReplyEnabled, isDictationOpen) {
         voiceController.voiceReplyEnabled = isVoiceReplyEnabled
         voiceController.voiceCancellationEnabled = isVoiceCancellationEnabled
-        voiceController.handsFreeActive = isHandsFreeEnabled
+        voiceController.handsFreeActive = isHandsFreeEnabled && !isDictationOpen
         val hasMic = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
             PackageManager.PERMISSION_GRANTED
-        if (isHandsFreeEnabled && hasMic) {
+        if (isHandsFreeEnabled && !isDictationOpen && hasMic) {
             voiceController.startPassiveWakeListening()
-        } else if (!isHandsFreeEnabled) {
+        } else {
             voiceController.stopListening()
         }
     }
@@ -523,8 +557,11 @@ fun NeliAiGlobalHost(
             executeAction(NeliAiAction.DownloadSpecificMovies(moviesToDownload))
             suggestedMoviesForPicker = emptyList()
             movieInfoTarget = null
-            activeCaptionText = "Downloading ${moviesToDownload.size} movies in the background!"
-            voiceController.speak("Downloading ${moviesToDownload.size} movies for you now.")
+            val msg = "Downloading ${moviesToDownload.size} movies in the background!"
+            voiceController.speak(
+                text = "Downloading ${moviesToDownload.size} movies for you now.",
+                displayCaption = msg
+            )
         },
         onPlayMoviesInSequence = { moviesToPlay ->
             executeAction(NeliAiAction.PlayMoviesInSequence(moviesToPlay))
@@ -666,12 +703,24 @@ fun NeliAiGlobalHost(
                     NeliAiSystemOverlayService.start(context)
                 }
             },
+            onOpenVoiceDictation = {
+                onSetOpen(false)
+                isEdgeGlowVisible = false
+                isDictationOpen = true
+            },
             onSaveRemoteUrl = { url ->
                 NeliAiMemoryStore.setRemoteEndpointUrl(context, url)
             },
             onSaveApiKey = { key ->
                 NeliAiMemoryStore.setCustomApiKey(context, key)
             }
+        )
+    }
+
+    // 3. Full-Screen Neli Flow Dictation & Privacy Voice-to-Text Studio
+    if (isDictationOpen) {
+        NeliVoiceDictationScreen(
+            onBack = { isDictationOpen = false }
         )
     }
 }

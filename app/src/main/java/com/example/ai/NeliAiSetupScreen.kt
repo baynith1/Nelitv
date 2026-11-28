@@ -109,6 +109,7 @@ fun NeliAiSetupScreen(
     onToggleCaptions: (Boolean) -> Unit,
     onToggleVoiceReply: (Boolean) -> Unit,
     onTogglePowerButtonWake: (Boolean) -> Unit = {},
+    onOpenVoiceDictation: () -> Unit = {},
     onSaveRemoteUrl: (String) -> Boolean,
     onSaveApiKey: (String) -> Unit
 ) {
@@ -345,6 +346,19 @@ fun NeliAiSetupScreen(
                             }
                         }
                     }
+                }
+
+                // Fast AI Voice Dictation & Privacy Voice-to-Text Card (Wispr Flow + Superwhisper Style)
+                item {
+                    NeliAiPermissionCard(
+                        icon = Icons.Default.RecordVoiceOver,
+                        title = "Neli Flow Dictation & Privacy STT",
+                        subtitle = "Fast 200+ WPM AI voice dictation that strips fillers, auto-punctuates, stays private on-device & copies cleanly across apps.",
+                        granted = micGranted,
+                        actionLabel = "Open Studio",
+                        testTag = "neli_ai_open_dictation_card",
+                        onClick = { onOpenVoiceDictation() }
+                    )
                 }
 
                 // Section Title: Required Permissions

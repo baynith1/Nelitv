@@ -34,9 +34,9 @@ object NeliAiEngine {
 
     private val httpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
-            .connectTimeout(3, TimeUnit.SECONDS)
-            .readTimeout(4, TimeUnit.SECONDS)
-            .writeTimeout(3, TimeUnit.SECONDS)
+            .connectTimeout(1800, TimeUnit.MILLISECONDS)
+            .readTimeout(2200, TimeUnit.MILLISECONDS)
+            .writeTimeout(1800, TimeUnit.MILLISECONDS)
             .build()
     }
 
@@ -129,12 +129,15 @@ object NeliAiEngine {
 
         val lower = normalizeText(cleaned)
 
-        // Always handle local device / offline / smart-download / suggestion / locked-channel rules locally first
-        // so app data (30-day watch history, Room downloads, VIP locks, brightness, screen lock) is 100% accurate.
+        // Always handle local device / Siri / offline / smart-download / suggestion / locked-channel rules locally first
+        // so app data (30-day watch history, Room downloads, VIP locks, brightness, screen wake/lock, Siri utilities) is instant.
         val localResult = evaluateLocally(rawQuery, snapshot, context)
         if (localResult.confidence >= 0.80f || !snapshot.isOnline) {
             return localResult
         }
+
+        // Fast zero-key online Siri skills (e.g. live weather via wttr.in)
+        NeliSiriAssistantEngine.evaluateAsync(cleaned, lower, snapshot)?.let { return it }
 
         // For open-ended questions when online & Neli AI Center API key is configured, ask Neli AI Center
         val remoteUrl = NeliAiMemoryStore.remoteEndpointUrl.value
@@ -193,9 +196,15 @@ object NeliAiEngine {
             )
         }
 
+        detectDeleteDownloadFollowUp(cleaned, lower, snapshot)?.let { return it }
+
+        // 0B. Full Siri-grade mobile assistant skills (28+ screen-wake phrases, flashlight, dark/light mode,
+        // DND, settings, exact volume/brightness %, alarms, timers, reminders, relationships/calls/SMS,
+        // parking, find my phone, maps, installed apps, visual intelligence, math, conversions, translations, time/date/battery)
+        NeliSiriAssistantEngine.evaluateSync(cleaned, lower, snapshot, context)?.let { return it }
+
         detectBrightnessIntent(lower)?.let { return it }
         detectPlayerControlIntent(lower, snapshot)?.let { return it }
-        detectDeleteDownloadFollowUp(cleaned, lower, snapshot)?.let { return it }
         detectDeleteDownloadIntent(cleaned, lower, snapshot)?.let { return it }
         detectNavigationIntent(lower)?.let { nav ->
             if (nav.intent == "NAV_DOWNLOADS" || snapshot.isOnline) return nav
@@ -1714,6 +1723,9 @@ object NeliAiEngine {
     }
 
     private fun isLockScreenIntent(lower: String): Boolean {
+        if (lower.contains("unlock") || NeliSiriAssistantEngine.isWakeScreenIntent(lower)) {
+            return false
+        }
         return containsAny(
             lower,
             listOf(

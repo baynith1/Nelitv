@@ -1,11 +1,17 @@
 package com.example.ai
 
+import android.Manifest
+import android.annotation.SuppressLint
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
+import android.media.AudioFormat
 import android.media.AudioManager
+import android.media.AudioRecord
+import android.media.MediaRecorder
 import android.media.audiofx.AcousticEchoCanceler
 import android.media.audiofx.NoiseSuppressor
 import android.os.Build
@@ -19,37 +25,54 @@ import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
+import android.speech.tts.Voice
+import androidx.core.content.ContextCompat
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.concurrent.thread
 import kotlin.math.sin
+import kotlin.math.sqrt
 
 /**
- * Production Hands-Free Voice I/O Controller for Neli AI on Android Mobile, Tablet & Smart TV.
+ * Siri-Grade Low-Latency Voice I/O Controller for Neli AI on Android Mobile, Tablet & Smart TV.
  *
- * Features:
- * - Free 10-14 yr Female English Voice (`Locale.US`, pitch `1.28f`, speech rate `1.04f`, utteranceId `"neli"`).
- * - Wake-word gating ("Hey Neli" / "Neli") + hardware AcousticEchoCanceler / NoiseSuppressor awareness
- *   so movie & live TV audio does not falsely trigger Neli AI.
- * - 5-second command timeout window (auto-unmutes player / resumes paused external audio apps if no command).
- * - Transient Exclusive AudioFocus control to pause other media apps (Spotify, YouTube, music) while listening,
- *   and automatically release focus so they resume seamlessly afterward.
- * - Live speaking beat pulse emitter so the Pink AI visual dances in rhythm with Neli's voice.
+ * Key upgrades:
+ * - Energetic Young Fast Female Voice (`Locale.US`, pitch `1.22f`, speech rate `1.28f`,
+ *   neural local female voice selection + silent TTS pre-warm for near-zero first-reply latency).
+ * - Two-Stage Quiet Siri Microphone:
+ *   - Stage 1 (Standby): Quiet on-device `AudioRecord` PCM voice-activity energy monitor with
+ *     hardware `NoiseSuppressor` + `AcousticEchoCanceler` — ZERO every-second `SpeechRecognizer`
+ *     restarts, ZERO beeps, and ZERO UI flicker until real speech is heard!
+ *   - Stage 2 (Wake & One-Shot Capture): Wakes `SpeechRecognizer` ONLY when speech energy fires,
+ *     verifies "Hey Neli" / "Neli", captures the request quickly (`700ms` silence cutoff), and
+ *     IMMEDIATELY shuts down the mic while executing & replying.
+ * - Exact Audio-to-Caption Sync: [onSpeechStarted] and [NeliAiVoiceState.Speaking] emit STRICTLY
+ *   inside [UtteranceProgressListener.onStart] so captions never appear before Neli's voice starts.
  */
 class NeliAiVoiceController(
     private val context: Context,
     private val onRecognizedQuery: (String) -> Unit,
     private val onWakeWordDetected: (chainedCommand: String?) -> Unit = {},
     private val onCommandWindowExpired: () -> Unit = {},
+    private val onSpeechStarted: (captionText: String) -> Unit = {},
     private val onSpeechFinished: () -> Unit = {}
 ) {
     companion object {
-        const val NELI_VOICE_PITCH = 1.28f
-        const val NELI_VOICE_SPEECH_RATE = 1.04f
+        // Young energetic fast-speaking female voice tuning
+        const val NELI_VOICE_PITCH = 1.22f
+        const val NELI_VOICE_SPEECH_RATE = 1.28f
         const val NELI_UTTERANCE_ID = "neli"
+        private const val PREWARM_UTTERANCE_ID = "neli_prewarm"
         const val DEFAULT_COMMAND_WINDOW_MS = 30_000L
         const val MANUAL_TAP_COMMAND_WINDOW_MS = 30_000L
+
+        private const val VAD_SAMPLE_RATE = 16_000
+        private const val VAD_RMS_THRESHOLD = 1450.0
+        private const val VAD_REQUIRED_CONSECUTIVE_FRAMES = 2
+        private const val VAD_COOLDOWN_AFTER_FALSE_WAKE_MS = 1_400L
 
         fun isHardwareVoiceCancellationAvailable(): Boolean {
             return runCatching {
@@ -80,6 +103,39 @@ class NeliAiVoiceController(
                 }
             }.getOrNull()
         }
+
+        /**
+         * Ranks installed local offline English female voices to pick the brightest, most natural
+         * youthful female neural voice (excluding deep/male profiles).
+         */
+        internal fun pickBestEnergeticFemaleVoice(voices: Set<Voice>?): Voice? {
+            if (voices.isNullOrEmpty()) return null
+            val candidates = voices.filter { v ->
+                val lang = v.locale?.language.orEmpty()
+                lang.equals("en", ignoreCase = true) && !v.isNetworkConnectionRequired
+            }
+            if (candidates.isEmpty()) return null
+            return candidates.maxByOrNull { v ->
+                val n = v.name.lowercase(Locale.ROOT)
+                var score = 0
+                if (v.locale?.country.equals("US", ignoreCase = true)) score += 30
+                else if (v.locale?.country.equals("GB", ignoreCase = true)) score += 18
+                if (v.quality >= Voice.QUALITY_HIGH) score += 25
+                if (v.latency <= Voice.LATENCY_NORMAL) score += 10
+                when {
+                    n.contains("en-us-x-tpc") || n.contains("tpc") -> score += 65
+                    n.contains("en-us-x-tpf") || n.contains("tpf") -> score += 62
+                    n.contains("en-us-x-iob") || n.contains("iob") -> score += 56
+                    n.contains("en-us-x-sfg") || n.contains("sfg") -> score += 52
+                    n.contains("en-us-x-iog") || n.contains("iog") -> score += 48
+                    n.contains("en-gb-x-gba") || n.contains("gba") -> score += 44
+                    n.contains("female") -> score += 40
+                }
+                if (n.contains("male") && !n.contains("female")) score -= 80
+                if (n.contains("iom") || n.contains("tpd") || n.contains("iol") || n.contains("gbb")) score -= 75
+                score
+            }
+        }
     }
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -94,10 +150,21 @@ class NeliAiVoiceController(
     private var consecutiveSilentErrors = 0
     private var speakingBeatTick = 0
 
-    /**
-     * When true, passive standby listening ignores background TV/movie speech unless
-     * the wake word ("Hey Neli" / "Neli") is explicitly spoken!
-     */
+    // Stage-1 quiet PCM voice-activity monitor (prevents every-second SpeechRecognizer wakeups)
+    private val vadRunning = AtomicBoolean(false)
+    @Volatile
+    private var vadThread: Thread? = null
+    @Volatile
+    private var lastFalseWakeElapsedMs: Long = 0L
+
+    // Exact audio-to-caption synchronization state
+    @Volatile
+    private var pendingDisplayCaption: String = ""
+    @Volatile
+    private var pendingListenFollowUpAfterSpeech: Boolean = false
+    @Volatile
+    private var speechCaptionDispatched: Boolean = false
+
     @Volatile
     var passiveWakeWordGateEnabled: Boolean = false
 
@@ -118,6 +185,7 @@ class NeliAiVoiceController(
         set(value) {
             field = value
             if (!value) {
+                stopQuietVadMonitor()
                 cancelPendingRelisten()
                 cancelCommandTimeout()
                 if (_voiceState.value is NeliAiVoiceState.HandsFreeStandby) {
@@ -131,20 +199,20 @@ class NeliAiVoiceController(
     var pauseExternalAppsOnWake: Boolean = false
 
     private val relistenRunnable = Runnable {
-        if (!isReleased && handsFreeActive) {
-            startListeningInternal(isPassiveWakeScan = passiveWakeWordGateEnabled && !isInActiveCommandWindow)
+        if (!isReleased && handsFreeActive && !isInActiveCommandWindow) {
+            enterQuietStandbyOrFallback()
         }
     }
 
     private val commandWindowTimeoutRunnable = Runnable {
         if (isReleased || !isInActiveCommandWindow) return@Runnable
         isInActiveCommandWindow = false
-        runCatching { speechRecognizer?.cancel() }
+        shutdownActiveMicNow()
         abandonTransientAudioFocus()
         _voiceState.value = if (handsFreeActive) NeliAiVoiceState.HandsFreeStandby else NeliAiVoiceState.Idle
         onCommandWindowExpired()
         if (handsFreeActive) {
-            scheduleHandsFreeRelisten(900L)
+            scheduleHandsFreeStandby(700L)
         }
     }
 
@@ -154,9 +222,9 @@ class NeliAiVoiceController(
             val current = _voiceState.value
             if (current is NeliAiVoiceState.Speaking) {
                 speakingBeatTick++
-                val wave = (0.55f + 0.45f * sin(speakingBeatTick * 0.75).toFloat()).coerceIn(0.15f, 1.0f)
+                val wave = (0.55f + 0.45f * sin(speakingBeatTick * 0.85).toFloat()).coerceIn(0.18f, 1.0f)
                 _voiceState.value = current.copy(beatAmplitude = wave)
-                mainHandler.postDelayed(this, 75L)
+                mainHandler.postDelayed(this, 65L)
             }
         }
     }
@@ -175,80 +243,96 @@ class NeliAiVoiceController(
                     val engine = tts ?: return@TextToSpeech
                     engine.language = Locale.US
                     runCatching {
-                        val preferredFemale = engine.voices
-                            ?.filter { v ->
-                                v.locale.language.equals("en", ignoreCase = true) &&
-                                    v.locale.country.equals("US", ignoreCase = true) &&
-                                    !v.isNetworkConnectionRequired
-                            }
-                            ?.firstOrNull { v ->
-                                val lower = v.name.lowercase(Locale.ROOT)
-                                lower.contains("female") ||
-                                    lower.contains("sfg") ||
-                                    lower.contains("tpf") ||
-                                    lower.contains("iob") ||
-                                    lower.contains("en-us-x-sfg") ||
-                                    lower.contains("en-us-x-tpf")
-                            }
-                        if (preferredFemale != null) {
-                            engine.voice = preferredFemale
+                        pickBestEnergeticFemaleVoice(engine.voices)?.let { best ->
+                            engine.voice = best
                         }
                     }
-                    // Free 10-14 yr Female English Voice profile
+                    // Young energetic fast-speaking female voice profile
                     engine.setPitch(NELI_VOICE_PITCH)
                     engine.setSpeechRate(NELI_VOICE_SPEECH_RATE)
-                    engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                        override fun onStart(utteranceId: String?) {
-                            mainHandler.post {
-                                if (!isReleased) {
-                                    mainHandler.removeCallbacks(speakingBeatRunnable)
-                                    mainHandler.post(speakingBeatRunnable)
-                                }
-                            }
-                        }
-
-                        override fun onDone(utteranceId: String?) {
-                            mainHandler.post {
-                                mainHandler.removeCallbacks(speakingBeatRunnable)
-                                if (isReleased) return@post
-                                if (!isInActiveCommandWindow) {
-                                    abandonTransientAudioFocus()
-                                }
-                                onSpeechFinished()
-                                if (handsFreeActive) {
-                                    _voiceState.value = NeliAiVoiceState.HandsFreeStandby
-                                    scheduleHandsFreeRelisten(650L)
-                                } else if (!isInActiveCommandWindow) {
-                                    _voiceState.value = NeliAiVoiceState.Idle
-                                }
-                            }
-                        }
-
-                        @Deprecated("Deprecated in Java")
-                        override fun onError(utteranceId: String?) {
-                            mainHandler.post {
-                                mainHandler.removeCallbacks(speakingBeatRunnable)
-                                if (isReleased) return@post
-                                abandonTransientAudioFocus()
-                                onSpeechFinished()
-                                _voiceState.value = if (handsFreeActive) {
-                                    NeliAiVoiceState.HandsFreeStandby
-                                } else {
-                                    NeliAiVoiceState.Idle
-                                }
-                            }
-                        }
-                    })
+                    engine.setOnUtteranceProgressListener(createUnifiedTtsListener())
                     isTtsReady = true
+                    // Pre-warm audio pipeline silently so first spoken response has near-zero delay
+                    runCatching {
+                        engine.playSilentUtterance(1L, TextToSpeech.QUEUE_FLUSH, PREWARM_UTTERANCE_ID)
+                    }
                 }
             }
         }
     }
 
-    /**
-     * Pauses music/video playing in other apps (Spotify, YouTube, WhatsApp audio, etc.)
-     * while Neli AI listens for a command.
-     */
+    private fun createUnifiedTtsListener(): UtteranceProgressListener = object : UtteranceProgressListener() {
+        override fun onStart(utteranceId: String?) {
+            if (utteranceId == PREWARM_UTTERANCE_ID) return
+            mainHandler.post {
+                if (isReleased) return@post
+                val caption = pendingDisplayCaption
+                speechCaptionDispatched = true
+                _voiceState.value = NeliAiVoiceState.Speaking(caption, beatAmplitude = 0.76f)
+                if (caption.isNotBlank()) {
+                    onSpeechStarted(caption)
+                }
+                mainHandler.removeCallbacks(speakingBeatRunnable)
+                mainHandler.post(speakingBeatRunnable)
+            }
+        }
+
+        override fun onDone(utteranceId: String?) {
+            if (utteranceId == PREWARM_UTTERANCE_ID) return
+            mainHandler.post {
+                mainHandler.removeCallbacks(speakingBeatRunnable)
+                if (isReleased) return@post
+                val shouldListenFollowUp = pendingListenFollowUpAfterSpeech
+                pendingListenFollowUpAfterSpeech = false
+                if (!speechCaptionDispatched && pendingDisplayCaption.isNotBlank()) {
+                    speechCaptionDispatched = true
+                    onSpeechStarted(pendingDisplayCaption)
+                }
+                if (shouldListenFollowUp) {
+                    startActiveCommandWindow(DEFAULT_COMMAND_WINDOW_MS)
+                    return@post
+                }
+                if (!isInActiveCommandWindow) {
+                    abandonTransientAudioFocus()
+                }
+                onSpeechFinished()
+                if (handsFreeActive) {
+                    _voiceState.value = NeliAiVoiceState.HandsFreeStandby
+                    scheduleHandsFreeStandby(500L)
+                } else if (!isInActiveCommandWindow) {
+                    _voiceState.value = NeliAiVoiceState.Idle
+                }
+            }
+        }
+
+        @Deprecated("Deprecated in Java")
+        override fun onError(utteranceId: String?) {
+            if (utteranceId == PREWARM_UTTERANCE_ID) return
+            mainHandler.post {
+                mainHandler.removeCallbacks(speakingBeatRunnable)
+                if (isReleased) return@post
+                val shouldListenFollowUp = pendingListenFollowUpAfterSpeech
+                pendingListenFollowUpAfterSpeech = false
+                if (!speechCaptionDispatched && pendingDisplayCaption.isNotBlank()) {
+                    speechCaptionDispatched = true
+                    onSpeechStarted(pendingDisplayCaption)
+                }
+                if (shouldListenFollowUp) {
+                    startActiveCommandWindow(DEFAULT_COMMAND_WINDOW_MS)
+                    return@post
+                }
+                abandonTransientAudioFocus()
+                onSpeechFinished()
+                if (handsFreeActive) {
+                    _voiceState.value = NeliAiVoiceState.HandsFreeStandby
+                    scheduleHandsFreeStandby(700L)
+                } else {
+                    _voiceState.value = NeliAiVoiceState.Idle
+                }
+            }
+        }
+    }
+
     fun acquireTransientAudioFocus() {
         if (hasTransientAudioFocus) return
         runCatching {
@@ -279,9 +363,6 @@ class NeliAiVoiceController(
         }
     }
 
-    /**
-     * Releases transient AudioFocus so paused music/video apps resume automatically.
-     */
     fun abandonTransientAudioFocus() {
         if (!hasTransientAudioFocus) return
         hasTransientAudioFocus = false
@@ -298,11 +379,12 @@ class NeliAiVoiceController(
     }
 
     /**
-     * Starts an active 30-second command window (e.g., after "Hey Neli" or manual trigger).
-     * If no command arrives within [timeoutMs], [onCommandWindowExpired] fires automatically.
+     * Starts an active command window (e.g., after "Hey Neli", tap, or power-button wake).
+     * Stops quiet standby monitor first so SpeechRecognizer gets exclusive mic cleanly.
      */
     fun startActiveCommandWindow(timeoutMs: Long = DEFAULT_COMMAND_WINDOW_MS) {
         consecutiveSilentErrors = 0
+        stopQuietVadMonitor()
         cancelPendingRelisten()
         isInActiveCommandWindow = true
         activeCommandWindowDeadlineElapsedMs = SystemClock.elapsedRealtime() + timeoutMs
@@ -316,6 +398,11 @@ class NeliAiVoiceController(
         }
     }
 
+    /**
+     * Enters Siri-style quiet hands-free standby: does NOT spam SpeechRecognizer every second.
+     * Listens silently via local PCM voice-activity energy gate and only opens SpeechRecognizer
+     * when real human speech occurs.
+     */
     fun startPassiveWakeListening() {
         passiveWakeWordGateEnabled = true
         handsFreeActive = true
@@ -324,8 +411,9 @@ class NeliAiVoiceController(
         cancelCommandTimeout()
         mainHandler.post {
             if (!isReleased) {
+                shutdownActiveMicNow()
                 _voiceState.value = NeliAiVoiceState.HandsFreeStandby
-                startListeningInternal(isPassiveWakeScan = true)
+                enterQuietStandbyOrFallback()
             }
         }
     }
@@ -335,24 +423,39 @@ class NeliAiVoiceController(
     }
 
     fun stopListening() {
+        stopQuietVadMonitor()
         cancelPendingRelisten()
         cancelCommandTimeout()
         isInActiveCommandWindow = false
         activeCommandWindowDeadlineElapsedMs = 0L
         abandonTransientAudioFocus()
         mainHandler.post {
-            runCatching { speechRecognizer?.stopListening() }
-            runCatching { speechRecognizer?.cancel() }
+            shutdownActiveMicNow()
             if (_voiceState.value is NeliAiVoiceState.Listening) {
                 _voiceState.value = if (handsFreeActive) NeliAiVoiceState.HandsFreeStandby else NeliAiVoiceState.Idle
             }
         }
     }
 
-    fun speak(text: String, listenForFollowUpAfter: Boolean = false) {
-        val clean = text.trim()
+    /**
+     * Speaks [text] with Neli's energetic fast female voice.
+     * Guarantees [displayCaption] is emitted strictly when audio playback starts (`onStart`),
+     * eliminating caption-before-voice lag!
+     */
+    fun speak(
+        text: String,
+        listenForFollowUpAfter: Boolean = false,
+        displayCaption: String = text
+    ) {
+        val cleanSpeech = text.trim()
+        val cleanCaption = displayCaption.trim().ifBlank { cleanSpeech }
         cancelCommandTimeout()
-        if (clean.isBlank() || !voiceReplyEnabled || !isTtsReady || isReleased) {
+        stopQuietVadMonitor()
+
+        if (cleanSpeech.isBlank() || !voiceReplyEnabled || !isTtsReady || isReleased) {
+            if (cleanCaption.isNotBlank() && !isReleased) {
+                mainHandler.post { onSpeechStarted(cleanCaption) }
+            }
             if (listenForFollowUpAfter && !isReleased) {
                 startActiveCommandWindow(DEFAULT_COMMAND_WINDOW_MS)
                 return
@@ -361,89 +464,46 @@ class NeliAiVoiceController(
             onSpeechFinished()
             if (handsFreeActive && !isReleased) {
                 _voiceState.value = NeliAiVoiceState.HandsFreeStandby
-                scheduleHandsFreeRelisten(750L)
+                scheduleHandsFreeStandby(600L)
             } else {
                 _voiceState.value = NeliAiVoiceState.Idle
             }
             return
         }
+
         mainHandler.post {
             if (isReleased) return@post
             cancelPendingRelisten()
-            runCatching { speechRecognizer?.cancel() }
+            // Immediately shut down mic before speaking so mic is completely OFF during reply
+            shutdownActiveMicNow()
             if (pauseExternalAppsOnWake) {
                 acquireTransientAudioFocus()
             }
-            _voiceState.value = NeliAiVoiceState.Speaking(clean, beatAmplitude = 0.7f)
-            mainHandler.removeCallbacks(speakingBeatRunnable)
-            mainHandler.post(speakingBeatRunnable)
+            pendingDisplayCaption = cleanCaption
+            pendingListenFollowUpAfterSpeech = listenForFollowUpAfter
+            speechCaptionDispatched = false
             if (listenForFollowUpAfter) {
                 isInActiveCommandWindow = true
-                // Ensure we begin listening shortly after greeting finishes
-                tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                    override fun onStart(utteranceId: String?) = Unit
-                    override fun onDone(utteranceId: String?) {
-                        mainHandler.post {
-                            mainHandler.removeCallbacks(speakingBeatRunnable)
-                            if (isReleased) return@post
-                            restoreDefaultTtsListener()
-                            startActiveCommandWindow(DEFAULT_COMMAND_WINDOW_MS)
-                        }
-                    }
-
-                    @Deprecated("Deprecated in Java")
-                    override fun onError(utteranceId: String?) {
-                        mainHandler.post {
-                            mainHandler.removeCallbacks(speakingBeatRunnable)
-                            if (isReleased) return@post
-                            restoreDefaultTtsListener()
-                            startActiveCommandWindow(DEFAULT_COMMAND_WINDOW_MS)
-                        }
-                    }
-                })
             }
             runCatching {
-                tts?.speak(clean, TextToSpeech.QUEUE_FLUSH, null, NELI_UTTERANCE_ID)
+                val engine = tts ?: error("TTS unavailable")
+                engine.setPitch(NELI_VOICE_PITCH)
+                engine.setSpeechRate(NELI_VOICE_SPEECH_RATE)
+                engine.speak(cleanSpeech, TextToSpeech.QUEUE_FLUSH, null, NELI_UTTERANCE_ID)
             }.onFailure {
                 mainHandler.removeCallbacks(speakingBeatRunnable)
+                if (!speechCaptionDispatched && cleanCaption.isNotBlank()) {
+                    speechCaptionDispatched = true
+                    onSpeechStarted(cleanCaption)
+                }
                 abandonTransientAudioFocus()
-                _voiceState.value = NeliAiVoiceState.Idle
+                _voiceState.value = if (handsFreeActive) NeliAiVoiceState.HandsFreeStandby else NeliAiVoiceState.Idle
             }
         }
     }
 
-    private fun restoreDefaultTtsListener() {
-        tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-            override fun onStart(utteranceId: String?) = Unit
-            override fun onDone(utteranceId: String?) {
-                mainHandler.post {
-                    mainHandler.removeCallbacks(speakingBeatRunnable)
-                    if (isReleased) return@post
-                    abandonTransientAudioFocus()
-                    onSpeechFinished()
-                    if (handsFreeActive) {
-                        _voiceState.value = NeliAiVoiceState.HandsFreeStandby
-                        scheduleHandsFreeRelisten(650L)
-                    } else {
-                        _voiceState.value = NeliAiVoiceState.Idle
-                    }
-                }
-            }
-
-            @Deprecated("Deprecated in Java")
-            override fun onError(utteranceId: String?) {
-                mainHandler.post {
-                    mainHandler.removeCallbacks(speakingBeatRunnable)
-                    if (isReleased) return@post
-                    abandonTransientAudioFocus()
-                    onSpeechFinished()
-                    _voiceState.value = if (handsFreeActive) NeliAiVoiceState.HandsFreeStandby else NeliAiVoiceState.Idle
-                }
-            }
-        })
-    }
-
     fun stopSpeaking() {
+        pendingListenFollowUpAfterSpeech = false
         mainHandler.removeCallbacks(speakingBeatRunnable)
         runCatching { tts?.stop() }
         if (_voiceState.value is NeliAiVoiceState.Speaking) {
@@ -453,7 +513,9 @@ class NeliAiVoiceController(
 
     fun setThinking() {
         cancelCommandTimeout()
+        stopQuietVadMonitor()
         isInActiveCommandWindow = false
+        shutdownActiveMicNow()
         _voiceState.value = NeliAiVoiceState.Thinking
     }
 
@@ -461,11 +523,13 @@ class NeliAiVoiceController(
         isReleased = true
         handsFreeActive = false
         isInActiveCommandWindow = false
+        stopQuietVadMonitor()
         cancelPendingRelisten()
         cancelCommandTimeout()
         mainHandler.removeCallbacks(speakingBeatRunnable)
         abandonTransientAudioFocus()
         mainHandler.post {
+            runCatching { speechRecognizer?.stopListening() }
             runCatching { speechRecognizer?.cancel() }
             runCatching { speechRecognizer?.destroy() }
             speechRecognizer = null
@@ -473,6 +537,129 @@ class NeliAiVoiceController(
             runCatching { tts?.shutdown() }
             tts = null
         }
+    }
+
+    private fun shutdownActiveMicNow() {
+        runCatching { speechRecognizer?.stopListening() }
+        runCatching { speechRecognizer?.cancel() }
+    }
+
+    /**
+     * Stage 1 of the Two-Stage Siri Wake Engine:
+     * Runs a lightweight local PCM energy detector (`AudioRecord`) so Android's SpeechRecognizer
+     * does NOT beep or blink every second in silence.
+     */
+    private fun enterQuietStandbyOrFallback() {
+        if (isReleased || !handsFreeActive || isInActiveCommandWindow) return
+        val hasMic = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
+            PackageManager.PERMISSION_GRANTED
+        if (!hasMic) return
+        if (resolveExternalSpeechComponent(context) == null) return
+
+        _voiceState.value = NeliAiVoiceState.HandsFreeStandby
+        if (!startQuietVadMonitor()) {
+            // Emulator / hardware fallback where AudioRecord is unavailable:
+            // Use gentle backoff instead of spamming SpeechRecognizer every 550ms
+            startListeningInternal(isPassiveWakeScan = true)
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun startQuietVadMonitor(): Boolean {
+        if (vadRunning.get() || isReleased || !handsFreeActive || isInActiveCommandWindow) return true
+        val minBuf = AudioRecord.getMinBufferSize(
+            VAD_SAMPLE_RATE,
+            AudioFormat.CHANNEL_IN_MONO,
+            AudioFormat.ENCODING_PCM_16BIT
+        )
+        if (minBuf <= 0) return false
+
+        val bufferSize = maxOf(minBuf, VAD_SAMPLE_RATE / 5) // ~100ms chunks
+        val record = runCatching {
+            AudioRecord(
+                MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                VAD_SAMPLE_RATE,
+                AudioFormat.CHANNEL_IN_MONO,
+                AudioFormat.ENCODING_PCM_16BIT,
+                bufferSize
+            )
+        }.getOrNull() ?: return false
+
+        if (record.state != AudioRecord.STATE_INITIALIZED) {
+            runCatching { record.release() }
+            return false
+        }
+
+        vadRunning.set(true)
+        vadThread = thread(isDaemon = true, name = "NeliQuietWakeGate") {
+            var ns: NoiseSuppressor? = null
+            var aec: AcousticEchoCanceler? = null
+            val pcm = ShortArray(1024)
+            var hotFrames = 0
+            try {
+                if (voiceCancellationEnabled) {
+                    runCatching {
+                        if (NoiseSuppressor.isAvailable()) {
+                            ns = NoiseSuppressor.create(record.audioSessionId)?.apply { enabled = true }
+                        }
+                    }
+                    runCatching {
+                        if (AcousticEchoCanceler.isAvailable()) {
+                            aec = AcousticEchoCanceler.create(record.audioSessionId)?.apply { enabled = true }
+                        }
+                    }
+                }
+                record.startRecording()
+                while (vadRunning.get() && !isReleased && handsFreeActive && !isInActiveCommandWindow) {
+                    val read = record.read(pcm, 0, pcm.size)
+                    if (read <= 0) {
+                        Thread.sleep(40L)
+                        continue
+                    }
+                    if (SystemClock.elapsedRealtime() - lastFalseWakeElapsedMs < VAD_COOLDOWN_AFTER_FALSE_WAKE_MS) {
+                        hotFrames = 0
+                        continue
+                    }
+                    var sumSq = 0.0
+                    for (i in 0 until read) {
+                        val s = pcm[i].toDouble()
+                        sumSq += s * s
+                    }
+                    val rms = sqrt(sumSq / read)
+                    if (rms >= VAD_RMS_THRESHOLD) {
+                        hotFrames++
+                        if (hotFrames >= VAD_REQUIRED_CONSECUTIVE_FRAMES) {
+                            // Real human speech detected -> hand off cleanly to Stage 2 wake ASR!
+                            vadRunning.set(false)
+                            break
+                        }
+                    } else {
+                        hotFrames = 0
+                    }
+                }
+            } catch (_: Throwable) {
+                vadRunning.set(false)
+            } finally {
+                runCatching { ns?.release() }
+                runCatching { aec?.release() }
+                runCatching { record.stop() }
+                runCatching { record.release() }
+            }
+
+            if (!isReleased && handsFreeActive && !isInActiveCommandWindow && hotFrames >= VAD_REQUIRED_CONSECUTIVE_FRAMES) {
+                mainHandler.post {
+                    if (!isReleased && handsFreeActive && !isInActiveCommandWindow) {
+                        startListeningInternal(isPassiveWakeScan = true)
+                    }
+                }
+            }
+        }
+        return true
+    }
+
+    private fun stopQuietVadMonitor() {
+        vadRunning.set(false)
+        vadThread = null
     }
 
     private fun startListeningInternal(isPassiveWakeScan: Boolean) {
@@ -508,16 +695,19 @@ class NeliAiVoiceController(
                 putExtra(RecognizerIntent.EXTRA_ONLY_RETURN_LANGUAGE_PREFERENCE, false)
                 putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
                 putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
-                // Shorter silence window during passive wake-word scan to filter out continuous movie dialogue
+                // Ultra-snappy Siri silence thresholds for instant response turnaround!
                 putExtra(
                     RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS,
-                    if (isPassiveWakeScan) 1100L else 1500L
+                    if (isPassiveWakeScan) 600L else 700L
                 )
                 putExtra(
                     RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS,
-                    if (isPassiveWakeScan) 900L else 1200L
+                    if (isPassiveWakeScan) 420L else 500L
                 )
-                // Prefer local / voice-optimized recognition if supported
+                putExtra(
+                    RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS,
+                    if (isPassiveWakeScan) 650L else 900L
+                )
                 if (voiceCancellationEnabled) {
                     putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, false)
                 }
@@ -545,9 +735,9 @@ class NeliAiVoiceController(
             if (isInActiveCommandWindow) {
                 val now = SystemClock.elapsedRealtime()
                 val remaining = activeCommandWindowDeadlineElapsedMs - now
-                if (remaining < 10_000L) {
-                    activeCommandWindowDeadlineElapsedMs = now + 10_000L
-                    scheduleCommandTimeout(10_000L)
+                if (remaining < 8_000L) {
+                    activeCommandWindowDeadlineElapsedMs = now + 8_000L
+                    scheduleCommandTimeout(8_000L)
                 }
             }
         }
@@ -575,31 +765,31 @@ class NeliAiVoiceController(
                     if (isInActiveCommandWindow) {
                         val remainingMs = activeCommandWindowDeadlineElapsedMs - SystemClock.elapsedRealtime()
                         if (remainingMs > 1_200L) {
-                            // Keep waiting smoothly across the full 30-second window (Android's native recognizer
-                            // fires interim timeouts every ~5-7s of silence, so seamlessly restart until deadline!)
                             _voiceState.value = NeliAiVoiceState.Listening(rmsDb = 2.0f, partialText = "")
                             mainHandler.postDelayed({
                                 if (!isReleased && isInActiveCommandWindow) {
                                     startListeningInternal(isPassiveWakeScan = false)
                                 }
-                            }, 220L)
+                            }, 180L)
                             return
                         }
-                        // Full 30-sec window elapsed with no speech -> expire cleanly & resume audio!
                         cancelCommandTimeout()
                         isInActiveCommandWindow = false
                         activeCommandWindowDeadlineElapsedMs = 0L
+                        shutdownActiveMicNow()
                         abandonTransientAudioFocus()
                         _voiceState.value = if (handsFreeActive) NeliAiVoiceState.HandsFreeStandby else NeliAiVoiceState.Idle
                         onCommandWindowExpired()
                         if (handsFreeActive) {
-                            scheduleHandsFreeRelisten(1_000L)
+                            scheduleHandsFreeStandby(700L)
                         }
                     } else if (handsFreeActive) {
+                        // Stage 2 wake check timed out -> shut down SpeechRecognizer and return to QUIET Stage 1!
                         consecutiveSilentErrors++
+                        lastFalseWakeElapsedMs = SystemClock.elapsedRealtime()
+                        shutdownActiveMicNow()
                         _voiceState.value = NeliAiVoiceState.HandsFreeStandby
-                        val backoff = (1_000L + (consecutiveSilentErrors.coerceAtMost(4) * 350L))
-                        scheduleHandsFreeRelisten(backoff)
+                        scheduleHandsFreeStandby(600L)
                     } else {
                         _voiceState.value = NeliAiVoiceState.Idle
                     }
@@ -607,6 +797,7 @@ class NeliAiVoiceController(
                 SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> {
                     handsFreeActive = false
                     isInActiveCommandWindow = false
+                    stopQuietVadMonitor()
                     cancelCommandTimeout()
                     abandonTransientAudioFocus()
                     _voiceState.value = NeliAiVoiceState.Notice("Please allow Microphone permission in NeliTv AI Settings.")
@@ -619,6 +810,7 @@ class NeliAiVoiceController(
                         abandonTransientAudioFocus()
                         onCommandWindowExpired()
                     }
+                    shutdownActiveMicNow()
                     if (wasManualWindow && !handsFreeActive) {
                         val reason = when (error) {
                             SpeechRecognizer.ERROR_AUDIO -> "Microphone audio unavailable on this device/emulator."
@@ -629,8 +821,9 @@ class NeliAiVoiceController(
                         }
                         _voiceState.value = NeliAiVoiceState.Notice(reason)
                     } else if (handsFreeActive) {
+                        lastFalseWakeElapsedMs = SystemClock.elapsedRealtime()
                         _voiceState.value = NeliAiVoiceState.HandsFreeStandby
-                        scheduleHandsFreeRelisten(1_400L)
+                        scheduleHandsFreeStandby(1_200L)
                     } else {
                         _voiceState.value = NeliAiVoiceState.Idle
                     }
@@ -641,6 +834,9 @@ class NeliAiVoiceController(
         override fun onResults(results: Bundle?) {
             if (isReleased) return
             consecutiveSilentErrors = 0
+            // Immediately shut down active mic right after receiving final speech result (true Siri behavior!)
+            shutdownActiveMicNow()
+
             val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION).orEmpty()
             val topTranscript = matches.firstOrNull()?.trim().orEmpty()
             if (topTranscript.isBlank()) {
@@ -651,17 +847,18 @@ class NeliAiVoiceController(
                     onCommandWindowExpired()
                 }
                 _voiceState.value = if (handsFreeActive) NeliAiVoiceState.HandsFreeStandby else NeliAiVoiceState.Idle
-                if (handsFreeActive) scheduleHandsFreeRelisten(900L)
+                if (handsFreeActive) scheduleHandsFreeStandby(700L)
                 return
             }
 
-            // Passive wake-word gating (filters out movie / live TV audio!)
+            // Stage 2 passive wake-word verification (filters out movie / TV / ambient speech)
             if (passiveWakeWordGateEnabled && !isInActiveCommandWindow) {
                 val wakeCandidate = matches.firstOrNull { NeliAiEngine.containsWakeWord(it) }
                 if (wakeCandidate == null) {
-                    // Background movie/TV dialogue without "Hey Neli" / "Neli" -> ignore silently!
+                    // Not "Hey Neli" / "Neli" -> silently return to quiet Stage-1 standby!
+                    lastFalseWakeElapsedMs = SystemClock.elapsedRealtime()
                     _voiceState.value = NeliAiVoiceState.HandsFreeStandby
-                    if (handsFreeActive) scheduleHandsFreeRelisten(550L)
+                    if (handsFreeActive) scheduleHandsFreeStandby(400L)
                     return
                 }
                 val chained = NeliAiEngine.stripWakeWord(wakeCandidate)
@@ -669,11 +866,9 @@ class NeliAiVoiceController(
                     acquireTransientAudioFocus()
                 }
                 if (chained.isBlank()) {
-                    // Pure wake word ("Hey Neli" / "Neli") -> alert host (mute player / pop glow) & greet!
                     onWakeWordDetected(null)
                     onRecognizedQuery(wakeCandidate)
                 } else {
-                    // Chained sentence ("Hey Neli play Azam Two") -> alert host & execute directly!
                     onWakeWordDetected(chained)
                     _voiceState.value = NeliAiVoiceState.Thinking
                     onRecognizedQuery(wakeCandidate)
@@ -681,7 +876,7 @@ class NeliAiVoiceController(
                 return
             }
 
-            // Active command window received a spoken command
+            // Active command window received a spoken command -> close mic & process immediately!
             cancelCommandTimeout()
             isInActiveCommandWindow = false
             _voiceState.value = NeliAiVoiceState.Thinking
@@ -693,7 +888,7 @@ class NeliAiVoiceController(
                 ?.firstOrNull()?.trim().orEmpty()
             if (partial.isBlank()) return
 
-            // Instant wake-word early detection during passive scan (mutes player immediately as user says "Hey Neli"!)
+            // Instant wake-word early detection during Stage 2 scan
             if (passiveWakeWordGateEnabled && !isInActiveCommandWindow && NeliAiEngine.containsWakeWord(partial)) {
                 if (pauseExternalAppsOnWake) {
                     acquireTransientAudioFocus()
@@ -712,7 +907,7 @@ class NeliAiVoiceController(
         override fun onEvent(eventType: Int, params: Bundle?) = Unit
     }
 
-    private fun scheduleHandsFreeRelisten(delayMs: Long) {
+    private fun scheduleHandsFreeStandby(delayMs: Long) {
         cancelPendingRelisten()
         mainHandler.postDelayed(relistenRunnable, delayMs)
     }

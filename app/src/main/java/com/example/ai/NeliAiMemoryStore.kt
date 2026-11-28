@@ -36,6 +36,11 @@ object NeliAiMemoryStore {
     private const val KEY_REMOTE_ENDPOINT_URL = "remote_endpoint_url"
     private const val KEY_CUSTOM_API_KEY = "custom_neli_ai_api_key"
     private const val KEY_SEQUENCE_QUEUE_JSON = "sequential_play_queue_json"
+    private const val KEY_RELATIONSHIPS_JSON = "contact_relationships_json"
+    private const val KEY_REMINDERS_JSON = "personal_reminders_json"
+    private const val KEY_SAVED_PLACES_JSON = "saved_places_json"
+    private const val KEY_PARKING_NOTE = "parking_location_note"
+    private const val KEY_PARKING_SAVED_AT_MS = "parking_saved_at_ms"
 
     private val _learnedAliases = MutableStateFlow<Map<String, String>>(emptyMap())
     val learnedAliases: StateFlow<Map<String, String>> = _learnedAliases.asStateFlow()
@@ -82,12 +87,37 @@ object NeliAiMemoryStore {
     private val _sequentialPlayQueueIds = MutableStateFlow<List<String>>(emptyList())
     val sequentialPlayQueueIds: StateFlow<List<String>> = _sequentialPlayQueueIds.asStateFlow()
 
+    private val _contactRelationships = MutableStateFlow<Map<String, String>>(emptyMap())
+    val contactRelationships: StateFlow<Map<String, String>> = _contactRelationships.asStateFlow()
+
+    private val _reminders = MutableStateFlow<List<String>>(emptyList())
+    val reminders: StateFlow<List<String>> = _reminders.asStateFlow()
+
+    private val _savedPlaces = MutableStateFlow<Map<String, String>>(emptyMap())
+    val savedPlaces: StateFlow<Map<String, String>> = _savedPlaces.asStateFlow()
+
+    private val _parkingNote = MutableStateFlow("")
+    val parkingNote: StateFlow<String> = _parkingNote.asStateFlow()
+
+    private val _openDictationTrigger = MutableStateFlow(0)
+    val openDictationTrigger: StateFlow<Int> = _openDictationTrigger.asStateFlow()
+
+    fun requestOpenDictation() {
+        _openDictationTrigger.value = _openDictationTrigger.value + 1
+    }
+
+    @Volatile
+    var parkingSavedAtMs: Long = 0L
+
     // Session-level recent suggested movie IDs & active multi-turn conversation state
     @Volatile
     var lastSuggestedMovieIds: List<String> = emptyList()
 
     @Volatile
     var lastPendingConversationTopic: String = ""
+
+    @Volatile
+    var lastPendingPayload: String = ""
 
     @Volatile
     var lastFocusedMediaId: String = ""
@@ -120,6 +150,11 @@ object NeliAiMemoryStore {
                 _remoteEndpointUrl.value = savedUrl ?: DEFAULT_NELI_AI_CENTER_URL
                 _customApiKey.value = prefs.getString(KEY_CUSTOM_API_KEY, "").orEmpty()
                 _sequentialPlayQueueIds.value = parseStringList(prefs.getString(KEY_SEQUENCE_QUEUE_JSON, null))
+                _contactRelationships.value = parseStringMap(prefs.getString(KEY_RELATIONSHIPS_JSON, null))
+                _reminders.value = parseStringList(prefs.getString(KEY_REMINDERS_JSON, null))
+                _savedPlaces.value = parseStringMap(prefs.getString(KEY_SAVED_PLACES_JSON, null))
+                _parkingNote.value = prefs.getString(KEY_PARKING_NOTE, "").orEmpty()
+                parkingSavedAtMs = prefs.getLong(KEY_PARKING_SAVED_AT_MS, 0L)
                 initialized = true
             } catch (_: Exception) {
                 initialized = true
@@ -297,6 +332,62 @@ object NeliAiMemoryStore {
             .map { it.key }
     }
 
+    fun saveRelationship(context: Context?, relationship: String, personName: String) {
+        val cleanRel = relationship.trim().lowercase()
+        val cleanName = personName.trim()
+        if (cleanRel.isBlank() || cleanName.isBlank()) return
+        val updated = _contactRelationships.value.toMutableMap()
+        updated[cleanRel] = cleanName
+        _contactRelationships.value = updated
+        editPref(context) { putString(KEY_RELATIONSHIPS_JSON, serializeStringMap(updated)) }
+    }
+
+    fun resolveRelationshipName(rawQuery: String): String? {
+        val norm = rawQuery.trim().lowercase()
+            .removePrefix("my ")
+            .removePrefix("wangu ")
+            .trim()
+        return _contactRelationships.value[norm]
+            ?: _contactRelationships.value.entries.firstOrNull { (rel, _) -> norm.contains(rel) }?.value
+    }
+
+    fun addReminder(context: Context?, reminderText: String) {
+        val clean = reminderText.trim()
+        if (clean.isBlank()) return
+        val updated = (_reminders.value + clean).distinct().takeLast(30)
+        _reminders.value = updated
+        editPref(context) { putString(KEY_REMINDERS_JSON, JSONArray(updated).toString()) }
+    }
+
+    fun clearReminders(context: Context?) {
+        _reminders.value = emptyList()
+        editPref(context) { putString(KEY_REMINDERS_JSON, "[]") }
+    }
+
+    fun savePlaceAddress(context: Context?, label: String, address: String) {
+        val cleanLabel = label.trim().lowercase()
+        val cleanAddr = address.trim()
+        if (cleanLabel.isBlank() || cleanAddr.isBlank()) return
+        val updated = _savedPlaces.value.toMutableMap()
+        updated[cleanLabel] = cleanAddr
+        _savedPlaces.value = updated
+        editPref(context) { putString(KEY_SAVED_PLACES_JSON, serializeStringMap(updated)) }
+    }
+
+    fun getPlaceAddress(label: String): String =
+        _savedPlaces.value[label.trim().lowercase()].orEmpty()
+
+    fun saveParkingNote(context: Context?, note: String, nowMs: Long = System.currentTimeMillis()) {
+        val clean = note.trim()
+        if (clean.isBlank()) return
+        _parkingNote.value = clean
+        parkingSavedAtMs = nowMs
+        editPref(context) {
+            putString(KEY_PARKING_NOTE, clean)
+            putLong(KEY_PARKING_SAVED_AT_MS, nowMs)
+        }
+    }
+
     fun resetMemoryForTesting() {
         _learnedAliases.value = emptyMap()
         _channelPlayCounts.value = emptyMap()
@@ -313,8 +404,14 @@ object NeliAiMemoryStore {
         _remoteEndpointUrl.value = DEFAULT_NELI_AI_CENTER_URL
         _customApiKey.value = ""
         _sequentialPlayQueueIds.value = emptyList()
+        _contactRelationships.value = emptyMap()
+        _reminders.value = emptyList()
+        _savedPlaces.value = emptyMap()
+        _parkingNote.value = ""
+        parkingSavedAtMs = 0L
         lastSuggestedMovieIds = emptyList()
         lastPendingConversationTopic = ""
+        lastPendingPayload = ""
         lastFocusedMediaId = ""
         lastListedDownloadIds = emptyList()
         initialized = false

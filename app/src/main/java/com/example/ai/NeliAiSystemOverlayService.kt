@@ -274,6 +274,8 @@ class NeliAiSystemOverlayService : Service() {
             onRecognizedQuery = { transcript -> handleOutsideAppVoiceQuery(transcript) },
             onWakeWordDetected = { chained ->
                 mainHandler.removeCallbacks(autoHideOverlayRunnable)
+                // Physically wake the screen immediately when "Hey Neli" / "Neli" is spoken while display is off!
+                NeliDeviceControlExecutor.wakeScreenNow(this)
                 if (!isNeliTvInForeground && Settings.canDrawOverlays(this)) {
                     attachFloatingBall()
                     showCaptionBubble(
@@ -289,6 +291,16 @@ class NeliAiSystemOverlayService : Service() {
                 removeCaptionBubble()
                 if (popupOverlayView == null) {
                     detachFloatingBall()
+                }
+            },
+            onSpeechStarted = { spokenCaption ->
+                // Exact audio-to-caption sync: show reply bubble ONLY when voice playback actually begins!
+                if (NeliAiMemoryStore.isCaptionsEnabled.value && !isNeliTvInForeground) {
+                    showCaptionBubble(
+                        status = "Neli AI",
+                        text = spokenCaption,
+                        accent = Color.parseColor("#FF2E93")
+                    )
                 }
             },
             onSpeechFinished = {
@@ -386,15 +398,14 @@ class NeliAiSystemOverlayService : Service() {
                 inputMode = "voice"
             )
 
-            showCaptionBubble(
-                status = "Neli AI",
-                text = response.replyText,
-                accent = Color.parseColor("#FF2E93")
-            )
-
             val listenAfter = response.expectsFollowUp || response.action is NeliAiAction.WakeGreeting
             executeOutsideAppAction(response.action)
-            voiceController?.speak(response.replySpeech, listenForFollowUpAfter = listenAfter)
+            // Caption will appear on exact TTS onStart via onSpeechStarted!
+            voiceController?.speak(
+                text = response.replySpeech,
+                listenForFollowUpAfter = listenAfter,
+                displayCaption = response.replyText
+            )
         }
     }
 
@@ -487,7 +498,14 @@ class NeliAiSystemOverlayService : Service() {
                 }
             }
 
-            else -> Unit
+            is NeliAiAction.OpenVoiceDictation -> {
+                NeliAiMemoryStore.requestOpenDictation()
+                launchMainActivity { }
+            }
+
+            else -> {
+                NeliDeviceControlExecutor.execute(this, action)
+            }
         }
     }
 

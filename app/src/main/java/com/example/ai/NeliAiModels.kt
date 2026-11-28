@@ -20,9 +20,24 @@ enum class NeliAiBrightnessDirection {
     AUTO
 }
 
+enum class NeliSystemSettingType {
+    LOW_POWER,
+    WIFI,
+    BLUETOOTH,
+    DO_NOT_DISTURB,
+    AIRPLANE_MODE,
+    DISPLAY,
+    SOUND,
+    GENERAL,
+    SCREENSHOT_HELP,
+    RESTART_HELP,
+    HANG_UP_HELP
+}
+
 sealed interface NeliAiAction {
     data object None : NeliAiAction
     data object WakeGreeting : NeliAiAction
+    data object WakeDeviceScreen : NeliAiAction
     data class PlayChannel(val channel: LiveChannel) : NeliAiAction
     data class LockedChannelNeedsPayment(val channel: LiveChannel) : NeliAiAction
     data class OpenMedia(val media: MediaContent, val autoPlay: Boolean) : NeliAiAction
@@ -45,7 +60,9 @@ sealed interface NeliAiAction {
     data object SwitchPreviousChannel : NeliAiAction
     data class SetQuality(val mode: NetworkQualityMode) : NeliAiAction
     data class AdjustVolume(val direction: NeliAiVolumeDirection) : NeliAiAction
+    data class SetVolumePercent(val percent: Int) : NeliAiAction
     data class AdjustBrightness(val direction: NeliAiBrightnessDirection) : NeliAiAction
+    data class SetBrightnessPercent(val percent: Int) : NeliAiAction
     data object TogglePlayPause : NeliAiAction
     data object ClosePlayer : NeliAiAction
     data object LockDeviceScreen : NeliAiAction
@@ -53,6 +70,31 @@ sealed interface NeliAiAction {
     data class NavigateTab(val tab: BottomNavTab) : NeliAiAction
     data class FilterLiveCategory(val category: String) : NeliAiAction
     data class OpenSearch(val query: String) : NeliAiAction
+
+    // Full Siri-style Mobile Assistant Actions (Neli AI)
+    data class ToggleFlashlight(val enabled: Boolean) : NeliAiAction
+    data class SetDarkMode(val enabled: Boolean) : NeliAiAction
+    data class ToggleDoNotDisturb(val enabled: Boolean) : NeliAiAction
+    data class OpenSystemSetting(val settingType: NeliSystemSettingType) : NeliAiAction
+    data class SetAlarm(val hour24: Int, val minute: Int, val label: String = "Neli AI Alarm") : NeliAiAction
+    data class ShowOrDismissAlarms(val deleteAll: Boolean = false) : NeliAiAction
+    data class SetTimer(val durationSeconds: Int, val label: String = "Neli AI Timer") : NeliAiAction
+    data class PlaceCall(
+        val contactOrNumber: String,
+        val onSpeaker: Boolean = false,
+        val videoCall: Boolean = false
+    ) : NeliAiAction
+    data class SendMessage(val recipient: String, val body: String) : NeliAiAction
+    data class OpenMessagingOrMailApp(val targetType: String) : NeliAiAction // "mail" or "sms"
+    data class OpenMapsDirections(val destination: String, val mode: String = "d") : NeliAiAction
+    data class FindPlacesNearby(val query: String) : NeliAiAction
+    data class LaunchInstalledApp(val appQuery: String) : NeliAiAction
+    data class LaunchVisualIntelligence(val prompt: String = "") : NeliAiAction
+    data object FindMyPhone : NeliAiAction
+    data class PlayMusicOrMedia(val query: String) : NeliAiAction
+    data class WebSearch(val query: String) : NeliAiAction
+    data class OpenVoiceDictation(val initialPrompt: String = "") : NeliAiAction
+    data class CompositeActions(val actions: List<NeliAiAction>) : NeliAiAction
 }
 
 sealed interface NeliAiCardItem {
