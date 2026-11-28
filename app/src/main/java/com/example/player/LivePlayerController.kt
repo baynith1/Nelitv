@@ -2427,7 +2427,7 @@ class LivePlayerController(
             // never load embed HTML into ExoPlayer or steal audio focus from WebView.
             if (channel.isEmbedded) {
                 player.playWhenReady = false
-                _uiState.value = PlayerUiState.Playing
+                _uiState.value = PlayerUiState.Ready
                 return
             }
 
